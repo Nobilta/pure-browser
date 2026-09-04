@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Print the Android NDK directory to stdout.
+#
+# Resolution is shared by Gradle and build.sh so a clean checkout does not depend on a
+# developer's absolute home-directory path.  The project local.properties file is the
+# first source of truth; standard SDK environment variables and the two common macOS SDK
+# locations are fallbacks for command-line builds.
+
+set -euo pipefail
+
+project_dir="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+if [[ -n "${ANDROID_NDK_HOME:-}" && -d "$ANDROID_NDK_HOME" ]]; then
+    printf '%s\n' "$ANDROID_NDK_HOME"
+    exit 0
+fi
+
+sdk_dir="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+local_properties="$project_dir/local.properties"
+if [[ -f "$local_properties" ]]; then
+    configured_sdk="$(sed -n 's/^sdk\.dir=//p' "$local_properties" | head -n 1)"
+    if [[ -n "$configured_sdk" ]]; then
+        sdk_dir="$configured_sdk"
+    fi
+fi
+
+roots=()
+[[ -n "$sdk_dir" ]] && roots+=("$sdk_dir")
+roots+=("$HOME/Library/Android/sdk" "/opt/homebrew/share/android-commandlinetools")
+
+best=""
+for root in "${roots[@]}"; do
+    [[ -d "$root/ndk" ]] || continue
+    for candidate in "$root"/ndk/*; do
+        [[ -d "$candidate" ]] || continue
+        if [[ -z "$best" || "$(basename "$candidate")" > "$(basename "$best")" ]]; then
+            best="$candidate"
+        fi
+    done
+done
+
+if [[ -z "$best" ]]; then
+    echo "Android NDK not found. Set ANDROID_NDK_HOME or sdk.dir in local.properties." >&2
+    exit 1
+fi
+
+printf '%s\n' "$best"
