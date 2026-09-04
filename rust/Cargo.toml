@@ -1,0 +1,10 @@
+[workspace]
+members = ["adblock", "downloader", "url_utils", "cache", "filename_parser"]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

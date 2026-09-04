@@ -1,0 +1,3 @@
+# Android linker and archiver paths are resolved from the local NDK at build time.
+# `rust/build.sh` and the Gradle `cargoBuild` task export them for each ABI, so this
+# project file deliberately contains no developer-specific absolute paths.

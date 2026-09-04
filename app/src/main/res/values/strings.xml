@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pure浏览器</string>
+
+    <string name="omnibar_hint">搜索或输入网址</string>
+    <string name="omnibar_search">搜索</string>
+    <string name="omnibar_visit">访问</string>
+    <string name="cd_back">后退</string>
+    <string name="cd_forward">前进</string>
+    <string name="cd_reload">刷新</string>
+    <string name="cd_stop">停止</string>
+    <string name="cd_home">主页</string>
+    <string name="cd_menu">菜单</string>
+    <string name="cd_clear">清除</string>
+
+    <string name="page_load_error">页面加载失败</string>
+    <string name="press_back_again">再按一次退出</string>
+
+    <string name="cd_cast">投屏</string>
+    <string name="cast_no_devices">未找到设备，确认电视与手机在同一 Wi-Fi</string>
+    <string name="cast_pick_media">选择要投送的内容</string>
+    <string name="cast_playing">正在播放</string>
+
+    <string name="menu_bookmarks">书签</string>
+    <string name="menu_downloads">下载</string>
+    <string name="menu_history">历史记录</string>
+    <string name="menu_add_bookmark">添加书签</string>
+    <string name="menu_add_bookmark_hint">默认使用当前页面，可修改标题和网址</string>
+    <string name="menu_remove_bookmark">从书签移除</string>
+    <string name="menu_remove_bookmark_hint">移除当前页面的书签</string>
+    <string name="menu_cast">投屏</string>
+    <string name="menu_find">在页面中查找</string>
+    <string name="menu_desktop_site">桌面版网站</string>
+    <string name="menu_settings">设置</string>
+    <string name="menu_title">浏览器菜单</string>
+    <string name="menu_section_page">页面操作</string>
+    <string name="menu_section_data">浏览数据</string>
+    <string name="menu_section_privacy">隐私与安全</string>
+    <string name="menu_section_tools">设置与工具</string>
+    <string name="menu_find_hint">在当前页面中查找文字</string>
+    <string name="menu_desktop_on">当前使用桌面版</string>
+    <string name="menu_desktop_off">切换到桌面版</string>
+    <string name="menu_bookmarks_hint">查看和管理书签</string>
+    <string name="menu_history_hint">查看浏览历史</string>
+    <string name="menu_downloads_hint">查看下载文件</string>
+    <string name="menu_settings_hint">主页、搜索与过滤设置</string>
+    <string name="menu_developer_tools">开发者工具</string>
+    <string name="menu_developer_tools_hint">查看控制台、网络和源码</string>
+
+    <string name="tabs_title">标签页</string>
+    <string name="tabs_new">新建</string>
+    <string name="tabs_close_all">全部关闭</string>
+    <string name="cd_close_tab">关闭标签页</string>
+    <string name="tab_untitled">新标签页</string>
+    <string name="bookmarks_title">书签</string>
+    <string name="bookmarks_empty">暂无书签</string>
+    <string name="bookmarks_clear">清除全部书签</string>
+    <string name="bookmark_added">已添加到书签</string>
+    <string name="bookmark_removed">已从书签移除</string>
+    <string name="bookmark_editor_title">添加书签</string>
+    <string name="bookmark_edit_title">标题</string>
+    <string name="bookmark_edit_url">网址</string>
+    <string name="bookmark_save">保存</string>
+    <string name="bookmark_invalid_url">请输入有效的网址</string>
+    <string name="bookmark_save_failed">书签保存失败</string>
+    <string name="bookmark_add_to_home">同时添加到首页</string>
+    <string name="bookmark_add_to_home_hint">使用当前网页图标创建快捷入口</string>
+    <string name="bookmark_add_to_home_unavailable">只有网页链接可以添加到首页</string>
+    <string name="bookmark_added_to_home">已添加到书签和首页</string>
+    <string name="bookmark_home_add_failed">书签已保存，但首页快捷入口已满或无法写入</string>
+    <string name="home_shortcut_removed">已从首页移除，书签仍保留</string>
+    <string name="download_started">已开始下载</string>
+    <string name="download_notification_channel">下载</string>
+    <string name="download_notification_channel_description">显示正在进行的浏览器下载</string>
+    <string name="download_notification_preparing">正在准备下载</string>
+    <string name="download_notification_multiple">正在下载 %1$d 个文件</string>
+    <string name="download_notification_progress">%1$d%% · %2$d 线程</string>
+
+    <string name="history_title">历史记录</string>
+    <string name="history_empty">暂无历史记录</string>
+    <string name="history_clear">清除记录</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_clear">清除</string>
+
+    <string name="incognito_badge">无痕</string>
+    <string name="incognito_on">已进入无痕模式</string>
+    <string name="incognito_off">已退出无痕模式，无痕数据已清除</string>
+    <string name="incognito_fallback">退出时清除数据</string>
+
+    <string name="menu_enter_incognito">进入无痕模式</string>
+    <string name="menu_exit_incognito">退出无痕模式</string>
+    <string name="menu_incognito_hint">不保存历史与 Cookie</string>
+    <string name="menu_incognito_active_hint">正在无痕浏览</string>
+    <string name="menu_cast_found">发现 %1$d 个可投送视频</string>
+    <string name="menu_cast_none">当前页面无可投送视频</string>
+    <string name="menu_adblock">广告拦截</string>
+    <string name="menu_adblock_blocked">本页已拦截 %1$d 个</string>
+    <string name="menu_adblock_off">已关闭</string>
+    <string name="menu_clear_data_hint">历史、Cookie 与缓存</string>
+    <string name="menu_clear_data">清除浏览数据</string>
+    <string name="clear_data_title">清除浏览数据</string>
+    <string name="clear_data_message">将清除历史记录、Cookie 与缓存，此操作无法撤销。</string>
+    <string name="clear_data_done">浏览数据已清除</string>
+
+    <string name="cast_pick_device">选择设备</string>
+    <string name="cast_search_again">重新搜索</string>
+    <string name="cast_copy">复制</string>
+    <string name="cd_delete">删除</string>
+
+    <string name="search_engine_add">添加搜索引擎</string>
+    <string name="search_engine_delete">删除</string>
+    <string name="search_engine_name">名称</string>
+    <string name="search_engine_url">搜索 URL</string>
+    <string name="search_engine_url_hint" formatted="false">使用 %s 作为搜索词占位符，例如：https://example.com/search?q=%s</string>
+
+</resources>

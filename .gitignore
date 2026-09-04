@@ -1,0 +1,40 @@
+*.iml
+*.log
+.gradle/
+.kotlin/
+**/build/
+/local.properties
+/.idea/
+.DS_Store
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Rust filter engine (step 5)
+/rust/target/
+# Standalone cargo invocations may create a target directory inside a crate.  It is
+# generated output too and must not become part of the source tree or an archive.
+/rust/**/target/
+**/*.rs.bk
+
+# Compiled JNI output, produced by cargo-ndk into the jniLibs tree
+/app/src/main/jniLibs/
+
+# Historical native binaries are quarantined for reference only and must never become an
+# Android source-set input again.
+/legacy/native-libs/
+/legacy/artifacts/
+
+# Local delivery artifacts are reproducible and should not bloat Git history.
+/PureBrowser-*.apk
+
+# Generated emulator screenshots, UI hierarchy dumps and diagnostic logs. Keep the
+# reproducible HTML/media fixtures in validation/ under version control.
+/validation/**/*.png
+/validation/**/*.xml
+/validation/**/*.txt
+
+# Signing material never belongs in the repo
+*.jks
+*.keystore
+keystore.properties

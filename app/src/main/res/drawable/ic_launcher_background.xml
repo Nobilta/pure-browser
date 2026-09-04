@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A light, fresh teal gradient; the adaptive-icon mask supplies the final shape. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="#0F766E"
+        android:centerColor="#2FB7A5"
+        android:endColor="#B7F4DF"
+        android:type="linear" />
+</shape>

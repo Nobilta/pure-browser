@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pure media detection fixture</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; background: #f7f8fc; color: #1b1b1f; }
+    video { display: block; width: 100%; max-width: 720px; height: 180px; margin: 16px 0;
+            background: #202124; }
+  </style>
+</head>
+<body>
+  <h1>媒体检测测试页</h1>
+  <p>页面故意暴露多个候选，并让第一个循环播放。</p>
+  <video id="primary" controls autoplay muted loop playsinline
+         src="/sample-default.mp4?token=primary"></video>
+  <video id="secondary" controls playsinline
+         src="/stream-secondary.m3u8?token=secondary"></video>
+  <script>
+    (function () {
+      var primary = document.getElementById('primary');
+      var secondary = document.getElementById('secondary');
+      function start() {
+        // The tiny MP4 is valid media, so Chromium can enter a real non-paused state.
+        // Looping keeps the active state available while the cast picker is opened.
+        primary.loop = true;
+        primary.muted = true;
+        var play = primary.play();
+        if (play && play.catch) play.catch(function () {});
+        // Keep both candidates visible to the network sniffer even on providers without HLS
+        // playback support. The first URL remains the active element's exact currentSrc hint.
+        fetch('/sample-default.mp4?token=primary-fetch').catch(function () {});
+        fetch('/stream-secondary.m3u8?token=secondary-fetch').catch(function () {});
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', start);
+      } else {
+        start();
+      }
+    })();
+  </script>
+</body>
+</html>

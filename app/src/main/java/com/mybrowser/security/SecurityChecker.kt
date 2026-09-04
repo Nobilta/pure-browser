@@ -1,0 +1,126 @@
+package com.mybrowser.security
+
+import android.net.http.SslCertificate
+import androidx.core.net.toUri
+
+data class SecurityInfo(
+    val isSecure: Boolean,
+    val protocol: String,
+    val hasWarnings: Boolean = false,
+    val warningMessage: String? = null
+)
+
+/** Immutable snapshot of the TLS certificate currently exposed by WebView. */
+data class CertificateDetails(
+    val subjectCommonName: String?,
+    val subjectOrganization: String?,
+    val subjectOrganizationalUnit: String?,
+    val subjectDistinguishedName: String?,
+    val issuerCommonName: String?,
+    val issuerOrganization: String?,
+    val issuerOrganizationalUnit: String?,
+    val issuerDistinguishedName: String?,
+    val validFromMillis: Long?,
+    val validUntilMillis: Long?,
+    val isCurrentlyValid: Boolean?,
+)
+
+object SecurityChecker {
+    /** Copies platform certificate fields so the dialog never holds a live WebView object. */
+    fun certificateDetails(
+        certificate: SslCertificate?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): CertificateDetails? {
+        certificate ?: return null
+        val validFrom = runCatching { certificate.validNotBeforeDate?.time }.getOrNull()
+        val validUntil = runCatching { certificate.validNotAfterDate?.time }.getOrNull()
+        val issuedTo = certificate.issuedTo
+        val issuedBy = certificate.issuedBy
+        return CertificateDetails(
+            subjectCommonName = issuedTo.cName.cleanCertificateField(),
+            subjectOrganization = issuedTo.oName.cleanCertificateField(),
+            subjectOrganizationalUnit = issuedTo.uName.cleanCertificateField(),
+            subjectDistinguishedName = issuedTo.dName.cleanCertificateField(),
+            issuerCommonName = issuedBy.cName.cleanCertificateField(),
+            issuerOrganization = issuedBy.oName.cleanCertificateField(),
+            issuerOrganizationalUnit = issuedBy.uName.cleanCertificateField(),
+            issuerDistinguishedName = issuedBy.dName.cleanCertificateField(),
+            validFromMillis = validFrom,
+            validUntilMillis = validUntil,
+            isCurrentlyValid = if (validFrom != null && validUntil != null) {
+                nowMillis in validFrom..validUntil
+            } else {
+                null
+            },
+        )
+    }
+
+    fun getSecurityInfo(url: String?): SecurityInfo {
+        if (url.isNullOrEmpty()) {
+            return SecurityInfo(
+                isSecure = false,
+                protocol = "none",
+                hasWarnings = true,
+                warningMessage = "无效的URL"
+            )
+        }
+
+        val uri = url.toUri()
+        val scheme = uri.scheme?.lowercase()
+
+        return when (scheme) {
+            "https" -> SecurityInfo(
+                isSecure = true,
+                protocol = "HTTPS",
+                hasWarnings = false
+            )
+            "http" -> SecurityInfo(
+                isSecure = false,
+                protocol = "HTTP",
+                hasWarnings = true,
+                warningMessage = "此连接不安全，您的信息可能被窃取"
+            )
+            "file" -> SecurityInfo(
+                isSecure = false,
+                protocol = "FILE",
+                hasWarnings = true,
+                warningMessage = "这是本地文件内容，不是加密的网络连接"
+            )
+            "data" -> SecurityInfo(
+                isSecure = false,
+                protocol = "DATA",
+                hasWarnings = true,
+                warningMessage = "这是内嵌数据内容，不是可验证的网络连接"
+            )
+            else -> SecurityInfo(
+                isSecure = false,
+                protocol = scheme?.uppercase() ?: "UNKNOWN",
+                hasWarnings = true,
+                warningMessage = "不安全的协议: $scheme"
+            )
+        }
+    }
+
+    fun getSecurityLevel(url: String?): SecurityLevel {
+        val info = getSecurityInfo(url)
+        return when {
+            info.isSecure && !info.hasWarnings -> SecurityLevel.SECURE
+            info.isSecure && info.hasWarnings -> SecurityLevel.WARNING
+            !info.isSecure && info.protocol == "HTTP" -> SecurityLevel.INSECURE
+            else -> SecurityLevel.DANGEROUS
+        }
+    }
+}
+
+private fun String?.cleanCertificateField(): String? = this
+    ?.filterNot { it.isISOControl() }
+    ?.trim()
+    ?.take(2_048)
+    ?.takeIf { it.isNotEmpty() }
+
+enum class SecurityLevel {
+    SECURE,      // 🔒 Green - HTTPS, no issues
+    WARNING,     // ⚠️ Yellow - HTTPS but with warnings
+    INSECURE,    // 🔓 Gray - HTTP
+    DANGEROUS    // 🛑 Red - Dangerous protocol or SSL error
+}
