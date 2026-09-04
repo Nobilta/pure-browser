@@ -8,13 +8,13 @@
 - Android：API 34，arm64
 - 包：`com.mybrowser`（Release）
 - 可控媒体回归页：`http://10.0.2.2:8765/media-fixture.html`（项目 `validation/` 夹具）
-- APK：9,963,930 bytes；SHA-256 `47ba21f0c026b1fea879f22447ddab077d9476375f2d92732679a3d3de2a1ec0`
+- APK：9,984,278 bytes；SHA-256 `9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
 
 ## 自动检查
 
 ```text
 Rust fmt/test/clippy       通过（49 tests）
-Android debug unit test    通过（119 tests）
+Android debug unit test    通过（123 tests）
 Android lint                通过（0 errors / 2 warnings）
 Release assemble/sign      通过
 ```
@@ -35,6 +35,7 @@ Release assemble/sign      通过
 | 无痕进入/退出 | 通过 | 清理完成后再加载普通页 |
 | 媒体候选识别 | 通过 | 页面检测到可投屏媒体时出现右下角按钮 |
 | 当前播放流标记 | 通过 | 选择页显示“正在播放” |
+| 视频倍速 | 通过 | 主文档 2×、跨域 iframe 3× 均生效；同页重载媒体源后保持 2× |
 | DLNA 设备发现 UI | 通过 | 真实设备投送需同网实体接收器 |
 | 下载设置持久化 | 通过 | SAF 创建/选择 `PureDownloads`，8 线程设置跨重启保留 |
 | Range 分段与目录 | 通过 | 约 9.9 MB 文件以 8 段合并；系统 Download/SAF 均成功，重名自动编号 |

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cross-origin player frame</title>
+  <style>
+    body { margin: 12px; font-family: sans-serif; background: #e9eef9; color: #1b1b1f; }
+    video { width: 100%; height: 210px; background: #202124; }
+  </style>
+</head>
+<body>
+  <p id="rate" aria-live="polite">iframe 当前倍速：1.00×</p>
+  <video id="video" controls autoplay muted loop playsinline
+         src="/sample-default.mp4?token=cross-origin"></video>
+  <button id="reload" type="button">重新加载视频源</button>
+  <script>
+    (function () {
+      var video = document.getElementById('video');
+      var output = document.getElementById('rate');
+      var reload = document.getElementById('reload');
+      function updateRate() {
+        output.textContent = 'iframe 当前倍速：' + Number(video.playbackRate).toFixed(2) + '×';
+      }
+      video.addEventListener('ratechange', updateRate);
+      reload.addEventListener('click', function () {
+        video.src = '/sample-default.mp4?token=reload-' + Date.now();
+        video.load();
+        var resumed = video.play();
+        if (resumed && resumed.catch) resumed.catch(function () {});
+      });
+      var play = video.play();
+      if (play && play.catch) play.catch(function () {});
+      updateRate();
+    })();
+  </script>
+</body>
+</html>

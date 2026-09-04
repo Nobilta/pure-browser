@@ -8,14 +8,16 @@
 - 构建源：`app/build/outputs/apk/release/app-release.apk`
 - ABI：`arm64-v8a`
 - minSdk：34；targetSdk：37
-- 大小：9,963,930 bytes（约 9.50 MiB）
-- SHA-256：`47ba21f0c026b1fea879f22447ddab077d9476375f2d92732679a3d3de2a1ec0`
+- 大小：9,984,278 bytes（约 9.52 MiB）
+- SHA-256：`9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
 - 签名：使用项目外部配置的 release keystore，须通过 `apksigner verify --verbose`
 
 ## 本轮完成
 
 - 对 Kotlin/Rust 源码、目录分层、JNI 边界、异步任务、持久化和构建脚本进行了系统审查。
 - 菜单已按四个任务域分组；HTTPS 弹窗展示当前 WebView 的真实证书身份和有效期。
+- 当前播放视频新增 0.5×–3× 倍速入口；逐帧 WebMessage 可控制跨域 iframe 中的实际播放
+  元素，并在同一页面重新加载媒体源后保持选择。
 - 新增原生 Material 3 导航首页及固定网址模式，设置可持久化选择并兼容旧主页配置。
 - 书签编辑器可同步创建 favicon 快捷入口；首页长按移除不会删除对应书签。
 - 下载元数据现在有严格的长度、条目数、协议、文件名和 header 清理；损坏偏好会被丢弃。
@@ -32,7 +34,7 @@
 - 构建/安装/诊断脚本改为基于项目目录，移除了旧临时路径和全局配置写入。
 - 清除浏览数据增加确认并保留书签/下载文件；过滤器偏好、书签草稿和位图入口增加边界。
 - 清理重复 UI、无调用包装器和 69 个未使用资源，统一 29 处 KTX 调用；lint 从 101 条
-  降至 2 条经过评估保留的工具链/ABI warning（0 errors）；Android 119 项单元测试通过。
+  降至 2 条经过评估保留的工具链/ABI warning（0 errors）；Android 123 项单元测试通过。
 
 ## Rust 决策
 

@@ -15,7 +15,7 @@
 - [x] `diagnose.sh`：设备信息与崩溃关键词检查
 - [x] `APK_TEST_GUIDE.md`：手工回归清单
 - [x] `EMULATOR_TEST_REPORT.md`：模拟器验证记录
-- [x] `PureBrowser-v0.1.0-release.apk`：当前 Release 交付文件（9,963,930 bytes，SHA-256 `47ba21f0c026b1fea879f22447ddab077d9476375f2d92732679a3d3de2a1ec0`）
+- [x] `PureBrowser-v0.1.0-release.apk`：当前 Release 交付文件（9,984,278 bytes，SHA-256 `9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`）
 
 ## 架构与决策
 

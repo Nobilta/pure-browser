@@ -36,6 +36,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
@@ -67,6 +68,7 @@ import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.CustomFilterController
 import com.mybrowser.media.MediaCandidateStore
 import com.mybrowser.media.MediaPlaybackTracker
+import com.mybrowser.media.PlaybackSpeed
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchEngineManager
 import com.mybrowser.search.UrlOrSearch
@@ -91,6 +93,7 @@ import com.mybrowser.ui.BookmarksSheet
 import com.mybrowser.ui.HistorySheet
 import com.mybrowser.ui.CastSheet
 import com.mybrowser.ui.MenuSheet
+import com.mybrowser.ui.PlaybackSpeedSheet
 import com.mybrowser.ui.TabsSheet
 import com.mybrowser.ui.DownloadsSheet
 import com.mybrowser.ui.SettingsSheet
@@ -151,6 +154,8 @@ class MainActivity : ComponentActivity(),
     // only the WebView instance is not enough when a pooled instance is reconfigured.
     private var mediaTrackerGeneration = 0L
     private var mediaProbeJob: Job? = null
+    private var hasPlayingVideo by mutableStateOf(false)
+    private var playbackSpeed by mutableFloatStateOf(PlaybackSpeed.DEFAULT)
     private val networkLogs = NetworkLogStore()
     private val consoleLogs = ConsoleLogStore()
     private val cast: CastController by lazy { CastController(lifecycleScope) }
@@ -158,7 +163,17 @@ class MainActivity : ComponentActivity(),
     /** Which bottom sheet is up, if any. */
     private var sheet: Sheet? by mutableStateOf(null)
 
-    private enum class Sheet { MENU, CAST, TABS, BOOKMARKS, HISTORY, DOWNLOADS, SETTINGS, FILTER_SETTINGS }
+    private enum class Sheet {
+        MENU,
+        CAST,
+        PLAYBACK_SPEED,
+        TABS,
+        BOOKMARKS,
+        HISTORY,
+        DOWNLOADS,
+        SETTINGS,
+        FILTER_SETTINGS,
+    }
 
     /** Non-null while the add-bookmark editor is visible. */
     private var bookmarkDraft: BookmarkDraft? by mutableStateOf(null)
@@ -316,6 +331,9 @@ class MainActivity : ComponentActivity(),
                     onOpenHomeShortcut = { shortcut -> navigate(shortcut.url) },
                     onRemoveHomeShortcut = ::removeHomeShortcut,
                     mediaCount = mediaSnapshot.count,
+                    hasPlayingVideo = hasPlayingVideo,
+                    playbackSpeed = playbackSpeed,
+                    onPlaybackSpeed = { sheet = Sheet.PLAYBACK_SPEED },
                     onCast = {
                         mediaTrackers[webView]?.probe()
                         sheet = Sheet.CAST
@@ -352,6 +370,8 @@ class MainActivity : ComponentActivity(),
                         isFilterEnabled = filter.enabled.collectAsState().value,
                         blockedCount = filter.blockedCount,
                         mediaCount = mediaSnapshot.count,
+                        hasPlayingVideo = hasPlayingVideo,
+                        playbackSpeed = playbackSpeed,
                         isDesktopMode = state.isDesktopMode,
                         isCurrentPageBookmarked = currentPageBookmarked,
                         onToggleIncognito = {
@@ -366,6 +386,10 @@ class MainActivity : ComponentActivity(),
                         onOpenFind = {
                             sheet = null
                             state.showFindBar()
+                        },
+                        onOpenPlaybackSpeed = {
+                            mediaTrackers[webView]?.probe()
+                            sheet = Sheet.PLAYBACK_SPEED
                         },
                         onOpenMedia = {
                             mediaTrackers[webView]?.probe()
@@ -425,6 +449,15 @@ class MainActivity : ComponentActivity(),
                         onDismiss = { sheet = null },
                         preferredCandidate = mediaSnapshot.preferredCandidate,
                         playingCandidateUrls = mediaSnapshot.playingCandidateUrls,
+                    )
+
+                    Sheet.PLAYBACK_SPEED -> PlaybackSpeedSheet(
+                        currentSpeed = playbackSpeed,
+                        onSelect = { speed ->
+                            sheet = null
+                            applyPlaybackSpeed(speed)
+                        },
+                        onDismiss = { sheet = null },
                     )
 
                     Sheet.TABS -> TabsSheet(
@@ -809,11 +842,13 @@ class MainActivity : ComponentActivity(),
                 if (webViewOrNull !== view || generation != mediaTrackerGeneration) {
                     return@runOnUiThread
                 }
-                when {
-                    signal.isPlaying && signal.urls.isNotEmpty() -> {
-                        media.setPlayingVideos(signal.urls)
-                    }
-                    !signal.isPlaying -> media.setPlayingVideos(emptyList())
+                hasPlayingVideo = signal.isPlaying
+                if (signal.isPlaying) {
+                    signal.playbackRate?.let { playbackSpeed = it }
+                    media.setPlayingVideos(signal.urls)
+                } else {
+                    playbackSpeed = PlaybackSpeed.DEFAULT
+                    media.setPlayingVideos(emptyList())
                 }
             }
         }
@@ -824,6 +859,34 @@ class MainActivity : ComponentActivity(),
     private fun removeMediaPlaybackTracker(view: WebView) {
         mediaTrackerGeneration++
         mediaTrackers.remove(view)?.close()
+        hasPlayingVideo = false
+        playbackSpeed = PlaybackSpeed.DEFAULT
+    }
+
+    private fun applyPlaybackSpeed(speed: Float) {
+        val view = webViewOrNull
+        val tracker = view?.let(mediaTrackers::get)
+        if (view == null || tracker == null) {
+            toast(getString(R.string.playback_speed_failed))
+            return
+        }
+        tracker.setPlaybackRate(speed) { applied ->
+            runOnUiThread {
+                if (webViewOrNull !== view || mediaTrackers[view] !== tracker) return@runOnUiThread
+                if (applied) {
+                    playbackSpeed = speed
+                    toast(
+                        getString(
+                            R.string.playback_speed_applied,
+                            PlaybackSpeed.label(speed),
+                        ),
+                    )
+                } else {
+                    tracker.probe()
+                    toast(getString(R.string.playback_speed_failed))
+                }
+            }
+        }
     }
 
     private fun applyDesktopMode(view: WebView, enabled: Boolean) {

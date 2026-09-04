@@ -42,6 +42,8 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - 检测页面视频、音频以及 HLS/DASH 地址。
 - 页面出现可投屏媒体时，在右下角显示悬浮投屏按钮。
 - 多视频直播页会追踪实际处于播放状态的 `<video>`，并在候选列表标注“正在播放”。
+- 视频播放时显示当前倍速入口，可选择 `0.5×`、`0.75×`、`1×`、`1.25×`、`1.5×`、
+  `2×` 或 `3×`；跨域 iframe 播放器通过已有的逐帧 WebMessage 通道控制。
 - 支持 SSDP 发现和 DLNA/UPnP AVTransport 控制。手机与接收设备必须处于同一局域网。
 
 ### 过滤与开发工具
@@ -146,7 +148,7 @@ keyPassword=...
 该脚本执行：
 
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
-2. Android/Robolectric 119 项单元测试；
+2. Android/Robolectric 123 项单元测试；
 3. Android lint；
 4. R8、资源裁剪与 `arm64-v8a` Release 构建；
 5. APK 签名、大小和 SHA-256 检查。
@@ -154,8 +156,8 @@ keyPassword=...
 当前本地 Release 产物：
 
 - `PureBrowser-v0.1.0-release.apk`
-- 9,963,930 bytes
-- SHA-256：`47ba21f0c026b1fea879f22447ddab077d9476375f2d92732679a3d3de2a1ec0`
+- 9,984,278 bytes
+- SHA-256：`9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
 - APK Signature Scheme v2：通过
 
 只运行 Android 单元测试或 lint：
@@ -178,8 +180,8 @@ keyPassword=...
 ```
 
 最近一次模拟器验证覆盖系统 Download/SAF 目录、8 线程 Range 下载、重名文件、两种删除
-方式、前台服务退出、主页、证书、无痕降级提示、媒体候选与悬浮投屏入口。没有实体 DLNA
-接收器时，只能确认候选和设备发现流程，不能宣称实际投送成功。
+方式、前台服务退出、主页、证书、无痕降级提示、媒体候选、视频倍速与悬浮投屏入口。
+没有实体 DLNA 接收器时，只能确认候选和设备发现流程，不能宣称实际投送成功。
 
 ## 相关文档
 
