@@ -150,14 +150,20 @@ keyPassword=...
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
 2. Android/Robolectric 123 项单元测试；
 3. Android lint；
-4. R8、资源裁剪与 `arm64-v8a` Release 构建；
+4. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
 5. APK 签名、大小和 SHA-256 检查。
+
+Release 不使用包级 `-keep` 保留整个 Compose、数据层或标签页层，而是依赖 Android 默认
+规则和各 AndroidX 依赖提供的 consumer rules，只保留实际可达代码。DEX 与已剥离符号的
+arm64 native 库在 APK 内采用 ZIP 压缩，Android 14+ 安装时由 PackageManager 解压；这会
+增加少量安装工作，且安装后磁盘占用可能略高，但不改变运行时代码和功能。当前优化将 APK
+从 9,984,278 bytes 降至 1,898,669 bytes，减少 8,085,609 bytes（约 81.0%）。
 
 当前本地 Release 产物：
 
 - `PureBrowser-v0.1.0-release.apk`
-- 9,984,278 bytes
-- SHA-256：`9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
+- 1,898,669 bytes（约 1.81 MiB）
+- SHA-256：`d81f2c1d434a82aeddfe0c258b8674afaef0b7986f4677e3ea0fae86409ad7aa`
 - APK Signature Scheme v2：通过
 
 只运行 Android 单元测试或 lint：

@@ -44,6 +44,9 @@ rust/
 - 自定义搜索引擎现在限制名称、模板、数量，只接受带一个占位符的 HTTP(S) 模板；设置页提供添加/删除入口，坏的偏好 JSON 会被忽略。
 - Rust 构建由共享的 `rust/resolve-android-ndk.sh` 解析 NDK，不再依赖个人绝对路径。Gradle 默认只生成并打包 `adblock`、`cache`、`url_utils` 三个实际使用的库；每次 staging 会先清掉旧 ABI 目录。
 - 旧的 checked-in `app/src/main/jniLibs` 二进制和重复 Cargo 配置不再作为源码输入，避免 stale JNI 库混入 APK。
+- Release 删除了覆盖整个 Compose/数据层/标签页层的过宽 R8 keep 规则，改由 Android 默认
+  规则和依赖 consumer rules 精确保留；DEX 与 native 库采用可安装的 ZIP 压缩。相同功能
+  APK 从 9,984,278 bytes 降至 1,898,669 bytes（约减少 81.0%）。
 - 下载设置由独立 repository 持久化：目标可为 MediaStore 的系统 Download 目录或用户经
   SAF 授权的目录，线程数统一限制为 1–16。传输引擎会验证 Range/Content-Range/长度并在
   服务端不支持分段时安全回退单线程；发布文件、重名处理和删除由目标写入层负责。
