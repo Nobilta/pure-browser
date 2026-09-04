@@ -36,7 +36,9 @@ rust/
 
 - WebView 使用 `MutableContextWrapper` 池化，限制同时存活实例，renderer 崩溃时丢弃尸体并重建；脱离 Activity 的实例切换到 `DetachedWebViewClient`。
 - 地址栏、键盘 Go、可见“访问/搜索”按钮共用 `NavigationPolicy`；HTTP(S) 校验、外部 scheme allow-list 和未知 opaque scheme 的搜索回退在 Kotlin/Rust 两侧一致。
-- 媒体候选使用 `StateFlow`，文档开始脚本在主文档和 iframe 中追踪真正播放的 `<video>`，投屏列表用“正在播放”标记首选流，候选数量有上限。
+- 媒体候选使用 `StateFlow`，文档开始脚本在主文档和 iframe 中追踪真正播放的 `<video>`，
+  投屏列表用“正在播放”标记首选流，候选数量有上限；同一条逐帧 WebMessage 通道可将有界
+  倍速指令准确回送到当前播放帧，并在媒体源重载时维持本页选择。
 - SQLite helper 采用进程内引用计数共享；书签是显式 upsert（保留 id/createdAt），历史访问合并计数，LIKE 搜索转义 `%`、`_`、`!` 并限制输入/结果长度。
 - WebView 控件回调都检查当前实例；弹窗先验证 `WebViewTransport`，favicon 重复回调不会回收仍在使用的 Bitmap；文件、权限、JS 对话框、SSL 和安全浏览回调均有释放路径。
 - 自定义搜索引擎现在限制名称、模板、数量，只接受带一个占位符的 HTTP(S) 模板；设置页提供添加/删除入口，坏的偏好 JSON 会被忽略。

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.os.SystemClock
 import android.webkit.WebView
 import androidx.core.net.toUri
+import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
@@ -32,6 +33,7 @@ class MediaPlaybackTracker(
         val urls: List<String>,
         val frameUrl: String?,
         val score: Int = 0,
+        val playbackRate: Float? = null,
     )
 
     @Volatile
@@ -43,8 +45,13 @@ class MediaPlaybackTracker(
     @Volatile private var closed = false
     private val signalLock = Any()
     private val frameSignals = linkedMapOf<String, TimedSignal>()
+    private var activeReplyProxy: JavaScriptReplyProxy? = null
 
-    private data class TimedSignal(val signal: Signal, val at: Long)
+    private data class TimedSignal(
+        val signal: Signal,
+        val at: Long,
+        val replyProxy: JavaScriptReplyProxy?,
+    )
 
     /** Installs the all-frame probe when the current WebView provider supports it. */
     fun install(): Boolean {
@@ -74,7 +81,9 @@ class MediaPlaybackTracker(
                         // file/data pages must never be able to feed arbitrary bridge data.
                         val scheme = sourceOrigin.scheme?.lowercase()
                         if (scheme != "http" && scheme != "https") return
-                        parseSignal(message.data)?.let(::acceptSignal)
+                        parseSignal(message.data)?.let { signal ->
+                            acceptSignal(signal, replyProxy)
+                        }
                     }
                 },
             )
@@ -115,19 +124,58 @@ class MediaPlaybackTracker(
         evaluateFallbackProbe()
     }
 
+    /**
+     * Changes the speed of the strongest currently playing video.
+     *
+     * The document-start bridge keeps one reply channel per frame, so a player inside a
+     * cross-origin iframe can be controlled without exposing a JavaScript interface or
+     * evaluating code supplied by the page. Older providers fall back to the top document
+     * and any same-origin child frames WebView allows it to inspect.
+     */
+    fun setPlaybackRate(requestedRate: Float, onResult: (Boolean) -> Unit = {}) {
+        val rate = PlaybackSpeed.normalizeSelection(requestedRate)
+        if (closed || rate == null) {
+            onResult(false)
+            return
+        }
+
+        val command = JSONObject()
+            .put("type", "setPlaybackRate")
+            .put("rate", rate.toDouble())
+            .toString()
+        val replyProxy = synchronized(signalLock) { activeReplyProxy }
+        if (replyProxy != null && runCatching { replyProxy.postMessage(command) }.isSuccess) {
+            onResult(true)
+            return
+        }
+
+        val started = runCatching {
+            webView.evaluateJavascript(playbackRateFallbackScript(rate)) { raw ->
+                if (!closed) onResult(raw?.trim() == "true")
+            }
+        }.isSuccess
+        if (!started) onResult(false)
+    }
+
     private fun evaluateFallbackProbe() {
         if (closed) return
         runCatching {
             webView.evaluateJavascript(FALLBACK_PROBE_SCRIPT) { raw ->
                 if (closed) return@evaluateJavascript
-                parseSignal(raw)?.let(::acceptSignal)
+                parseSignal(raw)?.let { signal -> acceptSignal(signal, null) }
             }
         }
     }
 
     /** Drops signals belonging to the document that just navigated. */
     fun reset() {
-        synchronized(signalLock) { frameSignals.clear() }
+        synchronized(signalLock) {
+            frameSignals.clear()
+            activeReplyProxy = null
+        }
+        if (!closed) {
+            onSignal(Signal(isPlaying = false, urls = emptyList(), frameUrl = null))
+        }
     }
 
     fun close() {
@@ -135,6 +183,7 @@ class MediaPlaybackTracker(
             if (closed) return
             closed = true
             frameSignals.clear()
+            activeReplyProxy = null
         }
         removeInstalledHooks()
     }
@@ -171,6 +220,9 @@ class MediaPlaybackTracker(
                 }
             }
         }.distinct().take(MAX_URLS)
+        val playbackRate = PlaybackSpeed.sanitizeObserved(
+            json.optDouble("playbackRate", Double.NaN).toFloat(),
+        )
 
         return Signal(
             isPlaying = json.optBoolean("playing", false),
@@ -180,6 +232,7 @@ class MediaPlaybackTracker(
                 .takeIf { it.isNotBlank() && it != "null" }
                 ?.take(MAX_URL_LENGTH),
             score = json.optInt("score", 0).coerceIn(0, MAX_SCORE),
+            playbackRate = playbackRate,
         )
     }
 
@@ -195,12 +248,12 @@ class MediaPlaybackTracker(
      * short-lived value per frame and expose the strongest active one; a quiet top frame must
      * not clear a video that is still playing in a child frame.
      */
-    private fun acceptSignal(signal: Signal) {
+    private fun acceptSignal(signal: Signal, replyProxy: JavaScriptReplyProxy?) {
         val active = synchronized(signalLock) {
             if (closed) return
             val now = SystemClock.uptimeMillis()
             val key = signal.frameUrl ?: "<unknown-frame>"
-            frameSignals[key] = TimedSignal(signal, now)
+            frameSignals[key] = TimedSignal(signal, now, replyProxy)
             val cutoff = now - SIGNAL_TTL_MS
             val iterator = frameSignals.iterator()
             while (iterator.hasNext()) {
@@ -216,10 +269,14 @@ class MediaPlaybackTracker(
                     }
                 }
             }
-            frameSignals.values
-                .map { it.signal }
-                .filter { it.isPlaying }
-                .maxWithOrNull(compareBy<Signal> { it.score }.thenBy { it.urls.size })
+            val best = frameSignals.values
+                .filter { it.signal.isPlaying }
+                .maxWithOrNull(
+                    compareBy<TimedSignal> { it.signal.score }
+                        .thenBy { it.signal.urls.size },
+                )
+            activeReplyProxy = best?.replyProxy
+            best?.signal
         }
         if (active != null) {
             onSignal(active)
@@ -227,6 +284,81 @@ class MediaPlaybackTracker(
             onSignal(Signal(isPlaying = false, urls = emptyList(), frameUrl = signal.frameUrl))
         }
     }
+
+    private fun playbackRateFallbackScript(rate: Float): String = """
+        (function() {
+          var requestedRate = ${rate.toDouble()};
+          var supported = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+          if (!Number.isFinite(requestedRate) || !supported.some(function(value) {
+                return Math.abs(value - requestedRate) < 0.001;
+              })) return false;
+
+          function isVideo(element) {
+            return element && String(element.tagName || '').toLowerCase() === 'video';
+          }
+
+          function apply(video, targetRate) {
+            if (!isVideo(video) || !Number.isFinite(targetRate)) return false;
+            try {
+              video.defaultPlaybackRate = targetRate;
+              video.playbackRate = targetRate;
+              return Math.abs(Number(video.playbackRate) - targetRate) < 0.001;
+            } catch (_) { return false; }
+          }
+
+          function visibleArea(video) {
+            try {
+              var style = video.ownerDocument.defaultView.getComputedStyle(video);
+              var rect = video.getBoundingClientRect();
+              if (style.display === 'none' || style.visibility === 'hidden') return 0;
+              return Math.max(0, rect.width * rect.height);
+            } catch (_) { return 0; }
+          }
+
+          var candidates = [];
+          function install(win, depth) {
+            if (!win || depth > 5) return;
+            var doc = null;
+            try { doc = win.document; } catch (_) { return; }
+            if (!doc) return;
+
+            try { win.__pureBrowserPlaybackRate = requestedRate; } catch (_) {}
+            try {
+              if (!win.__pureBrowserPlaybackRateHooks) {
+                win.__pureBrowserPlaybackRateHooks = true;
+                ['play', 'playing', 'loadedmetadata', 'canplay', 'ratechange'].forEach(function(name) {
+                  doc.addEventListener(name, function(event) {
+                    var desired = Number(win.__pureBrowserPlaybackRate);
+                    if (isVideo(event.target) && Number.isFinite(desired) &&
+                        Math.abs(Number(event.target.playbackRate) - desired) >= 0.001) {
+                      apply(event.target, desired);
+                    }
+                  }, true);
+                });
+              }
+            } catch (_) {}
+
+            try {
+              Array.prototype.slice.call(doc.querySelectorAll('video')).forEach(function(video) {
+                var active = false;
+                try { active = !video.paused && !video.ended; } catch (_) {}
+                if (active) candidates.push({ video: video, area: visibleArea(video) });
+              });
+            } catch (_) {}
+            try {
+              Array.prototype.slice.call(doc.querySelectorAll('iframe,frame')).forEach(function(frame) {
+                var child = null;
+                try { child = frame.contentWindow; } catch (_) {}
+                if (child) install(child, depth + 1);
+              });
+            } catch (_) {}
+          }
+
+          install(window, 0);
+          candidates.sort(function(first, second) { return second.area - first.area; });
+          return candidates.length > 0 && apply(candidates[0].video, requestedRate);
+        })();
+    """.trimIndent()
 
     private companion object {
         const val BRIDGE_NAME = "mybrowserMediaProbe"
@@ -247,6 +379,7 @@ class MediaPlaybackTracker(
               window.__mybrowserMediaProbeInstalled = true;
               var bridgeName = '$BRIDGE_NAME';
               var scheduled = false;
+              var desiredPlaybackRate = null;
 
               function absolute(value) {
                 if (!value) return '';
@@ -309,13 +442,60 @@ class MediaPlaybackTracker(
                 });
               }
 
+              function validPlaybackRate(value) {
+                var rate = Number(value);
+                if (!Number.isFinite(rate)) return null;
+                var supported = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+                for (var i = 0; i < supported.length; i++) {
+                  if (Math.abs(supported[i] - rate) < 0.001) return supported[i];
+                }
+                return null;
+              }
+
+              function applyPlaybackRate(video) {
+                if (!video || desiredPlaybackRate === null) return false;
+                try {
+                  video.defaultPlaybackRate = desiredPlaybackRate;
+                  video.playbackRate = desiredPlaybackRate;
+                  return Math.abs(Number(video.playbackRate) - desiredPlaybackRate) < 0.001;
+                } catch (_) { return false; }
+              }
+
               function attach(video) {
                 if (video.__mybrowserMediaProbeAttached) return;
                 video.__mybrowserMediaProbeAttached = true;
                 ['play', 'playing', 'timeupdate', 'loadedmetadata', 'canplay',
-                 'pause', 'ended', 'emptied', 'durationchange'].forEach(function(name) {
-                  try { video.addEventListener(name, schedule); } catch (_) {}
+                 'pause', 'ended', 'emptied', 'durationchange', 'ratechange'].forEach(function(name) {
+                  try {
+                    video.addEventListener(name, function() {
+                      if (desiredPlaybackRate !== null) applyPlaybackRate(video);
+                      schedule();
+                    });
+                  } catch (_) {}
                 });
+                if (desiredPlaybackRate !== null) applyPlaybackRate(video);
+              }
+
+              function applyToPlayingVideo() {
+                var videos = [];
+                try { videos = Array.prototype.slice.call(document.querySelectorAll('video')); }
+                catch (_) {}
+                videos.forEach(attach);
+                videos = videos.filter(function(video) {
+                  try { return !video.paused && !video.ended; }
+                  catch (_) { return false; }
+                });
+                videos.sort(function(first, second) {
+                  function area(video) {
+                    try {
+                      if (!visible(video)) return 0;
+                      var rect = video.getBoundingClientRect();
+                      return rect.width * rect.height;
+                    } catch (_) { return 0; }
+                  }
+                  return area(second) - area(first);
+                });
+                return videos.length > 0 && applyPlaybackRate(videos[0]);
               }
 
               function collect(root, frameUrl, depth, output) {
@@ -337,6 +517,7 @@ class MediaPlaybackTracker(
                   } catch (_) {}
                   var score = 0;
                   var active = false;
+                  var playbackRate = null;
                   try {
                     // `paused == false` is the browser's semantic playing state. A stream
                     // can be buffering (readyState < 2) while still being the video the user
@@ -347,13 +528,21 @@ class MediaPlaybackTracker(
                     if (video.currentTime > 0) score += 80;
                     if (!video.muted) score += 25;
                     if (video.videoWidth > 0 && video.videoHeight > 0) score += 40;
+                    playbackRate = Number(video.playbackRate);
+                    if (!Number.isFinite(playbackRate)) playbackRate = null;
                   } catch (_) {}
                   if (visible(video)) score += 150;
                   try {
                     var rect = video.getBoundingClientRect();
                     score += Math.min(150, Math.max(0, rect.width * rect.height / 10000));
                   } catch (_) {}
-                  output.push({ urls: urls, score: score, active: active, frameUrl: frameUrl });
+                  output.push({
+                    urls: urls,
+                    score: score,
+                    active: active,
+                    frameUrl: frameUrl,
+                    playbackRate: playbackRate
+                  });
                 });
 
                 var frames = [];
@@ -425,7 +614,8 @@ class MediaPlaybackTracker(
                   playing: !!best && !!best.active,
                   urls: urls,
                   frameUrl: best && best.frameUrl ? best.frameUrl : location.href,
-                  score: best ? best.score : 0
+                  score: best ? best.score : 0,
+                  playbackRate: best ? best.playbackRate : null
                 };
               }
 
@@ -437,6 +627,26 @@ class MediaPlaybackTracker(
                   if (bridge && bridge.postMessage) bridge.postMessage(message);
                 } catch (_) {}
               }
+
+              // JavaScriptReplyProxy sends native commands back only to the frame that
+              // reported the strongest playing video. The command contains one bounded
+              // numeric rate and never evaluates text supplied by the page.
+              try {
+                var commandBridge = window[bridgeName];
+                if (commandBridge) {
+                  commandBridge.onmessage = function(event) {
+                    var command = null;
+                    try { command = JSON.parse(String(event && event.data || '')); }
+                    catch (_) { return; }
+                    if (!command || command.type !== 'setPlaybackRate') return;
+                    var rate = validPlaybackRate(command.rate);
+                    if (rate === null) return;
+                    desiredPlaybackRate = rate;
+                    applyToPlayingVideo();
+                    post();
+                  };
+                }
+              } catch (_) {}
 
               // Keep a page-local trigger so a cast-button tap can request this same
               // cross-frame probe instead of running the less capable top-frame fallback.
@@ -548,6 +758,7 @@ class MediaPlaybackTracker(
                   var urls = [];
                   var active = false;
                   var score = depth * 5;
+                  var playbackRate = null;
                   try { add(urls, video.currentSrc, frameUrl); } catch (_) {}
                   try { add(urls, video.src, frameUrl); } catch (_) {}
                   try {
@@ -560,13 +771,22 @@ class MediaPlaybackTracker(
                     if (active) score += 1000;
                     if (video.currentTime > 0) score += 80;
                     if (video.videoWidth > 0 && video.videoHeight > 0) score += 40;
+                    playbackRate = Number(video.playbackRate);
+                    if (!Number.isFinite(playbackRate)) playbackRate = null;
                     var rect = video.getBoundingClientRect();
                     if (visible(video)) {
                       score += 150;
                       score += Math.min(150, Math.max(0, rect.width * rect.height / 10000));
                     }
                   } catch (_) {}
-                  found.push({ urls: urls, active: active, score: score, frameUrl: frameUrl, depth: depth });
+                  found.push({
+                    urls: urls,
+                    active: active,
+                    score: score,
+                    frameUrl: frameUrl,
+                    depth: depth,
+                    playbackRate: playbackRate
+                  });
                 });
 
                 var frames = [];
@@ -616,7 +836,8 @@ class MediaPlaybackTracker(
                 playing: !!best && !!best.active,
                 urls: urls.slice(0, 64),
                 frameUrl: best && best.frameUrl ? best.frameUrl : location.href,
-                score: best ? best.score : 0
+                score: best ? best.score : 0,
+                playbackRate: best ? best.playbackRate : null
               });
             })();
         """.trimIndent()

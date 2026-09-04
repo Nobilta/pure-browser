@@ -26,6 +26,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.media.PlaybackSpeed
 
 /** Browser actions grouped into predictable Material 3 sections. */
 @Composable
@@ -34,12 +35,15 @@ fun MenuSheet(
     isFilterEnabled: Boolean,
     blockedCount: Int,
     mediaCount: Int,
+    hasPlayingVideo: Boolean,
+    playbackSpeed: Float,
     isDesktopMode: Boolean,
     isCurrentPageBookmarked: Boolean,
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onToggleDesktopMode: () -> Unit,
     onOpenFind: () -> Unit,
+    onOpenPlaybackSpeed: () -> Unit,
     onOpenMedia: () -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenHistory: () -> Unit,
@@ -100,6 +104,20 @@ fun MenuSheet(
                             onCheckedChange = { onToggleDesktopMode() },
                         )
                     },
+                )
+                MenuRow(
+                    iconRes = R.drawable.ic_speed,
+                    title = stringResource(R.string.menu_playback_speed),
+                    subtitle = if (hasPlayingVideo) {
+                        stringResource(
+                            R.string.menu_playback_speed_current,
+                            PlaybackSpeed.label(playbackSpeed),
+                        )
+                    } else {
+                        stringResource(R.string.menu_playback_speed_unavailable)
+                    },
+                    enabled = hasPlayingVideo,
+                    onClick = onOpenPlaybackSpeed,
                 )
                 MenuRow(
                     iconRes = R.drawable.ic_cast,
