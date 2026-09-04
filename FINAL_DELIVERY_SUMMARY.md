@@ -8,8 +8,8 @@
 - 构建源：`app/build/outputs/apk/release/app-release.apk`
 - ABI：`arm64-v8a`
 - minSdk：34；targetSdk：37
-- 大小：9,984,278 bytes（约 9.52 MiB）
-- SHA-256：`9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
+- 大小：1,898,669 bytes（约 1.81 MiB）
+- SHA-256：`d81f2c1d434a82aeddfe0c258b8674afaef0b7986f4677e3ea0fae86409ad7aa`
 - 签名：使用项目外部配置的 release keystore，须通过 `apksigner verify --verbose`
 
 ## 本轮完成
@@ -35,6 +35,8 @@
 - 清除浏览数据增加确认并保留书签/下载文件；过滤器偏好、书签草稿和位图入口增加边界。
 - 清理重复 UI、无调用包装器和 69 个未使用资源，统一 29 处 KTX 调用；lint 从 101 条
   降至 2 条经过评估保留的工具链/ABI warning（0 errors）；Android 123 项单元测试通过。
+- 收紧过宽的 R8 keep 规则、移除未使用的 Compose Preview 主依赖，并压缩 DEX/native
+  条目；功能不变的 Release APK 从 9,984,278 bytes 降至 1,898,669 bytes（约减少 81.0%）。
 
 ## Rust 决策
 
@@ -65,7 +67,8 @@
 本轮模拟器已实际验证：SAF 创建并选择 `PureDownloads`、8 线程设置跨重启持久化、约
 9.9 MB 文件由 8 个 Range 分片下载合并、重名自动编号、系统 Download 与 SAF 两种目标、
 “仅删除记录”和“删除记录和文件”两条路径，以及下载期间前台服务存在并在完成后退出。
-最终 Release APK 已重新安装并冷启动，无崩溃。
+最终压缩 Release APK 已重新安装并冷启动；首页、分类菜单、JNI 导航、本地视频检测、投屏
+入口和 2× 倍速均完成复测，无崩溃。
 
 ## 诚实边界
 

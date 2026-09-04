@@ -41,11 +41,23 @@ lib/arm64-v8a/libmybrowser_url_utils.so
 `downloader`、`filename_parser` 是显式 opt-in legacy；`database` 不在 workspace。这样可
 避免无用 native 代码、过大的 APK 和 JNI 符号漂移。
 
+## Release 体积策略
+
+- R8 使用 full mode 和优化规则，AndroidX consumer rules 负责其反射/运行时边界；项目不再
+  以包级规则保留整个 Compose、`data` 或 `tabs`。
+- 默认 Android JNI 规则只保护可达 native 方法的名字，不再强制保留未使用的 legacy JNI
+  门面。
+- 未使用的 Compose Preview 依赖已从主依赖移除；预览工具仍只存在于 debug 配置。
+- DEX 和 `.so` 在直发 APK 中使用 ZIP 压缩；manifest 会生成
+  `android:extractNativeLibs="true"`，由目标 Android 14+ 在安装时解压。代价是安装工作和
+  安装后磁盘占用可能略增，换取明显更小的 APK 下载体积。
+- 相同功能基线下，APK 从 9,984,278 bytes 降至 1,898,669 bytes，减少约 81.0%。
+
 ## 当前 Release 校验值
 
 - 文件：`PureBrowser-v0.1.0-release.apk`
-- 大小：9,984,278 bytes（约 9.52 MiB）
-- SHA-256：`9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
+- 大小：1,898,669 bytes（约 1.81 MiB）
+- SHA-256：`d81f2c1d434a82aeddfe0c258b8674afaef0b7986f4677e3ea0fae86409ad7aa`
 - `apksigner verify --verbose`：通过（APK Signature Scheme v2）
 - Rust：49 tests passed；Android 单元测试：123 passed；lint：0 errors / 2 warnings
 

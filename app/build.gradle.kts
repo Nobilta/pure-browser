@@ -98,6 +98,12 @@ android {
     }
 
     packaging {
+        dex {
+            // A directly distributed APK benefits from ZIP-compressed DEX. Android 14+
+            // extracts it during installation; this trades install work and some installed
+            // storage for a materially smaller download without changing runtime code.
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf(
                 "/META-INF/{AL2.0,LGPL2.1}",
@@ -113,6 +119,9 @@ android {
             )
         }
         jniLibs {
+            // Likewise compress the already stripped arm64 libraries in the APK. They are
+            // extracted by PackageManager, which is supported by every target device.
+            useLegacyPackaging = true
             // Rust .so is already stripped by the cargo release profile.
             keepDebugSymbols += "**/*.so"
         }
@@ -295,7 +304,6 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.androidx.activity.compose)
 
-    implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
