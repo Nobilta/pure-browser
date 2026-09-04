@@ -1,0 +1,78 @@
+[versions]
+agp = "9.3.2"
+# Must equal the Kotlin compiler bundled with the AGP version above — see the
+# kotlin-compose plugin entry for how this was determined.
+kotlinCompose = "2.2.10"
+# NOTE: no `kotlin` entry. AGP 9 has built-in Kotlin and ships its own compiler;
+# applying org.jetbrains.kotlin.android would conflict.
+
+compileSdk = "37"
+minSdk = "34"
+targetSdk = "37"
+
+activity = "1.13.0"
+core = "1.19.0"
+webkit = "1.17.0"
+coroutines = "1.11.0"
+
+# Compose. The BOM pins every androidx.compose.* artifact to one tested set.
+# Keep this comment tied to the actual value below; update it when the BOM changes.
+composeBom = "2024.09.03"
+# activity-compose is NOT in the BOM's dependencyManagement, so it carries its own
+# version. Kept in step with `activity` above, which it supersedes.
+activityCompose = "1.13.0"
+
+# --- Test-only ---
+junit = "4.13.2"
+# Robolectric, not a bare JUnit run: the pure-logic helpers still call android.net.Uri
+# (encode/parse), and the android.jar on the unit-test classpath is stubbed — every such
+# call throws "Stub!". Robolectric supplies real implementations off-device.
+robolectric = "4.16"
+# Robolectric 4.16 resolves ASM 9.8, which predates the Java 26 class-file version. Keep
+# the unit-test bytecode reader current so tests remain runnable on the JDK shipped with
+# the development environment; these artifacts are test-only and do not enter the APK.
+asm = "9.9"
+
+[libraries]
+# ComponentActivity: OnBackPressedDispatcher (predictive back) + registerForActivityResult
+# (needed by WebChromeClient.onShowFileChooser).
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
+# WindowInsetsCompat, for the edge-to-edge enforced at targetSdk 35+.
+androidx-core = { group = "androidx.core", name = "core", version.ref = "core" }
+# addDocumentStartJavaScript, ProxyController, setAlgorithmicDarkeningAllowed,
+# WebViewFeature runtime detection.
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
+coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# --- Compose ---
+# The entries without a version get it from the BOM below.
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+# setContent, BackHandler, rememberLauncherForActivityResult.
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+
+# --- Test-only ---
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+asm = { group = "org.ow2.asm", name = "asm", version.ref = "asm" }
+asm-commons = { group = "org.ow2.asm", name = "asm-commons", version.ref = "asm" }
+asm-tree = { group = "org.ow2.asm", name = "asm-tree", version.ref = "asm" }
+asm-util = { group = "org.ow2.asm", name = "asm-util", version.ref = "asm" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+# Required, not optional: AGP fails configuration with "the Compose Compiler Gradle
+# plugin is required when compose is enabled" without it.
+#
+# This does NOT contradict the no-kotlin-android rule above. Built-in Kotlin replaces
+# org.jetbrains.kotlin.android only; other Kotlin ecosystem plugins are still applied
+# separately and keep their own Kotlin-versioned coordinates.
+#
+# The version must match the Kotlin compiler AGP bundles, which the project never
+# declares. Found by inspecting the resolved dependency cache after a successful build:
+# AGP 9.3.2 pulls kotlin-compiler-embeddable 2.2.10. Re-check this after any AGP bump.
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlinCompose" }

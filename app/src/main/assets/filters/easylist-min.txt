@@ -1,0 +1,195 @@
+! Title: PureBrowser built-in list
+! Version: 2026.09.01
+!
+! A deliberately small, high-value subset of EasyList/EasyPrivacy network rules, restricted
+! to the syntax the engine supports (network rules with || ^ * anchors, $type/$domain/
+! $third-party options, and @@ exceptions). Cosmetic rules (##) are skipped by the parser,
+! so they are not included here.
+!
+! Kept small on purpose: the win from the first few hundred rules is most of the total win,
+! and a 60k-rule list costs startup time and memory on every page.
+
+! ---------------------------------------------------------------------------------------
+! Ad networks and exchanges
+! ---------------------------------------------------------------------------------------
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||google-analytics.com^
+||googletagservices.com^
+||googletagmanager.com^
+||adservice.google.com^
+||pagead2.googlesyndication.com^
+||partner.googleadservices.com^
+||adnxs.com^
+||adsrvr.org^
+||rubiconproject.com^
+||pubmatic.com^
+||openx.net^
+||criteo.com^
+||criteo.net^
+||taboola.com^
+||outbrain.com^
+||smartadserver.com^
+||casalemedia.com^
+||advertising.com^
+||adform.net^
+||360yield.com^
+||sharethrough.com^
+||teads.tv^
+||media.net^
+||amazon-adsystem.com^
+||bidswitch.net^
+||contextweb.com^
+||sonobi.com^
+||districtm.io^
+||indexww.com^
+||yieldmo.com^
+||spotxchange.com^
+||adcolony.com^
+||applovin.com^
+||unityads.unity3d.com^
+||inmobi.com^
+||mopub.com^
+||chartboost.com^
+||vungle.com^
+
+! ---------------------------------------------------------------------------------------
+! Analytics and tracking
+! ---------------------------------------------------------------------------------------
+||scorecardresearch.com^
+||quantserve.com^
+||quantcount.com^
+||hotjar.com^
+||hotjar.io^
+||mouseflow.com^
+||fullstory.com^
+||crazyegg.com^
+||luckyorange.com^
+||mixpanel.com^
+||segment.io^
+||segment.com/analytics.js
+||amplitude.com^
+||heap.io^
+||heapanalytics.com^
+||kissmetrics.com^
+||chartbeat.com^
+||newrelic.com^$third-party
+||nr-data.net^
+||branch.io^
+||adjust.com^
+||appsflyer.com^
+||kochava.com^
+||sentry-cdn.com^$third-party
+||bugsnag.com^$third-party
+||clarity.ms^
+||matomo.cloud^$third-party
+||statcounter.com^
+||histats.com^
+||openinstall.io^
+
+! ---------------------------------------------------------------------------------------
+! Social widgets and beacons
+! ---------------------------------------------------------------------------------------
+||connect.facebook.net^$third-party
+||facebook.com/tr^
+||facebook.com/plugins/like.php^$third-party
+||platform.twitter.com^$third-party
+||analytics.twitter.com^
+||ads-twitter.com^
+||static.ads-twitter.com^
+||platform.linkedin.com^$third-party
+||snap.licdn.com^
+||pinterest.com/ct.html^
+||ct.pinterest.com^
+||reddit.com/api/v2/gold^
+||redditstatic.com/ads^
+||tiktok.com/i18n/pixel^
+||analytics.tiktok.com^
+
+! ---------------------------------------------------------------------------------------
+! Chinese sites: the trackers and ad slots that actually show up on mobile
+! ---------------------------------------------------------------------------------------
+||cnzz.com^
+||umeng.com^
+||umengcloud.com^
+||talkingdata.com^
+||growingio.com^
+||miaozhen.com^
+||irs01.com^
+||irs03.com^
+||gridsumdissector.com^
+||pos.baidu.com^
+||cpro.baidu.com^
+||cbjs.baidu.com^
+||hm.baidu.com^
+||dup.baidustatic.com^
+||nsclick.baidu.com^
+||eiv.baidu.com^
+||mediav.com^
+||simba.taobao.com^
+||atanx.alicdn.com^
+||tanx.com^
+||log.mmstat.com^
+||wgo.mmstat.com^
+||gm.mmstat.com^
+||beacon.qq.com^
+||pingjs.qq.com^
+||pgdt.gtimg.cn^
+||e.qq.com^
+||ad.qun.qq.com^
+||sohu.com/adgateway^
+||hzsjyz.sogou.com^
+||ads.sina.com.cn^
+||sax.sina.com.cn^
+||beacon.sina.com.cn^
+||360.cn/adsearch^
+||s.360.cn^
+||union.360.cn^
+||adsame.com^
+||allyes.com^
+||acs86.com^
+||zhugeio.com^
+||sensorsdata.cn^
+
+! ---------------------------------------------------------------------------------------
+! Generic path patterns
+!
+! These carry $type options where possible so they cannot take down page chrome that
+! happens to sit at a matching path.
+! ---------------------------------------------------------------------------------------
+/adsbygoogle.js
+/pagead/js/adsbygoogle.js
+||*/googleads.
+/ad-choices.$image
+/advertisement.$image,script
+/advertising/banner.$image
+/ad_banner.$image
+/adbanner.$image
+/banner_ad.$image
+/pop_ad.$script
+/popunder.$script
+/track.gif$image
+/pixel.gif$image
+/beacon.gif$image
+/1x1.gif$image
+/analytics.js$script,third-party
+/gtag/js$script
+/gtm.js$script
+
+! ---------------------------------------------------------------------------------------
+! Exceptions
+!
+! Rules above are broad enough to catch a few things pages genuinely need. Exceptions win
+! over blocks in the engine, so these run last conceptually regardless of position.
+! ---------------------------------------------------------------------------------------
+@@||googletagmanager.com/gtag/js$domain=google.com|youtube.com
+@@||google.com/recaptcha/
+@@||gstatic.com/recaptcha/
+@@||hcaptcha.com^
+@@||challenges.cloudflare.com^
+@@||googlesyndication.com/simgad/
+@@||player.taboola.com^$domain=taboola.com
+@@||amazon-adsystem.com/e/ir$domain=amazon.com|amazon.cn
+@@||hm.baidu.com^$domain=baidu.com
+@@||log.mmstat.com^$domain=taobao.com|tmall.com

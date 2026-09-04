@@ -1,0 +1,268 @@
+package com.mybrowser.tabs
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.os.Bundle
+import android.webkit.WebView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
+import androidx.core.content.edit
+import androidx.core.graphics.createBitmap
+import com.mybrowser.core.UrlUtils
+import com.mybrowser.data.NativeCache
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+/**
+ * Owns one tab stack and the lightweight state associated with each tab.
+ *
+ * MainActivity keeps separate instances for normal and incognito mode. Keeping this class
+ * single-stack avoids the old double-normal/incognito state machine, which could leave a
+ * tab in the wrong list when the Activity switched managers. The list is a Compose
+ * SnapshotStateList and [revision] changes whenever mutable tab fields change, so tab
+ * sheets update immediately after a title, favicon, or close operation.
+ */
+class TabManager(
+    private val maxTabs: Int = MAX_TABS,
+) {
+
+    init {
+        require(maxTabs in 1..MAX_TABS) { "maxTabs must be between 1 and $MAX_TABS" }
+    }
+
+    private val thumbnailCache: NativeCache? = NativeCache.create()
+    private val _tabs = mutableStateListOf<TabState>()
+
+    var currentIndex by mutableIntStateOf(-1)
+        private set
+
+    /** Observable revision for mutations to fields inside [TabState]. */
+    var revision by mutableIntStateOf(0)
+        private set
+
+    val tabs: List<TabState> get() = _tabs
+    val currentTab: TabState? get() = _tabs.getOrNull(currentIndex)
+    val count: Int get() = _tabs.size
+    val canCreateTab: Boolean get() = _tabs.size < maxTabs
+
+    init {
+        createTab()
+    }
+
+    /** Compatibility helper for callers that used to toggle a manager's internal mode. */
+    fun setIncognitoMode(enabled: Boolean) {
+        if (!enabled) return
+        if (_tabs.isEmpty()) createTab()
+    }
+
+    /** Creates and selects a tab, returning its id. At the cap, returns the current id. */
+    fun createTab(url: String = ""): String {
+        if (_tabs.size >= maxTabs) return currentTab?.id.orEmpty()
+        val tab = TabState(id = UUID.randomUUID().toString(), url = url)
+        _tabs += tab
+        currentIndex = _tabs.lastIndex
+        changed()
+        return tab.id
+    }
+
+    fun switchToIndex(index: Int): TabState? {
+        if (index !in _tabs.indices) return null
+        currentIndex = index
+        changed()
+        return _tabs[index]
+    }
+
+    fun switchToId(id: String): TabState? {
+        val index = _tabs.indexOfFirst { it.id == id }
+        return if (index < 0) null else switchToIndex(index)
+    }
+
+    fun closeTab(index: Int): TabState? {
+        if (index !in _tabs.indices) return currentTab
+        val removed = _tabs.removeAt(index)
+        releaseBitmaps(removed)
+
+        when {
+            _tabs.isEmpty() -> {
+                currentIndex = -1
+                createTab()
+            }
+            index < currentIndex -> currentIndex -= 1
+            index == currentIndex && currentIndex >= _tabs.size -> currentIndex = _tabs.lastIndex
+        }
+        changed()
+        return currentTab
+    }
+
+    fun closeTabById(id: String): TabState? =
+        _tabs.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let(::closeTab) ?: currentTab
+
+    /** Closes every tab except the selected one. */
+    fun closeOtherTabs() {
+        val current = currentTab ?: return
+        _tabs.filterNot { it.id == current.id }.forEach(::releaseBitmaps)
+        _tabs.clear()
+        _tabs += current
+        currentIndex = 0
+        changed()
+    }
+
+    /** Clears this stack and creates one fresh tab. Used when leaving incognito mode. */
+    fun clearAllTabs() {
+        _tabs.forEach(::releaseBitmaps)
+        _tabs.clear()
+        currentIndex = -1
+        createTab()
+        changed()
+    }
+
+    fun saveCurrentState(webView: WebView) {
+        val tab = currentTab ?: return
+        runCatching {
+            tab.savedState = Bundle().also { webView.saveState(it) }
+        }
+        webView.url?.takeIf { it.isNotBlank() }?.let { tab.url = it }
+        webView.title?.takeIf { it.isNotBlank() }?.let { tab.title = it }
+        changed()
+    }
+
+    fun loadCurrentState(webView: WebView): Boolean {
+        val state = currentTab?.savedState ?: return false
+        return runCatching { webView.restoreState(state) != null }.getOrElse {
+            currentTab?.savedState = null
+            changed()
+            false
+        }
+    }
+
+    /** Captures a small preview. Java keeps the display copy; native cache is an optional
+     * second copy for callers that need low-GC access and must never be the sole source. */
+    fun captureCurrentThumbnail(webView: WebView, width: Int, height: Int) {
+        val tab = currentTab ?: return
+        if (webView.width <= 0 || webView.height <= 0 || width <= 0 || height <= 0) return
+        val scale = width.toFloat() / webView.width.toFloat()
+        val targetHeight = (webView.height * scale).toInt().coerceIn(1, height)
+        val bitmap = runCatching {
+            createBitmap(width, targetHeight, Bitmap.Config.RGB_565).also { output ->
+                android.graphics.Canvas(output).apply {
+                    scale(scale, scale)
+                    webView.draw(this)
+                }
+            }
+        }.getOrNull() ?: return
+
+        tab.thumbnail?.recycle()
+        tab.thumbnail = bitmap
+        thumbnailCache?.runCatching { putBitmap("thumb_${tab.id}", bitmap) }
+        changed()
+    }
+
+    fun getThumbnail(tabId: String): Bitmap? =
+        _tabs.find { it.id == tabId }?.thumbnail
+            ?: thumbnailCache?.getBitmap("thumb_$tabId")
+
+    /** Saves URL/title metadata so normal tabs survive process death. */
+    fun saveMetadata(context: Context, preferenceName: String) {
+        val array = JSONArray()
+        _tabs.forEach { tab ->
+            array.put(
+                JSONObject()
+                    .put("id", tab.id.take(MAX_TAB_ID_LENGTH))
+                    .put("url", safeTabUrl(tab.url))
+                    .put("title", sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH)),
+            )
+        }
+        context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit {
+            putString(KEY_TABS, array.toString())
+            putInt(KEY_CURRENT, currentIndex)
+        }
+    }
+
+    /** Restores metadata; returns false when no usable saved tabs exist. */
+    fun restoreMetadata(context: Context, preferenceName: String): Boolean {
+        val prefs = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_TABS, null) ?: return false
+        if (raw.length > MAX_PERSISTED_JSON_LENGTH) return false
+        val restored = runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until minOf(array.length(), maxTabs)) {
+                    val obj = array.optJSONObject(i) ?: continue
+                    val url = safeTabUrl(obj.optString("url"))
+                    val title = sanitizePersistedText(obj.optString("title"), MAX_TAB_TITLE_LENGTH)
+                    val id = obj.optString("id")
+                        .takeIf { TAB_ID_PATTERN.matches(it) }
+                        ?: UUID.randomUUID().toString()
+                    add(
+                        TabState(
+                            id = id.take(MAX_TAB_ID_LENGTH),
+                            url = url,
+                            title = title,
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+        if (restored.isEmpty()) return false
+
+        _tabs.clear()
+        _tabs += restored.take(maxTabs)
+        currentIndex = prefs.getInt(KEY_CURRENT, 0).coerceIn(_tabs.indices)
+        changed()
+        return true
+    }
+
+    fun cleanup() {
+        thumbnailCache?.close()
+        _tabs.forEach(::releaseBitmaps)
+        _tabs.clear()
+        currentIndex = -1
+    }
+
+    /** Marks a mutation to a TabState's mutable fields so Compose refreshes tab chrome. */
+    fun notifyChanged() {
+        changed()
+    }
+
+    private fun releaseBitmaps(tab: TabState) {
+        tab.favicon?.recycle()
+        tab.thumbnail?.recycle()
+        tab.favicon = null
+        tab.thumbnail = null
+        thumbnailCache?.remove("thumb_${tab.id}")
+    }
+
+    private fun changed() {
+        revision++
+    }
+
+    private fun sanitizePersistedText(value: String, maxLength: Int): String = value
+        .filterNot { it.isISOControl() }
+        .trim()
+        .take(maxLength)
+
+    /** A preference blob must never turn into javascript:/file: navigation on restore. */
+    private fun safeTabUrl(value: String): String {
+        val clean = sanitizePersistedText(value, MAX_TAB_URL_LENGTH)
+        return when {
+            clean.isEmpty() || clean == ABOUT_BLANK -> clean
+            UrlUtils.isHttpUrl(clean) -> clean
+            else -> ""
+        }
+    }
+
+    private companion object {
+        const val MAX_TABS = 32
+        const val MAX_TAB_ID_LENGTH = 64
+        const val MAX_TAB_URL_LENGTH = 8_192
+        const val MAX_TAB_TITLE_LENGTH = 512
+        const val MAX_PERSISTED_JSON_LENGTH = 256 * 1024
+        val TAB_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
+        const val ABOUT_BLANK = "about:blank"
+        const val KEY_TABS = "tabs"
+        const val KEY_CURRENT = "current"
+    }
+}
