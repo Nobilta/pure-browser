@@ -5,6 +5,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,12 +33,15 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mybrowser.R
 import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.HistoryManager
 import com.mybrowser.home.HomeShortcut
+import com.mybrowser.media.PlaybackSpeed
 
 /**
  * The browser chrome: omnibar on top, page in the middle, navigation at the bottom.
@@ -61,6 +65,12 @@ fun BrowserScreen(
     onRemoveHomeShortcut: (HomeShortcut) -> Unit = {},
     /** Number of castable media candidates discovered on the current page. */
     mediaCount: Int = 0,
+    /** True only while an HTML5 video element is actively playing. */
+    hasPlayingVideo: Boolean = false,
+    /** Actual rate reported by the strongest playing video. */
+    playbackSpeed: Float = PlaybackSpeed.DEFAULT,
+    /** Opens the speed picker for the active video. */
+    onPlaybackSpeed: () -> Unit = {},
     /** Opens the media/device picker from the floating cast affordance. */
     onCast: () -> Unit = {},
     onFindQueryChange: (String) -> Unit,
@@ -210,23 +220,49 @@ fun BrowserScreen(
                 )
             }
 
-            // Keep casting one tap away once a page exposes a usable media URL. The
-            // affordance sits above the page but below any modal sheet, so it does not
-            // compete with the browser toolbar or make the menu harder to reach.
-            if (!showHomeDashboard && mediaCount > 0) {
-                SmallFloatingActionButton(
-                    onClick = onCast,
+            // Media actions stay one tap away while a video is active. Speed is tied to
+            // the playing element; casting is available whenever a usable stream exists.
+            if (!showHomeDashboard && (hasPlayingVideo || mediaCount > 0)) {
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 16.dp, bottom = 16.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_cast),
-                        contentDescription = stringResource(R.string.cd_cast),
-                        modifier = Modifier.size(22.dp),
-                    )
+                    if (hasPlayingVideo) {
+                        val speedLabel = PlaybackSpeed.label(playbackSpeed)
+                        val speedDescription = stringResource(
+                            R.string.cd_playback_speed,
+                            speedLabel,
+                        )
+                        SmallFloatingActionButton(
+                            onClick = onPlaybackSpeed,
+                            modifier = Modifier.semantics {
+                                contentDescription = speedDescription
+                            },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Text(
+                                text = speedLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                    if (mediaCount > 0) {
+                        SmallFloatingActionButton(
+                            onClick = onCast,
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_cast),
+                                contentDescription = stringResource(R.string.cd_cast),
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

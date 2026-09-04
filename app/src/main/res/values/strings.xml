@@ -17,6 +17,7 @@
     <string name="press_back_again">再按一次退出</string>
 
     <string name="cd_cast">投屏</string>
+    <string name="cd_playback_speed">播放速度，当前 %1$s</string>
     <string name="cast_no_devices">未找到设备，确认电视与手机在同一 Wi-Fi</string>
     <string name="cast_pick_media">选择要投送的内容</string>
     <string name="cast_playing">正在播放</string>
@@ -29,6 +30,9 @@
     <string name="menu_remove_bookmark">从书签移除</string>
     <string name="menu_remove_bookmark_hint">移除当前页面的书签</string>
     <string name="menu_cast">投屏</string>
+    <string name="menu_playback_speed">播放速度</string>
+    <string name="menu_playback_speed_current">当前 %1$s</string>
+    <string name="menu_playback_speed_unavailable">播放视频后可用</string>
     <string name="menu_find">在页面中查找</string>
     <string name="menu_desktop_site">桌面版网站</string>
     <string name="menu_settings">设置</string>
@@ -93,6 +97,10 @@
     <string name="menu_incognito_active_hint">正在无痕浏览</string>
     <string name="menu_cast_found">发现 %1$d 个可投送视频</string>
     <string name="menu_cast_none">当前页面无可投送视频</string>
+    <string name="playback_speed_title">播放速度</string>
+    <string name="playback_speed_normal">%1$s（正常）</string>
+    <string name="playback_speed_applied">播放速度已设为 %1$s</string>
+    <string name="playback_speed_failed">未找到正在播放的视频</string>
     <string name="menu_adblock">广告拦截</string>
     <string name="menu_adblock_blocked">本页已拦截 %1$d 个</string>
     <string name="menu_adblock_off">已关闭</string>

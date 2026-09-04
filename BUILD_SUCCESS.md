@@ -44,10 +44,10 @@ lib/arm64-v8a/libmybrowser_url_utils.so
 ## 当前 Release 校验值
 
 - 文件：`PureBrowser-v0.1.0-release.apk`
-- 大小：9,963,930 bytes（约 9.50 MiB）
-- SHA-256：`47ba21f0c026b1fea879f22447ddab077d9476375f2d92732679a3d3de2a1ec0`
+- 大小：9,984,278 bytes（约 9.52 MiB）
+- SHA-256：`9826d200baec3890fa715375f6be672db2663bea822c63284052bf63abe4bec9`
 - `apksigner verify --verbose`：通过（APK Signature Scheme v2）
-- Rust：49 tests passed；Android 单元测试：119 passed；lint：0 errors / 2 warnings
+- Rust：49 tests passed；Android 单元测试：123 passed；lint：0 errors / 2 warnings
 
 ## 安装
 

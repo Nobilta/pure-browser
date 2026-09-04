@@ -13,6 +13,7 @@
 <body>
   <h1>媒体检测测试页</h1>
   <p>页面故意暴露多个候选，并让第一个循环播放。</p>
+  <p id="rate" aria-live="polite">当前倍速：1.00×</p>
   <video id="primary" controls autoplay muted loop playsinline
          src="/sample-default.mp4?token=primary"></video>
   <video id="secondary" controls playsinline
@@ -21,6 +22,10 @@
     (function () {
       var primary = document.getElementById('primary');
       var secondary = document.getElementById('secondary');
+      var rate = document.getElementById('rate');
+      function updateRate() {
+        rate.textContent = '当前倍速：' + Number(primary.playbackRate).toFixed(2) + '×';
+      }
       function start() {
         // The tiny MP4 is valid media, so Chromium can enter a real non-paused state.
         // Looping keeps the active state available while the cast picker is opened.
@@ -32,7 +37,9 @@
         // playback support. The first URL remains the active element's exact currentSrc hint.
         fetch('/sample-default.mp4?token=primary-fetch').catch(function () {});
         fetch('/stream-secondary.m3u8?token=secondary-fetch').catch(function () {});
+        updateRate();
       }
+      primary.addEventListener('ratechange', updateRate);
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', start);
       } else {
