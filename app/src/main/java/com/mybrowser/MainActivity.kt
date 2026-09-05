@@ -273,7 +273,11 @@ class MainActivity : ComponentActivity(),
 
         // Initialize both tab managers
         normalTabManager = TabManager()
-        val sessionSnapshot = savedInstanceState?.getBundle(STATE_NORMAL_TABS)
+        // A recreated Activity in this process retains its tabs. A fresh process follows
+        // the startup preference even when Android retained the task's old saved state.
+        val sessionSnapshot = savedInstanceState
+            ?.takeIf { it.getString(STATE_PROCESS_SESSION) == PROCESS_SESSION }
+            ?.getBundle(STATE_NORMAL_TABS)
         if (sessionSnapshot != null) {
             normalTabManager.restoreMetadata(sessionSnapshot)
         } else if (restoreLastSession) {
@@ -1437,6 +1441,9 @@ class MainActivity : ComponentActivity(),
         tabManager.currentTab?.url = url
         tabManager.notifyChanged()
         refreshBookmarkStatus(url)
+        if (!privacy.isIncognito && restoreLastSession) {
+            normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
+        }
     }
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
@@ -1458,6 +1465,9 @@ class MainActivity : ComponentActivity(),
         }
         // Add to history (only in normal mode)
         addToHistory(url, webView.title ?: url)
+        if (!privacy.isIncognito && restoreLastSession) {
+            normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
+        }
 
         // Detect the active media element for cast preference. The document-start tracker
         // handles cross-origin iframes; older providers use the one-shot polling fallback.
@@ -1470,6 +1480,9 @@ class MainActivity : ComponentActivity(),
         tabManager.currentTab?.url = url
         tabManager.notifyChanged()
         refreshBookmarkStatus(url)
+        if (!privacy.isIncognito && restoreLastSession) {
+            normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
+        }
     }
 
     private fun startPlayingVideoDetection() {
@@ -1855,13 +1868,17 @@ class MainActivity : ComponentActivity(),
     private fun exitBrowser() {
         sheet = null
         persistNormalSession()
-        webViewOrNull?.let { it.stopLoading(); it.onPause() }
+        webViewOrNull?.let {
+            it.stopLoading()
+            it.onPause()
+        }
         finishAndRemoveTask()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         if (!privacy.isIncognito) webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
         outState.putBundle(STATE_NORMAL_TABS, normalTabManager.snapshotMetadata())
+        outState.putString(STATE_PROCESS_SESSION, PROCESS_SESSION)
         super.onSaveInstanceState(outState)
     }
 
@@ -1953,6 +1970,8 @@ class MainActivity : ComponentActivity(),
         const val EXIT_CONFIRM_WINDOW_MS = 2_000L
         const val NORMAL_TABS_PREFS = "normal_tabs"
         const val STATE_NORMAL_TABS = "normal_tab_snapshot"
+        const val STATE_PROCESS_SESSION = "process_session"
+        val PROCESS_SESSION = java.util.UUID.randomUUID().toString()
         const val MEDIA_PROBE_INTERVAL_MS = 1_200L
 
         /**

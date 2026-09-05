@@ -153,23 +153,23 @@ fun BrowserScreen(
                 enter = expandVertically(expandFrom = Alignment.Top),
                 exit = shrinkVertically(shrinkTowards = Alignment.Top),
             ) {
-            Omnibar(
-                value = state.omnibarValue,
-                onValueChange = state::onOmnibarValueChange,
-                onFocusChange = state::onOmnibarFocusChange,
-                onNavigate = onNavigate,
-                onClear = state::clearOmnibar,
-                onRefresh = onReloadOrStop,
-                isFocused = state.isOmnibarFocused,
-                isLoading = state.isLoading,
-                securityLevel = state.securityLevel,
-                currentUrl = state.currentUrl,
-                displayTitle = state.displayTitle,
-                onSecurityClick = onSecurityClick,
-                bookmarkManager = bookmarkManager,
-                historyManager = historyManager,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+                Omnibar(
+                    value = state.omnibarValue,
+                    onValueChange = state::onOmnibarValueChange,
+                    onFocusChange = state::onOmnibarFocusChange,
+                    onNavigate = onNavigate,
+                    onClear = state::clearOmnibar,
+                    onRefresh = onReloadOrStop,
+                    isFocused = state.isOmnibarFocused,
+                    isLoading = state.isLoading,
+                    securityLevel = state.securityLevel,
+                    currentUrl = state.currentUrl,
+                    displayTitle = state.displayTitle,
+                    onSecurityClick = onSecurityClick,
+                    bookmarkManager = bookmarkManager,
+                    historyManager = historyManager,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
 
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting

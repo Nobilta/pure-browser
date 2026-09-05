@@ -36,6 +36,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +51,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.mybrowser.R
 import com.mybrowser.download.DownloadDestinationMode
 import com.mybrowser.download.DownloadSettings
@@ -87,15 +86,13 @@ fun SettingsSheet(
 ) {
     var selectedSection by remember { mutableStateOf<SettingsSection?>(null) }
 
-    Dialog(
-        onDismissRequest = { if (selectedSection != null) selectedSection = null else onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Surface(modifier = Modifier.fillMaxSize()) {
+    BackHandler {
+        if (selectedSection != null) selectedSection = null else onDismiss()
+    }
+    Surface(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        when (selectedSection) {
-            SettingsSection.SEARCH_ENGINE -> {
-                SearchEngineSettings(
+            when (selectedSection) {
+                SettingsSection.SEARCH_ENGINE -> SearchEngineSettings(
                     current = currentSearchEngine,
                     available = availableSearchEngines,
                     onChange = onSearchEngineChange,
@@ -103,27 +100,21 @@ fun SettingsSheet(
                     onRemoveCustom = onRemoveCustomSearchEngine,
                     onBack = { selectedSection = null },
                 )
-            }
-            SettingsSection.HOMEPAGE -> {
-                HomepageSettings(
+                SettingsSection.HOMEPAGE -> HomepageSettings(
                     currentMode = currentHomepageMode,
                     current = currentHomepage,
                     onModeChange = onHomepageModeChange,
                     onChange = onHomepageChange,
                     onBack = { selectedSection = null },
                 )
-            }
-            SettingsSection.DOWNLOADS -> {
-                DownloadSettingsPage(
+                SettingsSection.DOWNLOADS -> DownloadSettingsPage(
                     settings = downloadSettings,
                     onUseSystemDirectory = onUseSystemDownloadDirectory,
                     onChooseDirectory = onChooseDownloadDirectory,
                     onThreadCountChange = onDownloadThreadCountChange,
                     onBack = { selectedSection = null },
                 )
-            }
-            null -> {
-                MainSettings(
+                null -> MainSettings(
                     restoreLastSession = restoreLastSession,
                     onRestoreLastSessionChange = onRestoreLastSessionChange,
                     isDefaultBrowser = isDefaultBrowser,
@@ -139,8 +130,6 @@ fun SettingsSheet(
                     onManageCustomFilters = onManageCustomFilters,
                 )
             }
-        }
-        }
         }
     }
 }
@@ -281,9 +270,9 @@ private fun SearchEngineSettings(
         title = "搜索引擎",
         onBack = onBack,
         actions = {
-                TextButton(onClick = { showAddDialog = true }) {
-                    Text(stringResource(R.string.search_engine_add))
-                }
+            TextButton(onClick = { showAddDialog = true }) {
+                Text(stringResource(R.string.search_engine_add))
+            }
         },
     ) {
         available.forEach { engine ->
