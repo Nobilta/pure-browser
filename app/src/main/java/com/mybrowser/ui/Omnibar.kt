@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -76,6 +77,7 @@ fun Omnibar(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+    val barHeight = 48.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
     LaunchedEffect(isFocused) {
         if (isFocused) {
             focusRequester.requestFocus()
@@ -106,13 +108,13 @@ fun Omnibar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(barHeight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(48.dp)
+                    .height(barHeight)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                     .padding(start = 12.dp, end = 4.dp),
@@ -252,7 +254,7 @@ fun Omnibar(
                 },
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(top = 52.dp)
+                    .padding(top = barHeight + 4.dp)
             )
         }
     }

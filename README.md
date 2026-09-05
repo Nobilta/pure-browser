@@ -17,6 +17,10 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - Material 3 界面，菜单按页面操作、浏览数据、隐私与安全、设置与工具分类。
 - 页面内查找、桌面站点模式、文件上传、摄像头/麦克风/定位权限处理。
 - HTTPS 安全弹窗展示证书主体、组织、签发者、有效期和当前有效状态。
+- 地址栏未编辑时显示网页标题和站点域名；点按标题区域进入完整 URL 编辑。页面向下滚动
+  时自动收起顶部地址栏，向上滚动、回到页面顶部、编辑地址或打开查找时自动展开。
+- 通过 Android `RoleManager` 请求设为默认浏览器；菜单末尾提供“退出浏览器”，退出时移除
+  最近任务。
 
 ### 首页、书签与历史
 
@@ -25,6 +29,8 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - 添加书签时可同时添加到导航首页，快捷入口使用网页 favicon；长按只移除首页入口，
   不会删除书签。
 - 历史记录合并重复访问，并为持久化内容和查询结果设置边界。
+- 设置中的“启动时恢复上次网页”默认关闭。关闭时冷启动打开导航首页或固定网址主页；开启
+  后恢复普通模式的标签地址、标题和选中标签。无痕标签永不写入恢复数据。
 
 ### 下载
 
@@ -148,7 +154,7 @@ keyPassword=...
 该脚本执行：
 
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
-2. Android/Robolectric 123 项单元测试；
+2. Android/Robolectric 134 项单元测试；
 3. Android lint；
 4. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
 5. APK 签名、大小和 SHA-256 检查。
@@ -162,8 +168,8 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 14+ 安装时由 PackageM
 当前本地 Release 产物：
 
 - `PureBrowser-v0.1.0-release.apk`
-- 1,898,669 bytes（约 1.81 MiB）
-- SHA-256：`d81f2c1d434a82aeddfe0c258b8674afaef0b7986f4677e3ea0fae86409ad7aa`
+- 1,910,313 bytes（约 1.82 MiB）
+- SHA-256：`6d533dc93958d7a7cd10bbc11843672d1d45800d1b606e58118f8a70287c48a5`
 - APK Signature Scheme v2：通过
 
 只运行 Android 单元测试或 lint：
@@ -185,8 +191,19 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 14+ 安装时由 PackageM
 ./diagnose.sh
 ```
 
-最近一次模拟器验证覆盖系统 Download/SAF 目录、8 线程 Range 下载、重名文件、两种删除
-方式、前台服务退出、主页、证书、无痕降级提示、媒体候选、视频倍速与悬浮投屏入口。
+最近一次模拟器验证使用 `MyBrowser_Pixel7`（Android 14/API 34，arm64），覆盖：地址栏标题
+和完整 URL 编辑、SPA `pushState` 地址同步、上下滚动收起/展开、默认浏览器 RoleManager
+系统选择页、恢复开关开启/关闭后的冷启动、多标签恢复、固定网址主页、退出移除最近任务、
+横屏、深色模式及 1.3 倍字体的小屏布局。可重复运行：
+
+```bash
+adb reverse tcp:8765 tcp:8765
+python3 validation/emulator-ux.py regress
+```
+
+原有媒体、下载、主页、证书、无痕、过滤、DLNA 和文件选择回归保持覆盖；真实 DLNA 接收器
+投送仍需同网实体设备。Lint 为 0 errors / 2 warnings：AGP 有更新版本提示，以及 Release
+仅打包 arm64 时的 ChromeOS x86_64 支持提示。
 没有实体 DLNA 接收器时，只能确认候选和设备发现流程，不能宣称实际投送成功。
 
 ## 相关文档

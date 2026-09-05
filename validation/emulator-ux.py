@@ -19,9 +19,15 @@ def adb(*args):
 
 
 def nodes():
-    adb("shell", "uiautomator", "dump", "/sdcard/pure-ux.xml")
-    raw = adb("shell", "cat", "/sdcard/pure-ux.xml")
-    return ET.fromstring(raw), raw
+    for _ in range(3):
+        adb("shell", "rm", "-f", "/sdcard/pure-ux.xml")
+        adb("shell", "uiautomator", "dump", "/sdcard/pure-ux.xml")
+        try:
+            raw = adb("shell", "cat", "/sdcard/pure-ux.xml")
+            return ET.fromstring(raw), raw
+        except (subprocess.CalledProcessError, ET.ParseError):
+            time.sleep(1)
+    raise AssertionError("UIAutomator did not produce a current hierarchy")
 
 
 def bounds(node):
@@ -61,14 +67,82 @@ def inspect(name=None):
 
 
 def open_settings():
+    menu_item("设置")
+
+
+def menu_item(label):
     tap("菜单")
     for _ in range(8):
         root, _ = nodes()
-        if match(root, "设置") is not None:
-            tap("设置")
+        if match(root, label) is not None:
+            tap(label)
             return
-        adb("shell", "input", "swipe", "520", "1900", "520", "650", "350")
-    raise AssertionError("Settings row missing")
+        swipe(root, downward=False)
+    raise AssertionError("Menu row missing: " + label)
+
+
+def swipe(root, downward):
+    _, _, width, height = bounds(next(root.iter("node")))
+    top, bottom = int(height * 0.3), int(height * 0.8)
+    start, end = (top, bottom) if downward else (bottom, top)
+    adb("shell", "input", "swipe", str(width // 2), str(start), str(width // 2), str(end), "450")
+    time.sleep(0.6)
+
+
+def expect(label, present=True):
+    root, _ = nodes()
+    assert (match(root, label) is not None) == present, (label, present)
+    print("PASS:", label, "visible" if present else "absent", flush=True)
+
+
+def regress():
+    base = "http://127.0.0.1:8765/browser-ux.html"
+    launch(base)
+    expect("Pure UX First Page")
+    tap("SPA route")
+    expect("Pure UX SPA Updated")
+    tap("编辑网址")
+    expect(base + "?route=updated")
+    adb("shell", "input", "keyevent", "4")
+    time.sleep(0.4)
+    adb("shell", "input", "keyevent", "4")
+    time.sleep(0.4)
+    root, _ = nodes()
+    swipe(root, downward=False)
+    expect("编辑网址", present=False)
+    root, _ = nodes()
+    swipe(root, downward=True)
+    expect("编辑网址")
+    inspect("regression-toolbar")
+    open_settings()
+    tap("主页")
+    tap("导航首页")
+    adb("shell", "input", "keyevent", "4")
+    expect("启动时恢复上次网页")
+    root, _ = nodes()
+    if match(root, "下次启动：主页") is not None:
+        tap("启动时恢复上次网页")
+    tap("返回")
+    launch(base)
+    tap("Popup page")
+    expect("Pure UX popup Page")
+    adb("shell", "input", "keyevent", "3")
+    time.sleep(1)
+    adb("shell", "am", "force-stop", PACKAGE)
+    launch()
+    expect("Pure UX popup Page")
+    inspect("regression-restored")
+    open_settings()
+    tap("启动时恢复上次网页")
+    expect("下次启动：主页")
+    tap("返回")
+    menu_item("退出浏览器")
+    time.sleep(0.5)
+    assert PACKAGE + "/" not in adb("shell", "dumpsys", "activity", "recents")
+    print("PASS: exit removes recent task", flush=True)
+    launch()
+    expect("常用网站")
+    inspect("regression-home")
 
 
 def launch(url=None):
@@ -83,7 +157,7 @@ def launch(url=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["inspect", "tap", "settings", "launch"])
+    parser.add_argument("action", choices=["inspect", "tap", "settings", "launch", "menu", "regress"])
     parser.add_argument("value", nargs="?")
     args = parser.parse_args()
     if args.action == "inspect":
@@ -94,3 +168,7 @@ if __name__ == "__main__":
         open_settings()
     elif args.action == "launch":
         launch(args.value)
+    elif args.action == "menu":
+        menu_item(args.value)
+    elif args.action == "regress":
+        regress()
