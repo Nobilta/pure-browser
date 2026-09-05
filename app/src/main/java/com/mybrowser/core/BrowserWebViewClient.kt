@@ -32,6 +32,7 @@ class BrowserWebViewClient(
 
         fun onPageStarted(url: String)
         fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean)
+        fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {}
         fun onPageError(url: String, code: Int, description: String)
 
         /** A non-main-frame HTTP response with an error status (for developer tools). */
@@ -117,6 +118,11 @@ class BrowserWebViewClient(
     override fun onPageFinished(view: WebView, url: String) {
         if (!listener.isCurrentWebView(view)) return
         listener.onPageFinished(url, view.canGoBack(), view.canGoForward())
+    }
+
+    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+        if (!listener.isCurrentWebView(view) || url.isNullOrBlank()) return
+        listener.onHistoryUpdated(url, view.canGoBack(), view.canGoForward())
     }
 
     override fun onReceivedError(

@@ -63,6 +63,7 @@ import com.mybrowser.core.UrlUtils
 import com.mybrowser.core.WebViewPool
 import com.mybrowser.core.WebViewConfig
 import com.mybrowser.core.DetachedWebViewClient
+import com.mybrowser.core.DefaultBrowser
 import com.mybrowser.dlna.CastController
 import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.CustomFilterController
@@ -185,6 +186,9 @@ class MainActivity : ComponentActivity(),
     private var homepageMode by mutableStateOf(HomepageMode.NAVIGATION)
     private var homeUrl by mutableStateOf("https://www.bing.com")
     private var homeShortcuts by mutableStateOf<List<HomeShortcut>>(emptyList())
+    private var restoreLastSession by mutableStateOf(false)
+    private var isDefaultBrowser by mutableStateOf(false)
+    private lateinit var defaultBrowserLauncher: ActivityResultLauncher<Intent>
 
     // Search engine setting
     private lateinit var searchEngineManager: SearchEngineManager
@@ -260,6 +264,7 @@ class MainActivity : ComponentActivity(),
         homeRepository.loadSettings().let { settings ->
             homepageMode = settings.mode
             homeUrl = settings.fixedUrl
+            restoreLastSession = settings.restoreLastSession
         }
         lifecycleScope.launch(Dispatchers.IO) {
             val shortcuts = homeRepository.loadShortcuts()
@@ -268,7 +273,14 @@ class MainActivity : ComponentActivity(),
 
         // Initialize both tab managers
         normalTabManager = TabManager()
-        normalTabManager.restoreMetadata(this, NORMAL_TABS_PREFS)
+        val sessionSnapshot = savedInstanceState?.getBundle(STATE_NORMAL_TABS)
+        if (sessionSnapshot != null) {
+            normalTabManager.restoreMetadata(sessionSnapshot)
+        } else if (restoreLastSession) {
+            normalTabManager.restoreMetadata(this, NORMAL_TABS_PREFS)
+        } else {
+            normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
+        }
         incognitoTabManager = TabManager()
         tabManager = normalTabManager
 
@@ -285,7 +297,7 @@ class MainActivity : ComponentActivity(),
         // would briefly start its WebView and let late subresource callbacks pollute the
         // media candidates for the requested URL. Restore only for a normal launcher start;
         // handleIntent() performs the explicit navigation below after Compose is ready.
-        if (intentNavigationText(intent) == null) {
+        if (savedInstanceState != null || intentNavigationText(intent) == null) {
             loadCurrentTab()
         } else {
             media.clear()
@@ -433,6 +445,7 @@ class MainActivity : ComponentActivity(),
                             sheet = null
                             showDeveloperTools = true
                         },
+                        onExit = ::exitBrowser,
                         onDismiss = { sheet = null },
                     )
                     }
@@ -577,6 +590,14 @@ class MainActivity : ComponentActivity(),
                     )
 
                     Sheet.SETTINGS -> SettingsSheet(
+                        restoreLastSession = restoreLastSession,
+                        onRestoreLastSessionChange = { enabled ->
+                            restoreLastSession = enabled
+                            homeRepository.saveRestoreLastSession(enabled)
+                            persistNormalSession()
+                        },
+                        isDefaultBrowser = isDefaultBrowser,
+                        onSetDefaultBrowser = ::requestDefaultBrowser,
                         currentSearchEngine = searchEngine,
                         availableSearchEngines = availableSearchEngines,
                         onSearchEngineChange = { engine ->
@@ -718,10 +739,17 @@ class MainActivity : ComponentActivity(),
         }
 
         setUpBackHandling()
-        handleIntent(intent, isInitial = true)
+        if (savedInstanceState == null && intentNavigationText(intent) != null) {
+            handleIntent(intent)
+        }
     }
 
     private fun registerActivityLaunchers() {
+        defaultBrowserLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) {
+            isDefaultBrowser = DefaultBrowser.isDefault(this)
+        }
         openDocumentLauncher = registerForActivityResult(
             ActivityResultContracts.OpenDocument(),
         ) { uri ->
@@ -799,6 +827,11 @@ class MainActivity : ComponentActivity(),
     private fun configure(view: WebView) {
         view.webViewClient = BrowserWebViewClient(this)
         view.webChromeClient = BrowserChromeClient(this, view)
+        view.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            if (webViewOrNull === view) {
+                state.onPageScroll(scrollY, oldScrollY, resources.displayMetrics.density)
+            }
+        }
 
         view.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             val id = downloadHandler.enqueue(
@@ -1098,7 +1131,7 @@ class MainActivity : ComponentActivity(),
         // Switch to the other tab manager. The incognito stack is discarded on exit;
         // no URL, thumbnail or saved WebView bundle survives the session.
         if (entering) {
-            normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
+            persistNormalSession()
             privacy.enter()
             tabManager = incognitoTabManager
         } else {
@@ -1139,21 +1172,21 @@ class MainActivity : ComponentActivity(),
      */
     private fun loadCurrentTab() {
         val tab = tabManager.currentTab ?: return
+        state.revealToolbar()
         mediaProbeJob?.cancel()
         media.clear()
         webViewOrNull?.let { mediaTrackers[it]?.reset() }
         val restored = tabManager.loadCurrentState(webView)
         if (!restored) {
-            // No saved state, load the URL
-            if (tab.url.isNotBlank() && tab.url != ABOUT_BLANK) {
-                webView.loadUrl(tab.url)
-            } else {
-                goHome()
-            }
+            val url = tab.url.takeIf { it.isNotBlank() && it != ABOUT_BLANK }
+                ?: if (homepageMode == HomepageMode.NAVIGATION) ABOUT_BLANK else homeUrl
+            state.onPageStarted(url)
+            state.onTitleChanged(tab.title)
+            webView.loadUrl(url)
+        } else {
+            state.onPageFinished(webView.url ?: tab.url, webView.canGoBack(), webView.canGoForward())
+            state.onTitleChanged(webView.title ?: tab.title)
         }
-        // Update UI state
-        state.currentUrl = tab.url
-        state.onPageFinished(tab.url, webView.canGoBack(), webView.canGoForward())
     }
 
     /**
@@ -1414,6 +1447,7 @@ class MainActivity : ComponentActivity(),
             clearHistoryOnNextFinish = false
         }
         state.onPageFinished(url, if (resetHistory) false else canGoBack, canGoForward)
+        state.onTitleChanged(webView.title)
         networkLogs.markMainFrameFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView)
         // Update current tab URL and title
@@ -1428,6 +1462,14 @@ class MainActivity : ComponentActivity(),
         // Detect the active media element for cast preference. The document-start tracker
         // handles cross-origin iframes; older providers use the one-shot polling fallback.
         startPlayingVideoDetection()
+    }
+
+    override fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {
+        documentUrlForWorkers = url
+        state.onHistoryUpdated(url, canGoBack, canGoForward)
+        tabManager.currentTab?.url = url
+        tabManager.notifyChanged()
+        refreshBookmarkStatus(url)
     }
 
     private fun startPlayingVideoDetection() {
@@ -1697,6 +1739,7 @@ class MainActivity : ComponentActivity(),
 
     /** Clears page-scoped work before a new URL starts, closing the old-request race window. */
     private fun prepareForNavigation() {
+        state.revealToolbar()
         mediaProbeJob?.cancel()
         mediaProbeJob = null
         media.clear()
@@ -1710,7 +1753,8 @@ class MainActivity : ComponentActivity(),
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIntent(intent, isInitial = false)
+        setIntent(intent)
+        handleIntent(intent)
     }
 
     /**
@@ -1718,7 +1762,7 @@ class MainActivity : ComponentActivity(),
      * URL we load the home page; on a later intent with no URL we leave the current page
      * alone, because that is a task switch rather than a request to navigate.
      */
-    private fun handleIntent(intent: Intent, isInitial: Boolean) {
+    private fun handleIntent(intent: Intent) {
         val url = intentNavigationText(intent)
         when {
             !url.isNullOrBlank() -> {
@@ -1730,7 +1774,6 @@ class MainActivity : ComponentActivity(),
                 bookmarkDraft = null
                 navigate(url)
             }
-            isInitial && state.currentUrl == ABOUT_BLANK -> goHome()
         }
     }
 
@@ -1770,7 +1813,7 @@ class MainActivity : ComponentActivity(),
     private fun confirmExit() {
         val now = System.currentTimeMillis()
         if (now - lastBackPressAt < EXIT_CONFIRM_WINDOW_MS) {
-            finish()
+            exitBrowser()
         } else {
             lastBackPressAt = now
             toast(getString(R.string.press_back_again))
@@ -1792,6 +1835,41 @@ class MainActivity : ComponentActivity(),
 
     // --- Lifecycle ---
 
+    private fun requestDefaultBrowser() {
+        runCatching {
+            defaultBrowserLauncher.launch(DefaultBrowser.requestIntent(this))
+        }.recoverCatching {
+            defaultBrowserLauncher.launch(DefaultBrowser.settingsIntent())
+        }.onFailure { toast("无法打开系统默认应用设置") }
+    }
+
+    private fun persistNormalSession() {
+        if (!::normalTabManager.isInitialized) return
+        if (!privacy.isIncognito) {
+            webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
+        }
+        if (restoreLastSession) normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
+        else normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
+    }
+
+    private fun exitBrowser() {
+        sheet = null
+        persistNormalSession()
+        webViewOrNull?.let { it.stopLoading(); it.onPause() }
+        finishAndRemoveTask()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (!privacy.isIncognito) webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
+        outState.putBundle(STATE_NORMAL_TABS, normalTabManager.snapshotMetadata())
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onStop() {
+        persistNormalSession()
+        super.onStop()
+    }
+
     override fun onPause() {
         super.onPause()
         // Suspends timers and JS so a backgrounded page cannot keep burning CPU. Media
@@ -1802,6 +1880,8 @@ class MainActivity : ComponentActivity(),
 
     override fun onResume() {
         super.onResume()
+        isDefaultBrowser = DefaultBrowser.isDefault(this)
+        webViewOrNull?.onResume()
         webViewOrNull?.resumeTimers()
     }
 
@@ -1827,10 +1907,7 @@ class MainActivity : ComponentActivity(),
         showSSLErrorDialog = false
 
         // Save current tab state before destroying
-        if (::tabManager.isInitialized) webViewOrNull?.let { tabManager.saveCurrentState(it) }
-        if (::normalTabManager.isInitialized && (!::privacy.isInitialized || !privacy.isIncognito)) {
-            normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
-        }
+        persistNormalSession()
 
         // Order matters. Clear the clients first so a late callback cannot touch a
         // half-torn-down Activity, then detach from Compose's holder, then hand back to
@@ -1875,6 +1952,7 @@ class MainActivity : ComponentActivity(),
         const val ABOUT_BLANK = "about:blank"
         const val EXIT_CONFIRM_WINDOW_MS = 2_000L
         const val NORMAL_TABS_PREFS = "normal_tabs"
+        const val STATE_NORMAL_TABS = "normal_tab_snapshot"
         const val MEDIA_PROBE_INTERVAL_MS = 1_200L
 
         /**

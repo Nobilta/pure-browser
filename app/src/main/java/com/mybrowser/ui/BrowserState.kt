@@ -57,6 +57,37 @@ class BrowserState {
     var isOmnibarFocused: Boolean by mutableStateOf(false)
         private set
 
+    var isToolbarHidden: Boolean by mutableStateOf(false)
+        private set
+    private var scrollDistance = 0f
+
+    val displayTitle: String
+        get() = if (currentUrl == ABOUT_BLANK) "" else pageTitle ?: UrlUtils.forDisplay(currentUrl)
+
+    fun revealToolbar() {
+        isToolbarHidden = false
+        scrollDistance = 0f
+    }
+
+    fun onPageScroll(scrollY: Int, oldScrollY: Int, density: Float) {
+        if (scrollY <= 0 || currentUrl == ABOUT_BLANK || isOmnibarFocused ||
+            isFindBarVisible || isLoading
+        ) {
+            revealToolbar()
+            return
+        }
+        val delta = (scrollY - oldScrollY) / density.coerceAtLeast(1f)
+        if (delta == 0f) return
+        if (delta * scrollDistance < 0) scrollDistance = 0f
+        scrollDistance += delta
+        if (scrollDistance >= 48f) {
+            isToolbarHidden = true
+            scrollDistance = 0f
+        } else if (scrollDistance <= -24f) {
+            revealToolbar()
+        }
+    }
+
     // --- Find in page ---
 
     var isFindBarVisible: Boolean by mutableStateOf(false)
@@ -92,6 +123,7 @@ class BrowserState {
     // --- WebView callbacks push in here ---
 
     fun onPageStarted(url: String) {
+        revealToolbar()
         currentUrl = url
         isLoading = true
         progress = 0
@@ -102,8 +134,12 @@ class BrowserState {
     }
 
     fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
-        currentUrl = url
         isLoading = false
+        onHistoryUpdated(url, canGoBack, canGoForward)
+    }
+
+    fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {
+        currentUrl = url
         this.canGoBack = canGoBack
         this.canGoForward = canGoForward
         syncOmnibarToUrl()
@@ -122,7 +158,7 @@ class BrowserState {
 
     /** Blank titles are normalised to null so the cast label can fall back to the host. */
     fun onTitleChanged(title: String?) {
-        pageTitle = title?.takeIf { it.isNotBlank() }
+        pageTitle = title?.trim()?.takeIf { it.isNotBlank() }
     }
 
     // --- omnibar ---
@@ -132,8 +168,10 @@ class BrowserState {
     }
 
     fun onOmnibarFocusChange(focused: Boolean) {
+        if (isOmnibarFocused == focused) return
         isOmnibarFocused = focused
         if (focused) {
+            revealToolbar()
             // Show the real URL for editing, not the trimmed display form, and select it
             // all so typing replaces rather than appends.
             val text = currentUrl.takeUnless { it == ABOUT_BLANK }.orEmpty()
@@ -153,6 +191,7 @@ class BrowserState {
     // --- Find in page ---
 
     fun showFindBar() {
+        revealToolbar()
         isFindBarVisible = true
     }
 

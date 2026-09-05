@@ -166,6 +166,18 @@ class TabManager(
 
     /** Saves URL/title metadata so normal tabs survive process death. */
     fun saveMetadata(context: Context, preferenceName: String) {
+        val snapshot = snapshotMetadata()
+        context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit {
+            putString(KEY_TABS, snapshot.getString(KEY_TABS))
+            putInt(KEY_CURRENT, snapshot.getInt(KEY_CURRENT))
+        }
+    }
+
+    fun clearMetadata(context: Context, preferenceName: String) {
+        context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit { clear() }
+    }
+
+    fun snapshotMetadata(): Bundle {
         val array = JSONArray()
         _tabs.forEach { tab ->
             array.put(
@@ -175,7 +187,7 @@ class TabManager(
                     .put("title", sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH)),
             )
         }
-        context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit {
+        return Bundle().apply {
             putString(KEY_TABS, array.toString())
             putInt(KEY_CURRENT, currentIndex)
         }
@@ -185,6 +197,14 @@ class TabManager(
     fun restoreMetadata(context: Context, preferenceName: String): Boolean {
         val prefs = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_TABS, null) ?: return false
+        return restoreMetadata(Bundle().apply {
+            putString(KEY_TABS, raw)
+            putInt(KEY_CURRENT, prefs.getInt(KEY_CURRENT, 0))
+        })
+    }
+
+    fun restoreMetadata(snapshot: Bundle): Boolean {
+        val raw = snapshot.getString(KEY_TABS) ?: return false
         if (raw.length > MAX_PERSISTED_JSON_LENGTH) return false
         val restored = runCatching {
             val array = JSONArray(raw)
@@ -208,9 +228,10 @@ class TabManager(
         }.getOrDefault(emptyList())
         if (restored.isEmpty()) return false
 
+        _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
         _tabs += restored.take(maxTabs)
-        currentIndex = prefs.getInt(KEY_CURRENT, 0).coerceIn(_tabs.indices)
+        currentIndex = snapshot.getInt(KEY_CURRENT, 0).coerceIn(_tabs.indices)
         changed()
         return true
     }

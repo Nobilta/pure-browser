@@ -1,7 +1,9 @@
 package com.mybrowser.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,10 +21,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -31,12 +37,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.mybrowser.core.UrlUtils
 import com.mybrowser.R
 import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.HistoryManager
-import com.mybrowser.ui.theme.BrowserColors
 
 /**
  * The address bar.
@@ -60,12 +68,20 @@ fun Omnibar(
     securityLevel: BrowserState.SecurityLevel,
     modifier: Modifier = Modifier,
     currentUrl: String? = null,
+    displayTitle: String = "",
     onSecurityClick: () -> Unit = {},
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(isFocused) {
+        if (isFocused) {
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
     val actionLabel = stringResource(
         if (UrlUtils.isNavigableInput(value.text)) {
             R.string.omnibar_visit
@@ -90,13 +106,13 @@ fun Omnibar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp),
+                .height(48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
+                    .height(48.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                     .padding(start = 12.dp, end = 4.dp),
@@ -112,11 +128,38 @@ fun Omnibar(
                     )
                 }
 
-                BasicTextField(
+                if (!isFocused) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onFocusChange(true) }
+                            .semantics { contentDescription = "编辑网址" }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = displayTitle.ifBlank { stringResource(R.string.omnibar_hint) },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        currentUrl?.let(UrlUtils::hostOf)?.takeIf { it.isNotBlank() }?.let { host ->
+                            Text(
+                                text = host,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                } else BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
                     modifier = Modifier
                         .weight(1f)
+                        .focusRequester(focusRequester)
+                        .semantics { contentDescription = "网址输入框" }
                         .onFocusChanged { onFocusChange(it.isFocused) },
                     singleLine = true,
                     textStyle = LocalTextStyle.current.merge(
@@ -149,7 +192,7 @@ fun Omnibar(
                 )
 
                 if (isFocused) {
-                    IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onClear, modifier = Modifier.size(40.dp)) {
                         Icon(
                             painter = painterResource(R.drawable.ic_stop),
                             contentDescription = stringResource(R.string.cd_clear),
@@ -161,7 +204,7 @@ fun Omnibar(
                     // Refresh/Stop button inside the address surface when not focused.
                     IconButton(
                         onClick = onRefresh,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
                             painter = painterResource(
@@ -209,7 +252,7 @@ fun Omnibar(
                 },
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(top = 44.dp)
+                    .padding(top = 52.dp)
             )
         }
     }

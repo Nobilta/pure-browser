@@ -4,6 +4,9 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -101,6 +104,7 @@ fun BrowserScreen(
     // order, so an enabled BackHandler wins. Disabled, it is transparent.
     BackHandler(enabled = state.isOmnibarFocused) {
         focusManager.clearFocus()
+        state.onOmnibarFocusChange(false)
         keyboard?.hide()
     }
 
@@ -144,6 +148,11 @@ fun BrowserScreen(
                 }
             }
 
+            AnimatedVisibility(
+                visible = !state.isToolbarHidden || showHomeDashboard,
+                enter = expandVertically(expandFrom = Alignment.Top),
+                exit = shrinkVertically(shrinkTowards = Alignment.Top),
+            ) {
             Omnibar(
                 value = state.omnibarValue,
                 onValueChange = state::onOmnibarValueChange,
@@ -155,11 +164,13 @@ fun BrowserScreen(
                 isLoading = state.isLoading,
                 securityLevel = state.securityLevel,
                 currentUrl = state.currentUrl,
+                displayTitle = state.displayTitle,
                 onSecurityClick = onSecurityClick,
                 bookmarkManager = bookmarkManager,
                 historyManager = historyManager,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
+            }
 
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting
             // under the omnibar reads as a stalled page.

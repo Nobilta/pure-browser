@@ -7,6 +7,7 @@ import android.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +40,21 @@ class HomeRepositoryTest {
 
         assertEquals(HomepageMode.NAVIGATION, settings.mode)
         assertEquals("https://www.bing.com", settings.fixedUrl)
+        assertFalse(settings.restoreLastSession)
+    }
+
+    @Test
+    fun `session restore is explicit persistent and independent of homepage`() {
+        repository.saveMode(HomepageMode.FIXED_URL)
+        repository.saveFixedUrl("https://example.com/home")
+        assertFalse(repository.loadSettings().restoreLastSession)
+        repository.saveRestoreLastSession(true)
+        assertTrue(HomeRepository(context).loadSettings().restoreLastSession)
+        repository.saveRestoreLastSession(false)
+        val settings = HomeRepository(context).loadSettings()
+        assertFalse(settings.restoreLastSession)
+        assertEquals(HomepageMode.FIXED_URL, settings.mode)
+        assertEquals("https://example.com/home", settings.fixedUrl)
     }
 
     @Test
