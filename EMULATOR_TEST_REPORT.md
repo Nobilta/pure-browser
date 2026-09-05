@@ -8,13 +8,13 @@
 - Android：API 34，arm64
 - 包：`com.mybrowser`（Release）
 - 可控媒体回归页：`http://10.0.2.2:8765/media-fixture.html`（项目 `validation/` 夹具）
-- APK：1,898,669 bytes；SHA-256 `d81f2c1d434a82aeddfe0c258b8674afaef0b7986f4677e3ea0fae86409ad7aa`
+- APK：1,910,313 bytes；SHA-256 `6d533dc93958d7a7cd10bbc11843672d1d45800d1b606e58118f8a70287c48a5`
 
 ## 自动检查
 
 ```text
 Rust fmt/test/clippy       通过（49 tests）
-Android debug unit test    通过（123 tests）
+Android debug unit test    通过（134 tests）
 Android lint                通过（0 errors / 2 warnings）
 Release assemble/sign      通过
 ```
@@ -26,6 +26,7 @@ Release assemble/sign      通过
 | 冷启动与 WebView 渲染 | 通过 | 无启动崩溃 |
 | R8/压缩封装 | 通过 | 压缩 APK 覆盖安装成功；首页和分类菜单完整渲染 |
 | 地址栏访问/搜索按钮 | 通过 | 仅聚焦时显示，位于输入框外 |
+| 地址栏标题/滚动收起 | 通过 | 未编辑时显示标题和域名；向下收起、向上展开；点击后编辑完整 URL |
 | 添加/编辑书签 | 通过 | 默认当前标题/URL，可手动修改 |
 | 分类菜单 | 通过 | 四个分类可滚动，所有原入口均保留 |
 | 导航/固定网址主页 | 通过 | 设置可切换并跨重启保留 |
@@ -33,6 +34,8 @@ Release assemble/sign      通过
 | HTTPS 证书详情 | 通过 | 展示主体、组织、签发者、起止时间与有效状态 |
 | 清除浏览数据 | 通过 | 有确认框；清理后书签仍保留 |
 | 标签新建/切换/关闭 | 通过 | 标签元数据可恢复 |
+| 启动恢复设置 | 通过 | 默认进入主页；开启后恢复普通标签，关闭后清除恢复元数据 |
+| 默认浏览器/退出 | 通过 | RoleManager 系统选择页可用；退出移除最近任务 |
 | 无痕进入/退出 | 通过 | 清理完成后再加载普通页 |
 | 媒体候选识别 | 通过 | 页面检测到可投屏媒体时出现右下角按钮 |
 | 当前播放流标记 | 通过 | 选择页显示“正在播放” |
@@ -43,6 +46,7 @@ Release assemble/sign      通过
 | 下载删除与后台服务 | 通过 | 仅删记录会保留文件；两种目录均可同步删文件；传输完成后 FGS 自动退出 |
 | 页面查找/开发者工具 | 通过 | 入口和状态可用 |
 | 崩溃关键词检查 | 通过 | 无 `FATAL EXCEPTION`、`UnsatisfiedLinkError`、`SIGSEGV` |
+| 横屏/深色/大字体 | 通过 | API 34 横屏、深色和 1.3 倍字体下无重叠 |
 
 ## 截图证据
 
