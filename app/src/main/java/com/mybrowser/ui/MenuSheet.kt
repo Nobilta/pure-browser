@@ -16,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -52,6 +53,7 @@ fun MenuSheet(
     onToggleBookmark: () -> Unit,
     onClearData: () -> Unit,
     onOpenDeveloperTools: () -> Unit = {},
+    onExit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -204,6 +206,13 @@ fun MenuSheet(
                     onClick = onOpenDeveloperTools,
                 )
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            MenuRow(
+                iconRes = R.drawable.ic_close,
+                title = "退出浏览器",
+                subtitle = "",
+                onClick = onExit,
+            )
         }
     }
 }
@@ -219,13 +228,7 @@ private fun MenuSection(
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 8.dp),
     )
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(content = content)
-    }
+    Column(modifier = Modifier.fillMaxWidth(), content = content)
 }
 
 @Composable
@@ -266,7 +269,7 @@ private fun MenuRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = contentColor,
             )
-            Text(
+            if (subtitle.isNotEmpty()) Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else contentColor,
