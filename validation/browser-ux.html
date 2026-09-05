@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pure UX First Page</title>
+<style>
+  body { font: 18px/1.6 sans-serif; margin: 0; background: #fff; color: #202124; }
+  header, main, footer { padding: 20px; }
+  h1 { font-size: 26px; }
+  nav { display: flex; flex-wrap: wrap; gap: 16px; }
+  button, a { font: inherit; padding: 10px; color: #086f63; }
+  section { border-top: 1px solid #ddd; min-height: 240px; padding: 20px 0; }
+</style>
+<header>
+  <h1 id="heading">Pure UX First Page</h1>
+  <nav>
+    <button id="route">SPA route</button>
+    <button id="title">Change title</button>
+    <a href="?page=second">Second page</a>
+    <a href="?page=popup" target="_blank">Popup page</a>
+    <a href="media-fixture.html">Media fixture</a>
+  </nav>
+</header>
+<main id="content"></main>
+<footer>End of scroll fixture</footer>
+<script>
+  const page = new URL(location.href).searchParams.get('page');
+  if (page) document.title = 'Pure UX ' + page + ' Page';
+  document.querySelector('#heading').textContent = document.title;
+  document.querySelector('#route').onclick = () => {
+    history.pushState({}, '', '?route=updated');
+    document.title = 'Pure UX SPA Updated';
+    document.querySelector('#heading').textContent = document.title;
+  };
+  document.querySelector('#title').onclick = () => { document.title = 'Pure UX Dynamic Title'; };
+  for (let i = 1; i <= 20; i++) {
+    const section = document.createElement('section');
+    section.textContent = 'Section ' + i + ': scroll regression content';
+    document.querySelector('#content').append(section);
+  }
+</script>
+</html>

@@ -164,6 +164,7 @@ class WebViewPool(
     }
 
     private fun reset(webView: WebView) {
+        webView.setOnScrollChangeListener(null)
         // Cut the host callbacks before the asynchronous blank navigation. Otherwise a
         // pooled view can deliver onPageStarted/onPageFinished to an Activity that has
         // already released it (especially during renderer replacement).

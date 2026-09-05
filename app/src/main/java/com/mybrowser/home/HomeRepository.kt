@@ -21,6 +21,7 @@ enum class HomepageMode {
 data class HomeSettings(
     val mode: HomepageMode,
     val fixedUrl: String,
+    val restoreLastSession: Boolean = false,
 )
 
 /** A persisted tile shown on the native navigation homepage. */
@@ -61,11 +62,15 @@ class HomeRepository(context: Context) {
         } else {
             HomepageMode.NAVIGATION
         }
-        return HomeSettings(mode, fixedUrl)
+        return HomeSettings(mode, fixedUrl, prefs.getBoolean(KEY_RESTORE_SESSION, false))
     }
 
     fun saveMode(mode: HomepageMode) {
         prefs.edit { putString(KEY_MODE, mode.name) }
+    }
+
+    fun saveRestoreLastSession(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_RESTORE_SESSION, enabled) }
     }
 
     fun saveFixedUrl(url: String): Boolean {
@@ -260,6 +265,7 @@ class HomeRepository(context: Context) {
     private companion object {
         const val PREFS_NAME = "browser_settings"
         const val KEY_MODE = "homepage_mode"
+        const val KEY_RESTORE_SESSION = "restore_last_session"
         // Keep the old key so existing installations migrate without losing their URL.
         const val KEY_FIXED_URL = "homepage"
         const val KEY_SHORTCUTS = "homepage_shortcuts"
