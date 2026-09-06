@@ -7,7 +7,7 @@ kotlinCompose = "2.2.10"
 # applying org.jetbrains.kotlin.android would conflict.
 
 compileSdk = "37"
-minSdk = "34"
+minSdk = "29"
 targetSdk = "37"
 
 activity = "1.13.0"

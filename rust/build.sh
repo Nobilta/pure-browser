@@ -13,13 +13,19 @@ cd "$SCRIPT_DIR"
 
 TARGET="${TARGET:-aarch64-linux-android}"
 ABI="${ABI:-arm64-v8a}"
+android_api="$(awk -F '\"' '/^minSdk[[:space:]]*=/ {print $2}' "$PROJECT_DIR/gradle/libs.versions.toml")"
+if [[ ! "$android_api" =~ ^[0-9]+$ ]]; then
+    echo "Cannot read minSdk from the version catalog" >&2
+    exit 1
+fi
+export CARGO_TARGET_DIR="$SCRIPT_DIR/target/android-api-$android_api"
 
 case "$TARGET:$ABI" in
     aarch64-linux-android:arm64-v8a)
-        linker_name="aarch64-linux-android34-clang"
+        linker_name="aarch64-linux-android${android_api}-clang"
         ;;
     x86_64-linux-android:x86_64)
-        linker_name="x86_64-linux-android34-clang"
+        linker_name="x86_64-linux-android${android_api}-clang"
         ;;
     *)
         echo "Unsupported Android target/ABI pair: $TARGET / $ABI" >&2
@@ -63,14 +69,14 @@ out_dir="$PROJECT_DIR/app/build/rustJniLibs/$ABI"
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
-cp "target/$TARGET/release/libadblock.so" "$out_dir/libmybrowser_adblock.so"
-cp "target/$TARGET/release/liburl_utils.so" "$out_dir/libmybrowser_url_utils.so"
-cp "target/$TARGET/release/libcache.so" "$out_dir/libmybrowser_cache.so"
+cp "$CARGO_TARGET_DIR/$TARGET/release/libadblock.so" "$out_dir/libmybrowser_adblock.so"
+cp "$CARGO_TARGET_DIR/$TARGET/release/liburl_utils.so" "$out_dir/libmybrowser_url_utils.so"
+cp "$CARGO_TARGET_DIR/$TARGET/release/libcache.so" "$out_dir/libmybrowser_cache.so"
 
 if [[ "${INCLUDE_LEGACY_RUST:-0}" == "1" ]]; then
     cargo build --release --target "$TARGET" -p downloader -p filename_parser
-    cp "target/$TARGET/release/libdownloader.so" "$out_dir/libmybrowser_downloader.so"
-    cp "target/$TARGET/release/libfilename_parser.so" "$out_dir/libmybrowser_filename_parser.so"
+    cp "$CARGO_TARGET_DIR/$TARGET/release/libdownloader.so" "$out_dir/libmybrowser_downloader.so"
+    cp "$CARGO_TARGET_DIR/$TARGET/release/libfilename_parser.so" "$out_dir/libmybrowser_filename_parser.so"
 fi
 
 echo "All Rust libraries built successfully:"

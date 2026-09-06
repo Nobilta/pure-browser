@@ -1,23 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!--
-      Platform Material theme, no AppCompat. That dependency costs several MB of
-      resources that R8 cannot shrink, in exchange for backports we do not need at
-      minSdk 34. Cost of going without: day/night is done with -night resource
-      qualifiers instead of AppCompatDelegate.
-
-      This theme only styles the launch frame — the window the system draws before
-      Compose takes over. Everything after that comes from Theme.kt, so the one thing
-      that matters here is that windowBackground matches what Compose paints, or the
-      launch flashes. @android:color/system_surface_* is the same Material You source
-      dynamicLightColorScheme reads, which keeps the two in step; both were added in
-      API 34 and minSdk is 34.
-    -->
-    <style name="Theme.MyBrowser" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <!-- Compose owns the UI; this platform theme styles the launch window. -->
+    <style name="Theme.MyBrowser.Base" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:windowBackground">@android:color/system_surface_light</item>
+    </style>
+    <style name="Theme.MyBrowser" parent="Theme.MyBrowser.Base">
+        <item name="android:windowBackground">#F9F9FF</item>
     </style>
 </resources>
