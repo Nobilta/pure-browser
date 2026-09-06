@@ -33,6 +33,7 @@
 /validation/**/*.png
 /validation/**/*.xml
 /validation/**/*.txt
+/validation/results/
 
 # Signing material never belongs in the repo
 *.jks

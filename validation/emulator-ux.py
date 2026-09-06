@@ -66,8 +66,10 @@ def inspect(name=None):
     print(json.dumps(entries, ensure_ascii=False, indent=2))
 
 
-def open_settings():
+def open_settings(category=None):
     menu_item("设置")
+    if category:
+        tap(category)
 
 
 def menu_item(label):
@@ -114,7 +116,7 @@ def regress():
     swipe(root, downward=True)
     expect("编辑网址")
     inspect("regression-toolbar")
-    open_settings()
+    open_settings("浏览与启动")
     tap("主页")
     tap("导航首页")
     adb("shell", "input", "keyevent", "4")
@@ -122,6 +124,7 @@ def regress():
     root, _ = nodes()
     if match(root, "下次启动：主页") is not None:
         tap("启动时恢复上次网页")
+    tap("返回")
     tap("返回")
     launch(base)
     tap("Popup page")
@@ -132,9 +135,10 @@ def regress():
     launch()
     expect("Pure UX popup Page")
     inspect("regression-restored")
-    open_settings()
+    open_settings("浏览与启动")
     tap("启动时恢复上次网页")
     expect("下次启动：主页")
+    tap("返回")
     tap("返回")
     menu_item("退出浏览器")
     time.sleep(0.5)
