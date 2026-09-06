@@ -12,7 +12,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [29, 34], application = Application::class)
 class DefaultBrowserTest {
     @Test
     fun systemRoleControlsStatusAndRequest() {

@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Dark counterpart of values/themes.xml; see there for why this file is minimal. -->
 <resources>
-    <style name="Theme.MyBrowser" parent="@android:style/Theme.Material.NoActionBar">
+    <style name="Theme.MyBrowser.Base" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:windowBackground">@android:color/system_surface_dark</item>
+    </style>
+    <style name="Theme.MyBrowser" parent="Theme.MyBrowser.Base">
+        <item name="android:windowBackground">#111318</item>
     </style>
 </resources>

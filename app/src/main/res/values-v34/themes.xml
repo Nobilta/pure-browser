@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MyBrowser" parent="Theme.MyBrowser.Base">
+        <item name="android:windowBackground">@android:color/system_surface_light</item>
+    </style>
+</resources>

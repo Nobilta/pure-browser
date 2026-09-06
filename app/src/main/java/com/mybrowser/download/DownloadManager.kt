@@ -95,10 +95,11 @@ class DownloadHandler(context: Context) : Closeable {
             StrictMode.setThreadPolicy(oldPolicy)
         }
         transferScope.launch { cleanupOrphanedTemporaryFiles() }
-        appContext.registerReceiver(
+        ContextCompat.registerReceiver(
+            appContext,
             completionReceiver,
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            Context.RECEIVER_NOT_EXPORTED,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         publishSnapshots()
         refresh()
