@@ -68,8 +68,8 @@ fun BrowserScreen(
     onRemoveHomeShortcut: (HomeShortcut) -> Unit = {},
     /** Number of castable media candidates discovered on the current page. */
     mediaCount: Int = 0,
-    /** True only while an HTML5 video element is actively playing. */
-    hasPlayingVideo: Boolean = false,
+    /** True while an HTML5 video is available, including when it is paused. */
+    hasVideo: Boolean = false,
     /** Actual rate reported by the strongest playing video. */
     playbackSpeed: Float = PlaybackSpeed.DEFAULT,
     /** Opens the speed picker for the active video. */
@@ -233,7 +233,7 @@ fun BrowserScreen(
 
             // Media actions stay one tap away while a video is active. Speed is tied to
             // the playing element; casting is available whenever a usable stream exists.
-            if (!showHomeDashboard && (hasPlayingVideo || mediaCount > 0)) {
+            if (!showHomeDashboard && (hasVideo || mediaCount > 0)) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -241,7 +241,7 @@ fun BrowserScreen(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (hasPlayingVideo) {
+                    if (hasVideo) {
                         val speedLabel = PlaybackSpeed.label(playbackSpeed)
                         val speedDescription = stringResource(
                             R.string.cd_playback_speed,

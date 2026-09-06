@@ -1,6 +1,7 @@
 package com.mybrowser.data
 
 import android.content.Context
+import androidx.core.content.edit
 import com.mybrowser.media.PlaybackSpeed
 
 enum class ThemeMode(val label: String) {
@@ -47,7 +48,8 @@ class BrowserPreferencesRepository(context: Context) {
             boostRate = value.video.boostRate.takeIf { it == 2f || it == 3f } ?: 2f,
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
         )
-        prefs.edit().putString("theme", value.theme.name)
+        prefs.edit {
+            putString("theme", value.theme.name)
             .putBoolean("video_controls", video.enhancedControls)
             .putBoolean("video_vertical", video.verticalGestures)
             .putBoolean("video_seek", video.horizontalSeek)
@@ -56,7 +58,7 @@ class BrowserPreferencesRepository(context: Context) {
             .putBoolean("video_landscape", video.landscapeFullscreen)
             .putBoolean("video_remember_speed", video.rememberSpeed)
             .putFloat("video_speed", video.preferredSpeed)
-            .apply()
+        }
         return value.copy(video = video)
     }
 }

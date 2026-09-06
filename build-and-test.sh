@@ -26,6 +26,10 @@ require_command java
 require_command cargo
 require_command rustup
 require_command shasum
+require_command node
+
+echo "运行网页视频控制协议测试..."
+node --test validation/playback-probe.test.cjs
 
 java_version="$(java -version 2>&1 | sed -n '1s/.*version \"\([^\"]*\)\".*/\1/p')"
 echo "Java: ${java_version:-unknown}"
@@ -53,7 +57,7 @@ if [[ ! -f "$apk" ]]; then
     exit 1
 fi
 
-delivery="$SCRIPT_DIR/PureBrowser-v0.1.0-release.apk"
+delivery="$SCRIPT_DIR/PureBrowser-v0.2.0-release.apk"
 cp "$apk" "$delivery"
 size="$(wc -c < "$delivery" | tr -d ' ')"
 hash="$(shasum -a 256 "$delivery" | awk '{print $1}')"

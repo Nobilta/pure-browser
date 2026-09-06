@@ -35,7 +35,7 @@ fun MenuSheet(
     isFilterEnabled: Boolean,
     blockedCount: Int,
     mediaCount: Int,
-    hasPlayingVideo: Boolean,
+    hasVideo: Boolean,
     playbackSpeed: Float,
     isDesktopMode: Boolean,
     isCurrentPageBookmarked: Boolean,
@@ -109,7 +109,7 @@ fun MenuSheet(
                 MenuRow(
                     iconRes = R.drawable.ic_speed,
                     title = stringResource(R.string.menu_playback_speed),
-                    subtitle = if (hasPlayingVideo) {
+                    subtitle = if (hasVideo) {
                         stringResource(
                             R.string.menu_playback_speed_current,
                             PlaybackSpeed.label(playbackSpeed),
@@ -117,7 +117,7 @@ fun MenuSheet(
                     } else {
                         stringResource(R.string.menu_playback_speed_unavailable)
                     },
-                    enabled = hasPlayingVideo,
+                    enabled = hasVideo,
                     onClick = onOpenPlaybackSpeed,
                 )
                 MenuRow(
