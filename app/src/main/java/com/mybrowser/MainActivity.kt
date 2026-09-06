@@ -69,6 +69,7 @@ import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.CustomFilterController
 import com.mybrowser.media.MediaCandidateStore
 import com.mybrowser.media.MediaPlaybackTracker
+import com.mybrowser.media.FullscreenVideoView
 import com.mybrowser.data.BrowserPreferences
 import com.mybrowser.data.BrowserPreferencesRepository
 import com.mybrowser.media.PlaybackSpeed
@@ -160,7 +161,7 @@ class MainActivity : ComponentActivity(),
     // only the WebView instance is not enough when a pooled instance is reconfigured.
     private var mediaTrackerGeneration = 0L
     private var mediaProbeJob: Job? = null
-    private var hasPlayingVideo by mutableStateOf(false)
+    private var hasVideo by mutableStateOf(false)
     private var playbackSpeed by mutableFloatStateOf(PlaybackSpeed.DEFAULT)
     private val networkLogs = NetworkLogStore()
     private val consoleLogs = ConsoleLogStore()
@@ -220,9 +221,9 @@ class MainActivity : ComponentActivity(),
         get() = checkNotNull(webViewOrNull) { "WebView read before onCreate acquired it" }
 
     /** Fullscreen video state. */
-    private var fullscreenView: View? = null
+    private var fullscreenView: FullscreenVideoView? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
-    private var originalOrientation = 0
+    private var rememberedVideo: String? = null
 
     // Security dialog state
     private var showSecurityDialog by mutableStateOf(false)
@@ -354,7 +355,7 @@ class MainActivity : ComponentActivity(),
                     onOpenHomeShortcut = { shortcut -> navigate(shortcut.url) },
                     onRemoveHomeShortcut = ::removeHomeShortcut,
                     mediaCount = mediaSnapshot.count,
-                    hasPlayingVideo = hasPlayingVideo,
+                    hasVideo = hasVideo,
                     playbackSpeed = playbackSpeed,
                     onPlaybackSpeed = { sheet = Sheet.PLAYBACK_SPEED },
                     onCast = {
@@ -393,7 +394,7 @@ class MainActivity : ComponentActivity(),
                         isFilterEnabled = filter.enabled.collectAsState().value,
                         blockedCount = filter.blockedCount,
                         mediaCount = mediaSnapshot.count,
-                        hasPlayingVideo = hasPlayingVideo,
+                        hasVideo = hasVideo,
                         playbackSpeed = playbackSpeed,
                         isDesktopMode = state.isDesktopMode,
                         isCurrentPageBookmarked = currentPageBookmarked,
@@ -907,13 +908,16 @@ class MainActivity : ComponentActivity(),
                 if (webViewOrNull !== view || generation != mediaTrackerGeneration) {
                     return@runOnUiThread
                 }
-                hasPlayingVideo = signal.isPlaying
-                if (signal.isPlaying) {
-                    signal.playbackRate?.let { playbackSpeed = it }
-                    media.setPlayingVideos(signal.urls)
-                } else {
-                    playbackSpeed = PlaybackSpeed.DEFAULT
-                    media.setPlayingVideos(emptyList())
+                hasVideo = signal.hasVideo
+                playbackSpeed = signal.playbackRate ?: PlaybackSpeed.DEFAULT
+                media.setPlayingVideos(if (signal.isPlaying) signal.urls else emptyList())
+                fullscreenView?.update(signal)
+                val preferences = browserPreferences.video
+                if (signal.isPlaying && !signal.isBoosting && preferences.rememberSpeed &&
+                    signal.identity != rememberedVideo
+                ) {
+                    rememberedVideo = signal.identity
+                    mediaTrackers[view]?.setPlaybackRate(preferences.preferredSpeed)
                 }
             }
         }
@@ -922,9 +926,11 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun removeMediaPlaybackTracker(view: WebView) {
+        if (webViewOrNull === view) leaveFullscreen()
+        rememberedVideo = null
         mediaTrackerGeneration++
         mediaTrackers.remove(view)?.close()
-        hasPlayingVideo = false
+        hasVideo = false
         playbackSpeed = PlaybackSpeed.DEFAULT
     }
 
@@ -940,6 +946,7 @@ class MainActivity : ComponentActivity(),
                 if (webViewOrNull !== view || mediaTrackers[view] !== tracker) return@runOnUiThread
                 if (applied) {
                     playbackSpeed = speed
+                    rememberPlaybackSpeed(speed)
                     toast(
                         getString(
                             R.string.playback_speed_applied,
@@ -1455,6 +1462,8 @@ class MainActivity : ComponentActivity(),
     override fun isCurrentWebView(view: WebView): Boolean = webViewOrNull === view
 
     override fun onPageStarted(url: String) {
+        leaveFullscreen()
+        rememberedVideo = null
         documentUrlForWorkers = url
         state.onPageStarted(url)
         networkLogs.beginPage(url)
@@ -1526,7 +1535,7 @@ class MainActivity : ComponentActivity(),
         val pageUrl = state.currentUrl
         mediaProbeJob = lifecycleScope.launch {
             while (isActive && webViewOrNull === view && state.currentUrl == pageUrl) {
-                tracker.probe()
+                if (fullscreenView == null) tracker.probe()
                 delay(MEDIA_PROBE_INTERVAL_MS)
             }
         }
@@ -1687,38 +1696,54 @@ class MainActivity : ComponentActivity(),
         if (pendingPermissionRequest === request) pendingPermissionRequest = null
     }
 
+    private fun rememberPlaybackSpeed(speed: Float) {
+        if (!browserPreferences.video.rememberSpeed) return
+        browserPreferences = preferencesRepository.save(browserPreferences.copy(
+            video = browserPreferences.video.copy(preferredSpeed = speed),
+        ))
+    }
+
     override fun onEnterFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
-        if (fullscreenView != null) {
+        val tracker = webViewOrNull?.let(mediaTrackers::get)
+        if (fullscreenView != null || tracker == null) {
             callback.onCustomViewHidden()
             return
         }
-        fullscreenView = view
         fullscreenCallback = callback
-        originalOrientation = requestedOrientation
-
-        // Added to decorView, above the Compose hierarchy, and deliberately outside the
-        // composition: this View comes from Chromium with its own lifecycle, so routing it
-        // through Compose would buy nothing but a reparenting hazard.
-        (window.decorView as ViewGroup).addView(
-            view,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            ),
+        val host = FullscreenVideoView(
+            activity = this,
+            videoView = view,
+            preferences = browserPreferences.video,
+            tracker = tracker,
+            titleProvider = { state.pageTitle ?: "视频播放" },
+            canCast = { media.count > 0 },
+            onExit = ::leaveFullscreen,
+            onCast = {
+                leaveFullscreen()
+                tracker.probe()
+                sheet = Sheet.CAST
+                cast.search()
+            },
+            onSpeedSelected = ::rememberPlaybackSpeed,
         )
-        view.setBackgroundColor(Color.BLACK)
+        fullscreenView = host
+        (window.decorView as ViewGroup).addView(host, ViewGroup.LayoutParams(-1, -1))
         setSystemBarsVisible(false)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun leaveFullscreen() {
+        val callback = fullscreenCallback
+        onExitFullscreen()
+        runCatching { callback?.onCustomViewHidden() }
     }
 
     override fun onExitFullscreen() {
-        val view = fullscreenView ?: return
-        (window.decorView as ViewGroup).removeView(view)
+        val host = fullscreenView ?: return
         fullscreenView = null
         fullscreenCallback = null
+        host.release()
+        (host.parent as? ViewGroup)?.removeView(host)
         setSystemBarsVisible(true)
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        requestedOrientation = originalOrientation
     }
 
     override fun onShowFileChooser(
@@ -1834,7 +1859,9 @@ class MainActivity : ComponentActivity(),
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
-                    fullscreenView != null -> fullscreenCallback?.onCustomViewHidden()
+                    fullscreenView != null -> {
+                        if (fullscreenView?.unlockOnBack() != true) leaveFullscreen()
+                    }
                     sheet != null -> {
                         // Handle nested sheets: if we're in a sub-settings sheet, go back to main settings
                         sheet = when (sheet) {
@@ -1916,6 +1943,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPause() {
+        fullscreenView?.cancelTransientControls()
         super.onPause()
         // Suspends timers and JS so a backgrounded page cannot keep burning CPU. Media
         // keeps playing: onPause on the WebView itself would kill audio, which is wrong
@@ -1933,14 +1961,7 @@ class MainActivity : ComponentActivity(),
     override fun onDestroy() {
         mediaProbeJob?.cancel()
         mediaProbeJob = null
-        fullscreenView?.let { view ->
-            (view.parent as? ViewGroup)?.removeView(view)
-            runCatching { fullscreenCallback?.onCustomViewHidden() }
-            fullscreenView = null
-            fullscreenCallback = null
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            setSystemBarsVisible(true)
-        }
+        leaveFullscreen()
         pendingFileCallback?.onReceiveValue(null)
         pendingFileCallback = null
         pendingPermissionRequest?.let { runCatching { it.deny() } }

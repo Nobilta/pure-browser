@@ -104,7 +104,7 @@ class BrowserChromeClient(
         // the host remains responsible for rejecting a stale custom view if necessary.
         // A second request while already fullscreen must be refused, or the first
         // callback leaks and the video can never be exited.
-        if (customViewCallback != null) {
+        if (customViewCallback != null || !listener.isCurrentWebView(sourceView)) {
             callback.onCustomViewHidden()
             return
         }
