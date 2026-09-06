@@ -30,8 +30,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Release ships arm64-v8a only: that is the sole target the Rust filter engine is
-        // cross-compiled for, and every device at minSdk 34 is arm64. Overridable via
+        // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
+        // Older devices with a 32-bit Android installation are not included. Overridable via
         // -Pmybrowser.abi so a debug build can add x86_64 for the emulator — Compose pulls
         // in libandroidx.graphics.path.so, so an arm64-only APK will not install there.
         ndk {
@@ -99,7 +99,7 @@ android {
 
     packaging {
         dex {
-            // A directly distributed APK benefits from ZIP-compressed DEX. Android 14+
+            // A directly distributed APK benefits from ZIP-compressed DEX. Android 10+
             // extracts it during installation; this trades install work and some installed
             // storage for a materially smaller download without changing runtime code.
             useLegacyPackaging = true
@@ -184,6 +184,9 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     val abiProp = providers.gradleProperty("mybrowser.abi").orElse("arm64-v8a")
     val abis = abiProp.map { it.split(',').map { s -> s.trim() }.filter { s -> s.isNotEmpty() } }
     val outDir = layout.buildDirectory.dir("rustJniLibs")
+    val androidApi = libs.versions.minSdk.get()
+    // API-specific Cargo output prevents a lower-minSdk APK reusing higher-API binaries.
+    val cargoOutput = rustDir.resolve("target/android-api-$androidApi")
 
     val rustupHome = System.getProperty("user.home") + "/.rustup"
     val cargoHome = System.getProperty("user.home") + "/.cargo"
@@ -209,6 +212,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.file(rustDir.resolve("Cargo.toml"))
     inputs.file(rustDir.resolve("Cargo.lock"))
     inputs.property("abis", abis)
+    inputs.property("androidApi", androidApi)
     outputs.dir(outDir)
 
     // Build via shell with full Rust environment
@@ -216,6 +220,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     environment("PATH", "$toolchainPath:${System.getenv("PATH")}")
     environment("RUSTUP_HOME", rustupHome)
     environment("CARGO_HOME", cargoHome)
+    environment("CARGO_TARGET_DIR", cargoOutput.absolutePath)
 
     commandLine("bash", "-c", """
         set -e
@@ -232,17 +237,17 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
             exit 1
         fi
         toolchain="${'$'}ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64"
-        if [ ! -x "${'$'}toolchain/bin/aarch64-linux-android34-clang" ]; then
+        if [ ! -x "${'$'}toolchain/bin/aarch64-linux-android${androidApi}-clang" ]; then
             # Some NDK distributions use the arm64 host directory name.
             toolchain="${'$'}ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-aarch64"
         fi
-        if [ ! -x "${'$'}toolchain/bin/aarch64-linux-android34-clang" ]; then
+        if [ ! -x "${'$'}toolchain/bin/aarch64-linux-android${androidApi}-clang" ]; then
             echo "No Android clang toolchain found under ${'$'}ANDROID_NDK_HOME" >&2
             exit 1
         fi
         export PATH="${'$'}toolchain/bin:${'$'}PATH"
-        export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${'$'}toolchain/bin/aarch64-linux-android34-clang"
-        export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${'$'}toolchain/bin/x86_64-linux-android34-clang"
+        export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${'$'}toolchain/bin/aarch64-linux-android${androidApi}-clang"
+        export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${'$'}toolchain/bin/x86_64-linux-android${androidApi}-clang"
         export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${'$'}toolchain/bin/llvm-ar"
         export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="${'$'}toolchain/bin/llvm-ar"
 
@@ -271,14 +276,14 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
             mkdir -p "${'$'}out"
 
             # Copy all .so files with the names used by System.loadLibrary().
-            cp "target/${'$'}target/release/libadblock.so" "${'$'}out/libmybrowser_adblock.so"
-            cp "target/${'$'}target/release/liburl_utils.so" "${'$'}out/libmybrowser_url_utils.so"
-            cp "target/${'$'}target/release/libcache.so" "${'$'}out/libmybrowser_cache.so"
+            cp "${cargoOutput.absolutePath}/${'$'}target/release/libadblock.so" "${'$'}out/libmybrowser_adblock.so"
+            cp "${cargoOutput.absolutePath}/${'$'}target/release/liburl_utils.so" "${'$'}out/libmybrowser_url_utils.so"
+            cp "${cargoOutput.absolutePath}/${'$'}target/release/libcache.so" "${'$'}out/libmybrowser_cache.so"
 
             if [ "${includeLegacyRust.get()}" = "true" ]; then
                 cargo build --release --target ${'$'}target -p downloader -p filename_parser
-                cp "target/${'$'}target/release/libdownloader.so" "${'$'}out/libmybrowser_downloader.so"
-                cp "target/${'$'}target/release/libfilename_parser.so" "${'$'}out/libmybrowser_filename_parser.so"
+                cp "${cargoOutput.absolutePath}/${'$'}target/release/libdownloader.so" "${'$'}out/libmybrowser_downloader.so"
+                cp "${cargoOutput.absolutePath}/${'$'}target/release/libfilename_parser.so" "${'$'}out/libmybrowser_filename_parser.so"
             fi
 
             echo "✅ Built ${'$'}abi successfully"

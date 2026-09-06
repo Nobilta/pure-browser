@@ -69,6 +69,8 @@ import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.CustomFilterController
 import com.mybrowser.media.MediaCandidateStore
 import com.mybrowser.media.MediaPlaybackTracker
+import com.mybrowser.data.BrowserPreferences
+import com.mybrowser.data.BrowserPreferencesRepository
 import com.mybrowser.media.PlaybackSpeed
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchEngineManager
@@ -139,6 +141,9 @@ class MainActivity : ComponentActivity(),
     private lateinit var downloadHandler: DownloadHandler
     private lateinit var downloadSettingsRepository: DownloadSettingsRepository
     private var downloadSettings by mutableStateOf(DownloadSettings())
+    private lateinit var preferencesRepository: BrowserPreferencesRepository
+    private var browserPreferences by mutableStateOf(BrowserPreferences())
+    private var showFilterSettings by mutableStateOf(false)
 
     // Cached bookmarks and history for UI
     private var bookmarks by mutableStateOf<List<Bookmark>>(emptyList())
@@ -293,6 +298,8 @@ class MainActivity : ComponentActivity(),
         historyManager = HistoryManager(this)
         downloadSettingsRepository = DownloadSettingsRepository(this)
         downloadSettings = downloadSettingsRepository.load()
+        preferencesRepository = BrowserPreferencesRepository(this)
+        browserPreferences = preferencesRepository.load()
         downloadHandler = app.downloadHandler
 
         webViewOrNull = pool.acquire(this).also(::configure)
@@ -309,7 +316,7 @@ class MainActivity : ComponentActivity(),
         }
 
         setContent {
-            MyBrowserTheme {
+            MyBrowserTheme(themeMode = browserPreferences.theme) {
                 val downloads by downloadHandler.downloads.collectAsState()
                 val networkEntries by networkLogs.entries.collectAsState()
                 val consoleEntries by consoleLogs.entries.collectAsState()
@@ -659,7 +666,7 @@ class MainActivity : ComponentActivity(),
                             }
                         },
                         onManageCustomFilters = {
-                            sheet = Sheet.FILTER_SETTINGS
+                            showFilterSettings = true
                         },
                         downloadSettings = downloadSettings,
                         onUseSystemDownloadDirectory = {
@@ -675,6 +682,23 @@ class MainActivity : ComponentActivity(),
                             downloadSettings = downloadSettingsRepository.setThreadCount(count)
                             toast("下载线程数已设为 ${downloadSettings.threadCount}")
                         },
+                        preferences = browserPreferences,
+                        onPreferencesChange = { browserPreferences = preferencesRepository.save(it) },
+                        isFilterEnabled = filter.enabled.collectAsState().value,
+                        onFilterEnabledChange = filter::setEnabled,
+                        onClearData = {
+                            Dialogs.confirm(
+                                context = this,
+                                title = getString(R.string.clear_data_title),
+                                message = getString(R.string.clear_data_message),
+                                positiveText = getString(R.string.action_clear),
+                                negativeText = getString(R.string.action_cancel),
+                            ) { confirmed -> if (confirmed) clearBrowsingData() }
+                        },
+                        onOpenDeveloperTools = {
+                            sheet = null
+                            showDeveloperTools = true
+                        },
                         onDismiss = { sheet = null },
                     )
 
@@ -685,6 +709,10 @@ class MainActivity : ComponentActivity(),
                     )
 
                     null -> Unit
+                }
+
+                if (showFilterSettings) {
+                    FilterSettingsSheet(customFilter, filter, onDismiss = { showFilterSettings = false })
                 }
 
                 bookmarkDraft?.let { draft ->

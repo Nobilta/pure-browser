@@ -1,6 +1,21 @@
 package com.mybrowser.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.key
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
+import com.mybrowser.data.BrowserPreferences
+import com.mybrowser.data.ThemeMode
+import com.mybrowser.data.VideoPreferences
+import com.mybrowser.media.PlaybackSpeed
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,10 +73,7 @@ import com.mybrowser.home.HomepageMode
 import com.mybrowser.search.SearchEngine
 import kotlin.math.roundToInt
 
-/**
- * Settings with a fixed header and independent, scrollable detail pages.
- */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Category navigation stays mounted while pickers and filter lists are open. */
 @Composable
 fun SettingsSheet(
     restoreLastSession: Boolean,
@@ -71,8 +83,8 @@ fun SettingsSheet(
     currentSearchEngine: SearchEngine,
     availableSearchEngines: List<SearchEngine>,
     onSearchEngineChange: (SearchEngine) -> Unit,
-    onAddCustomSearchEngine: (name: String, template: String) -> Unit = { _, _ -> },
-    onRemoveCustomSearchEngine: (SearchEngine) -> Unit = {},
+    onAddCustomSearchEngine: (String, String) -> Unit,
+    onRemoveCustomSearchEngine: (SearchEngine) -> Unit,
     currentHomepageMode: HomepageMode,
     currentHomepage: String,
     onHomepageModeChange: (HomepageMode) -> Unit,
@@ -82,145 +94,207 @@ fun SettingsSheet(
     onUseSystemDownloadDirectory: () -> Unit,
     onChooseDownloadDirectory: () -> Unit,
     onDownloadThreadCountChange: (Int) -> Unit,
+    preferences: BrowserPreferences,
+    onPreferencesChange: (BrowserPreferences) -> Unit,
+    isFilterEnabled: Boolean,
+    onFilterEnabledChange: (Boolean) -> Unit,
+    onClearData: () -> Unit,
+    onOpenDeveloperTools: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var selectedSection by remember { mutableStateOf<SettingsSection?>(null) }
+    var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
+    var picker by rememberSaveable { mutableStateOf<String?>(null) }
+    val selected = sectionName?.let(SettingsCategory::valueOf)
+    val back = { if (selected != null) sectionName = null else onDismiss() }
+    BackHandler(enabled = picker == null, onBack = back)
+    val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
 
-    BackHandler {
-        if (selectedSection != null) selectedSection = null else onDismiss()
+    Surface(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            val wide = maxWidth >= 720.dp
+            Row(Modifier.fillMaxSize()) {
+                if (wide || selected == null) {
+                    Box(if (wide) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
+                        SettingsPage("设置", onDismiss) {
+                            Text("按功能分类", style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                            SettingsCategory.entries.forEach { category ->
+                                val summary = when (category) {
+                                    SettingsCategory.BROWSING -> "${currentSearchEngine.name} · " +
+                                        if (restoreLastSession) "恢复上次网页" else "启动时打开主页"
+                                    SettingsCategory.APPEARANCE -> preferences.theme.label
+                                    SettingsCategory.PRIVACY -> if (isFilterEnabled) "广告过滤已开启" else "广告过滤已关闭"
+                                    SettingsCategory.DOWNLOADS -> "${downloadSettings.destinationLabel} · ${downloadSettings.threadCount} 线程"
+                                    SettingsCategory.VIDEO -> if (preferences.video.enhancedControls) "全屏手势 · 长按 ${PlaybackSpeed.label(preferences.video.boostRate)}" else "使用网页控件"
+                                    SettingsCategory.ABOUT -> "版本信息与开发工具"
+                                }
+                                Card(
+                                    onClick = { sectionName = category.name },
+                                    colors = CardDefaults.cardColors(containerColor =
+                                        if (wide && category == (selected ?: SettingsCategory.BROWSING)) MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surfaceContainerLow),
+                                    shape = RoundedCornerShape(18.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                ) {
+                                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(painterResource(category.icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(14.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(category.title, style = MaterialTheme.typography.titleMedium)
+                                            Text(summary, style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis)
+                                        }
+                                        Icon(painterResource(R.drawable.ic_forward), null, Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (wide) VerticalDivider()
+                if (wide || selected != null) {
+                    val category = selected ?: SettingsCategory.BROWSING
+                    Box(Modifier.weight(1f)) {
+                        key(category) {
+                            val detailBack = { if (wide) onDismiss() else sectionName = null }
+                            when (category) {
+                                SettingsCategory.DOWNLOADS -> DownloadSettingsPage(downloadSettings,
+                                    onUseSystemDownloadDirectory, onChooseDownloadDirectory,
+                                    onDownloadThreadCountChange, detailBack)
+                                else -> SettingsPage(category.title, detailBack) {
+                                    when (category) {
+                                        SettingsCategory.BROWSING -> {
+                                            SettingsGroup("启动")
+                                            SettingsItem("主页", if (currentHomepageMode == HomepageMode.NAVIGATION) "导航首页" else currentHomepage,
+                                                { picker = "home" }, R.drawable.ic_home)
+                                            SettingsToggle("启动时恢复上次网页",
+                                                if (restoreLastSession) "下次启动：继续浏览普通标签页" else "下次启动：主页",
+                                                restoreLastSession, onRestoreLastSessionChange)
+                                            SettingsGroup("搜索与系统")
+                                            SettingsItem("搜索引擎", currentSearchEngine.name, { picker = "search" }, R.drawable.ic_search)
+                                            SettingsItem("默认浏览器", if (isDefaultBrowser) "已设为默认" else "尚未设为默认",
+                                                onSetDefaultBrowser, R.drawable.ic_desktop)
+                                        }
+                                        SettingsCategory.APPEARANCE -> {
+                                            SettingsItem("应用主题", preferences.theme.label, { picker = "theme" }, R.drawable.ic_settings)
+                                            SettingsNote("浅色与深色均支持系统字体大小。支持动态配色的设备会使用壁纸配色。网页本身的颜色由网站和 WebView 决定。")
+                                        }
+                                        SettingsCategory.PRIVACY -> {
+                                            SettingsGroup("内容过滤")
+                                            SettingsToggle("广告过滤", "拦截内置规则和自定义列表匹配的请求", isFilterEnabled, onFilterEnabledChange)
+                                            SettingsItem("自定义广告过滤规则", "添加和管理过滤列表", onManageCustomFilters, R.drawable.ic_shield)
+                                            SettingsGroup("浏览数据")
+                                            SettingsItem("清除浏览数据", "选择后确认清除缓存、Cookie 和历史记录", onClearData, R.drawable.ic_delete)
+                                            SettingsNote("无痕入口保留在浏览菜单。支持独立存储的 WebView 会隔离登录数据；旧 WebView 使用退出清除模式，可能同时清除普通模式的登录状态。书签与下载文件会保留。")
+                                        }
+                                        SettingsCategory.VIDEO -> {
+                                            val video = preferences.video
+                                            SettingsGroup("全屏体验")
+                                            SettingsToggle("增强全屏控件", "播放、进度、倍速与锁定；随时切回网页控件", video.enhancedControls,
+                                                { updateVideo(video.copy(enhancedControls = it)) })
+                                            SettingsToggle("横向视频自动横屏", "竖向视频保持竖屏，退出后恢复方向", video.landscapeFullscreen,
+                                                { updateVideo(video.copy(landscapeFullscreen = it)) })
+                                            SettingsGroup("全屏手势")
+                                            SettingsToggle("亮度与音量手势", "左侧上下滑动调亮度，右侧调媒体音量", video.verticalGestures,
+                                                { updateVideo(video.copy(verticalGestures = it)) }, video.enhancedControls)
+                                            SettingsToggle("滑动调整进度", "左右滑动预览位置，松手跳转；直播不跳转", video.horizontalSeek,
+                                                { updateVideo(video.copy(horizontalSeek = it)) }, video.enhancedControls)
+                                            SettingsToggle("长按临时倍速", "松手立即恢复原来的播放速度", video.holdToBoost,
+                                                { updateVideo(video.copy(holdToBoost = it)) }, video.enhancedControls)
+                                            SettingsItem("长按速度", PlaybackSpeed.label(video.boostRate), { picker = "boost" }, R.drawable.ic_speed)
+                                            SettingsNote("单击显示或隐藏控件；双击中间播放或暂停，两侧快退或快进 10 秒。锁定后仅保留解锁入口。")
+                                            SettingsGroup("播放速度")
+                                            SettingsToggle("记住播放速度", "将选择的速度用于之后播放的视频；临时倍速不保存", video.rememberSpeed,
+                                                { updateVideo(video.copy(rememberSpeed = it)) })
+                                            SettingsItem("默认播放速度", PlaybackSpeed.label(video.preferredSpeed), { picker = "speed" }, R.drawable.ic_speed)
+                                            SettingsNote("视频继续由网页播放，保留网站的登录、清晰度与字幕能力。需要使用网站专属按钮时，点全屏右上角的“网页控件”。")
+                                        }
+                                        SettingsCategory.ABOUT -> {
+                                            val context = LocalContext.current
+                                            val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
+                                            Text("Pure 浏览器", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
+                                            SettingsNote("版本 $version\n支持 Android 10 及以上 · 64 位 ARM 设备")
+                                            SettingsItem("开发工具", "查看当前页面的控制台与网络请求", onOpenDeveloperTools, R.drawable.ic_code)
+                                        }
+                                        SettingsCategory.DOWNLOADS -> Unit
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            when (selectedSection) {
-                SettingsSection.SEARCH_ENGINE -> SearchEngineSettings(
-                    current = currentSearchEngine,
-                    available = availableSearchEngines,
-                    onChange = onSearchEngineChange,
-                    onAddCustom = onAddCustomSearchEngine,
-                    onRemoveCustom = onRemoveCustomSearchEngine,
-                    onBack = { selectedSection = null },
-                )
-                SettingsSection.HOMEPAGE -> HomepageSettings(
-                    currentMode = currentHomepageMode,
-                    current = currentHomepage,
-                    onModeChange = onHomepageModeChange,
-                    onChange = onHomepageChange,
-                    onBack = { selectedSection = null },
-                )
-                SettingsSection.DOWNLOADS -> DownloadSettingsPage(
-                    settings = downloadSettings,
-                    onUseSystemDirectory = onUseSystemDownloadDirectory,
-                    onChooseDirectory = onChooseDownloadDirectory,
-                    onThreadCountChange = onDownloadThreadCountChange,
-                    onBack = { selectedSection = null },
-                )
-                null -> MainSettings(
-                    restoreLastSession = restoreLastSession,
-                    onRestoreLastSessionChange = onRestoreLastSessionChange,
-                    isDefaultBrowser = isDefaultBrowser,
-                    onSetDefaultBrowser = onSetDefaultBrowser,
-                    onBack = onDismiss,
-                    currentSearchEngine = currentSearchEngine,
-                    currentHomepageMode = currentHomepageMode,
-                    currentHomepage = currentHomepage,
-                    onOpenSearchEngine = { selectedSection = SettingsSection.SEARCH_ENGINE },
-                    onOpenHomepage = { selectedSection = SettingsSection.HOMEPAGE },
-                    downloadSettings = downloadSettings,
-                    onOpenDownloads = { selectedSection = SettingsSection.DOWNLOADS },
-                    onManageCustomFilters = onManageCustomFilters,
-                )
+    if (picker != null) {
+        ModalBottomSheet(onDismissRequest = { picker = null }) {
+            Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
+                when (picker) {
+                    "search" -> SearchEngineSettings(currentSearchEngine, availableSearchEngines,
+                        onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine, { picker = null })
+                    "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
+                        onHomepageModeChange, onHomepageChange, { picker = null })
+                    else -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                        val title = when (picker) { "theme" -> "应用主题"; "boost" -> "长按速度"; else -> "默认播放速度" }
+                        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
+                        if (picker == "theme") {
+                            ThemeMode.entries.forEach { mode ->
+                                HomepageModeItem(mode.label, "", preferences.theme == mode) {
+                                    onPreferencesChange(preferences.copy(theme = mode)); picker = null
+                                }
+                            }
+                        } else {
+                            val boost = picker == "boost"
+                            val choices = if (boost) listOf(2f, 3f) else PlaybackSpeed.OPTIONS
+                            choices.forEach { speed ->
+                                HomepageModeItem(PlaybackSpeed.label(speed), "",
+                                    speed == if (boost) preferences.video.boostRate else preferences.video.preferredSpeed) {
+                                    updateVideo(if (boost) preferences.video.copy(boostRate = speed)
+                                        else preferences.video.copy(preferredSpeed = speed, rememberSpeed = true))
+                                    picker = null
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-private enum class SettingsSection {
-    SEARCH_ENGINE,
-    HOMEPAGE,
-    DOWNLOADS,
+private enum class SettingsCategory(val title: String, val icon: Int) {
+    BROWSING("浏览与启动", R.drawable.ic_home),
+    APPEARANCE("外观", R.drawable.ic_settings),
+    PRIVACY("隐私与过滤", R.drawable.ic_shield),
+    DOWNLOADS("下载设置", R.drawable.ic_download),
+    VIDEO("视频播放", R.drawable.ic_speed),
+    ABOUT("关于", R.drawable.ic_code),
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainSettings(
-    restoreLastSession: Boolean,
-    onRestoreLastSessionChange: (Boolean) -> Unit,
-    isDefaultBrowser: Boolean,
-    onSetDefaultBrowser: () -> Unit,
-    onBack: () -> Unit,
-    currentSearchEngine: SearchEngine,
-    currentHomepageMode: HomepageMode,
-    currentHomepage: String,
-    downloadSettings: DownloadSettings,
-    onOpenSearchEngine: () -> Unit,
-    onOpenHomepage: () -> Unit,
-    onOpenDownloads: () -> Unit,
-    onManageCustomFilters: () -> Unit,
-) {
-    SettingsPage(title = "设置", onBack = onBack) {
-        SettingsGroup("常规")
-        SettingsItem(
-            title = "默认浏览器",
-            subtitle = if (isDefaultBrowser) "已设为默认" else "尚未设为默认",
-            iconRes = R.drawable.ic_desktop,
-            onClick = onSetDefaultBrowser,
-        )
-        SettingsItem(
-            title = "搜索引擎",
-            subtitle = currentSearchEngine.name,
-            onClick = onOpenSearchEngine,
-            iconRes = R.drawable.ic_search,
-        )
-
-        SettingsGroup("启动")
-        SettingsItem(
-            title = "主页",
-            subtitle = if (currentHomepageMode == HomepageMode.NAVIGATION) {
-                "导航首页"
-            } else {
-                currentHomepage
-            },
-            onClick = onOpenHomepage,
-            iconRes = R.drawable.ic_home,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .toggleable(restoreLastSession, role = Role.Switch, onValueChange = onRestoreLastSessionChange)
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(painterResource(R.drawable.ic_history), null, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text("启动时恢复上次网页", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    if (restoreLastSession) "下次启动：继续浏览普通标签页" else "下次启动：主页",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Switch(checked = restoreLastSession, onCheckedChange = null)
+private fun SettingsToggle(title: String, summary: String, checked: Boolean,
+    onChange: (Boolean) -> Unit, enabled: Boolean = true) {
+    Row(Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+        .padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        SettingsGroup("内容与下载")
-        SettingsItem(
-            title = "下载设置",
-            subtitle = "${downloadSettings.destinationLabel} · ${downloadSettings.threadCount} 线程",
-            onClick = onOpenDownloads,
-            iconRes = R.drawable.ic_download,
-        )
-        SettingsItem(
-            title = "自定义广告过滤规则",
-            subtitle = "管理自定义过滤列表",
-            onClick = onManageCustomFilters,
-            iconRes = R.drawable.ic_shield,
-        )
+        Spacer(Modifier.width(12.dp))
+        Switch(checked, onCheckedChange = null, enabled = enabled)
     }
+}
+
+@Composable
+private fun SettingsNote(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
 }
 
 @Composable
 private fun SettingsGroup(title: String) {
-    HorizontalDivider(Modifier.padding(top = 12.dp))
     Text(
         title,
         style = MaterialTheme.typography.labelLarge,
