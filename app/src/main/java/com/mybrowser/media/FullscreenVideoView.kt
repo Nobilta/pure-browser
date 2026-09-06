@@ -472,6 +472,9 @@ class FullscreenVideoView(
                     if (axis == 3) seekTo(targetPosition)
                     if (!cancelledClick && down) detector.onTouchEvent(event)
                     val wasGesture = axis != 0
+                    // ACTION_UP completes a tap. Keep GestureDetector's pending single
+                    // tap confirmation (and double-tap history) alive until its timeout.
+                    down = false
                     cancelGesture()
                     if (wasGesture) ui.postDelayed(hideHud, 900)
                 }
