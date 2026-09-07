@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -54,7 +55,8 @@ def labels(label):
 
 
 def adb(*args):
-    return subprocess.check_output(ADB + list(args), text=True, timeout=30).strip()
+    command = ["shell", shlex.join(args[1:])] if args and args[0] == "shell" else list(args)
+    return subprocess.check_output(ADB + command, text=True, timeout=30).strip()
 
 
 def nodes():

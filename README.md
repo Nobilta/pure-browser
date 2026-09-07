@@ -1,10 +1,11 @@
 # Pure 浏览器
 
-Pure 浏览器是一款面向 Android 14 及以上设备的轻量浏览器。界面与 Android 平台能力使用
+Pure 浏览器是一款面向 Android 10 及以上设备的轻量浏览器。界面与 Android 平台能力使用
 Kotlin、Jetpack Compose 和 WebView 实现；只有规则匹配、字节缓存及纯 URL 逻辑保留在
 Rust。项目追求体积可控、行为透明，以及在 Android 生命周期和存储规则下可验证地工作。
 
-当前版本为 `0.1.0`，Release 仅提供 `arm64-v8a`。项目目录和 Gradle 根项目均命名为
+当前版本为 `0.2.0`（versionCode 2），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
+项目目录和 Gradle 根项目均命名为
 `pure-browser`；为保持已安装应用的升级兼容，Android applicationId 暂时仍为
 `com.mybrowser`。
 
@@ -21,6 +22,17 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
   时自动收起顶部地址栏，向上滚动、回到页面顶部、编辑地址或打开查找时自动展开。
 - 通过 Android `RoleManager` 请求设为默认浏览器；菜单末尾提供“退出浏览器”，退出时移除
   最近任务。
+
+### 设置与主题
+
+- 设置首页分为浏览与启动、外观、隐私与过滤、下载设置、视频播放、关于六类。
+- 手机逐级进入分类；可用宽度达到 720dp 时同时显示分类导航和详情。
+- 搜索引擎、主页、主题和默认倍速在弹层中选择；关闭弹层返回原分类。
+- 字体或语言变化导致 Activity 重建时保留设置分类；用户冷启动仍遵循主页/恢复设置。
+- 支持跟随系统、浅色和深色主题；状态栏与导航栏图标跟随应用主题。
+- Android 12+ 使用动态配色，Android 10–11 使用内置配色。
+- 应用提示、按钮及设置支持简体中文、繁体中文和英文；其他语言使用英文。
+  Android 13+ 可在系统的应用语言页面选择语言，较早系统跟随系统语言。
 
 ### 首页、书签与历史
 
@@ -48,9 +60,25 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - 检测页面视频、音频以及 HLS/DASH 地址。
 - 页面出现可投屏媒体时，在右下角显示悬浮投屏按钮。
 - 多视频直播页会追踪实际处于播放状态的 `<video>`，并在候选列表标注“正在播放”。
-- 视频播放时显示当前倍速入口，可选择 `0.5×`、`0.75×`、`1×`、`1.25×`、`1.5×`、
-  `2×` 或 `3×`；跨域 iframe 播放器通过已有的逐帧 WebMessage 通道控制。
+- 页面存在视频时显示倍速入口，暂停后仍可使用。可选择 `0.5×`、`0.75×`、`1×`、
+  `1.25×`、`1.5×`、`2×` 或 `3×`；记住速度默认关闭，长按临时加速不会写入偏好。
+- 增强全屏控件提供播放/暂停、进度条、快退/快进 10 秒、倍速、旋转、投屏和锁定。
+- 全屏左侧上下滑动调整当前窗口亮度，右侧调整媒体音量；亮度退出后恢复，不修改系统亮度。
+- 横向滑动预览进度，松手跳转。直播或没有可跳转范围的视频不启用进度跳转。
+- 长按临时使用 2× 或 3×（不降低原有更快速度），松手、取消或切后台恢复原速度。
+- 单击显示/隐藏控件，双击中央播放/暂停，双击两侧快退/快进 10 秒。
+  锁定后触摸手势失效，返回键先解锁，再次返回才退出。
+- 横向视频可自动横屏；方形/竖向视频保持进入时的方向，也可手动旋转，退出后恢复方向。
 - 支持 SSDP 发现和 DLNA/UPnP AVTransport 控制。手机与接收设备必须处于同一局域网。
+
+视频解码仍由网站与 WebView 完成，没有新增 ExoPlayer/FFmpeg 等独立解码依赖。
+原生全屏界面只控制对应的 HTML 视频元素，网站登录、清晰度、字幕及 DRM 能力仍由网站负责；
+可切回“网页控件”使用网站专属按钮。DRM、MSE/Blob 视频能否播放取决于网站与 WebView，
+Blob 地址不能直接作为 DLNA 接收器可访问的网络地址。
+
+支持 `WEB_MESSAGE_LISTENER` 和 `DOCUMENT_START_SCRIPT` 的 WebView 通过逐 frame 消息与
+确认回执控制跨域视频。旧 WebView 仅控制主文档及可访问的同源 iframe；不能访问的跨域播放器
+保留网站自身控件。此能力按 WebView 特性检测，不单凭 Android 版本判断。
 
 ### 过滤与开发工具
 
@@ -82,6 +110,11 @@ Android WebView 没有一个在所有版本上都可用的统一“无痕开关�
 - Kotlin 协程与 Android 存储 API：下载、SAF、MediaStore 和前台服务。
 - Rust JNI：`adblock`、`cache`、`url_utils`。
 
+`minSdk=29`，`compileSdk/targetSdk=37`。降低最低安装版本不会让新系统进入旧 target SDK
+兼容模式。Rust 使用 API 29 的 NDK 链接器，输出独立存放于 `rust/target/android-api-29`，
+防止复用旧的高版本 native 库。新版 WebView 的无视频页面不保留周期扫描；旧版降级探测只在
+应用前台运行。全屏原生界面退出后释放计时器、窗口亮度、屏幕常亮和方向设置。
+
 Rust 只用于输入输出边界清晰的纯计算模块。WebView、Compose、SQLite、下载存储和生命周期
 编排留在 Kotlin/Android：这些能力依赖平台 API，改写为 Rust 会增加 JNI、另一套网络/TLS
 依赖和约 3 MB 体积，却不能改善平台语义。`rust/downloader` 与
@@ -101,7 +134,7 @@ pure-browser/
 │   ├── search/               搜索引擎和 URL/搜索分类
 │   ├── tabs/                 标签状态、恢复和缩略图
 │   ├── home/                 首页模式、快捷入口和 favicon
-│   ├── media/                媒体嗅探与当前播放追踪
+│   ├── media/                媒体嗅探、播放追踪与原生全屏控件
 │   ├── dlna/                 SSDP、设备描述与 AVTransport
 │   ├── security/             页面安全信息模型
 │   └── ui/                   Compose 页面、工具栏和弹窗
@@ -127,7 +160,8 @@ DLNA 已按职责下沉；不为缩短文件行数而机械拆分 ViewModel。
 - JDK 17 或更高版本
 - Android SDK Platform 37、Build Tools 及 NDK
 - Rust stable、`aarch64-linux-android` target
-- Android 14+ arm64 真机或模拟器
+- Node.js 18+、Python 3（仅本地验证工具，不打包进 APK）
+- Android 10+ arm64 真机或模拟器
 
 项目通过 `local.properties` 或 `ANDROID_SDK_ROOT` 查找 Android SDK，通过
 `rust/resolve-android-ndk.sh` 查找 NDK。项目脚本不会修改 shell profile 或全局 Cargo
@@ -154,22 +188,22 @@ keyPassword=...
 该脚本执行：
 
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
-2. Android/Robolectric 134 项单元测试；
-3. Android lint；
-4. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
-5. APK 签名、大小和 SHA-256 检查。
+2. 15 项 Node 网页视频协议测试、392 项三语言字符串及格式参数一致性检查；
+3. Android/Robolectric 150 项单元测试；
+4. Android lint；
+5. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
+6. APK 签名、大小和 SHA-256 检查。
 
 Release 不使用包级 `-keep` 保留整个 Compose、数据层或标签页层，而是依赖 Android 默认
 规则和各 AndroidX 依赖提供的 consumer rules，只保留实际可达代码。DEX 与已剥离符号的
-arm64 native 库在 APK 内采用 ZIP 压缩，Android 14+ 安装时由 PackageManager 解压；这会
-增加少量安装工作，且安装后磁盘占用可能略高，但不改变运行时代码和功能。当前优化将 APK
-从 9,984,278 bytes 降至 1,898,669 bytes，减少 8,085,609 bytes（约 81.0%）。
+arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageManager 解压；这会
+增加少量安装工作，且安装后磁盘占用可能略高，但不改变运行时代码和功能。
 
 当前本地 Release 产物：
 
-- `PureBrowser-v0.1.0-release.apk`
-- 1,910,313 bytes（约 1.82 MiB）
-- SHA-256：`6d533dc93958d7a7cd10bbc11843672d1d45800d1b606e58118f8a70287c48a5`
+- `PureBrowser-v0.2.0-release.apk`
+- 2,131,247 bytes（约 2.03 MiB）
+- SHA-256：`591cc04ace4138ed8daa182e22189453891dbb28bf2747ae8abc2b3badff2908`
 - APK Signature Scheme v2：通过
 
 只运行 Android 单元测试或 lint：
@@ -182,7 +216,7 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 14+ 安装时由 PackageM
 连接设备后安装并冷启动：
 
 ```bash
-./install_and_test.sh PureBrowser-v0.1.0-release.apk
+./install_and_test.sh PureBrowser-v0.2.0-release.apk
 ```
 
 诊断设备与崩溃日志：
@@ -191,20 +225,30 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 14+ 安装时由 PackageM
 ./diagnose.sh
 ```
 
-最近一次模拟器验证使用 `MyBrowser_Pixel7`（Android 14/API 34，arm64），覆盖：地址栏标题
-和完整 URL 编辑、SPA `pushState` 地址同步、上下滚动收起/展开、默认浏览器 RoleManager
-系统选择页、恢复开关开启/关闭后的冷启动、多标签恢复、固定网址主页、退出移除最近任务、
-横屏、深色模式及 1.3 倍字体的小屏布局。可重复运行：
+模拟器结果以 [回归报告](EMULATOR_TEST_REPORT.md) 记录的当前 APK 与系统版本为准。
+本地测试页及 Release APK 的真实触摸回归可重复运行：
 
 ```bash
-adb reverse tcp:8765 tcp:8765
-python3 validation/emulator-ux.py regress
+python3 validation/qa-server.py
+# 在另一个终端运行；替换为当前模拟器序号。
+python3 validation/setup-ui-probe.py emulator-5554
+ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
+python3 validation/settings-regression.py --serial emulator-5554
+python3 validation/video-regression.py --serial emulator-5554 --variant standard
+# 其他媒体夹具：--variant square / blob / cross
 ```
 
-原有媒体、下载、主页、证书、无痕、过滤、DLNA 和文件选择回归保持覆盖；真实 DLNA 接收器
-投送仍需同网实体设备。Lint 为 0 errors / 2 warnings：AGP 有更新版本提示，以及 Release
-仅打包 arm64 时的 ChromeOS x86_64 支持提示。
-没有实体 DLNA 接收器时，只能确认候选和设备发现流程，不能宣称实际投送成功。
+测试服务器只监听本机的 8875/8876 端口，脚本自动设置 ADB 反向端口。
+截图、遥测和性能结果位于 `validation/results/`，不纳入 Git。UI 读取辅助程序仅安装到模拟器
+的 `/data/local/tmp`，Release APK 不开放 WebView 调试。
+
+Lint 为 0 errors / 3 warnings：AGP 更新提示、ChromeOS x86_64 支持提示，以及 `localeConfig`
+在 Android 13 以下不生效的提示；低版本仍通过语言资源正常跟随系统语言。
+真实 DLNA 投送、厂商 WebView、摄像头/麦克风和第三方 DRM 网站仍需实体设备验证。
+
+原版 0.1.0 为 1,910,313 bytes，本轮全部变更（含三语言资源）增加 220,934 bytes，约 11.6%。
+这不是 Android 10 兼容代码单独带来的增量。性能对照方法与实际数据见回归报告，模拟器测量
+不能替代低端真机的流畅度、电量和视频帧率测试。
 
 ## 相关文档
 
@@ -214,9 +258,13 @@ python3 validation/emulator-ux.py regress
 - [测试与验证指南](./TESTING_GUIDE.md)
 - [最终交付摘要](./FINAL_DELIVERY_SUMMARY.md)
 - [更新日志](./CHANGELOG.md)
+- [第三方图标说明](./THIRD_PARTY_NOTICES.md)
 
 ## 维护约定
 
 README 是项目的入口和当前能力基线。后续每次修改用户可见功能、行为、架构、依赖、构建
 方式、验证结果或交付 APK 时，都必须在同一次变更中同步更新本 README；不能让实现、测试
 数量、环境要求或校验值与 README 脱节。
+
+本轮修改分支为 `feat/android10-settings-video-20260906`。原始可回滚基线为
+`backup/pre-android10-settings-video-20260906`（`b838e47`）；中间检查点也保留在 Git 历史中。

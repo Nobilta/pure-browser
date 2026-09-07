@@ -78,7 +78,7 @@ class FullscreenVideoView(
     private val play = imageButton(R.drawable.ic_pause, activity.getString(R.string.ui_pause_video)) { togglePlayback() }
     private val speed = textButton("1×", activity.getString(R.string.menu_playback_speed)) { showSpeedPicker() }
     private val mode = textButton(activity.getString(R.string.ui_web_controls), activity.getString(R.string.ui_switch_to_web_controls)) { switchMode() }
-    private val lock = textButton(activity.getString(R.string.ui_lock), activity.getString(R.string.ui_lock_screen)) { setLocked(!locked) }
+    private val lock = imageButton(R.drawable.ic_lock, activity.getString(R.string.ui_lock_screen)) { setLocked(!locked) }
     private val cast = imageButton(R.drawable.ic_cast, activity.getString(R.string.cd_cast)) { onCast() }
     private val hud = TextView(activity)
     private val gestures = GestureSurface(activity)
@@ -141,14 +141,14 @@ class FullscreenVideoView(
         })
         val row = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
         row.addView(play, LinearLayout.LayoutParams(dp(48), dp(48)))
-        row.addView(textButton(activity.getString(R.string.ui_10_s), activity.getString(R.string.ui_rewind_10_seconds)) { skip(-10.0) }, LinearLayout.LayoutParams(-2, dp(48)))
-        row.addView(textButton(activity.getString(R.string.ui_10_s_1eaeeb), activity.getString(R.string.ui_forward_10_seconds)) { skip(10.0) }, LinearLayout.LayoutParams(-2, dp(48)))
+        row.addView(imageButton(R.drawable.ic_replay_10, activity.getString(R.string.ui_rewind_10_seconds)) { skip(-10.0) }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        row.addView(imageButton(R.drawable.ic_forward_10, activity.getString(R.string.ui_forward_10_seconds)) { skip(10.0) }, LinearLayout.LayoutParams(dp(48), dp(48)))
         row.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(speed, LinearLayout.LayoutParams(-2, dp(48)))
         row.addView(cast, LinearLayout.LayoutParams(dp(48), dp(48)))
         bottom.addView(row)
         addView(bottom, LayoutParams(-1, -2, Gravity.BOTTOM))
-        addView(lock, LayoutParams(-2, dp(48), Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(16) })
+        addView(lock, LayoutParams(dp(48), dp(48), Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(16) })
 
         hud.setTextColor(Color.WHITE)
         hud.textSize = 16f
@@ -264,8 +264,9 @@ class FullscreenVideoView(
     private fun setLocked(value: Boolean) {
         gestures.cancelGesture()
         locked = value
-        lock.text = if (locked) activity.getString(R.string.ui_unlock) else activity.getString(R.string.ui_lock)
+        lock.setImageResource(if (locked) R.drawable.ic_lock_open else R.drawable.ic_lock)
         lock.contentDescription = if (locked) activity.getString(R.string.ui_unlock_screen) else activity.getString(R.string.ui_lock_screen)
+        lock.tooltipText = lock.contentDescription
         lock.background = rounded(if (locked) 0xD9365F91.toInt() else 0x88343A46.toInt())
         showControls(!locked)
     }

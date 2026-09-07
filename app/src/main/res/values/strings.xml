@@ -365,14 +365,11 @@
     <string name="ui_pause_video">Pause video</string>
     <string name="ui_web_controls">Web controls</string>
     <string name="ui_switch_to_web_controls">Switch to web controls</string>
-    <string name="ui_lock">Lock</string>
     <string name="ui_lock_screen">Lock screen</string>
     <string name="ui_exit_fullscreen">Exit fullscreen</string>
     <string name="ui_rotate_screen">Rotate screen</string>
     <string name="ui_video_progress">Video progress</string>
-    <string name="ui_10_s">−10 s</string>
     <string name="ui_rewind_10_seconds">Rewind 10 seconds</string>
-    <string name="ui_10_s_1eaeeb">+10 s</string>
     <string name="ui_forward_10_seconds">Forward 10 seconds</string>
     <string name="ui_play_video">Play video</string>
     <string name="ui_playback_speed">Playback speed %1$s</string>
@@ -382,7 +379,6 @@
     <string name="ui_start_playing_a_video_on_the_webpage_first">Start playing a video on the webpage first</string>
     <string name="ui_enhanced_controls">Enhanced controls</string>
     <string name="ui_switch_to_enhanced_controls">Switch to enhanced controls</string>
-    <string name="ui_unlock">Unlock</string>
     <string name="ui_unlock_screen">Unlock screen</string>
     <string name="ui_the_webpage_could_not_change_playback">The webpage could not change playback</string>
     <string name="ui_seeking_is_unavailable_for_this_video">Seeking is unavailable for this video</string>
