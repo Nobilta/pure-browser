@@ -1,5 +1,7 @@
 package com.mybrowser.download
 
+import android.content.res.Resources
+import com.mybrowser.R
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -27,10 +29,12 @@ data class DownloadSettings(
 ) {
     val destinationLabel: String
         get() = if (destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY) {
-            customDirectoryLabel?.takeIf { it.isNotBlank() } ?: "自定义目录"
+            customDirectoryLabel?.takeIf { it.isNotBlank() } ?: CUSTOM_DIRECTORY_LABEL
         } else {
-            "系统下载目录"
+            SYSTEM_DIRECTORY_LABEL
         }
+
+    fun displayDestinationLabel(resources: Resources): String = localizeDownloadDirectory(resources, destinationLabel)
 }
 
 /** Small SharedPreferences boundary used by both the settings UI and download engine. */
@@ -82,7 +86,7 @@ class DownloadSettingsRepository(context: Context) {
     /** The caller must take a persistable read/write grant before invoking this method. */
     fun useCustomDirectory(uri: Uri, label: String): DownloadSettings {
         require(uri.scheme == "content") { "Download directory must be a content tree URI" }
-        val safeLabel = label.trim().take(MAX_DIRECTORY_LABEL_LENGTH).ifBlank { "自定义目录" }
+        val safeLabel = label.trim().take(MAX_DIRECTORY_LABEL_LENGTH).ifBlank { CUSTOM_DIRECTORY_LABEL }
         prefs.edit {
             putString(KEY_DESTINATION_MODE, DownloadDestinationMode.CUSTOM_DIRECTORY.name)
             putString(KEY_CUSTOM_TREE_URI, uri.toString())
@@ -125,7 +129,7 @@ class DownloadSettingsRepository(context: Context) {
                 return it.take(MAX_DIRECTORY_LABEL_LENGTH)
             }
         }
-        return "自定义目录"
+        return CUSTOM_DIRECTORY_LABEL
     }
 
     companion object {
@@ -146,3 +150,14 @@ class DownloadSettingsRepository(context: Context) {
 const val MIN_DOWNLOAD_THREADS = 1
 const val MAX_DOWNLOAD_THREADS = 16
 const val DEFAULT_DOWNLOAD_THREADS = 4
+
+// Store stable identifiers, not translated fallback names, in download metadata.
+const val SYSTEM_DIRECTORY_LABEL = "@system-downloads"
+const val CUSTOM_DIRECTORY_LABEL = "@custom-directory"
+
+fun localizeDownloadDirectory(resources: Resources, label: String): String = when (label) {
+    // The literal aliases migrate labels persisted by versions before localization.
+    "", SYSTEM_DIRECTORY_LABEL, "系统下载目录" -> resources.getString(R.string.ui_system_downloads_folder)
+    CUSTOM_DIRECTORY_LABEL, "自定义目录" -> resources.getString(R.string.ui_custom_folder)
+    else -> label
+}

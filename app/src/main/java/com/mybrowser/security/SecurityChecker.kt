@@ -1,5 +1,6 @@
 package com.mybrowser.security
 
+import com.mybrowser.R
 import android.net.http.SslCertificate
 import androidx.core.net.toUri
 
@@ -7,7 +8,8 @@ data class SecurityInfo(
     val isSecure: Boolean,
     val protocol: String,
     val hasWarnings: Boolean = false,
-    val warningMessage: String? = null
+    val warningRes: Int? = null,
+    val warningArgs: List<Any> = emptyList()
 )
 
 /** Immutable snapshot of the TLS certificate currently exposed by WebView. */
@@ -61,7 +63,7 @@ object SecurityChecker {
                 isSecure = false,
                 protocol = "none",
                 hasWarnings = true,
-                warningMessage = "无效的URL"
+                warningRes = R.string.ui_invalid_url
             )
         }
 
@@ -78,25 +80,26 @@ object SecurityChecker {
                 isSecure = false,
                 protocol = "HTTP",
                 hasWarnings = true,
-                warningMessage = "此连接不安全，您的信息可能被窃取"
+                warningRes = R.string.ui_this_connection_is_insecure_your_information_could_be
             )
             "file" -> SecurityInfo(
                 isSecure = false,
                 protocol = "FILE",
                 hasWarnings = true,
-                warningMessage = "这是本地文件内容，不是加密的网络连接"
+                warningRes = R.string.ui_this_is_a_local_file_not_an_encrypted
             )
             "data" -> SecurityInfo(
                 isSecure = false,
                 protocol = "DATA",
                 hasWarnings = true,
-                warningMessage = "这是内嵌数据内容，不是可验证的网络连接"
+                warningRes = R.string.ui_this_is_embedded_data_not_a_verifiable_network
             )
             else -> SecurityInfo(
                 isSecure = false,
                 protocol = scheme?.uppercase() ?: "UNKNOWN",
                 hasWarnings = true,
-                warningMessage = "不安全的协议: $scheme"
+                warningRes = R.string.ui_insecure_protocol,
+                warningArgs = listOf(scheme ?: "UNKNOWN")
             )
         }
     }

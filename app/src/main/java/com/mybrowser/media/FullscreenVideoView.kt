@@ -74,11 +74,11 @@ class FullscreenVideoView(
     private val title = TextView(activity)
     private val clock = TextView(activity)
     private val seek = SeekBar(activity)
-    private val play = imageButton(R.drawable.ic_pause, "暂停视频") { togglePlayback() }
-    private val speed = textButton("1×", "播放速度") { showSpeedPicker() }
-    private val mode = textButton("网页控件", "切换到网页控件") { switchMode() }
-    private val lock = textButton("锁定", "锁定屏幕") { setLocked(!locked) }
-    private val cast = imageButton(R.drawable.ic_cast, "投屏") { onCast() }
+    private val play = imageButton(R.drawable.ic_pause, activity.getString(R.string.ui_pause_video)) { togglePlayback() }
+    private val speed = textButton("1×", activity.getString(R.string.menu_playback_speed)) { showSpeedPicker() }
+    private val mode = textButton(activity.getString(R.string.ui_web_controls), activity.getString(R.string.ui_switch_to_web_controls)) { switchMode() }
+    private val lock = textButton(activity.getString(R.string.ui_lock), activity.getString(R.string.ui_lock_screen)) { setLocked(!locked) }
+    private val cast = imageButton(R.drawable.ic_cast, activity.getString(R.string.cd_cast)) { onCast() }
     private val hud = TextView(activity)
     private val gestures = GestureSurface(activity)
     private val hideControls = Runnable { if (!locked && !seeking) showControls(false) }
@@ -103,7 +103,7 @@ class FullscreenVideoView(
         top.gravity = Gravity.CENTER_VERTICAL
         top.setPadding(dp(12), dp(8), dp(12), dp(20))
         top.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xDD000000.toInt(), Color.TRANSPARENT))
-        top.addView(imageButton(R.drawable.ic_back, "退出全屏", onExit), LinearLayout.LayoutParams(dp(48), dp(48)))
+        top.addView(imageButton(R.drawable.ic_back, activity.getString(R.string.ui_exit_fullscreen), onExit), LinearLayout.LayoutParams(dp(48), dp(48)))
         title.setTextColor(Color.WHITE)
         title.textSize = 16f
         title.setTypeface(null, Typeface.BOLD)
@@ -112,7 +112,7 @@ class FullscreenVideoView(
         top.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
         title.gravity = Gravity.CENTER_VERTICAL
         top.addView(mode, LinearLayout.LayoutParams(-2, dp(48)))
-        top.addView(imageButton(R.drawable.ic_rotate, "切换横竖屏") { rotate() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        top.addView(imageButton(R.drawable.ic_rotate, activity.getString(R.string.ui_rotate_screen)) { rotate() }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(top, LayoutParams(-1, -2, Gravity.TOP))
 
         bottom.orientation = LinearLayout.VERTICAL
@@ -124,7 +124,7 @@ class FullscreenVideoView(
         seek.max = 10000
         seek.progressTintList = ColorStateList.valueOf(accent)
         seek.thumbTintList = ColorStateList.valueOf(accent)
-        seek.contentDescription = "视频进度"
+        seek.contentDescription = activity.getString(R.string.ui_video_progress)
         bottom.addView(seek, LinearLayout.LayoutParams(-1, dp(40)))
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onStartTrackingTouch(bar: SeekBar) { seeking = true; ui.removeCallbacks(hideControls); gestures.cancelGesture() }
@@ -139,8 +139,8 @@ class FullscreenVideoView(
         })
         val row = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
         row.addView(play, LinearLayout.LayoutParams(dp(48), dp(48)))
-        row.addView(textButton("−10秒", "快退10秒") { skip(-10.0) }, LinearLayout.LayoutParams(-2, dp(48)))
-        row.addView(textButton("+10秒", "快进10秒") { skip(10.0) }, LinearLayout.LayoutParams(-2, dp(48)))
+        row.addView(textButton(activity.getString(R.string.ui_10_s), activity.getString(R.string.ui_rewind_10_seconds)) { skip(-10.0) }, LinearLayout.LayoutParams(-2, dp(48)))
+        row.addView(textButton(activity.getString(R.string.ui_10_s_1eaeeb), activity.getString(R.string.ui_forward_10_seconds)) { skip(10.0) }, LinearLayout.LayoutParams(-2, dp(48)))
         row.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(speed, LinearLayout.LayoutParams(-2, dp(48)))
         row.addView(cast, LinearLayout.LayoutParams(dp(48), dp(48)))
@@ -170,7 +170,7 @@ class FullscreenVideoView(
     fun update(signal: MediaPlaybackTracker.Signal) {
         if (released) return
         state = signal
-        title.text = titleProvider().ifBlank { "视频播放" }
+        title.text = titleProvider().ifBlank { activity.getString(R.string.ui_video_playback) }
         if (!orientationChosen && preferences.landscapeFullscreen && state.isFullscreen && state.width > state.height && state.height > 0) {
             orientationChosen = true
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -182,15 +182,15 @@ class FullscreenVideoView(
         }
         if (wantEnhanced && !enhanced && !connecting && state.isFullscreen) connectControls()
         play.setImageResource(if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play)
-        play.contentDescription = if (state.isPlaying) "暂停视频" else "播放视频"
+        play.contentDescription = if (state.isPlaying) activity.getString(R.string.ui_pause_video) else activity.getString(R.string.ui_play_video)
         play.isEnabled = state.hasVideo
         speed.text = PlaybackSpeed.label(state.playbackRate ?: 1f)
-        speed.contentDescription = "播放速度 ${speed.text}"
+        speed.contentDescription = activity.getString(R.string.ui_playback_speed, speed.text)
         cast.visibility = if (canCast()) VISIBLE else GONE
         seek.isEnabled = state.canSeek
         if (!seeking) {
             clock.text = if (state.duration > 0) progressText(state.position, state.duration)
-                else if (state.hasVideo) "直播 · ${VideoGestureMath.time(state.position)}" else "等待网页视频"
+                else if (state.hasVideo) activity.getString(R.string.ui_live, VideoGestureMath.time(state.position)) else activity.getString(R.string.ui_waiting_for_webpage_video)
             seek.progress = if (state.canSeek) (((state.position - state.seekStart) / (state.seekEnd - state.seekStart)) * 10000).roundToInt().coerceIn(0, 10000) else 0
         }
     }
@@ -214,8 +214,8 @@ class FullscreenVideoView(
             }
             refreshMode()
             showControls(true)
-            if (ok) showHud("左侧亮度 · 右侧音量\n长按临时倍速", 2200)
-            else showHud("此网页暂时无法连接增强控件", 2200)
+            if (ok) showHud(activity.getString(R.string.ui_left_brightness_right_volume_hold_for_a_temporary), 2200)
+            else showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
         }
     }
 
@@ -232,13 +232,13 @@ class FullscreenVideoView(
         } else if (state.hasVideo) {
             wantEnhanced = true
             connectControls()
-        } else showHud("请先在网页中开始播放视频", 2000)
+        } else showHud(activity.getString(R.string.ui_start_playing_a_video_on_the_webpage_first), 2000)
     }
 
     private fun refreshMode() {
         gestures.visibility = if (enhanced) VISIBLE else GONE
-        mode.text = if (enhanced) "网页控件" else "增强控件"
-        mode.contentDescription = if (enhanced) "切换到网页控件" else "切换到增强控件"
+        mode.text = if (enhanced) activity.getString(R.string.ui_web_controls) else activity.getString(R.string.ui_enhanced_controls)
+        mode.contentDescription = if (enhanced) activity.getString(R.string.ui_switch_to_web_controls) else activity.getString(R.string.ui_switch_to_enhanced_controls)
         if (!enhanced) {
             bottom.visibility = GONE
             lock.visibility = GONE
@@ -263,8 +263,8 @@ class FullscreenVideoView(
     private fun setLocked(value: Boolean) {
         gestures.cancelGesture()
         locked = value
-        lock.text = if (locked) "解锁" else "锁定"
-        lock.contentDescription = if (locked) "解锁屏幕" else "锁定屏幕"
+        lock.text = if (locked) activity.getString(R.string.ui_unlock) else activity.getString(R.string.ui_lock)
+        lock.contentDescription = if (locked) activity.getString(R.string.ui_unlock_screen) else activity.getString(R.string.ui_lock_screen)
         lock.background = rounded(if (locked) 0xD9365F91.toInt() else 0x88343A46.toInt())
         showControls(!locked)
     }
@@ -277,17 +277,17 @@ class FullscreenVideoView(
     }
 
     private fun togglePlayback() {
-        tracker.togglePlayback { if (!it && !released) showHud("网页未能执行播放操作", 1800) }
+        tracker.togglePlayback { if (!it && !released) showHud(activity.getString(R.string.ui_the_webpage_could_not_change_playback), 1800) }
         scheduleHide()
     }
     private fun skip(seconds: Double) {
-        if (!state.canSeek) { showHud("当前视频不能调整进度", 1600); return }
+        if (!state.canSeek) { showHud(activity.getString(R.string.ui_seeking_is_unavailable_for_this_video), 1600); return }
         val target = (state.position + seconds).coerceIn(state.seekStart, state.seekEnd)
         seekTo(target)
         showHud(VideoGestureMath.time(target), 1200)
     }
     private fun seekTo(position: Double) {
-        tracker.seekTo(position) { if (!it && !released) showHud("网页未能调整进度", 1800) }
+        tracker.seekTo(position) { if (!it && !released) showHud(activity.getString(R.string.ui_the_webpage_could_not_seek), 1800) }
     }
     private fun seekPosition(progress: Int) = state.seekStart + progress / 10000.0 * (state.seekEnd - state.seekStart)
     private fun progressText(position: Double, duration: Double) = activity.getString(
@@ -299,14 +299,14 @@ class FullscreenVideoView(
         ui.removeCallbacks(hideControls)
         val rates = PlaybackSpeed.OPTIONS
         speedDialog = AlertDialog.Builder(activity)
-            .setTitle("播放速度")
+            .setTitle(activity.getString(R.string.menu_playback_speed))
             .setSingleChoiceItems(rates.map(PlaybackSpeed::label).toTypedArray(), rates.indexOf(state.playbackRate)) { dialog, which ->
                 tracker.setPlaybackRate(rates[which]) { ok ->
                     if (released) return@setPlaybackRate
-                    if (ok) onSpeedSelected(rates[which]) else showHud("此视频无法调整速度", 1800)
+                    if (ok) onSpeedSelected(rates[which]) else showHud(activity.getString(R.string.ui_playback_speed_cannot_be_changed_for_this_video), 1800)
                 }
                 dialog.dismiss()
-            }.setNegativeButton("取消", null).create().also { dialog ->
+            }.setNegativeButton(activity.getString(R.string.action_cancel), null).create().also { dialog ->
                 dialog.setOnDismissListener { speedDialog = null; scheduleHide() }
                 dialog.show()
             }
@@ -397,9 +397,9 @@ class FullscreenVideoView(
                     if (released) return@beginBoost
                     if (ok && hold) {
                         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        showHud("临时 ${PlaybackSpeed.label(maxOf(originalRate, preferences.boostRate))}\n松手恢复")
+                        showHud(activity.getString(R.string.ui_temporary_release_to_restore_speed, PlaybackSpeed.label(maxOf(originalRate, preferences.boostRate))))
                     } else if (ok) tracker.endBoost()
-                    else if (hold) showHud("此视频无法临时加速", 1800)
+                    else if (hold) showHud(activity.getString(R.string.ui_temporary_speed_boost_is_unavailable_for_this_video), 1800)
                 }
             }
         }
@@ -416,7 +416,7 @@ class FullscreenVideoView(
             if (hold) {
                 hold = false
                 tracker.endBoost()
-                showHud("恢复 ${PlaybackSpeed.label(originalRate)}", 900)
+                showHud(activity.getString(R.string.ui_restored, PlaybackSpeed.label(originalRate)), 900)
             }
             if (down) cancelClick()
             down = false; axis = 0
@@ -453,17 +453,17 @@ class FullscreenVideoView(
                         1 -> {
                             val brightness = VideoGestureMath.level(startBrightness, -dy / height.coerceAtLeast(1)).coerceAtLeast(0.02f)
                             activity.window.attributes = activity.window.attributes.apply { screenBrightness = brightness }
-                            showHud("亮度 ${VideoGestureMath.percent(brightness)}%")
+                            showHud(activity.getString(R.string.ui_brightness, VideoGestureMath.percent(brightness)))
                         }
                         2 -> {
                             val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
                             val volume = (VideoGestureMath.level(startVolume.toFloat() / max, -dy / height.coerceAtLeast(1)) * max).roundToInt()
                             if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) != volume) runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0) }
-                            showHud("音量 ${(volume * 100f / max).roundToInt()}%")
+                            showHud(activity.getString(R.string.ui_volume, (volume * 100f / max).roundToInt()))
                         }
                         3 -> {
                             targetPosition = VideoGestureMath.seek(startPosition, dx / width.coerceAtLeast(1), state.duration, state.seekStart, state.seekEnd)
-                            showHud("${VideoGestureMath.time(targetPosition)} / ${VideoGestureMath.time(state.duration)}\n松手跳转")
+                            showHud(activity.getString(R.string.ui_release_to_seek, VideoGestureMath.time(targetPosition), VideoGestureMath.time(state.duration)))
                         }
                     }
                 }

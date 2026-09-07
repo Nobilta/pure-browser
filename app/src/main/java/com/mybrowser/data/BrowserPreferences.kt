@@ -1,11 +1,12 @@
 package com.mybrowser.data
 
+import com.mybrowser.R
 import android.content.Context
 import androidx.core.content.edit
 import com.mybrowser.media.PlaybackSpeed
 
-enum class ThemeMode(val label: String) {
-    SYSTEM("跟随系统"), LIGHT("浅色"), DARK("深色"),
+enum class ThemeMode(val labelRes: Int) {
+    SYSTEM(R.string.ui_system_default), LIGHT(R.string.ui_light), DARK(R.string.ui_dark),
 }
 
 data class VideoPreferences(

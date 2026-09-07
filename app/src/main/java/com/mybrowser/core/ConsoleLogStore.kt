@@ -35,7 +35,7 @@ class ConsoleLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         lineNumber: Int,
     ) {
         val text = message?.trim()?.take(MAX_MESSAGE_LENGTH)
-            ?.takeIf { it.isNotBlank() } ?: "(空消息)"
+            ?.takeIf { it.isNotBlank() } ?: ""
         synchronized(lock) {
             val entry = ConsoleLogEntry(
                 id = nextId.getAndIncrement(),

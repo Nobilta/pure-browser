@@ -1,5 +1,7 @@
 package com.mybrowser.dlna
 
+import android.content.Context
+import com.mybrowser.R
 import android.util.Log
 import com.mybrowser.media.MediaSniffer
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +20,8 @@ import kotlinx.coroutines.launch
  * StateFlow keeps the DLNA layer independent from Compose and avoids writing Snapshot state
  * from an IO callback. The small compatibility accessors are useful to non-UI callers.
  */
-class CastController(private val scope: CoroutineScope) {
+class CastController(context: Context, private val scope: CoroutineScope) {
+    private val appContext = context.applicationContext
 
     data class State(
         val devices: List<DlnaDevice> = emptyList(),
@@ -57,7 +60,7 @@ class CastController(private val scope: CoroutineScope) {
                             Log.w(TAG, "discovery failed", error)
                             synchronized(lock) {
                                 if (generation == searchGeneration) {
-                                    publish(_state.value.copy(lastError = error.message ?: "搜索失败"))
+                                    publish(_state.value.copy(lastError = appContext.getString(R.string.cast_network_error)))
                                 }
                             }
                         }
@@ -92,16 +95,18 @@ class CastController(private val scope: CoroutineScope) {
             val result = AvTransport.playMedia(
                 device = device,
                 url = candidate.url,
-                title = candidate.label,
+                title = candidate.displayLabel(appContext.resources),
                 isStream = candidate.isStream,
             )
             result.fold(
-                onSuccess = { onResult("已投送到 ${device.displayName}") },
+                onSuccess = { onResult(appContext.getString(R.string.ui_casting_to, device.displayName(appContext.resources))) },
                 onFailure = { error ->
+                    Log.w(TAG, "cast failed", error)
+                    val message = appContext.getString(R.string.cast_network_error)
                     synchronized(lock) {
-                        publish(_state.value.copy(connected = null, lastError = error.message))
+                        publish(_state.value.copy(connected = null, lastError = message))
                     }
-                    onResult("投送失败：${error.message ?: "未知错误"}")
+                    onResult(message)
                 },
             )
         }
@@ -117,7 +122,7 @@ class CastController(private val scope: CoroutineScope) {
         scope.launch {
             AvTransport.stop(device)
             synchronized(lock) { publish(_state.value.copy(connected = null)) }
-            onResult("已停止投送")
+            onResult(appContext.getString(R.string.ui_casting_stopped))
         }
     }
 
@@ -132,7 +137,10 @@ class CastController(private val scope: CoroutineScope) {
     ) {
         val device = connected ?: return
         scope.launch {
-            action(device).onFailure { onResult("操作失败：${it.message ?: "未知错误"}") }
+            action(device).onFailure {
+                Log.w(TAG, "transport action failed", it)
+                onResult(appContext.getString(R.string.cast_network_error))
+            }
         }
     }
 

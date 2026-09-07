@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Build and install the optional shell UI snapshot helper on specified emulators."""
+import argparse
+import os
+from pathlib import Path
+import subprocess
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("serial", nargs="+")
+args = parser.parse_args()
+sdk = os.environ.get("ANDROID_SDK_ROOT", os.environ.get("ANDROID_HOME", ""))
+properties = ROOT / "local.properties"
+if properties.exists():
+    for line in properties.read_text().splitlines():
+        if line.startswith("sdk.dir="):
+            sdk = line.partition("=")[2]
+sdk = Path(sdk)
+android = sdk / "platforms/android-37/android.jar"
+d8 = sorted(sdk.glob("build-tools/*/d8"), key=lambda p: tuple(int(x) for x in p.parent.name.split(".") if x.isdigit()))[-1]
+output = ROOT / "validation/results/ui-probe"
+classes, dex = output / "classes", output / "dex"
+classes.mkdir(parents=True, exist_ok=True)
+dex.mkdir(parents=True, exist_ok=True)
+subprocess.run(["javac", "--release", "8", "-classpath", str(android), "-d", str(classes),
+                str(ROOT / "validation/FastUiDump.java")], check=True)
+subprocess.run([str(d8), "--min-api", "29", "--lib", str(android), "--output", str(dex),
+                *map(str, classes.rglob("*.class"))], check=True)
+jar = output / "pure-ui-dump.jar"
+with zipfile.ZipFile(jar, "w") as archive:
+    archive.write(dex / "classes.dex", "classes.dex")
+for serial in args.serial:
+    subprocess.run(["adb", "-s", serial, "push", str(jar), "/data/local/tmp/pure-ui-dump.jar"], check=True)
+    print("UI snapshot helper ready:", serial, flush=True)

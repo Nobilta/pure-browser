@@ -33,7 +33,7 @@ class DownloadSettingsTest {
 
         assertEquals(DownloadDestinationMode.SYSTEM_DOWNLOADS, settings.destinationMode)
         assertEquals(DEFAULT_DOWNLOAD_THREADS, settings.threadCount)
-        assertEquals("系统下载目录", settings.destinationLabel)
+        assertEquals(SYSTEM_DIRECTORY_LABEL, settings.destinationLabel)
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import com.mybrowser.R
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,6 +47,7 @@ fun SmartSuggestions(
     onSuggestionClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = LocalContext.current.resources
     var suggestions by remember { mutableStateOf<List<Suggestion>>(emptyList()) }
 
     LaunchedEffect(query) {
@@ -83,7 +86,7 @@ fun SmartSuggestions(
         // resolve through the same URL heuristic as the omnibar.
         if (!query.contains("://") && !query.contains(".") && !query.contains(" ")) {
             results += Suggestion(
-                title = "搜索: $query",
+                title = textResources.getString(R.string.ui_search, query),
                 url = query,
                 type = SuggestionType.SEARCH,
             )

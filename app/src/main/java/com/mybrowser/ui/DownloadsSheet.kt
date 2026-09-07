@@ -1,5 +1,8 @@
 package com.mybrowser.ui
 
+import com.mybrowser.download.localizeDownloadDirectory
+import com.mybrowser.download.SYSTEM_DIRECTORY_LABEL
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,7 +27,7 @@ data class DownloadItem(
     val totalBytes: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),
     val threadCount: Int = 1,
-    val destinationLabel: String = "系统下载目录",
+    val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
 )
 
 enum class DownloadStatus {
@@ -47,6 +50,7 @@ fun DownloadsSheet(
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
     onClearCompleted: (deleteFiles: Boolean) -> Unit = {},
 ) {
+    val textResources = LocalContext.current.resources
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClearCompleted by remember { mutableStateOf(false) }
@@ -69,20 +73,20 @@ fun DownloadsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "下载管理",
+                    text = textResources.getString(R.string.ui_download_manager),
                     style = MaterialTheme.typography.titleLarge
                 )
 
                 if (downloads.isEmpty()) {
                     Text(
-                        text = "暂无下载",
+                        text = textResources.getString(R.string.ui_no_downloads),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "${downloads.size} 项",
+                            text = textResources.getString(R.string.ui_items, downloads.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -92,7 +96,7 @@ fun DownloadsSheet(
                         }
                         if (hasTerminal) {
                             TextButton(onClick = { confirmClearCompleted = true }) {
-                                Text("清除")
+                                Text(textResources.getString(R.string.cd_clear))
                             }
                         }
                     }
@@ -121,7 +125,7 @@ fun DownloadsSheet(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "暂无下载任务",
+                            text = textResources.getString(R.string.ui_no_download_tasks),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -153,7 +157,7 @@ fun DownloadsSheet(
 
     pendingDelete?.let { download ->
         DeleteDownloadDialog(
-            title = "删除下载记录？",
+            title = textResources.getString(R.string.ui_delete_download_record),
             message = download.filename,
             onConfirm = { deleteFile ->
                 pendingDelete = null
@@ -165,8 +169,8 @@ fun DownloadsSheet(
 
     if (confirmClearCompleted) {
         DeleteDownloadDialog(
-            title = "清除已完成记录？",
-            message = "将清除已完成和失败的下载记录。",
+            title = textResources.getString(R.string.ui_clear_finished_records),
+            message = textResources.getString(R.string.ui_completed_and_failed_download_records_will_be_cleared),
             onConfirm = { deleteFiles ->
                 confirmClearCompleted = false
                 onClearCompleted(deleteFiles)
@@ -184,6 +188,7 @@ private fun DownloadItemRow(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -231,7 +236,7 @@ private fun DownloadItemRow(
             when (download.status) {
                 DownloadStatus.DOWNLOADING -> {
                     Text(
-                        text = "${download.progress}% · ${download.threadCount} 线程 · ${formatBytes(download.bytesDownloaded)} / ${formatBytes(download.totalBytes)}",
+                        text = textResources.getString(R.string.ui_connections, download.progress, download.threadCount, formatBytes(download.bytesDownloaded), formatBytes(download.totalBytes)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -245,21 +250,21 @@ private fun DownloadItemRow(
                 }
                 DownloadStatus.COMPLETED -> {
                     Text(
-                        text = "已完成 · ${formatBytes(download.totalBytes)} · ${download.destinationLabel}",
+                        text = textResources.getString(R.string.ui_completed, formatBytes(download.totalBytes), localizeDownloadDirectory(textResources, download.destinationLabel)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
                 DownloadStatus.FAILED -> {
                     Text(
-                        text = "下载失败 · ${download.destinationLabel}",
+                        text = textResources.getString(R.string.ui_download_failed, localizeDownloadDirectory(textResources, download.destinationLabel)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
                 DownloadStatus.PAUSED -> {
                     Text(
-                        text = "下载已中断 · ${download.progress}% · 可重试",
+                        text = textResources.getString(R.string.ui_download_interrupted_retry_available, download.progress),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -273,19 +278,19 @@ private fun DownloadItemRow(
                 IconButton(onClick = onCancel) {
                     Icon(
                         painter = painterResource(R.drawable.ic_close),
-                        contentDescription = "取消下载"
+                        contentDescription = textResources.getString(R.string.ui_cancel_download)
                     )
                 }
             }
             DownloadStatus.FAILED -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onRetry) {
-                        Text("重试")
+                        Text(textResources.getString(R.string.ui_retry))
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
                             painter = painterResource(R.drawable.ic_delete),
-                            contentDescription = "删除下载",
+                            contentDescription = textResources.getString(R.string.ui_delete_download),
                         )
                     }
                 }
@@ -293,12 +298,12 @@ private fun DownloadItemRow(
             DownloadStatus.PAUSED -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onRetry) {
-                        Text("重试")
+                        Text(textResources.getString(R.string.ui_retry))
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
                             painter = painterResource(R.drawable.ic_delete),
-                            contentDescription = "删除下载",
+                            contentDescription = textResources.getString(R.string.ui_delete_download),
                         )
                     }
                 }
@@ -307,7 +312,7 @@ private fun DownloadItemRow(
                 IconButton(onClick = onDelete) {
                     Icon(
                         painter = painterResource(R.drawable.ic_delete),
-                        contentDescription = "删除下载",
+                        contentDescription = textResources.getString(R.string.ui_delete_download),
                     )
                 }
             }
@@ -322,6 +327,7 @@ private fun DeleteDownloadDialog(
     onConfirm: (deleteFiles: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     var deleteFiles by remember(title, message) { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -341,9 +347,9 @@ private fun DeleteDownloadDialog(
                     )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("同时删除本地文件")
+                        Text(textResources.getString(R.string.ui_also_delete_local_files))
                         Text(
-                            text = "关闭后只从 Pure 浏览器中移除记录",
+                            text = textResources.getString(R.string.ui_when_off_only_records_are_removed_from_pure),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -353,11 +359,11 @@ private fun DeleteDownloadDialog(
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(deleteFiles) }) {
-                Text(if (deleteFiles) "删除记录和文件" else "仅删除记录")
+                Text(if (deleteFiles) textResources.getString(R.string.ui_delete_records_and_files) else textResources.getString(R.string.ui_delete_records_only))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(textResources.getString(R.string.action_cancel)) }
         },
     )
 }

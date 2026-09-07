@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import androidx.compose.ui.platform.LocalContext
+import android.content.res.Resources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -158,7 +160,7 @@ private fun HistoryItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = formatTime(entry.visitTime),
+                    text = formatTime(entry.visitTime, LocalContext.current.resources),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
@@ -176,15 +178,15 @@ private fun HistoryItem(
     }
 }
 
-private fun formatTime(timestamp: Long): String {
+private fun formatTime(timestamp: Long, textResources: Resources): String {
     val now = System.currentTimeMillis()
     val diff = now - timestamp
 
     return when {
-        diff < 60_000 -> "刚刚"
-        diff < 3600_000 -> "${diff / 60_000} 分钟前"
-        diff < 86400_000 -> "${diff / 3600_000} 小时前"
-        diff < 604800_000 -> "${diff / 86400_000} 天前"
+        diff < 60_000 -> textResources.getString(R.string.ui_just_now)
+        diff < 3600_000 -> textResources.getString(R.string.ui_minutes_ago, diff / 60_000)
+        diff < 86400_000 -> textResources.getString(R.string.ui_hours_ago, diff / 3600_000)
+        diff < 604800_000 -> textResources.getString(R.string.ui_days_ago, diff / 86400_000)
         else -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
     }
 }
