@@ -3,6 +3,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import subprocess
 import zipfile
 
@@ -17,8 +18,12 @@ if properties.exists():
         if line.startswith("sdk.dir="):
             sdk = line.partition("=")[2]
 sdk = Path(sdk)
-android = sdk / "platforms/android-37/android.jar"
-d8 = sorted(sdk.glob("build-tools/*/d8"), key=lambda p: tuple(int(x) for x in p.parent.name.split(".") if x.isdigit()))[-1]
+version = lambda path: tuple(map(int, re.findall(r"\d+", path.parent.name)))
+platforms = sorted(sdk.glob("platforms/android-*/android.jar"), key=version)
+compilers = sorted(sdk.glob("build-tools/*/d8"), key=version)
+if not platforms or not compilers:
+    parser.error("Install an Android SDK platform and build tools, then set sdk.dir or ANDROID_SDK_ROOT")
+android, d8 = platforms[-1], compilers[-1]
 output = ROOT / "validation/results/ui-probe"
 classes, dex = output / "classes", output / "dex"
 classes.mkdir(parents=True, exist_ok=True)

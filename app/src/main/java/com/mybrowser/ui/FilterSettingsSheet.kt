@@ -1,7 +1,7 @@
 package com.mybrowser.ui
 
 import com.mybrowser.R
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,7 +27,7 @@ fun FilterSettingsSheet(
     filterController: FilterController,
     onDismiss: () -> Unit
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     val customLists by controller.customLists.collectAsState()
     // FilterController owns the live engine and therefore includes both the bundled
     // EasyList rules and every custom list.  CustomFilterController.ruleCount only counts
@@ -162,7 +162,7 @@ private fun CustomListItem(
     list: CustomFilterController.CustomList,
     onRemove: () -> Unit
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -193,7 +193,7 @@ private fun AddFilterListDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, url: String) -> Unit
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
 

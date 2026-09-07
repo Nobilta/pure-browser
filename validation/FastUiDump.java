@@ -1,6 +1,7 @@
 package com.mybrowser.validation;
 
 import android.app.UiAutomation;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.graphics.Rect;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -22,6 +23,12 @@ public final class FastUiDump {
                 .newInstance(thread.getLooper(), connection);
         try {
             UiAutomation.class.getMethod("connect").invoke(automation);
+            AccessibilityServiceInfo service = automation.getServiceInfo();
+            service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
+            automation.setServiceInfo(service);
+            // WebView enables its accessibility tree asynchronously after a service connects.
+            Thread.sleep(150);
             AccessibilityNodeInfo root = null;
             for (int i = 0; i < 10 && root == null; i++) {
                 root = automation.getRootInActiveWindow();

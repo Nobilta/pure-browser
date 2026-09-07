@@ -161,7 +161,7 @@ object Dialogs {
 
         AlertDialog.Builder(context)
             .setTitle(context.getString(R.string.ui_authentication_required))
-            .setMessage(context.getString(R.string.ui_requires_a_login, host, if (realm.isNotEmpty()) "（$realm）" else ""))
+            .setMessage(context.getString(R.string.ui_requires_a_login, host, if (realm.isNotEmpty()) " ($realm)" else ""))
             .setView(container)
             .setPositiveButton(context.getString(R.string.ui_sign_in)) { _, _ ->
                 if (!answered) {

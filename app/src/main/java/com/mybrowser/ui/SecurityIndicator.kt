@@ -1,7 +1,7 @@
 package com.mybrowser.ui
 
 import com.mybrowser.R
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -32,7 +32,7 @@ fun SecurityIndicator(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     val isNativeHomepage = url == "about:blank"
     val securityLevel = SecurityChecker.getSecurityLevel(url)
     val securityInfo = SecurityChecker.getSecurityInfo(url)
@@ -80,7 +80,7 @@ fun SecurityInfoDialog(
     certificate: CertificateDetails?,
     onDismiss: () -> Unit
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     val securityInfo = SecurityChecker.getSecurityInfo(url)
     val securityLevel = SecurityChecker.getSecurityLevel(url)
 
@@ -218,7 +218,7 @@ private fun InfoRow(label: String, value: String) {
 
 @Composable
 private fun CertificateCard(certificate: CertificateDetails) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium,
@@ -273,7 +273,7 @@ fun SSLErrorDialog(
     onProceed: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     AlertDialog(
         onDismissRequest = onCancel,
         icon = {
