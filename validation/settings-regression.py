@@ -44,6 +44,8 @@ def restart():
 
 
 try:
+    ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+    ux.adb("shell", "settings", "put", "system", "user_rotation", "0")
     ux.adb("reverse", "tcp:8875", "tcp:8875")
     restart()
     ux.open_settings()
@@ -105,9 +107,11 @@ try:
     screenshot("video")
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.3")
     time.sleep(1)
+    ux.expect("增强全屏控件")
     screenshot("large-font")
     record("video settings remain accessible at 1.3 font scale")
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    time.sleep(1)
     ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
     ux.adb("shell", "settings", "put", "system", "user_rotation", "1")
     time.sleep(1.5)

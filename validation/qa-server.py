@@ -37,6 +37,33 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == '/download-test.bin':
+            size = 6 * 1024 * 1024
+            match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+            start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
+            if start > end or start >= size:
+                self.send_response(416); self.end_headers(); return
+            with LOCK:
+                EVENTS['download-requests'].append({'start': start, 'end': end, 'receivedAt': time.time()})
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Disposition', 'attachment; filename="pure-range-test.bin"')
+            self.send_header('Content-Length', str(end - start + 1))
+            self.send_header('Accept-Ranges', 'bytes')
+            if match:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            block = bytes(range(256)) * 256
+            try:
+                for position in range(start, end + 1, len(block)):
+                    count = min(len(block), end - position + 1)
+                    offset = position % 256
+                    self.wfile.write((block + block)[offset:offset + count])
+                    self.wfile.flush()
+                    time.sleep(.03)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         if parsed.path == '/__state':
             case = parse_qs(parsed.query).get('case', ['default'])[0][:80]
             with LOCK:

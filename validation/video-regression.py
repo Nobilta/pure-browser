@@ -124,6 +124,12 @@ class Regression:
         time.sleep(1)
 
     def run(self):
+        # UiAutomation restores a frozen rotation on disconnect; use the sensor so
+        # hierarchy snapshots cannot overwrite the system's portrait lock setting.
+        ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "1")
+        ux.adb("shell", "settings", "put", "system", "user_rotation", "0")
+        ux.adb("emu", "sensor", "set", "acceleration", "0:9.8:0")
+        time.sleep(1)
         for port in (8875, 8876):
             ux.adb("reverse", "tcp:" + str(port), "tcp:" + str(port))
         ux.adb("shell", "am", "force-stop", "com.mybrowser")
