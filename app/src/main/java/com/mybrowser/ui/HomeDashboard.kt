@@ -1,7 +1,6 @@
 package com.mybrowser.ui
 
 import com.mybrowser.R
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -52,7 +51,7 @@ fun HomeDashboard(
     onRemove: (HomeShortcut) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var pendingRemoval by remember { mutableStateOf<HomeShortcut?>(null) }
 
     Surface(
@@ -129,7 +128,7 @@ private fun HomeShortcutTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -183,7 +182,7 @@ private fun HomeShortcutTile(
 
 @Composable
 private fun EmptyHomeCard() {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,

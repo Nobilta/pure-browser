@@ -12,7 +12,6 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalResources
 import com.mybrowser.data.BrowserPreferences
 import com.mybrowser.data.ThemeMode
 import com.mybrowser.data.VideoPreferences
@@ -103,7 +102,7 @@ fun SettingsSheet(
     onOpenDeveloperTools: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = sectionName?.let(SettingsCategory::valueOf)
@@ -118,9 +117,6 @@ fun SettingsSheet(
                 if (wide || selected == null) {
                     Box(if (wide) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
                         SettingsPage(textResources.getString(R.string.menu_settings), onDismiss) {
-                            Text(textResources.getString(R.string.ui_browse_by_category), style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                             SettingsCategory.entries.forEach { category ->
                                 val summary = when (category) {
                                     SettingsCategory.BROWSING -> "${currentSearchEngine.displayName(textResources)} · " +
@@ -136,7 +132,7 @@ fun SettingsSheet(
                                     colors = CardDefaults.cardColors(containerColor =
                                         if (wide && category == (selected ?: SettingsCategory.BROWSING)) MaterialTheme.colorScheme.secondaryContainer
                                         else MaterialTheme.colorScheme.surfaceContainerLow),
-                                    shape = RoundedCornerShape(18.dp),
+                                    shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                                 ) {
                                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -312,7 +308,7 @@ private fun SettingsPage(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -341,7 +337,7 @@ private fun SearchEngineSettings(
     onRemoveCustom: (SearchEngine) -> Unit,
     onBack: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var showAddDialog by remember { mutableStateOf(false) }
 
     SettingsPage(
@@ -459,7 +455,7 @@ private fun DownloadSettingsPage(
     onThreadCountChange: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var threadDraft by remember(settings.threadCount) {
         mutableFloatStateOf(settings.threadCount.toFloat())
     }
@@ -576,7 +572,7 @@ private fun HomepageSettings(
     onChange: (String) -> Boolean,
     onBack: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var showDialog by remember { mutableStateOf(false) }
 
     SettingsPage(title = textResources.getString(R.string.cd_home), onBack = onBack) {
