@@ -86,7 +86,7 @@ class FullscreenVideoView(
     private val poll = object : Runnable {
         override fun run() {
             if (released) return
-            if (!tracker.isInstalled) tracker.probe()
+            if (hasWindowFocus() && !tracker.isInstalled) tracker.probe()
             ui.postDelayed(this, 1000)
         }
     }
@@ -214,8 +214,7 @@ class FullscreenVideoView(
             }
             refreshMode()
             showControls(true)
-            if (ok) showHud(activity.getString(R.string.ui_left_brightness_right_volume_hold_for_a_temporary), 2200)
-            else showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
+            if (!ok) showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
         }
     }
 
@@ -351,15 +350,17 @@ class FullscreenVideoView(
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
-    private fun rounded(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(14).toFloat() }
+    private fun rounded(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(8).toFloat() }
     private fun buttonBackground() = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), rounded(0x55343A46), null)
     private fun imageButton(resource: Int, description: String, click: () -> Unit) = ImageButton(activity).apply {
         setImageResource(resource); imageTintList = ColorStateList.valueOf(Color.WHITE)
         contentDescription = description; background = buttonBackground(); setPadding(dp(12), dp(12), dp(12), dp(12))
+        tooltipText = description
         setOnClickListener { click() }
     }
     private fun textButton(label: String, description: String, click: () -> Unit) = TextView(activity).apply {
         text = label; contentDescription = description; textSize = 13f; setTextColor(Color.WHITE)
+        tooltipText = description
         gravity = Gravity.CENTER; minWidth = dp(48); setPadding(dp(12), 0, dp(12), 0)
         background = buttonBackground(); isFocusable = true; setOnClickListener { click() }
     }

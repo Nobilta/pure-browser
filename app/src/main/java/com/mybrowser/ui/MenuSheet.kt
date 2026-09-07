@@ -1,6 +1,5 @@
 package com.mybrowser.ui
 
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -56,7 +55,7 @@ fun MenuSheet(
     onExit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
