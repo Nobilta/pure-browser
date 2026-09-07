@@ -234,8 +234,11 @@ python3 validation/qa-server.py
 python3 validation/setup-ui-probe.py emulator-5554
 ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
 python3 validation/settings-regression.py --serial emulator-5554
+python3 validation/download-regression.py --serial emulator-5554
 python3 validation/video-regression.py --serial emulator-5554 --variant standard
 # 其他媒体夹具：--variant square / blob / cross
+# Android 13+ 可额外验证应用语言切换：
+python3 validation/locale-regression.py --serial emulator-5556
 ```
 
 测试服务器只监听本机的 8875/8876 端口，脚本自动设置 ADB 反向端口。
@@ -247,8 +250,10 @@ Lint 为 0 errors / 3 warnings：AGP 更新提示、ChromeOS x86_64 支持提示
 真实 DLNA 投送、厂商 WebView、摄像头/麦克风和第三方 DRM 网站仍需实体设备验证。
 
 原版 0.1.0 为 1,910,313 bytes，本轮全部变更（含三语言资源）增加 220,934 bytes，约 11.6%。
-这不是 Android 10 兼容代码单独带来的增量。性能对照方法与实际数据见回归报告，模拟器测量
-不能替代低端真机的流畅度、电量和视频帧率测试。
+这不是 Android 10 兼容代码单独带来的增量。同一 API 34 模拟器、同一本地页面、各预热 2 次后
+测量 7 次，进程冷启动中位数从原版 586 ms 到新版 556 ms，应用主进程 PSS 中位数从
+76.4 MiB 到 71.9 MiB，未观察到明显退化。该数据不含 Chromium 子进程内存，不能证明真机
+提速，也不能替代低端真机的流畅度、电量和视频帧率测试。原始样本与方法见回归报告。
 
 ## 相关文档
 

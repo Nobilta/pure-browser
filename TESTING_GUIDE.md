@@ -9,17 +9,21 @@ cargo test --all
 cargo clippy --workspace --all-targets -- -D warnings
 
 cd ..
+node --test validation/playback-probe.test.cjs
+python3 validation/check-localization.py
 ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
 ./gradlew :app:assembleRelease --console=plain
 ```
 
 Android 单元测试使用 Robolectric，覆盖 URL/导航、数据库、下载设置/Range/HTTP 引擎、文件名、媒体候选和 DLNA 解析；
 Rust 测试覆盖规则匹配、URL 工具、LRU、legacy 下载分片和文件名解析。
+网页协议测试覆盖视频目标隔离、临时倍速恢复、全屏切换与消息回执；字符串检查覆盖三语言键和格式参数。
+当前数量及最近一次执行结果见 [README](./README.md) 和 [回归报告](./EMULATOR_TEST_REPORT.md)。
 
 ## APK 检查
 
 ```bash
-APK=PureBrowser-v0.1.0-release.apk
+APK=PureBrowser-v0.2.0-release.apk
 apksigner verify --verbose "$APK"
 unzip -l "$APK" | rg 'lib/|AndroidManifest.xml'
 ```
@@ -35,7 +39,7 @@ filename_parser，除非显式 opt-in。
 ./diagnose.sh
 ```
 
-在 API 34 arm64 模拟器和至少一台真机上检查：
+以下是完整验收清单；在 API 29、API 34 arm64 模拟器和真机上按需执行，实际完成项单独记录：
 
 - 启动、WebView 页面加载、前进/后退、主页、刷新/停止
 - 地址栏访问/搜索按钮、建议、外部协议交接
@@ -45,6 +49,11 @@ filename_parser，除非显式 opt-in。
 - 页面内查找、文件上传、全屏、JS 对话框和权限回调
 - 视频媒体候选、当前播放标记、悬浮投屏按钮、DLNA 设备发现/投送
 - 当前视频 0.5×–3× 倍速、跨域 iframe 播放器和同页媒体源重载后的倍速保持
+- 全屏亮度/音量/进度手势、临时倍速、锁定返回、横竖屏和退出状态恢复
+- 设置分类与弹层返回、主题持久化、大字体与宽屏双栏、应用语言切换
+
+可控设备回归脚本、测试服务器启动命令和性能对照方法见
+[回归报告](./EMULATOR_TEST_REPORT.md)。测试时只运行一台模拟器，避免与 Gradle 构建并行。
 
 ## 负面与边界测试
 

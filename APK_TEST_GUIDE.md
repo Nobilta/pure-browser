@@ -5,17 +5,27 @@
 Release APK 由 `./build-and-test.sh` 生成到项目根目录：
 
 ```bash
-adb install -r PureBrowser-v0.1.0-release.apk
+adb install -r PureBrowser-v0.2.0-release.apk
 adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 ```
 
-安装前确认设备为 Android 14+ 且 ABI 为 arm64-v8a。调试 x86_64 模拟器应另行构建：
+安装前确认设备为 Android 10+ 且 ABI 为 arm64-v8a，不支持 32 位 Android。调试 x86_64 模拟器应另行构建：
 
 ```bash
 ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 ```
 
 ## 功能清单
+
+本指南是待执行的完整检查清单，当前 APK 的实际覆盖范围以
+[回归报告](./EMULATOR_TEST_REPORT.md) 为准。
+
+### 设置与语言
+
+- 确认六个设置分类可进入和返回；关闭搜索、主页、主题或倍速弹层后保留原分类。
+- 下载线程数和主题在进程重启后保留；从过滤列表返回隐私与过滤。
+- 在 1.3 倍系统字体及横屏下检查文字换行；可用宽度达到 720dp 时显示双栏。
+- Android 13+ 切换应用语言，检查简体中文、繁体中文、英文及原设置分类保留。
 
 ### 地址栏与导航
 
@@ -46,6 +56,12 @@ adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
   权限的允许/拒绝路径。
 
 ### 媒体与投屏
+
+- 全屏后检查单击显隐、双击暂停/快进、左右纵向亮度/音量、横向拖动进度。
+- 选择 1.5× 后长按临时 2×，松手或切后台应恢复 1.5×，默认倍速不被临时加速改写。
+- 锁定后手势失效，返回先解锁；退出恢复窗口亮度和方向，方形视频不自动横屏。
+- 检查增强/网页控件切换、Blob 和跨域 iframe；旧 WebView 的跨域回退应保留网站控件。
+- 直播不可跳转、DRM、带字幕/清晰度选项的网站另行验证；不要用普通 MP4 通过代替这些结果。
 
 1. 打开一个包含视频的页面并手动播放目标视频。
 2. 确认右下角显示当前倍速按钮；依次切换 0.5×、1.5×、2× 和 3×，视频的
