@@ -1,6 +1,5 @@
 package com.mybrowser.ui
 
-import androidx.compose.ui.platform.LocalResources
 import android.content.res.Resources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -160,7 +159,7 @@ private fun HistoryItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = formatTime(entry.visitTime, LocalResources.current),
+                    text = formatTime(entry.visitTime, localizedResources()),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )

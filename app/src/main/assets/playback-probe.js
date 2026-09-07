@@ -39,7 +39,8 @@
   }
   function pick() {
     var found = videos();
-    if (nativeControls && found.indexOf(nativeControls.video) >= 0) {
+    if (nativeControls && found.indexOf(nativeControls.video) >= 0 &&
+        !found.some(function(video) { return video !== nativeControls.video && fullscreen(video); })) {
       return nativeControls.video;
     }
     found.sort(function(a, b) { return rank(b) - rank(a); });

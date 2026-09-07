@@ -2,7 +2,6 @@ package com.mybrowser.ui
 
 import android.content.res.Resources
 import com.mybrowser.R
-import androidx.compose.ui.platform.LocalResources
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,7 +77,7 @@ fun DeveloperTools(
     onClearConsole: () -> Unit = {},
     pageUrl: String? = null,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var selectedTab by remember { mutableIntStateOf(0) }
     var pageSource by remember(webView) { mutableStateOf(textResources.getString(R.string.ui_loading)) }
     // Developer tools contains a console input row as well as a potentially long output
@@ -180,7 +179,7 @@ private fun ConsoleTab(
     webView: WebView?,
     onClear: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var command by remember { mutableStateOf("") }
     var evaluations by remember { mutableStateOf<List<ConsoleLine>>(emptyList()) }
 
@@ -293,7 +292,7 @@ private fun ConsoleTab(
 
 @Composable
 private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     Column(modifier = Modifier.fillMaxSize()) {
         DiagnosticsHeader(
             title = textResources.getString(R.string.ui_network_requests, entries.size),
@@ -319,7 +318,7 @@ private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit) {
 
 @Composable
 private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -342,7 +341,7 @@ private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
 
 @Composable
 private fun NetworkRequestItem(request: NetworkRequestLog) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     val statusColor = when {
         request.blocked -> Color(0xFFFF9800)
         request.statusCode != null && request.statusCode in 200..399 -> Color(0xFF4CAF50)
@@ -431,7 +430,7 @@ private fun SourceCodeTab(source: String) {
 
 @Composable
 private fun InfoTab(webView: WebView?, pageUrl: String?) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     var pageInfo by remember(webView, pageUrl) { mutableStateOf<PageInfo?>(null) }
 
     LaunchedEffect(webView, pageUrl) {

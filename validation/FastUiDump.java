@@ -5,7 +5,10 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.graphics.Rect;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Xml;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.StringWriter;
 import org.xmlpull.v1.XmlSerializer;
@@ -23,6 +26,9 @@ public final class FastUiDump {
                 .newInstance(thread.getLooper(), connection);
         try {
             UiAutomation.class.getMethod("connect").invoke(automation);
+            if (args.length == 3 && args[0].equals("doubleTap")) {
+                doubleTap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
+            } else {
             AccessibilityServiceInfo service = automation.getServiceInfo();
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                     | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
@@ -44,11 +50,26 @@ public final class FastUiDump {
             xml.endTag("", "hierarchy");
             xml.endDocument();
             System.out.println(output);
+            }
         } finally {
             UiAutomation.class.getMethod("disconnect").invoke(automation);
             thread.quitSafely();
         }
         System.exit(0);
+    }
+
+    private static void doubleTap(UiAutomation automation, float x, float y) {
+        for (int i = 0; i < 2; i++) {
+            long down = SystemClock.uptimeMillis();
+            for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+                MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Touch injection failed");
+                event.recycle();
+                SystemClock.sleep(30);
+            }
+            SystemClock.sleep(60);
+        }
     }
 
     private static void attribute(XmlSerializer xml, String key, Object value) throws Exception {

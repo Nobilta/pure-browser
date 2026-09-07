@@ -84,9 +84,8 @@ class Regression:
         time.sleep(.4)
 
     def double_tap(self, x=.5):
-        command = "input tap %d %d\n" % (int(self.width * x), self.height // 2)
-        subprocess.run(ux.ADB + ["shell"], input=command * 2, text=True, check=True,
-                       stdout=subprocess.DEVNULL, timeout=10)
+        ux.adb("shell", "env", "CLASSPATH=" + ux.UI_PROBE, "app_process", "/system/bin",
+               "com.mybrowser.validation.FastUiDump", "doubleTap", str(int(self.width * x)), str(self.height // 2))
         time.sleep(.5)
 
     def app_window(self):
@@ -106,6 +105,24 @@ class Regression:
             raise AssertionError(output)
         return int(match[1])
 
+    def enter_fullscreen(self):
+        inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
+        root, _ = ux.nodes()
+        play = ux.match(root, "Play fullscreen")
+        if play is not None:
+            x1, y1, x2, y2 = ux.bounds(play)
+            x, y = (x1 + x2) // 2, (y1 + y2) // 2
+        else:
+            web = next(n for n in root.iter("node") if n.get("class") == "android.webkit.WebView")
+            left, top, _, _ = ux.bounds(web)
+            rect, scale = inline["startRect"], inline["viewport"]["dpr"]
+            frame_top = inline.get("frameTop", 0)
+            x = int(left + (rect["x"] + rect["width"] / 2) * scale)
+            y = int(top + (frame_top + rect["y"] + rect["height"] / 2) * scale)
+        ux.adb("shell", "input", "tap", str(x), str(y))
+        self.wait(lambda s: s["fullscreen"] and not s["paused"])
+        time.sleep(1)
+
     def run(self):
         for port in (8875, 8876):
             ux.adb("reverse", "tcp:" + str(port), "tcp:" + str(port))
@@ -116,22 +133,7 @@ class Regression:
         inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
         original_brightness = self.brightness()
         original_size = self.snapshot("inline")
-        root, _ = ux.nodes()
-        play = ux.match(root, "Play fullscreen")
-        if play is not None:
-            x1, y1, x2, y2 = ux.bounds(play)
-            x, y = (x1 + x2) // 2, (y1 + y2) // 2
-        else:
-            web = next(n for n in root.iter("node") if n.get("class") == "android.webkit.WebView")
-            left, top, _, _ = ux.bounds(web)
-            rect, scale = inline["startRect"], inline["viewport"]["dpr"]
-            # The cross-origin fixture places its iframe at a reported offset.
-            frame_top = inline.get("frameTop", 0)
-            x = int(left + (rect["x"] + rect["width"] / 2) * scale)
-            y = int(top + (frame_top + rect["y"] + rect["height"] / 2) * scale)
-        ux.adb("shell", "input", "tap", str(x), str(y))
-        self.wait(lambda s: s["fullscreen"] and not s["paused"])
-        time.sleep(1)
+        self.enter_fullscreen()
         root, _ = ux.nodes()
         if ux.match(root, "Got it") is not None:
             self.button("Got it", reveal=False)
@@ -179,8 +181,13 @@ class Regression:
         ux.adb("shell", "input", "keyevent", "3")
         hold.wait(timeout=10)
         ux.launch()
-        self.wait(lambda s: s["rate"] == 1.5 and s["fullscreen"])
-        self.record("backgrounding cancels temporary speed before returning")
+        resumed = self.wait(lambda s: s["rate"] == 1.5)
+        self.record("backgrounding cancels temporary speed before returning", fullscreen=resumed["fullscreen"])
+        if not resumed["fullscreen"]:
+            assert resumed["controls"] and self.brightness() == original_brightness
+            self.enter_fullscreen()
+            self.wait(lambda s: not s["controls"])
+            self.snapshot("reentered")
 
         self.double_tap()
         self.wait(lambda s: s["paused"])

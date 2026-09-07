@@ -35,6 +35,9 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -46,6 +49,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -319,6 +323,13 @@ class MainActivity : ComponentActivity(),
 
         setContent {
             MyBrowserTheme(themeMode = browserPreferences.theme) {
+                val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+                SideEffect {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = lightSystemBars
+                        isAppearanceLightNavigationBars = lightSystemBars
+                    }
+                }
                 val downloads by downloadHandler.downloads.collectAsState()
                 val networkEntries by networkLogs.entries.collectAsState()
                 val consoleEntries by consoleLogs.entries.collectAsState()
@@ -1535,7 +1546,7 @@ class MainActivity : ComponentActivity(),
         val pageUrl = state.currentUrl
         mediaProbeJob = lifecycleScope.launch {
             while (isActive && webViewOrNull === view && state.currentUrl == pageUrl) {
-                if (fullscreenView == null) tracker.probe()
+                if (fullscreenView == null && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) tracker.probe()
                 delay(MEDIA_PROBE_INTERVAL_MS)
             }
         }

@@ -1,6 +1,5 @@
 package com.mybrowser.ui
 
-import androidx.compose.ui.platform.LocalResources
 import android.content.res.Resources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,7 +56,7 @@ fun CastSheet(
     preferredCandidate: MediaSniffer.Candidate? = null,
     playingCandidateUrls: Set<String> = emptySet(),
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // A player often requests the same manifest more than once with a cache-busting or
     // rotating-auth query.  Those URLs must remain selectable (dropping the query can make
@@ -260,7 +259,7 @@ private fun DeviceRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val textResources = LocalResources.current
+    val textResources = localizedResources()
     val color =
         if (enabled) MaterialTheme.colorScheme.onSurface
         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)

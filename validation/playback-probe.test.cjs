@@ -125,6 +125,22 @@ test('seek clamps to actual seekable ranges and rejects a live stream', () => {
   assert.equal(f.command('seek', { position: 50 }), false);
   assert.equal(f.api.snapshot().duration, 0);
 });
+test('a new fullscreen element replaces a still-mounted native control target', () => {
+  const f = fixture(2), first = f.videos[0], next = f.videos[1];
+  f.doc.fullscreenElement = first;
+  const previous = f.api.snapshot();
+  f.command('nativeControls');
+  f.doc.fullscreenElement = next;
+  const replacement = f.api.snapshot();
+  assert.notEqual(replacement.videoId, previous.videoId);
+  f.command('restoreControls', {}, previous);
+  f.command('nativeControls', {}, replacement);
+  f.command('setPlaybackRate', { rate: 2 }, replacement);
+  assert.equal(first.controls, true);
+  assert.equal(first.playbackRate, 1);
+  assert.equal(next.controls, false);
+  assert.equal(next.playbackRate, 2);
+});
 test('native mode restores the exact original controls setting and speed', () => {
   for (const original of [true, false]) {
     const f = fixture(), v = f.videos[0]; v.controls = original;
