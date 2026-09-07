@@ -1,5 +1,6 @@
 package com.mybrowser.filter
 
+import com.mybrowser.R
 import android.content.Context
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
@@ -61,23 +62,23 @@ class CustomFilterController(
             _lastError.value = null
             val cleanName = name.trim()
             val cleanUrl = url.trim()
-            if (cleanName.isEmpty()) return@withLock fail("名称不能为空")
-            if (cleanName.length > MAX_NAME_LENGTH) return@withLock fail("名称过长")
-            if (cleanUrl.length > MAX_URL_LENGTH) return@withLock fail("规则列表地址过长")
+            if (cleanName.isEmpty()) return@withLock fail(appContext.getString(R.string.ui_name_cannot_be_empty))
+            if (cleanName.length > MAX_NAME_LENGTH) return@withLock fail(appContext.getString(R.string.ui_name_is_too_long))
+            if (cleanUrl.length > MAX_URL_LENGTH) return@withLock fail(appContext.getString(R.string.ui_filter_list_url_is_too_long))
             if (!isValidListUrl(cleanUrl)) {
-                return@withLock fail("规则列表必须使用 HTTP 或 HTTPS")
+                return@withLock fail(appContext.getString(R.string.ui_filter_lists_must_use_http_or_https))
             }
 
             val id = sha256(cleanUrl).take(16)
             if (_customLists.value.none { it.id == id } &&
                 _customLists.value.size >= MAX_CUSTOM_LISTS
             ) {
-                return@withLock fail("自定义规则列表已达到上限")
+                return@withLock fail(appContext.getString(R.string.ui_custom_filter_list_limit_reached))
             }
 
-            val rules = downloadRules(cleanUrl) ?: return@withLock fail("无法下载规则列表")
+            val rules = downloadRules(cleanUrl) ?: return@withLock fail(appContext.getString(R.string.ui_unable_to_download_the_filter_list))
             runCatching { File(cacheDir, "$id.txt").writeText(rules) }
-                .getOrElse { return@withLock fail("无法保存规则列表") }
+                .getOrElse { return@withLock fail(appContext.getString(R.string.ui_unable_to_save_the_filter_list)) }
 
             val entry = CustomList(id, cleanName, cleanUrl, countRules(rules))
             _customLists.value = (_customLists.value.filterNot { it.id == id } + entry)

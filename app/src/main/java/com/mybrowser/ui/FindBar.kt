@@ -1,5 +1,6 @@
 package com.mybrowser.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -37,6 +38,7 @@ fun FindBar(
     onPrevious: () -> Unit,
     onClose: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
@@ -69,7 +71,7 @@ fun FindBar(
             decorationBox = { innerTextField ->
                 if (query.isEmpty()) {
                     Text(
-                        text = "查找页面内容",
+                        text = textResources.getString(R.string.ui_find_in_page),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -95,7 +97,7 @@ fun FindBar(
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_arrow_up),
-                contentDescription = "上一个",
+                contentDescription = textResources.getString(R.string.ui_previous),
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -108,7 +110,7 @@ fun FindBar(
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_arrow_down),
-                contentDescription = "下一个",
+                contentDescription = textResources.getString(R.string.ui_next),
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -120,7 +122,7 @@ fun FindBar(
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_close),
-                contentDescription = "关闭",
+                contentDescription = textResources.getString(R.string.ui_close),
                 modifier = Modifier.size(20.dp),
             )
         }

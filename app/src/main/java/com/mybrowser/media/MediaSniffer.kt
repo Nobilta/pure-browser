@@ -1,5 +1,7 @@
 package com.mybrowser.media
 
+import com.mybrowser.R
+import android.content.res.Resources
 import android.net.Uri
 import android.webkit.WebResourceRequest
 import androidx.core.net.toUri
@@ -34,6 +36,17 @@ object MediaSniffer {
         /** Page the request originated from, for the Referer a DLNA renderer may need. */
         val pageUrl: String?,
     ) {
+        fun displayLabel(resources: Resources): String {
+            val prefix = when (kind) {
+                Kind.PROGRESSIVE -> "Video"
+                Kind.AUDIO -> "Audio"
+                else -> return label
+            }
+            if (!label.startsWith("$prefix · ")) return label
+            val localized = resources.getString(if (kind == Kind.AUDIO) R.string.ui_audio else R.string.ui_video)
+            return "$localized · ${label.substringAfter(" · ")}"
+        }
+
         val isStream: Boolean get() = kind == Kind.HLS || kind == Kind.DASH
     }
 
@@ -119,8 +132,8 @@ object MediaSniffer {
         val suffix = when (kind) {
             Kind.HLS -> "HLS"
             Kind.DASH -> "DASH"
-            Kind.PROGRESSIVE -> "视频"
-            Kind.AUDIO -> "音频"
+            Kind.PROGRESSIVE -> "Video"
+            Kind.AUDIO -> "Audio"
         }
         return "$suffix · ${name.take(MAX_LABEL_LENGTH)}"
     }

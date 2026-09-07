@@ -447,7 +447,7 @@ class DownloadHandler(context: Context) : Closeable {
                 totalBytes = total,
                 timestamp = entry.timestamp,
                 threadCount = 1,
-                destinationLabel = "系统下载目录",
+                destinationLabel = SYSTEM_DIRECTORY_LABEL,
             )
         }
     }
@@ -576,7 +576,7 @@ class DownloadHandler(context: Context) : Closeable {
                     customTreeUri = obj.optString("customTreeUri").takeIf { it.isNotBlank() },
                     destinationLabel = obj.optString("destinationLabel")
                         .take(MAX_DESTINATION_LABEL_LENGTH)
-                        .ifBlank { "系统下载目录" },
+                        .ifBlank { SYSTEM_DIRECTORY_LABEL },
                     destinationUri = obj.optString("destinationUri").takeIf { it.isNotBlank() },
                 )
             }
@@ -729,7 +729,7 @@ class DownloadHandler(context: Context) : Closeable {
         val actualThreadCount: Int = 1,
         val destinationMode: DownloadDestinationMode = DownloadDestinationMode.SYSTEM_DOWNLOADS,
         val customTreeUri: String? = null,
-        val destinationLabel: String = "系统下载目录",
+        val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
         val destinationUri: String? = null,
     )
 

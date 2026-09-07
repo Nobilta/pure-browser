@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import com.mybrowser.R
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +27,7 @@ fun FilterSettingsSheet(
     filterController: FilterController,
     onDismiss: () -> Unit
 ) {
+    val textResources = LocalContext.current.resources
     val customLists by controller.customLists.collectAsState()
     // FilterController owns the live engine and therefore includes both the bundled
     // EasyList rules and every custom list.  CustomFilterController.ruleCount only counts
@@ -49,13 +52,13 @@ fun FilterSettingsSheet(
                 .padding(16.dp)
         ) {
             Text(
-                text = "广告过滤设置",
+                text = textResources.getString(R.string.ui_ad_filter_settings),
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
             Text(
-                text = "已加载 $ruleCount 条规则",
+                text = textResources.getString(R.string.ui_rules_loaded, ruleCount),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 16.dp)
@@ -77,8 +80,8 @@ fun FilterSettingsSheet(
                     .padding(bottom = 8.dp)
             ) {
                 ListItem(
-                    headlineContent = { Text("EasyList (内置)") },
-                    supportingContent = { Text("默认广告过滤规则") },
+                    headlineContent = { Text(textResources.getString(R.string.ui_easylist_built_in)) },
+                    supportingContent = { Text(textResources.getString(R.string.ui_default_ad_filter_rules)) },
                     leadingContent = {
                         Icon(
                             imageVector = Icons.Default.Check,
@@ -98,21 +101,21 @@ fun FilterSettingsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "自定义规则列表",
+                    text = textResources.getString(R.string.ui_custom_filter_lists),
                     style = MaterialTheme.typography.titleMedium
                 )
                 TextButton(
                     onClick = { showAddDialog = true },
                     enabled = !adding,
                 ) {
-                    Text(if (adding) "处理中…" else "添加")
+                    Text(if (adding) textResources.getString(R.string.ui_working) else textResources.getString(R.string.ui_add))
                 }
             }
 
             // Custom lists
             if (customLists.isEmpty()) {
                 Text(
-                    text = "暂无自定义规则列表",
+                    text = textResources.getString(R.string.ui_no_custom_filter_lists),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp)
@@ -159,6 +162,7 @@ private fun CustomListItem(
     list: CustomFilterController.CustomList,
     onRemove: () -> Unit
 ) {
+    val textResources = LocalContext.current.resources
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -169,14 +173,14 @@ private fun CustomListItem(
             supportingContent = {
                 Column {
                     Text(list.url, maxLines = 1)
-                    Text("${list.ruleCount} 条规则", style = MaterialTheme.typography.labelSmall)
+                    Text(textResources.getString(R.string.ui_rules, list.ruleCount), style = MaterialTheme.typography.labelSmall)
                 }
             },
             trailingContent = {
                 IconButton(onClick = onRemove) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "删除"
+                        contentDescription = textResources.getString(R.string.cd_delete)
                     )
                 }
             }
@@ -189,18 +193,19 @@ private fun AddFilterListDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, url: String) -> Unit
 ) {
+    val textResources = LocalContext.current.resources
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("添加过滤列表") },
+        title = { Text(textResources.getString(R.string.ui_add_filter_list)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("名称") },
+                    label = { Text(textResources.getString(R.string.search_engine_name)) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
@@ -219,12 +224,12 @@ private fun AddFilterListDialog(
                 onClick = { onAdd(name, url) },
                 enabled = name.isNotBlank() && url.isNotBlank()
             ) {
-                Text("添加")
+                Text(textResources.getString(R.string.ui_add))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(textResources.getString(R.string.action_cancel))
             }
         }
     )

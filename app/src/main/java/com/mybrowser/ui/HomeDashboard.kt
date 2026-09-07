@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import com.mybrowser.R
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -50,6 +52,7 @@ fun HomeDashboard(
     onRemove: (HomeShortcut) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val textResources = LocalContext.current.resources
     var pendingRemoval by remember { mutableStateOf<HomeShortcut?>(null) }
 
     Surface(
@@ -65,15 +68,15 @@ fun HomeDashboard(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(modifier = Modifier.padding(bottom = 6.dp)) {
                     Text(
-                        text = "常用网站",
+                        text = textResources.getString(R.string.ui_favorite_sites),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = if (shortcuts.isEmpty()) {
-                            "添加书签时可同时放到首页"
+                            textResources.getString(R.string.ui_add_sites_to_your_homepage_when_bookmarking)
                         } else {
-                            "轻触打开，长按可从首页移除"
+                            textResources.getString(R.string.ui_tap_to_open_hold_to_remove_from_the)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -102,18 +105,18 @@ fun HomeDashboard(
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
             icon = { Icon(Icons.Default.Home, contentDescription = null) },
-            title = { Text("从首页移除？") },
-            text = { Text("将“${shortcut.title}”从导航首页移除，书签仍会保留。") },
+            title = { Text(textResources.getString(R.string.ui_remove_from_homepage)) },
+            text = { Text(textResources.getString(R.string.ui_remove_from_the_homepage_its_bookmark_will_be, shortcut.title)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         pendingRemoval = null
                         onRemove(shortcut)
                     },
-                ) { Text("移除") }
+                ) { Text(textResources.getString(R.string.ui_remove)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRemoval = null }) { Text("取消") }
+                TextButton(onClick = { pendingRemoval = null }) { Text(textResources.getString(R.string.action_cancel)) }
             },
         )
     }
@@ -126,6 +129,7 @@ private fun HomeShortcutTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -133,7 +137,7 @@ private fun HomeShortcutTile(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
-                onLongClickLabel = "从首页移除",
+                onLongClickLabel = textResources.getString(R.string.ui_remove_from_homepage_13d6f7),
             )
             .padding(horizontal = 4.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -149,7 +153,7 @@ private fun HomeShortcutTile(
             if (icon != null && !icon.isRecycled) {
                 Image(
                     bitmap = icon.asImageBitmap(),
-                    contentDescription = "${shortcut.title} 图标",
+                    contentDescription = textResources.getString(R.string.ui_icon, shortcut.title),
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
@@ -179,6 +183,7 @@ private fun HomeShortcutTile(
 
 @Composable
 private fun EmptyHomeCard() {
+    val textResources = LocalContext.current.resources
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -195,12 +200,12 @@ private fun EmptyHomeCard() {
                 modifier = Modifier.size(36.dp),
             )
             Text(
-                text = "首页还是空的",
+                text = textResources.getString(R.string.ui_your_homepage_is_empty),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 12.dp),
             )
             Text(
-                text = "浏览网站后选择“添加书签”，勾选“同时添加到首页”即可创建快捷入口。",
+                text = textResources.getString(R.string.ui_visit_a_site_choose_add_bookmark_then_select),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

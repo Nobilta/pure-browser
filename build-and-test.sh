@@ -27,6 +27,10 @@ require_command cargo
 require_command rustup
 require_command shasum
 require_command node
+require_command python3
+
+echo "检查中英文提示资源..."
+python3 validation/check-localization.py
 
 echo "运行网页视频控制协议测试..."
 node --test validation/playback-probe.test.cjs

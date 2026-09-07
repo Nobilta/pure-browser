@@ -102,6 +102,7 @@ fun SettingsSheet(
     onOpenDeveloperTools: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = sectionName?.let(SettingsCategory::valueOf)
@@ -115,19 +116,19 @@ fun SettingsSheet(
             Row(Modifier.fillMaxSize()) {
                 if (wide || selected == null) {
                     Box(if (wide) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
-                        SettingsPage("设置", onDismiss) {
-                            Text("按功能分类", style = MaterialTheme.typography.labelLarge,
+                        SettingsPage(textResources.getString(R.string.menu_settings), onDismiss) {
+                            Text(textResources.getString(R.string.ui_browse_by_category), style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                             SettingsCategory.entries.forEach { category ->
                                 val summary = when (category) {
-                                    SettingsCategory.BROWSING -> "${currentSearchEngine.name} · " +
-                                        if (restoreLastSession) "恢复上次网页" else "启动时打开主页"
-                                    SettingsCategory.APPEARANCE -> preferences.theme.label
-                                    SettingsCategory.PRIVACY -> if (isFilterEnabled) "广告过滤已开启" else "广告过滤已关闭"
-                                    SettingsCategory.DOWNLOADS -> "${downloadSettings.destinationLabel} · ${downloadSettings.threadCount} 线程"
-                                    SettingsCategory.VIDEO -> if (preferences.video.enhancedControls) "全屏手势 · 长按 ${PlaybackSpeed.label(preferences.video.boostRate)}" else "使用网页控件"
-                                    SettingsCategory.ABOUT -> "版本信息与开发工具"
+                                    SettingsCategory.BROWSING -> "${currentSearchEngine.displayName(textResources)} · " +
+                                        if (restoreLastSession) textResources.getString(R.string.ui_restore_previous_pages) else textResources.getString(R.string.ui_open_homepage_on_startup)
+                                    SettingsCategory.APPEARANCE -> textResources.getString(preferences.theme.labelRes)
+                                    SettingsCategory.PRIVACY -> if (isFilterEnabled) textResources.getString(R.string.ui_ad_filtering_on) else textResources.getString(R.string.ui_ad_filtering_off)
+                                    SettingsCategory.DOWNLOADS -> textResources.getString(R.string.ui_connections_2ad3d3, downloadSettings.displayDestinationLabel(textResources), downloadSettings.threadCount)
+                                    SettingsCategory.VIDEO -> if (preferences.video.enhancedControls) textResources.getString(R.string.ui_fullscreen_gestures_hold_for, PlaybackSpeed.label(preferences.video.boostRate)) else textResources.getString(R.string.ui_use_webpage_controls)
+                                    SettingsCategory.ABOUT -> textResources.getString(R.string.ui_version_and_developer_tools)
                                 }
                                 Card(
                                     onClick = { sectionName = category.name },
@@ -141,7 +142,7 @@ fun SettingsSheet(
                                         Icon(painterResource(category.icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                                         Spacer(Modifier.width(14.dp))
                                         Column(Modifier.weight(1f)) {
-                                            Text(category.title, style = MaterialTheme.typography.titleMedium)
+                                            Text(textResources.getString(category.titleRes), style = MaterialTheme.typography.titleMedium)
                                             Text(summary, style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis)
@@ -163,60 +164,60 @@ fun SettingsSheet(
                                 SettingsCategory.DOWNLOADS -> DownloadSettingsPage(downloadSettings,
                                     onUseSystemDownloadDirectory, onChooseDownloadDirectory,
                                     onDownloadThreadCountChange, detailBack)
-                                else -> SettingsPage(category.title, detailBack) {
+                                else -> SettingsPage(textResources.getString(category.titleRes), detailBack) {
                                     when (category) {
                                         SettingsCategory.BROWSING -> {
-                                            SettingsGroup("启动")
-                                            SettingsItem("主页", if (currentHomepageMode == HomepageMode.NAVIGATION) "导航首页" else currentHomepage,
+                                            SettingsGroup(textResources.getString(R.string.ui_startup))
+                                            SettingsItem(textResources.getString(R.string.cd_home), if (currentHomepageMode == HomepageMode.NAVIGATION) textResources.getString(R.string.ui_shortcuts_homepage) else currentHomepage,
                                                 { picker = "home" }, R.drawable.ic_home)
-                                            SettingsToggle("启动时恢复上次网页",
-                                                if (restoreLastSession) "下次启动：继续浏览普通标签页" else "下次启动：主页",
+                                            SettingsToggle(textResources.getString(R.string.ui_restore_pages_on_startup),
+                                                if (restoreLastSession) textResources.getString(R.string.ui_next_launch_restore_regular_tabs) else textResources.getString(R.string.ui_next_launch_homepage),
                                                 restoreLastSession, onRestoreLastSessionChange)
-                                            SettingsGroup("搜索与系统")
-                                            SettingsItem("搜索引擎", currentSearchEngine.name, { picker = "search" }, R.drawable.ic_search)
-                                            SettingsItem("默认浏览器", if (isDefaultBrowser) "已设为默认" else "尚未设为默认",
+                                            SettingsGroup(textResources.getString(R.string.ui_search_and_system))
+                                            SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { picker = "search" }, R.drawable.ic_search)
+                                            SettingsItem(textResources.getString(R.string.ui_default_browser), if (isDefaultBrowser) textResources.getString(R.string.ui_set_as_default) else textResources.getString(R.string.ui_not_set_as_default),
                                                 onSetDefaultBrowser, R.drawable.ic_desktop)
                                         }
                                         SettingsCategory.APPEARANCE -> {
-                                            SettingsItem("应用主题", preferences.theme.label, { picker = "theme" }, R.drawable.ic_settings)
-                                            SettingsNote("浅色与深色均支持系统字体大小。支持动态配色的设备会使用壁纸配色。网页本身的颜色由网站和 WebView 决定。")
+                                            SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { picker = "theme" }, R.drawable.ic_settings)
+                                            SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
-                                            SettingsGroup("内容过滤")
-                                            SettingsToggle("广告过滤", "拦截内置规则和自定义列表匹配的请求", isFilterEnabled, onFilterEnabledChange)
-                                            SettingsItem("自定义广告过滤规则", "添加和管理过滤列表", onManageCustomFilters, R.drawable.ic_shield)
-                                            SettingsGroup("浏览数据")
-                                            SettingsItem("清除浏览数据", "选择后确认清除缓存、Cookie 和历史记录", onClearData, R.drawable.ic_delete)
-                                            SettingsNote("无痕入口保留在浏览菜单。支持独立存储的 WebView 会隔离登录数据；旧 WebView 使用退出清除模式，可能同时清除普通模式的登录状态。书签与下载文件会保留。")
+                                            SettingsGroup(textResources.getString(R.string.ui_content_filtering))
+                                            SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
+                                            SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
+                                            SettingsGroup(textResources.getString(R.string.menu_section_data))
+                                            SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
+                                            SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                         }
                                         SettingsCategory.VIDEO -> {
                                             val video = preferences.video
-                                            SettingsGroup("全屏体验")
-                                            SettingsToggle("增强全屏控件", "播放、进度、倍速与锁定；随时切回网页控件", video.enhancedControls,
+                                            SettingsGroup(textResources.getString(R.string.ui_fullscreen_experience))
+                                            SettingsToggle(textResources.getString(R.string.ui_enhanced_fullscreen_controls), textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to), video.enhancedControls,
                                                 { updateVideo(video.copy(enhancedControls = it)) })
-                                            SettingsToggle("横向视频自动横屏", "竖向视频保持竖屏，退出后恢复方向", video.landscapeFullscreen,
+                                            SettingsToggle(textResources.getString(R.string.ui_rotate_landscape_videos_automatically), textResources.getString(R.string.ui_portrait_videos_stay_upright_orientation_is_restored_on), video.landscapeFullscreen,
                                                 { updateVideo(video.copy(landscapeFullscreen = it)) })
-                                            SettingsGroup("全屏手势")
-                                            SettingsToggle("亮度与音量手势", "左侧上下滑动调亮度，右侧调媒体音量", video.verticalGestures,
+                                            SettingsGroup(textResources.getString(R.string.ui_fullscreen_gestures))
+                                            SettingsToggle(textResources.getString(R.string.ui_brightness_and_volume_gestures), textResources.getString(R.string.ui_swipe_vertically_on_the_left_for_brightness_and), video.verticalGestures,
                                                 { updateVideo(video.copy(verticalGestures = it)) }, video.enhancedControls)
-                                            SettingsToggle("滑动调整进度", "左右滑动预览位置，松手跳转；直播不跳转", video.horizontalSeek,
+                                            SettingsToggle(textResources.getString(R.string.ui_swipe_to_seek), textResources.getString(R.string.ui_swipe_horizontally_to_preview_a_position_release_to), video.horizontalSeek,
                                                 { updateVideo(video.copy(horizontalSeek = it)) }, video.enhancedControls)
-                                            SettingsToggle("长按临时倍速", "松手立即恢复原来的播放速度", video.holdToBoost,
+                                            SettingsToggle(textResources.getString(R.string.ui_hold_for_temporary_speed_boost), textResources.getString(R.string.ui_release_to_restore_the_previous_playback_speed), video.holdToBoost,
                                                 { updateVideo(video.copy(holdToBoost = it)) }, video.enhancedControls)
-                                            SettingsItem("长按速度", PlaybackSpeed.label(video.boostRate), { picker = "boost" }, R.drawable.ic_speed)
-                                            SettingsNote("单击显示或隐藏控件；双击中间播放或暂停，两侧快退或快进 10 秒。锁定后仅保留解锁入口。")
-                                            SettingsGroup("播放速度")
-                                            SettingsToggle("记住播放速度", "将选择的速度用于之后播放的视频；临时倍速不保存", video.rememberSpeed,
+                                            SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { picker = "boost" }, R.drawable.ic_speed)
+                                            SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
+                                            SettingsGroup(textResources.getString(R.string.menu_playback_speed))
+                                            SettingsToggle(textResources.getString(R.string.ui_remember_playback_speed), textResources.getString(R.string.ui_use_the_selected_speed_for_future_videos_temporary), video.rememberSpeed,
                                                 { updateVideo(video.copy(rememberSpeed = it)) })
-                                            SettingsItem("默认播放速度", PlaybackSpeed.label(video.preferredSpeed), { picker = "speed" }, R.drawable.ic_speed)
-                                            SettingsNote("视频继续由网页播放，保留网站的登录、清晰度与字幕能力。需要使用网站专属按钮时，点全屏右上角的“网页控件”。")
+                                            SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { picker = "speed" }, R.drawable.ic_speed)
+                                            SettingsNote(textResources.getString(R.string.ui_videos_keep_playing_through_the_webpage_preserving_sign))
                                         }
                                         SettingsCategory.ABOUT -> {
                                             val context = LocalContext.current
                                             val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
-                                            Text("Pure 浏览器", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
-                                            SettingsNote("版本 $version\n支持 Android 10 及以上 · 64 位 ARM 设备")
-                                            SettingsItem("开发工具", "查看当前页面的控制台与网络请求", onOpenDeveloperTools, R.drawable.ic_code)
+                                            Text(textResources.getString(R.string.ui_pure_browser), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
+                                            SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
+                                            SettingsItem(textResources.getString(R.string.ui_developer_tools), textResources.getString(R.string.ui_view_console_output_and_network_requests_for_the), onOpenDeveloperTools, R.drawable.ic_code)
                                         }
                                         SettingsCategory.DOWNLOADS -> Unit
                                     }
@@ -237,11 +238,11 @@ fun SettingsSheet(
                     "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
                         onHomepageModeChange, onHomepageChange, { picker = null })
                     else -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-                        val title = when (picker) { "theme" -> "应用主题"; "boost" -> "长按速度"; else -> "默认播放速度" }
+                        val title = when (picker) { "theme" -> textResources.getString(R.string.ui_app_theme); "boost" -> textResources.getString(R.string.ui_hold_speed); else -> textResources.getString(R.string.ui_default_playback_speed) }
                         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
                         if (picker == "theme") {
                             ThemeMode.entries.forEach { mode ->
-                                HomepageModeItem(mode.label, "", preferences.theme == mode) {
+                                HomepageModeItem(textResources.getString(mode.labelRes), "", preferences.theme == mode) {
                                     onPreferencesChange(preferences.copy(theme = mode)); picker = null
                                 }
                             }
@@ -264,13 +265,13 @@ fun SettingsSheet(
     }
 }
 
-private enum class SettingsCategory(val title: String, val icon: Int) {
-    BROWSING("浏览与启动", R.drawable.ic_home),
-    APPEARANCE("外观", R.drawable.ic_settings),
-    PRIVACY("隐私与过滤", R.drawable.ic_shield),
-    DOWNLOADS("下载设置", R.drawable.ic_download),
-    VIDEO("视频播放", R.drawable.ic_speed),
-    ABOUT("关于", R.drawable.ic_code),
+private enum class SettingsCategory(val titleRes: Int, val icon: Int) {
+    BROWSING(R.string.ui_browsing_and_startup, R.drawable.ic_home),
+    APPEARANCE(R.string.ui_appearance, R.drawable.ic_settings),
+    PRIVACY(R.string.ui_privacy_and_filtering, R.drawable.ic_shield),
+    DOWNLOADS(R.string.ui_download_settings, R.drawable.ic_download),
+    VIDEO(R.string.ui_video_playback, R.drawable.ic_speed),
+    ABOUT(R.string.ui_about, R.drawable.ic_code),
 }
 
 @Composable
@@ -310,13 +311,14 @@ private fun SettingsPage(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             windowInsets = WindowInsets(0, 0, 0, 0),
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = textResources.getString(R.string.ui_back))
                 }
             },
             actions = actions,
@@ -338,10 +340,11 @@ private fun SearchEngineSettings(
     onRemoveCustom: (SearchEngine) -> Unit,
     onBack: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     var showAddDialog by remember { mutableStateOf(false) }
 
     SettingsPage(
-        title = "搜索引擎",
+        title = textResources.getString(R.string.ui_search_engine),
         onBack = onBack,
         actions = {
             TextButton(onClick = { showAddDialog = true }) {
@@ -369,7 +372,7 @@ private fun SearchEngineSettings(
                 )
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    text = engine.name,
+                    text = engine.displayName(textResources),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),
                 )
@@ -455,29 +458,32 @@ private fun DownloadSettingsPage(
     onThreadCountChange: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     var threadDraft by remember(settings.threadCount) {
         mutableFloatStateOf(settings.threadCount.toFloat())
     }
 
-    SettingsPage(title = "下载设置", onBack = onBack) {
+    SettingsPage(title = textResources.getString(R.string.ui_download_settings), onBack = onBack) {
         Text(
-            text = "保存位置",
+            text = textResources.getString(R.string.ui_save_location),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
         DownloadDirectoryItem(
-            title = "系统下载目录",
-            subtitle = "保存到设备的 Download 文件夹",
+            title = textResources.getString(R.string.ui_system_downloads_folder),
+            subtitle = textResources.getString(R.string.ui_save_to_the_device_downloads_folder),
             selected = settings.destinationMode == DownloadDestinationMode.SYSTEM_DOWNLOADS,
             onClick = onUseSystemDirectory,
         )
         DownloadDirectoryItem(
-            title = "自定义目录",
+            title = textResources.getString(R.string.ui_custom_folder),
             subtitle = if (settings.customTreeUri == null) {
-                "选择一个有写入权限的文件夹"
+                textResources.getString(R.string.ui_choose_a_folder_with_write_access)
             } else {
-                "${settings.customDirectoryLabel ?: "已选择文件夹"} · 点按更换"
+                textResources.getString(R.string.ui_tap_to_change, com.mybrowser.download.localizeDownloadDirectory(
+                    textResources, settings.customDirectoryLabel ?: com.mybrowser.download.CUSTOM_DIRECTORY_LABEL,
+                ))
             },
             selected = settings.destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY,
             onClick = onChooseDirectory,
@@ -486,7 +492,7 @@ private fun DownloadSettingsPage(
         HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
 
         Text(
-            text = "下载线程数",
+            text = textResources.getString(R.string.ui_download_connections),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -500,11 +506,11 @@ private fun DownloadSettingsPage(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "${threadDraft.roundToInt()} 线程",
+                    text = textResources.getString(R.string.ui_connections_818c76, threadDraft.roundToInt()),
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
-                    text = "范围 1–16；服务器不支持分段时自动改用单线程",
+                    text = textResources.getString(R.string.ui_choose_1_16_connections_servers_without_range_support),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -569,26 +575,27 @@ private fun HomepageSettings(
     onChange: (String) -> Boolean,
     onBack: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     var showDialog by remember { mutableStateOf(false) }
 
-    SettingsPage(title = "主页", onBack = onBack) {
+    SettingsPage(title = textResources.getString(R.string.cd_home), onBack = onBack) {
         Text(
-            text = "主页样式",
+            text = textResources.getString(R.string.ui_homepage_style),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
 
         HomepageModeItem(
-            title = "导航首页",
-            subtitle = "显示收藏的网站快捷入口",
+            title = textResources.getString(R.string.ui_shortcuts_homepage),
+            subtitle = textResources.getString(R.string.ui_show_shortcuts_to_favorite_sites),
             selected = currentMode == HomepageMode.NAVIGATION,
             onClick = { onModeChange(HomepageMode.NAVIGATION) },
         )
 
         HomepageModeItem(
-            title = "固定网址",
-            subtitle = "打开指定网页：$current",
+            title = textResources.getString(R.string.ui_custom_url),
+            subtitle = textResources.getString(R.string.ui_open_this_page, current),
             selected = currentMode == HomepageMode.FIXED_URL,
             onClick = { onModeChange(HomepageMode.FIXED_URL) },
         )
@@ -596,7 +603,7 @@ private fun HomepageSettings(
         if (currentMode == HomepageMode.FIXED_URL) {
             HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             SettingsItem(
-                title = "修改固定网址",
+                title = textResources.getString(R.string.ui_edit_homepage_url),
                 subtitle = current,
                 onClick = { showDialog = true },
             )
@@ -605,8 +612,8 @@ private fun HomepageSettings(
 
     if (showDialog) {
         TextInputDialog(
-            title = "设置主页",
-            label = "主页地址",
+            title = textResources.getString(R.string.ui_set_homepage),
+            label = textResources.getString(R.string.ui_homepage_url),
             initialValue = current,
             onConfirm = { newUrl ->
                 if (onChange(newUrl)) {

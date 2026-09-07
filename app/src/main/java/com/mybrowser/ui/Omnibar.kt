@@ -1,5 +1,6 @@
 package com.mybrowser.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -74,6 +75,7 @@ fun Omnibar(
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
 ) {
+    val textResources = LocalContext.current.resources
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
@@ -135,7 +137,7 @@ fun Omnibar(
                         modifier = Modifier
                             .weight(1f)
                             .clickable { onFocusChange(true) }
-                            .semantics { contentDescription = "编辑网址" }
+                            .semantics { contentDescription = textResources.getString(R.string.ui_edit_address) }
                             .padding(vertical = 4.dp),
                     ) {
                         Text(
@@ -161,7 +163,7 @@ fun Omnibar(
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(focusRequester)
-                        .semantics { contentDescription = "网址输入框" }
+                        .semantics { contentDescription = textResources.getString(R.string.ui_address_field) }
                         .onFocusChanged { onFocusChange(it.isFocused) },
                     singleLine = true,
                     textStyle = LocalTextStyle.current.merge(

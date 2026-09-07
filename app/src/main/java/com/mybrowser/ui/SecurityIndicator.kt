@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import com.mybrowser.R
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -30,6 +32,7 @@ fun SecurityIndicator(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = LocalContext.current.resources
     val isNativeHomepage = url == "about:blank"
     val securityLevel = SecurityChecker.getSecurityLevel(url)
     val securityInfo = SecurityChecker.getSecurityInfo(url)
@@ -54,7 +57,7 @@ fun SecurityIndicator(
                     SecurityLevel.DANGEROUS -> Icons.Default.Close
                 }
             },
-            contentDescription = if (isNativeHomepage) "导航首页" else securityInfo.protocol,
+            contentDescription = if (isNativeHomepage) textResources.getString(R.string.ui_shortcuts_homepage) else securityInfo.protocol,
             tint = if (isNativeHomepage) {
                 MaterialTheme.colorScheme.primary
             } else {
@@ -77,6 +80,7 @@ fun SecurityInfoDialog(
     certificate: CertificateDetails?,
     onDismiss: () -> Unit
 ) {
+    val textResources = LocalContext.current.resources
     val securityInfo = SecurityChecker.getSecurityInfo(url)
     val securityLevel = SecurityChecker.getSecurityLevel(url)
 
@@ -103,10 +107,10 @@ fun SecurityInfoDialog(
         title = {
             Text(
                 text = when (securityLevel) {
-                    SecurityLevel.SECURE -> "安全连接"
-                    SecurityLevel.WARNING -> "连接存在警告"
-                    SecurityLevel.INSECURE -> "不安全连接"
-                    SecurityLevel.DANGEROUS -> "危险连接"
+                    SecurityLevel.SECURE -> textResources.getString(R.string.ui_secure_connection)
+                    SecurityLevel.WARNING -> textResources.getString(R.string.ui_connection_warning)
+                    SecurityLevel.INSECURE -> textResources.getString(R.string.ui_insecure_connection)
+                    SecurityLevel.DANGEROUS -> textResources.getString(R.string.ui_dangerous_connection)
                 },
                 fontWeight = FontWeight.Bold
             )
@@ -116,8 +120,8 @@ fun SecurityInfoDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                InfoRow("网站", url ?: "未知")
-                InfoRow("协议", securityInfo.protocol)
+                InfoRow(textResources.getString(R.string.ui_website), url ?: textResources.getString(R.string.ui_unknown))
+                InfoRow(textResources.getString(R.string.ui_protocol), securityInfo.protocol)
 
                 if (certificate != null) {
                     CertificateCard(certificate)
@@ -139,9 +143,9 @@ fun SecurityInfoDialog(
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 text = if (securityInfo.protocol == "HTTPS") {
-                                    "暂时无法读取证书，请等待页面加载完成后重试。"
+                                    textResources.getString(R.string.ui_the_certificate_is_not_available_yet_wait_for)
                                 } else {
-                                    "此页面没有 TLS 证书。"
+                                    textResources.getString(R.string.ui_this_page_has_no_tls_certificate)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                             )
@@ -166,7 +170,7 @@ fun SecurityInfoDialog(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = securityInfo.warningMessage ?: "未知警告",
+                                text = securityInfo.warningRes?.let { textResources.getString(it, *securityInfo.warningArgs.toTypedArray()) } ?: textResources.getString(R.string.ui_unknown_warning),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -175,10 +179,10 @@ fun SecurityInfoDialog(
 
                 Text(
                     text = when (securityLevel) {
-                        SecurityLevel.SECURE -> "连接已经加密。证书信息可帮助确认当前网站的身份。"
-                        SecurityLevel.WARNING -> "此连接可能存在安全问题，请谨慎输入敏感信息。"
-                        SecurityLevel.INSECURE -> "此连接未加密，请勿输入密码、付款信息等敏感内容。"
-                        SecurityLevel.DANGEROUS -> "无法确认此页面的安全性，请立即离开。"
+                        SecurityLevel.SECURE -> textResources.getString(R.string.ui_the_connection_is_encrypted_certificate_details_help_identify)
+                        SecurityLevel.WARNING -> textResources.getString(R.string.ui_this_connection_may_have_security_issues_be_careful)
+                        SecurityLevel.INSECURE -> textResources.getString(R.string.ui_this_connection_is_not_encrypted_do_not_enter)
+                        SecurityLevel.DANGEROUS -> textResources.getString(R.string.ui_the_safety_of_this_page_cannot_be_verified)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -187,7 +191,7 @@ fun SecurityInfoDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("确定")
+                Text(textResources.getString(R.string.ui_ok))
             }
         }
     )
@@ -214,6 +218,7 @@ private fun InfoRow(label: String, value: String) {
 
 @Composable
 private fun CertificateCard(certificate: CertificateDetails) {
+    val textResources = LocalContext.current.resources
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium,
@@ -222,31 +227,31 @@ private fun CertificateCard(certificate: CertificateDetails) {
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("证书信息", style = MaterialTheme.typography.titleSmall)
+            Text(textResources.getString(R.string.ui_certificate_details), style = MaterialTheme.typography.titleSmall)
             InfoRow(
-                "证书使用者",
+                textResources.getString(R.string.ui_subject),
                 certificate.subjectCommonName
                     ?: certificate.subjectDistinguishedName
-                    ?: "未提供",
+                    ?: textResources.getString(R.string.ui_not_provided),
             )
-            certificate.subjectOrganization?.let { InfoRow("使用者组织", it) }
-            certificate.subjectOrganizationalUnit?.let { InfoRow("使用者部门", it) }
+            certificate.subjectOrganization?.let { InfoRow(textResources.getString(R.string.ui_subject_organization), it) }
+            certificate.subjectOrganizationalUnit?.let { InfoRow(textResources.getString(R.string.ui_subject_unit), it) }
             InfoRow(
-                "签发机构",
+                textResources.getString(R.string.ui_issuer),
                 certificate.issuerCommonName
                     ?: certificate.issuerOrganization
                     ?: certificate.issuerDistinguishedName
-                    ?: "未提供",
+                    ?: textResources.getString(R.string.ui_not_provided),
             )
             certificate.issuerOrganization
                 ?.takeIf { it != certificate.issuerCommonName }
-                ?.let { InfoRow("签发组织", it) }
-            certificate.issuerOrganizationalUnit?.let { InfoRow("签发部门", it) }
-            certificate.validFromMillis?.let { InfoRow("有效期开始", formatCertificateDate(it)) }
-            certificate.validUntilMillis?.let { InfoRow("有效期结束", formatCertificateDate(it)) }
+                ?.let { InfoRow(textResources.getString(R.string.ui_issuer_organization), it) }
+            certificate.issuerOrganizationalUnit?.let { InfoRow(textResources.getString(R.string.ui_issuer_unit), it) }
+            certificate.validFromMillis?.let { InfoRow(textResources.getString(R.string.ui_valid_from), formatCertificateDate(it)) }
+            certificate.validUntilMillis?.let { InfoRow(textResources.getString(R.string.ui_valid_until), formatCertificateDate(it)) }
             certificate.isCurrentlyValid?.let { valid ->
                 Text(
-                    text = if (valid) "证书当前在有效期内" else "证书当前不在有效期内",
+                    text = if (valid) textResources.getString(R.string.ui_the_certificate_is_currently_valid) else textResources.getString(R.string.ui_the_certificate_is_outside_its_validity_period),
                     style = MaterialTheme.typography.labelLarge,
                     color = if (valid) {
                         MaterialTheme.colorScheme.primary
@@ -268,6 +273,7 @@ fun SSLErrorDialog(
     onProceed: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val textResources = LocalContext.current.resources
     AlertDialog(
         onDismissRequest = onCancel,
         icon = {
@@ -280,14 +286,14 @@ fun SSLErrorDialog(
         },
         title = {
             Text(
-                text = "SSL 证书验证失败",
+                text = textResources.getString(R.string.ui_ssl_certificate_verification_failed),
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFF44336)
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("网站: $url", fontSize = 13.sp)
+                Text(textResources.getString(R.string.ui_website_b7aba5, url), fontSize = 13.sp)
 
                 Surface(
                     color = Color(0xFFF44336).copy(alpha = 0.1f),
@@ -295,19 +301,19 @@ fun SSLErrorDialog(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "这可能意味着：",
+                            text = textResources.getString(R.string.ui_possible_reasons),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("• 网站的证书已过期", fontSize = 12.sp)
-                        Text("• 网站的证书不受信任", fontSize = 12.sp)
-                        Text("• 有人试图窃取您的信息", fontSize = 12.sp)
+                        Text(textResources.getString(R.string.ui_the_website_certificate_has_expired), fontSize = 12.sp)
+                        Text(textResources.getString(R.string.ui_the_website_certificate_is_not_trusted), fontSize = 12.sp)
+                        Text(textResources.getString(R.string.ui_someone_may_be_trying_to_steal_your_information), fontSize = 12.sp)
                     }
                 }
 
                 Text(
-                    text = "⚠️ 建议：不要继续访问此网站",
+                    text = textResources.getString(R.string.ui_we_recommend_leaving_this_website),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFF44336)
@@ -316,12 +322,12 @@ fun SSLErrorDialog(
         },
         confirmButton = {
             TextButton(onClick = onCancel) {
-                Text("返回安全页面", color = MaterialTheme.colorScheme.primary)
+                Text(textResources.getString(R.string.ui_go_back_to_safety), color = MaterialTheme.colorScheme.primary)
             }
         },
         dismissButton = {
             TextButton(onClick = onProceed) {
-                Text("仍然继续 (不安全)", color = Color(0xFFF44336))
+                Text(textResources.getString(R.string.ui_continue_anyway_unsafe), color = Color(0xFFF44336))
             }
         }
     )

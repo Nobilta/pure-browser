@@ -1,5 +1,6 @@
 package com.mybrowser
 
+import com.mybrowser.R
 import android.Manifest
 import android.content.Intent
 import android.content.ClipData
@@ -165,7 +166,7 @@ class MainActivity : ComponentActivity(),
     private var playbackSpeed by mutableFloatStateOf(PlaybackSpeed.DEFAULT)
     private val networkLogs = NetworkLogStore()
     private val consoleLogs = ConsoleLogStore()
-    private val cast: CastController by lazy { CastController(lifecycleScope) }
+    private val cast: CastController by lazy { CastController(this, lifecycleScope) }
 
     /** Which bottom sheet is up, if any. */
     private var sheet: Sheet? by mutableStateOf(null)
@@ -561,25 +562,25 @@ class MainActivity : ComponentActivity(),
                         onDismiss = { sheet = null },
                         onOpenFile = { id ->
                             if (!downloadHandler.openFile(id)) {
-                                toast("没有可打开此文件的应用")
+                                toast(getString(R.string.ui_no_app_can_open_this_file))
                             }
                         },
                         onCancelDownload = downloadHandler::cancel,
                         onRetryDownload = { id ->
                             if (downloadHandler.retry(id) == null) {
-                                toast("无法重试该下载")
+                                toast(getString(R.string.ui_unable_to_retry_this_download))
                             }
                         },
                         onDeleteDownload = { id, deleteFile ->
                             downloadHandler.delete(id, deleteFile) { result ->
                                 when {
                                     result.failedFileCount > 0 -> toast(
-                                        "无法删除本地文件，下载记录已保留",
+                                        getString(R.string.ui_unable_to_delete_the_local_file_the_download),
                                     )
                                     result.removedCount > 0 && deleteFile -> toast(
-                                        "下载记录和本地文件已删除",
+                                        getString(R.string.ui_download_record_and_local_file_deleted),
                                     )
-                                    result.removedCount > 0 -> toast("下载记录已删除")
+                                    result.removedCount > 0 -> toast(getString(R.string.ui_download_record_deleted))
                                 }
                             }
                         },
@@ -587,14 +588,13 @@ class MainActivity : ComponentActivity(),
                             downloadHandler.clearCompleted(deleteFiles) { result ->
                                 when {
                                     result.failedFileCount > 0 -> toast(
-                                        "已清除 ${result.removedCount} 项，" +
-                                            "${result.failedFileCount} 个文件无法删除",
+                                        getString(R.string.downloads_cleared_partial, result.removedCount, result.failedFileCount),
                                     )
                                     result.removedCount > 0 && deleteFiles -> toast(
-                                        "已清除 ${result.removedCount} 项记录和文件",
+                                        getString(R.string.ui_cleared_records_and_files, result.removedCount),
                                     )
                                     result.removedCount > 0 -> toast(
-                                        "已清除 ${result.removedCount} 项记录",
+                                        getString(R.string.ui_cleared_records, result.removedCount),
                                     )
                                 }
                             }
@@ -615,17 +615,17 @@ class MainActivity : ComponentActivity(),
                         onSearchEngineChange = { engine ->
                             searchEngine = engine
                             searchEngineManager.setCurrentEngine(engine)
-                            toast("搜索引擎已切换到 ${engine.name}")
+                            toast(getString(R.string.ui_search_engine_changed_to, engine.displayName(resources)))
                         },
                         onAddCustomSearchEngine = { name, template ->
                             runCatching {
                                 searchEngineManager.addCustomEngine(name, template)
                             }.onSuccess { added ->
                                 availableSearchEngines = searchEngineManager.getAvailableEngines()
-                                toast("已添加搜索引擎：${added.name}")
+                                toast(getString(R.string.ui_search_engine_added, added.displayName(resources)))
                             }.onFailure { error ->
                                 Log.w("MainActivity", "invalid custom search engine", error)
-                                toast("搜索引擎格式无效或已达到数量上限")
+                                toast(getString(R.string.ui_invalid_search_engine_format_or_engine_limit_reached))
                             }
                         },
                         onRemoveCustomSearchEngine = { engine ->
@@ -634,7 +634,7 @@ class MainActivity : ComponentActivity(),
                             if (searchEngine.id == engine.id) {
                                 searchEngine = searchEngineManager.getCurrentEngine()
                             }
-                            toast("已删除搜索引擎：${engine.name}")
+                            toast(getString(R.string.ui_search_engine_removed, engine.displayName(resources)))
                         },
                         currentHomepageMode = homepageMode,
                         currentHomepage = homeUrl,
@@ -645,8 +645,8 @@ class MainActivity : ComponentActivity(),
                                 goHome()
                             }
                             toast(
-                                if (mode == HomepageMode.NAVIGATION) "已使用导航首页"
-                                else "已使用固定网址主页",
+                                if (mode == HomepageMode.NAVIGATION) getString(R.string.ui_using_the_shortcuts_homepage)
+                                else getString(R.string.ui_using_a_custom_homepage_url),
                             )
                         },
                         onHomepageChange = { newHomepage ->
@@ -659,10 +659,10 @@ class MainActivity : ComponentActivity(),
                             ) {
                                 homeUrl = normalized
                                 homeRepository.saveFixedUrl(normalized)
-                                toast("主页已更新")
+                                toast(getString(R.string.ui_homepage_updated))
                                 true
                             } else {
-                                toast("主页必须是 HTTP 或 HTTPS 地址")
+                                toast(getString(R.string.ui_the_homepage_must_use_an_http_or_https))
                                 false
                             }
                         },
@@ -672,7 +672,7 @@ class MainActivity : ComponentActivity(),
                         downloadSettings = downloadSettings,
                         onUseSystemDownloadDirectory = {
                             downloadSettings = downloadSettingsRepository.useSystemDownloads()
-                            toast("下载将保存到系统下载目录")
+                            toast(getString(R.string.ui_downloads_will_be_saved_to_the_system_downloads))
                         },
                         onChooseDownloadDirectory = {
                             val initial = downloadSettings.customTreeUri
@@ -681,7 +681,7 @@ class MainActivity : ComponentActivity(),
                         },
                         onDownloadThreadCountChange = { count ->
                             downloadSettings = downloadSettingsRepository.setThreadCount(count)
-                            toast("下载线程数已设为 ${downloadSettings.threadCount}")
+                            toast(getString(R.string.ui_download_connections_set_to, downloadSettings.threadCount))
                         },
                         preferences = browserPreferences,
                         onPreferencesChange = { browserPreferences = preferencesRepository.save(it) },
@@ -830,7 +830,7 @@ class MainActivity : ComponentActivity(),
                 contentResolver.takePersistableUriPermission(uri, grantFlags)
             }.isSuccess
             if (!granted) {
-                toast("无法获得该文件夹的长期写入权限")
+                toast(getString(R.string.ui_unable_to_keep_write_access_to_this_folder))
                 return@registerForActivityResult
             }
             lifecycleScope.launch {
@@ -841,7 +841,7 @@ class MainActivity : ComponentActivity(),
                     downloadSettingsRepository.useCustomDirectory(uri, label)
                 }.getOrElse {
                     Log.w("MainActivity", "Unable to save custom download directory", it)
-                    toast("无法使用所选下载目录")
+                    toast(getString(R.string.ui_unable_to_use_the_selected_download_folder))
                     return@launch
                 }
                 downloadSettings = updated
@@ -849,9 +849,9 @@ class MainActivity : ComponentActivity(),
                     updated.destinationMode ==
                     com.mybrowser.download.DownloadDestinationMode.CUSTOM_DIRECTORY
                 ) {
-                    toast("下载目录已设为 ${updated.destinationLabel}")
+                    toast(getString(R.string.ui_download_folder_set_to, updated.displayDestinationLabel(resources)))
                 } else {
-                    toast("所选目录权限不可用，已继续使用系统下载目录")
+                    toast(getString(R.string.ui_folder_access_is_unavailable_using_the_system_downloads))
                 }
             }
         }
@@ -877,7 +877,7 @@ class MainActivity : ComponentActivity(),
             if (id != null) {
                 toast(getString(R.string.download_started))
             } else {
-                toast("无法开始下载")
+                toast(getString(R.string.ui_unable_to_start_the_download))
             }
         }
 
@@ -1077,7 +1077,7 @@ class MainActivity : ComponentActivity(),
             runCatching { result.cancel() }
             return true
         }
-        val title = if (origin.isBlank()) "网页提示" else "来自 $origin"
+        val title = if (origin.isBlank()) getString(R.string.ui_webpage_message) else getString(R.string.ui_message_from, origin)
         when (type) {
             BrowserChromeClient.JsDialogType.ALERT -> Dialogs.alert(
                 this,
@@ -1109,9 +1109,9 @@ class MainActivity : ComponentActivity(),
             BrowserChromeClient.JsDialogType.BEFORE_UNLOAD -> Dialogs.confirm(
                 this,
                 title,
-                message.ifBlank { "确定要离开此页面吗？" },
-                positiveText = "离开",
-                negativeText = "留在此页",
+                message.ifBlank { getString(R.string.ui_leave_this_page) },
+                positiveText = getString(R.string.ui_leave),
+                negativeText = getString(R.string.ui_stay),
             ) { leave -> runCatching { if (leave) result.confirm() else result.cancel() } }
         }
         return true
@@ -1142,7 +1142,7 @@ class MainActivity : ComponentActivity(),
         state.toggleDesktopMode()
         applyDesktopMode(webView, state.isDesktopMode)
         webView.reload()
-        toast(if (state.isDesktopMode) "已切换到桌面模式" else "已切换到移动模式")
+        toast(if (state.isDesktopMode) getString(R.string.ui_switched_to_desktop_mode) else getString(R.string.ui_switched_to_mobile_mode))
     }
 
     /**
@@ -1239,7 +1239,7 @@ class MainActivity : ComponentActivity(),
 
     private fun createNewTab() {
         if (!tabManager.canCreateTab) {
-            toast("标签页数量已达上限")
+            toast(getString(R.string.ui_tab_limit_reached))
             return
         }
         saveCurrentTab()
@@ -1547,7 +1547,7 @@ class MainActivity : ComponentActivity(),
         // ERROR_UNKNOWN with an empty description is what a cancelled navigation looks
         // like; a toast for it would fire on every fast tap.
         if (description.isNotEmpty()) {
-            toast("${getString(R.string.page_load_error)}: $description")
+            toast(getString(R.string.page_load_error_code, code))
         }
     }
 
@@ -1590,7 +1590,7 @@ class MainActivity : ComponentActivity(),
         // answered immediately so Chromium can show its own interstitial and the app does
         // not hold a network thread while a Compose surface is being created.
         runCatching { callback.backToSafety(true) }
-        toast("已阻止不安全网页")
+        toast(getString(R.string.ui_unsafe_webpage_blocked))
     }
 
     override fun onRenderProcessGone(webView: WebView, crashed: Boolean) {
@@ -1611,7 +1611,7 @@ class MainActivity : ComponentActivity(),
         if (lastUrl != ABOUT_BLANK) {
             this.webView.loadUrl(lastUrl)
         }
-        toast(if (crashed) "页面进程崩溃，已重建" else "页面进程被系统回收，已重建")
+        toast(if (crashed) getString(R.string.ui_the_page_process_crashed_and_was_restarted) else getString(R.string.ui_the_system_closed_the_page_process_it_was))
     }
 
     /**
@@ -1715,7 +1715,7 @@ class MainActivity : ComponentActivity(),
             videoView = view,
             preferences = browserPreferences.video,
             tracker = tracker,
-            titleProvider = { state.pageTitle ?: "视频播放" },
+            titleProvider = { state.pageTitle ?: getString(R.string.ui_video_playback) },
             canCast = { media.count > 0 },
             onExit = ::leaveFullscreen,
             onCast = {
@@ -1908,7 +1908,7 @@ class MainActivity : ComponentActivity(),
             defaultBrowserLauncher.launch(DefaultBrowser.requestIntent(this))
         }.recoverCatching {
             defaultBrowserLauncher.launch(DefaultBrowser.settingsIntent())
-        }.onFailure { toast("无法打开系统默认应用设置") }
+        }.onFailure { toast(getString(R.string.ui_unable_to_open_default_app_settings)) }
     }
 
     private fun persistNormalSession() {
