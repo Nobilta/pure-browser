@@ -1,5 +1,7 @@
 package com.mybrowser.dlna
 
+import com.mybrowser.R
+import android.content.res.Resources
 import android.util.Log
 import android.util.Xml
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +20,9 @@ data class DlnaDevice(
     /** Absent on renderers that do not implement RenderingControl; volume then stays fixed. */
     val renderingControlUrl: String?,
 ) {
-    val displayName: String get() = friendlyName.ifBlank { manufacturer ?: "未命名设备" }
+    fun displayName(resources: Resources): String = friendlyName.ifBlank {
+        manufacturer?.takeIf { it.isNotBlank() } ?: resources.getString(R.string.ui_unnamed_device)
+    }
 }
 
 /**

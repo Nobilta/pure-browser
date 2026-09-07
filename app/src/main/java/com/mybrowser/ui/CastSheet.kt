@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import androidx.compose.ui.platform.LocalContext
+import android.content.res.Resources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -55,12 +57,13 @@ fun CastSheet(
     preferredCandidate: MediaSniffer.Candidate? = null,
     playingCandidateUrls: Set<String> = emptySet(),
 ) {
+    val textResources = LocalContext.current.resources
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // A player often requests the same manifest more than once with a cache-busting or
     // rotating-auth query.  Those URLs must remain selectable (dropping the query can make
     // a cast fail), but identical labels make the picker look like it contains duplicates.
     // Annotate only the presentation copy and keep the original Candidate for casting.
-    val displayLabels = remember(candidates) { duplicateAwareLabels(candidates) }
+    val displayLabels = remember(candidates) { duplicateAwareLabels(candidates, textResources) }
     var selected by remember { mutableStateOf(preferredCandidate ?: candidates.firstOrNull()) }
     var userSelected by remember { mutableStateOf(false) }
 
@@ -90,7 +93,7 @@ fun CastSheet(
             items(candidates, key = { it.url }) { candidate ->
                 MediaRow(
                     candidate = candidate,
-                    displayLabel = displayLabels[candidate.url] ?: candidate.label,
+                    displayLabel = displayLabels[candidate.url] ?: candidate.displayLabel(textResources),
                     isSelected = candidate.url == selected?.url,
                     isPlaying = candidate.url in playingCandidateUrls,
                     onClick = {
@@ -235,6 +238,7 @@ private fun MediaRow(
  */
 private fun duplicateAwareLabels(
     candidates: List<MediaSniffer.Candidate>,
+    textResources: Resources,
 ): Map<String, String> {
     val counts = candidates.groupingBy { it.label }.eachCount()
     val seen = mutableMapOf<String, Int>()
@@ -243,9 +247,9 @@ private fun duplicateAwareLabels(
         val index = (seen[candidate.label] ?: 0) + 1
         seen[candidate.label] = index
         candidate.url to if (count > 1) {
-            "${candidate.label}（变体 $index）"
+            textResources.getString(R.string.ui_variant, candidate.displayLabel(textResources), index)
         } else {
-            candidate.label
+            candidate.displayLabel(textResources)
         }
     }
 }
@@ -256,6 +260,7 @@ private fun DeviceRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     val color =
         if (enabled) MaterialTheme.colorScheme.onSurface
         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -275,7 +280,7 @@ private fun DeviceRow(
         )
         Spacer(Modifier.width(20.dp))
         Text(
-            text = device.displayName,
+            text = device.displayName(textResources),
             style = MaterialTheme.typography.bodyLarge,
             color = color,
             maxLines = 1,

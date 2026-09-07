@@ -1,5 +1,7 @@
 package com.mybrowser.search
 
+import com.mybrowser.R
+import android.content.res.Resources
 import android.net.Uri
 
 /**
@@ -22,11 +24,14 @@ data class SearchEngine(
             .replace("%s", encoded)
     }
 
+    fun displayName(resources: Resources): String =
+        if (!isCustom && id == "baidu") resources.getString(R.string.ui_baidu) else name
+
     companion object {
         // Built-in search engines
         val BAIDU = SearchEngine(
             id = "baidu",
-            name = "百度",
+            name = "Baidu",
             searchUrlTemplate = "https://www.baidu.com/s?wd={query}",
         )
 

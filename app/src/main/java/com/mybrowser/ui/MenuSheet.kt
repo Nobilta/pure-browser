@@ -1,5 +1,6 @@
 package com.mybrowser.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ fun MenuSheet(
     onExit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -208,7 +210,7 @@ fun MenuSheet(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             MenuRow(
                 iconRes = R.drawable.ic_close,
-                title = "退出浏览器",
+                title = textResources.getString(R.string.ui_exit_browser),
                 subtitle = "",
                 onClick = onExit,
             )

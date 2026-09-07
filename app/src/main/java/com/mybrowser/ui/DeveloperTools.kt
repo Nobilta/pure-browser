@@ -1,5 +1,8 @@
 package com.mybrowser.ui
 
+import android.content.res.Resources
+import com.mybrowser.R
+import androidx.compose.ui.platform.LocalContext
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,8 +78,9 @@ fun DeveloperTools(
     onClearConsole: () -> Unit = {},
     pageUrl: String? = null,
 ) {
+    val textResources = LocalContext.current.resources
     var selectedTab by remember { mutableIntStateOf(0) }
-    var pageSource by remember(webView) { mutableStateOf("加载中…") }
+    var pageSource by remember(webView) { mutableStateOf(textResources.getString(R.string.ui_loading)) }
     // Developer tools contains a console input row as well as a potentially long output
     // list. Starting partially expanded hides that row behind the viewport on phones;
     // opening expanded makes the command surface immediately usable and the inner lists
@@ -88,20 +92,20 @@ fun DeveloperTools(
     // copy of the document while the sheet is open.
     LaunchedEffect(webView, pageUrl) {
         val view = webView ?: run {
-            pageSource = "无法获取源码"
+            pageSource = textResources.getString(R.string.ui_unable_to_read_page_source)
             return@LaunchedEffect
         }
-        pageSource = "加载中…"
+        pageSource = textResources.getString(R.string.ui_loading)
         runCatching {
             view.evaluateJavascript("document.documentElement?.outerHTML || ''") { raw ->
                 pageSource = decodeJavascriptString(raw)
-                    .ifBlank { "页面没有可显示的源码" }
+                    .ifBlank { textResources.getString(R.string.ui_this_page_has_no_source_to_display) }
                     .take(MAX_SOURCE_CHARS)
                     .let { source ->
-                        if (source.length == MAX_SOURCE_CHARS) "$source\n\n…（源码已截断）" else source
+                        if (source.length == MAX_SOURCE_CHARS) textResources.getString(R.string.ui_source_truncated, source) else source
                     }
             }
-        }.onFailure { pageSource = "无法获取源码：${it.message.orEmpty()}" }
+        }.onFailure { pageSource = textResources.getString(R.string.ui_unable_to_read_page_source_e0f027, it.message.orEmpty()) }
     }
 
     ModalBottomSheet(
@@ -129,27 +133,27 @@ fun DeveloperTools(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "开发者工具",
+                    text = textResources.getString(R.string.menu_developer_tools),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "关闭")
+                    Icon(Icons.Default.Close, contentDescription = textResources.getString(R.string.ui_close))
                 }
             }
 
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
-                    Text("控制台")
+                    Text(textResources.getString(R.string.ui_console))
                 }
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
-                    Text("网络")
+                    Text(textResources.getString(R.string.ui_network))
                 }
                 Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }) {
-                    Text("源码")
+                    Text(textResources.getString(R.string.ui_source))
                 }
                 Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }) {
-                    Text("信息")
+                    Text(textResources.getString(R.string.ui_info))
                 }
             }
 
@@ -176,6 +180,7 @@ private fun ConsoleTab(
     webView: WebView?,
     onClear: () -> Unit,
 ) {
+    val textResources = LocalContext.current.resources
     var command by remember { mutableStateOf("") }
     var evaluations by remember { mutableStateOf<List<ConsoleLine>>(emptyList()) }
 
@@ -188,7 +193,7 @@ private fun ConsoleTab(
             command = ""
             val view = webView
             if (view == null) {
-                evaluations = appendEvaluation(evaluations, "> $expression\n< WebView 不可用")
+                evaluations = appendEvaluation(evaluations, textResources.getString(R.string.ui_webview_is_unavailable, expression))
             } else {
                 runCatching {
                     view.evaluateJavascript(expression) { raw ->
@@ -200,7 +205,7 @@ private fun ConsoleTab(
                 }.onFailure {
                     evaluations = appendEvaluation(
                         evaluations,
-                        "> $expression\n< 执行失败：${it.message.orEmpty()}",
+                        textResources.getString(R.string.ui_execution_failed, expression, it.message.orEmpty()),
                     )
                 }
             }
@@ -209,7 +214,7 @@ private fun ConsoleTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         DiagnosticsHeader(
-            title = "控制台 (${entries.size + evaluations.size})",
+            title = textResources.getString(R.string.ui_console_5633ea, entries.size + evaluations.size),
             onClear = {
                 evaluations = emptyList()
                 onClear()
@@ -226,7 +231,7 @@ private fun ConsoleTab(
         ) {
             if (entries.isEmpty() && evaluations.isEmpty()) {
                 Text(
-                    text = "暂无控制台输出",
+                    text = textResources.getString(R.string.ui_no_console_output),
                     modifier = Modifier.padding(12.dp),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
@@ -240,7 +245,7 @@ private fun ConsoleTab(
                 ) {
                     entries.forEach { entry ->
                         Text(
-                            text = formatConsoleEntry(entry),
+                            text = formatConsoleEntry(entry, textResources),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.sp,
                             color = consoleColor(entry.level),
@@ -270,7 +275,7 @@ private fun ConsoleTab(
                 value = command,
                 onValueChange = { command = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("输入 JavaScript 命令") },
+                placeholder = { Text(textResources.getString(R.string.ui_enter_a_javascript_command)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { executeCommand() }),
@@ -280,7 +285,7 @@ private fun ConsoleTab(
                 enabled = command.isNotBlank() && webView != null,
                 onClick = executeCommand,
             ) {
-                Text("执行")
+                Text(textResources.getString(R.string.ui_run))
             }
         }
     }
@@ -288,14 +293,15 @@ private fun ConsoleTab(
 
 @Composable
 private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit) {
+    val textResources = LocalContext.current.resources
     Column(modifier = Modifier.fillMaxSize()) {
         DiagnosticsHeader(
-            title = "网络请求 (${entries.size})",
+            title = textResources.getString(R.string.ui_network_requests, entries.size),
             onClear = onClear,
         )
         if (entries.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("暂无请求。打开或刷新页面后会在这里显示真实 WebView 请求。")
+                Text(textResources.getString(R.string.ui_no_requests_yet_open_or_refresh_a_page))
             }
         } else {
             LazyColumn(
@@ -313,6 +319,7 @@ private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit) {
 
 @Composable
 private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
+    val textResources = LocalContext.current.resources
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -324,17 +331,18 @@ private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
         TextButton(onClick = onClear) {
             Icon(
                 Icons.Default.Delete,
-                contentDescription = "清空",
+                contentDescription = textResources.getString(R.string.ui_clear),
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(4.dp))
-            Text("清空")
+            Text(textResources.getString(R.string.ui_clear))
         }
     }
 }
 
 @Composable
 private fun NetworkRequestItem(request: NetworkRequestLog) {
+    val textResources = LocalContext.current.resources
     val statusColor = when {
         request.blocked -> Color(0xFFFF9800)
         request.statusCode != null && request.statusCode in 200..399 -> Color(0xFF4CAF50)
@@ -358,7 +366,7 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
                     fontSize = 12.sp,
                 )
                 Text(
-                    text = request.statusText,
+                    text = request.statusText(textResources),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
@@ -377,14 +385,14 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
             ) {
                 Text(
                     text = buildString {
-                        append(request.sizeText)
-                        if (request.isForMainFrame) append(" · 主文档")
-                        if (request.blocked) append(" · 过滤器")
+                        append(request.sizeText(textResources))
+                        if (request.isForMainFrame) append(textResources.getString(R.string.ui_main_document))
+                        if (request.blocked) append(textResources.getString(R.string.ui_filter))
                     },
                     fontSize = 11.sp,
                     color = Color.Gray,
                 )
-                Text(text = request.durationText, fontSize = 11.sp, color = Color.Gray)
+                Text(text = request.durationText(textResources), fontSize = 11.sp, color = Color.Gray)
             }
             request.errorDescription?.let { description ->
                 Text(
@@ -423,6 +431,7 @@ private fun SourceCodeTab(source: String) {
 
 @Composable
 private fun InfoTab(webView: WebView?, pageUrl: String?) {
+    val textResources = LocalContext.current.resources
     var pageInfo by remember(webView, pageUrl) { mutableStateOf<PageInfo?>(null) }
 
     LaunchedEffect(webView, pageUrl) {
@@ -474,7 +483,7 @@ private fun InfoTab(webView: WebView?, pageUrl: String?) {
 
     if (pageInfo == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("读取页面信息中…")
+            Text(textResources.getString(R.string.ui_reading_page_information))
         }
     } else {
         LazyColumn(
@@ -484,14 +493,14 @@ private fun InfoTab(webView: WebView?, pageUrl: String?) {
         ) {
             val info = pageInfo ?: return@LazyColumn
             item {
-                InfoItem("页面标题", info.title)
+                InfoItem(textResources.getString(R.string.ui_page_title), info.title)
                 InfoItem("URL", info.url)
-                InfoItem("协议", info.protocol)
-                InfoItem("主机", info.host)
+                InfoItem(textResources.getString(R.string.ui_protocol), info.protocol)
+                InfoItem(textResources.getString(R.string.ui_host), info.host)
                 InfoItem("User Agent", info.userAgent)
-                InfoItem("语言", info.language)
-                InfoItem("Cookie", if (info.cookiesEnabled) "已启用" else "已禁用")
-                InfoItem("屏幕", info.screen)
+                InfoItem(textResources.getString(R.string.ui_language), info.language)
+                InfoItem("Cookie", if (info.cookiesEnabled) textResources.getString(R.string.ui_enabled) else textResources.getString(R.string.ui_disabled))
+                InfoItem(textResources.getString(R.string.ui_screen), info.screen)
             }
         }
     }
@@ -531,7 +540,7 @@ private data class PageInfo(
 private fun appendEvaluation(current: List<ConsoleLine>, text: String): List<ConsoleLine> =
     (current + ConsoleLine(text)).takeLast(MAX_EVALUATIONS)
 
-private fun formatConsoleEntry(entry: ConsoleLogEntry): String {
+private fun formatConsoleEntry(entry: ConsoleLogEntry, textResources: Resources): String {
     val prefix = when (entry.level) {
         ConsoleLogLevel.ERROR -> "[ERROR]"
         ConsoleLogLevel.WARNING -> "[WARN]"
@@ -543,7 +552,7 @@ private fun formatConsoleEntry(entry: ConsoleLogEntry): String {
     val location = entry.sourceId.takeIf { it.isNotBlank() }?.let {
         " ($it:${entry.lineNumber.coerceAtLeast(0)})"
     }.orEmpty()
-    return "$prefix$location ${entry.message}"
+    return "$prefix$location ${entry.message.ifBlank { textResources.getString(R.string.ui_empty_message) }}"
 }
 
 private fun consoleColor(level: ConsoleLogLevel): Color = when (level) {

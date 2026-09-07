@@ -1,5 +1,6 @@
 package com.mybrowser.ui
 
+import androidx.compose.ui.platform.LocalContext
 import android.app.AlertDialog
 import android.content.Context
 import android.text.InputType
@@ -54,8 +55,8 @@ object Dialogs {
         context: Context,
         title: String,
         message: String,
-        positiveText: String = "确定",
-        negativeText: String = "取消",
+        positiveText: String = context.getString(R.string.ui_ok),
+        negativeText: String = context.getString(R.string.action_cancel),
         onResult: (Boolean) -> Unit,
     ) {
         var answered = false
@@ -94,7 +95,7 @@ object Dialogs {
         AlertDialog.Builder(context)
             .setTitle(title)
             .setMessage(message)
-            .setPositiveButton("确定") { _, _ -> finish() }
+            .setPositiveButton(context.getString(R.string.ui_ok)) { _, _ -> finish() }
             .setOnDismissListener { finish() }
             .show()
     }
@@ -125,8 +126,8 @@ object Dialogs {
             .setTitle(title)
             .setMessage(message)
             .setView(wrap(context, input))
-            .setPositiveButton("确定") { _, _ -> answer(input.text.toString()) }
-            .setNegativeButton("取消") { _, _ -> answer(null) }
+            .setPositiveButton(context.getString(R.string.ui_ok)) { _, _ -> answer(input.text.toString()) }
+            .setNegativeButton(context.getString(R.string.action_cancel)) { _, _ -> answer(null) }
             .setOnDismissListener { answer(null) }
             .show()
     }
@@ -142,11 +143,11 @@ object Dialogs {
         var answered = false
 
         val user = EditText(context).apply {
-            hint = "用户名"
+            hint = context.getString(R.string.ui_username)
             inputType = InputType.TYPE_CLASS_TEXT
         }
         val pass = EditText(context).apply {
-            hint = "密码"
+            hint = context.getString(R.string.ui_password)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
 
@@ -159,16 +160,16 @@ object Dialogs {
         }
 
         AlertDialog.Builder(context)
-            .setTitle("需要身份验证")
-            .setMessage("$host 请求登录${if (realm.isNotEmpty()) "（$realm）" else ""}")
+            .setTitle(context.getString(R.string.ui_authentication_required))
+            .setMessage(context.getString(R.string.ui_requires_a_login, host, if (realm.isNotEmpty()) "（$realm）" else ""))
             .setView(container)
-            .setPositiveButton("登录") { _, _ ->
+            .setPositiveButton(context.getString(R.string.ui_sign_in)) { _, _ ->
                 if (!answered) {
                     answered = true
                     onResult(user.text.toString(), pass.text.toString())
                 }
             }
-            .setNegativeButton("取消") { _, _ ->
+            .setNegativeButton(context.getString(R.string.action_cancel)) { _, _ ->
                 if (!answered) {
                     answered = true
                     onCancel()
@@ -332,6 +333,7 @@ fun TextInputDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     var value by remember { mutableStateOf(initialValue) }
 
     AlertDialog(
@@ -350,12 +352,12 @@ fun TextInputDialog(
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(value) }) {
-                Text("确定")
+                Text(context.getString(R.string.ui_ok))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(context.getString(R.string.action_cancel))
             }
         },
     )

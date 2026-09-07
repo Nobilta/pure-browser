@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import com.mybrowser.App
@@ -30,6 +31,17 @@ class DownloadTransferService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
+        updateNotificationChannel()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateNotificationChannel()
+        val active = (application as App).downloadHandler.activeTransfers.value
+        if (active.isNotEmpty()) notificationManager.notify(NOTIFICATION_ID, createNotification(active))
+    }
+
+    private fun updateNotificationChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,

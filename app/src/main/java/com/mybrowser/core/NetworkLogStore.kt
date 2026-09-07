@@ -1,5 +1,7 @@
 package com.mybrowser.core
 
+import com.mybrowser.R
+import android.content.res.Resources
 import android.os.SystemClock
 import android.webkit.WebResourceRequest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,19 +32,16 @@ data class NetworkRequestLog(
     val durationMs: Long? = null,
     val sizeBytes: Long? = null,
 ) {
-    val statusText: String
-        get() = when {
-            blocked -> "已拦截"
+    fun statusText(resources: Resources): String = when {
+            blocked -> resources.getString(R.string.ui_blocked)
             statusCode != null -> statusCode.toString()
-            errorCode != null -> "错误 $errorCode"
+            errorCode != null -> resources.getString(R.string.ui_error, errorCode)
             else -> "—"
         }
 
-    val sizeText: String
-        get() = sizeBytes?.let(::formatBytes) ?: "大小未知"
+    fun sizeText(resources: Resources): String = sizeBytes?.let(::formatBytes) ?: resources.getString(R.string.ui_unknown_size)
 
-    val durationText: String
-        get() = durationMs?.let { "$it ms" } ?: "进行中"
+    fun durationText(resources: Resources): String = durationMs?.let { "$it ms" } ?: resources.getString(R.string.ui_in_progress)
 
     private companion object {
         fun formatBytes(bytes: Long): String {
