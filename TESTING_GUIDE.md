@@ -23,13 +23,13 @@ Rust 测试覆盖规则匹配、URL 工具、LRU、legacy 下载分片和文件�
 ## APK 检查
 
 ```bash
-APK=PureBrowser-v0.2.0-release.apk
+APK=PureBrowser-v0.3.0-release.apk
 apksigner verify --verbose "$APK"
 unzip -l "$APK" | rg 'lib/|AndroidManifest.xml'
 ```
 
-默认只应看到 `libmybrowser_adblock.so`、`libmybrowser_cache.so`、
-`libmybrowser_url_utils.so`（以及 AndroidX 自带库）；不应看到 database、downloader 或
+默认只应看到 `libmybrowser_adblock.so`、
+`libmybrowser_url_utils.so`（以及 AndroidX 自带库）；不应看到 database、cache、downloader 或
 filename_parser，除非显式 opt-in。
 
 ## 设备回归
@@ -44,6 +44,8 @@ filename_parser，除非显式 opt-in。
 - 启动、WebView 页面加载、前进/后退、主页、刷新/停止
 - 地址栏访问/搜索按钮、建议、外部协议交接
 - 标签、书签新增编辑、历史、无痕清理
+- 链接/图片长按、后台延迟加载、标签搜索及返回记录隔离、批量关闭确认
+- 书签/历史数据库分页搜索、旧查询失效、失败重试、重复书签编辑保护
 - 系统 Download/SAF 自定义目录、线程设置持久化、Range/单线程回退、后台下载、重名文件
 - 下载打开/重试，以及仅删除记录和同时删除对应本地文件
 - 页面内查找、文件上传、全屏、JS 对话框和权限回调

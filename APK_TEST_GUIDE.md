@@ -5,7 +5,7 @@
 Release APK 由 `./build-and-test.sh` 生成到项目根目录：
 
 ```bash
-adb install -r PureBrowser-v0.2.0-release.apk
+adb install -r PureBrowser-v0.3.0-release.apk
 adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 ```
 
@@ -38,10 +38,15 @@ adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 - 菜单 → 添加书签，确认默认标题/URL来自当前页。
 - 修改标题和 URL 后保存；在书签列表打开、删除，并确认当前页状态更新。
 - 访问页面后检查历史记录；清除数据后确认历史为空、书签仍保留。
+- 列表搜索应能找到 100 条以前的记录；加载下一页不应出现重复行，清空操作可取消。
+- 书签条目菜单编辑后保留排序；重复网址保存失败时，两个原书签均应保留。
 
 ### 标签和无痕
 
 - 新建、切换、关闭标签；旋转/重启后检查 URL/标题元数据。
+- 在搜索后的标签列表切换和关闭，应操作正确条目；批量关闭支持取消/确认。
+- 后台打开链接不应离开当前页或提前请求目标网址；新标签不继承其他标签的返回记录。
+- 长按链接、图片和图片链接，检查两种地址区分、复制/分享、图片保存及原生文本选择。
 - 进入无痕并访问带 Cookie 的页面，退出后确认普通标签按界面提示完成清理。
 - 在 provider 不支持多 profile 的设备上，确认 UI 仍说明这是退出清理降级，而非并行隔离。
 

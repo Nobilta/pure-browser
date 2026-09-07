@@ -96,6 +96,7 @@ def visible(node):
 
 def match(root, label):
     variants = labels(label)
+    variants = variants | {value.upper() for value in variants}
     return next((n for n in root.iter("node") if visible(n) and variants.intersection((
         n.get("text"), n.get("content-desc"), n.get("resource-id")))), None)
 
@@ -153,8 +154,13 @@ def swipe(root, downward):
 
 
 def expect(label, present=True):
-    root, _ = nodes()
-    assert (match(root, label) is not None) == present, (label, present)
+    deadline = time.monotonic() + 4
+    while True:
+        root, _ = nodes()
+        if (match(root, label) is not None) == present:
+            break
+        assert time.monotonic() < deadline, (label, present)
+        time.sleep(.15)
     print("PASS:", label, "visible" if present else "absent", flush=True)
 
 

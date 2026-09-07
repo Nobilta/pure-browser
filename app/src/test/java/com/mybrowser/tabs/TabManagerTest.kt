@@ -14,6 +14,53 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class TabManagerTest {
     @Test
+    fun backgroundTabsStayUnloadedAndKeepCurrentSelection() {
+        val manager = TabManager(maxTabs = 2)
+        val currentId = manager.currentTab!!.id
+        val backgroundId = manager.createTab("https://example.com/background", select = false, title = "Later")
+        assertEquals(currentId, manager.currentTab!!.id)
+        assertEquals(2, manager.count)
+        assertNull(manager.tabs.last().savedState)
+        assertNull(manager.tabs.last().thumbnail)
+        assertFalse(manager.canCreateTab)
+        manager.createTab("https://example.com/overflow", select = false)
+        assertEquals(2, manager.count)
+        manager.switchToId(backgroundId)
+        assertEquals("Later", manager.currentTab!!.title)
+        manager.cleanup()
+    }
+
+    @Test
+    fun closingByIdAndClosingOthersKeepSelectedTab() {
+        val manager = TabManager()
+        val first = manager.currentTab!!.id
+        val selected = manager.createTab("https://selected.example")
+        manager.createTab("https://background.example", select = false)
+        manager.closeTabById(first)
+        assertEquals(selected, manager.currentTab!!.id)
+        assertEquals(0, manager.currentIndex)
+        manager.closeOtherTabs()
+        assertEquals(listOf(selected), manager.tabs.map { it.id })
+        manager.closeTabById(selected)
+        assertEquals(1, manager.count)
+        assertNotEquals(selected, manager.currentTab!!.id)
+        assertTrue(manager.currentTab!!.url.isEmpty())
+        manager.cleanup()
+    }
+
+    @Test
+    fun restoredDuplicateIdsCannotSelectOrCloseWrongTab() {
+        val manager = TabManager()
+        assertTrue(manager.restoreMetadata(Bundle().apply {
+            putString("tabs", """[{"id":"duplicate","url":"https://one.example"},{"id":"duplicate","url":"https://two.example"}]""")
+        }))
+        assertEquals(2, manager.tabs.map { it.id }.distinct().size)
+        manager.closeTabById(manager.tabs[1].id)
+        assertEquals("https://one.example", manager.currentTab!!.url)
+        manager.cleanup()
+    }
+
+    @Test
     fun snapshotRestoresTabsAndSelectedIndex() {
         val original = TabManager()
         val restored = TabManager()

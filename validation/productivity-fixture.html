@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Productivity First</title>
+<style>
+body { margin: 0; padding: 20px; font: 16px sans-serif; color: #202124; background: #fff; }
+h1 { font-size: 24px; margin: 0 0 16px; }
+a { display: block; padding: 16px 0; color: #176943; }
+img { display: block; width: 160px; height: 96px; }
+p { line-height: 1.6; }
+</style>
+<h1 id="heading">Productivity First</h1>
+<a id="background" href="?page=background">Background destination</a>
+<a href="?page=second">Second destination</a>
+<a href="?page=image"><img src="context-image.png" alt="Linked test image"></a>
+<img src="context-image.png" alt="Plain test image">
+<p>Selectable browser text remains selectable after installing the page context menu.</p>
+<script>
+const page = new URL(location.href).searchParams.get('page') || 'First';
+document.title = 'Productivity ' + page;
+document.getElementById('heading').textContent = document.title;
+const run = new URL(location.href).searchParams.get('run') || 'default';
+document.querySelectorAll('a').forEach(link => {
+  const target = new URL(link.href);
+  target.searchParams.set('run', run);
+  link.href = target;
+});
+</script>
+</html>

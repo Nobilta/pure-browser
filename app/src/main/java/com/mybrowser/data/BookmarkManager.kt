@@ -105,8 +105,8 @@ class BookmarkManager(context: Context) {
 
     /** Gets all bookmarks, ordered by creation time descending; 0 means no explicit limit. */
     @Synchronized
-    fun getAllBookmarks(limit: Int = 0): List<Bookmark> {
-        if (closed || limit < 0) return emptyList()
+    fun getAllBookmarks(limit: Int = 0, offset: Int = 0): List<Bookmark> {
+        if (closed || limit < 0 || offset < 0) return emptyList()
         val result = mutableListOf<Bookmark>()
         db.readableDatabase.query(
             "bookmarks",
@@ -115,8 +115,8 @@ class BookmarkManager(context: Context) {
             null,
             null,
             null,
-            "created_at DESC",
-            limitClause(limit),
+            "created_at DESC, id DESC",
+            SqlLike.limitClause(limit, offset),
         ).use { cursor ->
             while (cursor.moveToNext()) result.add(cursor.toBookmark())
         }
@@ -125,8 +125,8 @@ class BookmarkManager(context: Context) {
 
     /** Searches bookmarks by title or URL, with escaped substring matching and a hard cap. */
     @Synchronized
-    fun searchBookmarks(query: String, limit: Int = DEFAULT_SEARCH_LIMIT): List<Bookmark> {
-        if (closed || query.isBlank() || limit <= 0) return emptyList()
+    fun searchBookmarks(query: String, limit: Int = DEFAULT_SEARCH_LIMIT, offset: Int = 0): List<Bookmark> {
+        if (closed || query.isBlank() || limit <= 0 || offset < 0) return emptyList()
         val result = mutableListOf<Bookmark>()
         val pattern = SqlLike.pattern(query)
         val boundedLimit = limit.coerceAtMost(SqlLike.MAX_RESULTS)
@@ -137,8 +137,8 @@ class BookmarkManager(context: Context) {
             arrayOf(pattern, pattern),
             null,
             null,
-            "created_at DESC",
-            boundedLimit.toString(),
+            "created_at DESC, id DESC",
+            SqlLike.limitClause(boundedLimit, offset),
         ).use { cursor ->
             while (cursor.moveToNext()) result.add(cursor.toBookmark())
         }
@@ -148,6 +148,27 @@ class BookmarkManager(context: Context) {
     @Synchronized
     fun clearAll() {
         if (!closed) db.writableDatabase.delete("bookmarks", null, null)
+    }
+
+    /** Editing preserves row identity and fails atomically when another bookmark owns the URL. */
+    @Synchronized
+    fun updateBookmark(id: Long, title: String, url: String): Boolean {
+        val cleanUrl = url.trim()
+        if (closed || cleanUrl.isEmpty() || cleanUrl.length > SqlLike.MAX_URL_LENGTH) return false
+        val database = db.writableDatabase
+        return try {
+            val previousUrl = database.query("bookmarks", arrayOf("url"), "id = ?",
+                arrayOf(id.toString()), null, null, null, "1").use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else return false
+            }
+            database.update("bookmarks", ContentValues().apply {
+                put("title", title.trim().take(SqlLike.MAX_TITLE_LENGTH).ifBlank { cleanUrl })
+                put("url", cleanUrl)
+                if (previousUrl != cleanUrl) putNull("favicon_url")
+            }, "id = ?", arrayOf(id.toString())) == 1
+        } catch (_: RuntimeException) {
+            false
+        }
     }
 
     private fun findId(database: SQLiteDatabase, url: String): Long =
@@ -161,9 +182,6 @@ class BookmarkManager(context: Context) {
             null,
             "1",
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else -1L }
-
-    private fun limitClause(limit: Int): String? =
-        if (limit == 0) null else limit.coerceAtMost(SqlLike.MAX_RESULTS).toString()
 
     private fun Cursor.toBookmark() = Bookmark(
         id = getLong(0),

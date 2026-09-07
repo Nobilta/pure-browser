@@ -116,6 +116,12 @@ internal object SqlLike {
     const val MAX_URL_LENGTH = 8_192
     const val MAX_RESULTS = 200
 
+    fun limitClause(limit: Int, offset: Int = 0): String? {
+        if (limit == 0 && offset == 0) return null
+        val count = if (limit == 0) Int.MAX_VALUE else limit.coerceIn(1, MAX_RESULTS)
+        return "$offset,$count"
+    }
+
     /** Escapes LIKE metacharacters while keeping substring matching semantics. */
     fun pattern(query: String): String {
         val value = query.trim().take(MAX_QUERY_LENGTH)
