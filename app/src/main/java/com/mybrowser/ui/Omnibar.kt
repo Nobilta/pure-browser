@@ -1,6 +1,6 @@
 package com.mybrowser.ui
 
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -75,7 +75,7 @@ fun Omnibar(
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }

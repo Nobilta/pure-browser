@@ -18,17 +18,20 @@ def strings(folder):
     return values
 
 
-english, chinese = strings("values"), strings("values-zh")
-assert english.keys() == chinese.keys(), "English/Chinese resource keys differ"
+english = strings("values")
+chinese = {folder: strings(folder) for folder in ("values-zh", "values-b+zh+Hant")}
+for folder, translated in chinese.items():
+    assert english.keys() == translated.keys(), "Resource keys differ: " + folder
 for name, (text, formatted) in english.items():
     assert not re.search(r"[\u3400-\u9fff]", text), "Chinese in English resource: " + name
-    other, other_formatted = chinese[name]
-    assert formatted == other_formatted, "Formatting mode differs: " + name
-    if formatted == "false":
-        continue
-    arguments = lambda value: sorted(re.findall(r"%\d+\$[sdif]", value))
-    assert arguments(text) == arguments(other), "Format arguments differ: " + name
-    for value in (text, other):
-        assert not re.search(r"%(?!%|\d+\$[sdif])", value.replace("%%", "")), "Unescaped percent: " + name
+    for folder, translated in chinese.items():
+        other, other_formatted = translated[name]
+        assert formatted == other_formatted, "Formatting mode differs: " + folder + "/" + name
+        if formatted == "false":
+            continue
+        arguments = lambda value: sorted(re.findall(r"%\d+\$[sdif]", value))
+        assert arguments(text) == arguments(other), "Format arguments differ: " + folder + "/" + name
+        for value in (text, other):
+            assert not re.search(r"%(?!%|\d+\$[sdif])", value.replace("%%", "")), "Unescaped percent: " + name
 
-print(f"PASS: {len(english)} English/Chinese resources with matching format arguments")
+print(f"PASS: {len(english)} English, Simplified Chinese and Traditional Chinese resources with matching format arguments")

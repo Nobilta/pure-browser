@@ -2,7 +2,7 @@ package com.mybrowser.ui
 
 import com.mybrowser.download.localizeDownloadDirectory
 import com.mybrowser.download.SYSTEM_DIRECTORY_LABEL
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,7 +50,7 @@ fun DownloadsSheet(
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
     onClearCompleted: (deleteFiles: Boolean) -> Unit = {},
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClearCompleted by remember { mutableStateOf(false) }
@@ -188,7 +188,7 @@ private fun DownloadItemRow(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -327,7 +327,7 @@ private fun DeleteDownloadDialog(
     onConfirm: (deleteFiles: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var deleteFiles by remember(title, message) { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,

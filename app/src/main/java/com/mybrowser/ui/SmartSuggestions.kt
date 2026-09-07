@@ -1,7 +1,7 @@
 package com.mybrowser.ui
 
 import com.mybrowser.R
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -47,7 +47,7 @@ fun SmartSuggestions(
     onSuggestionClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var suggestions by remember { mutableStateOf<List<Suggestion>>(emptyList()) }
 
     LaunchedEffect(query) {

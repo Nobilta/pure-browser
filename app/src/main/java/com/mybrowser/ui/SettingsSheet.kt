@@ -12,6 +12,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import com.mybrowser.data.BrowserPreferences
 import com.mybrowser.data.ThemeMode
 import com.mybrowser.data.VideoPreferences
@@ -102,7 +103,7 @@ fun SettingsSheet(
     onOpenDeveloperTools: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = sectionName?.let(SettingsCategory::valueOf)
@@ -311,7 +312,7 @@ private fun SettingsPage(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -340,7 +341,7 @@ private fun SearchEngineSettings(
     onRemoveCustom: (SearchEngine) -> Unit,
     onBack: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var showAddDialog by remember { mutableStateOf(false) }
 
     SettingsPage(
@@ -458,7 +459,7 @@ private fun DownloadSettingsPage(
     onThreadCountChange: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var threadDraft by remember(settings.threadCount) {
         mutableFloatStateOf(settings.threadCount.toFloat())
     }
@@ -575,7 +576,7 @@ private fun HomepageSettings(
     onChange: (String) -> Boolean,
     onBack: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     var showDialog by remember { mutableStateOf(false) }
 
     SettingsPage(title = textResources.getString(R.string.cd_home), onBack = onBack) {

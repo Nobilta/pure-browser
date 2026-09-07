@@ -2011,7 +2011,7 @@ class MainActivity : ComponentActivity(),
     private fun copyToClipboard(text: String) {
         getSystemService(ClipboardManager::class.java)
             ?.setPrimaryClip(ClipData.newPlainText(null, text))
-        // API 33+ (the minimum supported platform) shows its own copy confirmation.
+        // Android 13+ displays its own clipboard confirmation.
     }
 
     private companion object {
