@@ -101,10 +101,15 @@ def match(root, label):
 
 
 def tap(label):
-    root, _ = nodes()
-    node = match(root, label)
-    if node is None:
-        raise AssertionError("Visible control missing: " + label)
+    deadline = time.monotonic() + 4
+    while True:
+        root, _ = nodes()
+        node = match(root, label)
+        if node is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise AssertionError("Visible control missing: " + label)
+        time.sleep(.15)
     x1, y1, x2, y2 = bounds(node)
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(0.5)
