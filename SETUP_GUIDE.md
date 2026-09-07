@@ -37,7 +37,7 @@ bash rust/resolve-android-ndk.sh .
 ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 ```
 
-默认只编译/打包 `adblock`、`cache`、`url_utils`。legacy crate 需要显式 opt-in：
+默认只编译/打包 `adblock`、`url_utils`。cache 等 legacy crate 需要显式 opt-in：
 
 ```bash
 ./gradlew -Pmybrowser.includeLegacyRust=true :app:assembleRelease --console=plain
@@ -52,7 +52,7 @@ bash rust/resolve-android-ndk.sh .
 或手工：
 
 ```bash
-adb install -r PureBrowser-v0.1.0-release.apk
+adb install -r PureBrowser-v0.3.0-release.apk
 adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 ```
 

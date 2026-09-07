@@ -1,10 +1,10 @@
 # Pure 浏览器当前状态
 
-更新时间：2026-09-05
+更新时间：2026-09-07
 
 ## 结论
 
-项目目前是可构建、可安装的 Android 14+ 浏览器。核心浏览、标签、书签、历史、下载、
+项目目前是可构建、可安装的 Android 10+ 浏览器。核心浏览、标签、书签、历史、下载、
 无痕、广告过滤、媒体检测和投屏选择流程已经接通；Release 交付目标为 arm64-v8a。
 源码真实状态以 `app/src/main`、`rust/` 和 `ARCHITECTURE_REVIEW.md` 为准。
 
@@ -27,7 +27,7 @@
 - 分层按职责组织在 `core/data/download/filter/privacy/search/tabs/media/dlna/security/ui`；
   `MainActivity` 是生命周期编排器，不是计算逻辑容器。
 - JNI 句柄、JSON 偏好、网络响应、文件名和用户输入均有边界；关闭与后台查询有同步保护。
-- 默认 Rust workspace 只有 `adblock`、`cache`、`url_utils` 三个产品路径。legacy crate
+- 默认 Rust 产品路径为 `adblock`、`url_utils`。cache 等 legacy crate
   可 opt-in，实验性 database 被隔离。
 - 项目 `.cargo/config.toml` 已去除个人绝对路径，脚本不再依赖旧临时目录或修改 shell 配置。
 

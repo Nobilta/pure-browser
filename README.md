@@ -1,10 +1,10 @@
 # Pure 浏览器
 
 Pure 浏览器是一款面向 Android 10 及以上设备的轻量浏览器。界面与 Android 平台能力使用
-Kotlin、Jetpack Compose 和 WebView 实现；只有规则匹配、字节缓存及纯 URL 逻辑保留在
+Kotlin、Jetpack Compose 和 WebView 实现；只有规则匹配及纯 URL 逻辑默认使用
 Rust。项目追求体积可控、行为透明，以及在 Android 生命周期和存储规则下可验证地工作。
 
-当前版本为 `0.2.0`（versionCode 2），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
+当前版本为 `0.3.0`（versionCode 3），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
 项目目录和 Gradle 根项目均命名为
 `pure-browser`；为保持已安装应用的升级兼容，Android applicationId 暂时仍为
 `com.mybrowser`。
@@ -16,6 +16,11 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - WebView 浏览、前进/后退、刷新/停止、主页、页面弹窗、全屏视频和多标签页。
 - 地址栏自动判断网址或搜索词；只有聚焦输入框时，外侧才显示“访问”或“搜索”按钮。
 - Material 3 界面，菜单按页面操作、浏览数据、隐私与安全、设置与工具分类。
+- 菜单顶部集中显示书签、分享、复制链接和页内查找图标，长按图标可查看名称。
+- 长按网页链接可新标签打开、后台打开、复制或分享；长按图片可打开、保存或复制图片地址。
+  图片链接同时提供两组操作。只处理有效 HTTP(S) 地址，普通文本仍使用 WebView 原生选区。
+- 标签页支持标题/网址搜索、当前标记、缩略图及批量关闭确认。后台打开只新增元数据，
+  选中后才加载网页。已访问页面通过历史记录找回，不另设最近关闭列表。
 - 页面内查找、桌面站点模式、文件上传、摄像头/麦克风/定位权限处理。
 - HTTPS 安全弹窗展示证书主体、组织、签发者、有效期和当前有效状态。
 - 地址栏未编辑时显示网页标题和站点域名；点按标题区域进入完整 URL 编辑。页面向下滚动
@@ -41,6 +46,10 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - 添加书签时可同时添加到导航首页，快捷入口使用网页 favicon；长按只移除首页入口，
   不会删除书签。
 - 历史记录合并重复访问，并为持久化内容和查询结果设置边界。
+- 书签和历史记录搜索直接查询完整数据库，每次显示 50 条并可继续加载；快速输入取消旧查询，
+  失败时可重试。历史按日期分组，条目菜单可新标签打开、复制和删除。
+- 书签条目可直接编辑标题/网址，保留原 ID 和创建时间；网址与已有书签重复时保留双方数据。
+  清空书签或历史均需确认。
 - 设置中的“启动时恢复上次网页”默认关闭。关闭时冷启动打开导航首页或固定网址主页；开启
   后恢复普通模式的标签地址、标题和选中标签。无痕标签永不写入恢复数据。
 
@@ -108,7 +117,11 @@ Android WebView 没有一个在所有版本上都可用的统一“无痕开关�
 - Kotlin、Jetpack Compose、Android WebView：UI、页面生命周期、权限与系统集成。
 - Android SQLite：书签和历史。
 - Kotlin 协程与 Android 存储 API：下载、SAF、MediaStore 和前台服务。
-- Rust JNI：`adblock`、`cache`、`url_utils`。
+- Rust JNI：`adblock`、`url_utils`。
+- 标签缩略图仅保留小尺寸显示位图，不再编码并复制到 Rust 缓存；位图由运行时管理，
+  避免 Compose 仍在绘制时主动回收。WebView 归还池时移除长按与查找监听器。
+- 恢复已访问标签的返回栈时使用尚未导航的新 WebView，并释放旧实例；恢复完成前不保存
+  中间状态。普通后台标签继续只持有元数据和快照，不为每个标签常驻一个 WebView。
 
 `minSdk=29`，`compileSdk/targetSdk=37`。降低最低安装版本不会让新系统进入旧 target SDK
 兼容模式。Rust 使用 API 29 的 NDK 链接器，输出独立存放于 `rust/target/android-api-29`，
@@ -117,8 +130,9 @@ Android WebView 没有一个在所有版本上都可用的统一“无痕开关�
 
 Rust 只用于输入输出边界清晰的纯计算模块。WebView、Compose、SQLite、下载存储和生命周期
 编排留在 Kotlin/Android：这些能力依赖平台 API，改写为 Rust 会增加 JNI、另一套网络/TLS
-依赖和约 3 MB 体积，却不能改善平台语义。`rust/downloader` 与
+依赖和约 3 MB 体积，却不能改善平台语义。`rust/cache`、`rust/downloader` 与
 `rust/filename_parser` 仅为旧调用者保留，默认不会编译或打包。
+旧 JNI 集成可使用 `-Pmybrowser.includeLegacyRust=true` 或 `INCLUDE_LEGACY_RUST=1`。
 
 ## 项目结构
 
@@ -127,7 +141,7 @@ pure-browser/
 ├── app/src/main/java/com/mybrowser/
 │   ├── MainActivity.kt       WebView、ActivityResult 与生命周期编排
 │   ├── core/                 导航、安全策略、WebView 配置与日志
-│   ├── data/                 书签、历史与 NativeCache 门面
+│   ├── data/                 书签、历史与可选 NativeCache 门面
 │   ├── download/             分段传输、目标写入、前台服务和记录管理
 │   ├── filter/               广告过滤规则与控制器
 │   ├── privacy/              独立 Profile 与退出清除策略
@@ -141,7 +155,7 @@ pure-browser/
 ├── app/src/test/             Android/Robolectric 单元测试
 ├── rust/
 │   ├── adblock/              默认打包
-│   ├── cache/                默认打包
+│   ├── cache/                legacy，可选
 │   ├── url_utils/            默认打包
 │   ├── downloader/           legacy，可选
 │   ├── filename_parser/      legacy，可选
@@ -188,8 +202,8 @@ keyPassword=...
 该脚本执行：
 
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
-2. 15 项 Node 网页视频协议测试、392 项三语言字符串及格式参数一致性检查；
-3. Android/Robolectric 150 项单元测试；
+2. 15 项 Node 网页视频协议测试、407 项三语言资源及格式参数一致性检查（含复数资源）；
+3. Android/Robolectric 164 项单元测试；
 4. Android lint；
 5. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
 6. APK 签名、大小和 SHA-256 检查。
@@ -201,9 +215,9 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 
 当前本地 Release 产物：
 
-- `PureBrowser-v0.2.0-release.apk`
-- 2,131,247 bytes（约 2.03 MiB）
-- SHA-256：`591cc04ace4138ed8daa182e22189453891dbb28bf2747ae8abc2b3badff2908`
+- `PureBrowser-v0.3.0-release.apk`
+- 2,031,774 bytes（约 1.94 MiB），比 0.2.0 减少 99,473 bytes（约 4.7%）
+- SHA-256：`983e5b4311f8680a7dbc2ff5b4565658825f7ad8038deca07506459169bd4514`
 - APK Signature Scheme v2：通过
 
 只运行 Android 单元测试或 lint：
@@ -216,7 +230,7 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 连接设备后安装并冷启动：
 
 ```bash
-./install_and_test.sh PureBrowser-v0.2.0-release.apk
+./install_and_test.sh PureBrowser-v0.3.0-release.apk
 ```
 
 诊断设备与崩溃日志：
@@ -232,6 +246,7 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 python3 validation/qa-server.py
 # 在另一个终端运行；替换为当前模拟器序号。
 python3 validation/setup-ui-probe.py emulator-5554
+python3 validation/productivity-regression.py --serial emulator-5554
 ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
 python3 validation/settings-regression.py --serial emulator-5554
 python3 validation/download-regression.py --serial emulator-5554
@@ -239,21 +254,22 @@ python3 validation/video-regression.py --serial emulator-5554 --variant standard
 # 其他媒体夹具：--variant square / blob / cross
 # Android 13+ 可额外验证应用语言切换：
 python3 validation/locale-regression.py --serial emulator-5556
+python3 validation/productivity-visual-regression.py --serial emulator-5556
 ```
 
 测试服务器只监听本机的 8875/8876 端口，脚本自动设置 ADB 反向端口。
 截图、遥测和性能结果位于 `validation/results/`，不纳入 Git。UI 读取辅助程序仅安装到模拟器
 的 `/data/local/tmp`，Release APK 不开放 WebView 调试。
+新增 productivity 回归只接受模拟器，会通过 `adb root` 写入 123 条测试书签/历史记录，
+用于验证跨页搜索和分页；不要用于存有个人浏览数据的设备。
 
 Lint 为 0 errors / 3 warnings：AGP 更新提示、ChromeOS x86_64 支持提示，以及 `localeConfig`
 在 Android 13 以下不生效的提示；低版本仍通过语言资源正常跟随系统语言。
 真实 DLNA 投送、厂商 WebView、摄像头/麦克风和第三方 DRM 网站仍需实体设备验证。
 
-原版 0.1.0 为 1,910,313 bytes，本轮全部变更（含三语言资源）增加 220,934 bytes，约 11.6%。
-这不是 Android 10 兼容代码单独带来的增量。同一 API 34 模拟器、同一本地页面、各预热 2 次后
-测量 7 次，进程冷启动中位数从原版 586 ms 到新版 556 ms，应用主进程 PSS 中位数从
-76.4 MiB 到 71.9 MiB，未观察到明显退化。该数据不含 Chromium 子进程内存，不能证明真机
-提速，也不能替代低端真机的流畅度、电量和视频帧率测试。原始样本与方法见回归报告。
+Android 10 支持始于 0.2.0，minSdk 降低本身不会改变新系统的运行路径。此前 0.1.0 与
+0.2.0 的模拟器对照未观察到明显启动退化，属于历史结果，不能代表当前版本。
+0.3.0 移除了切换标签时重复编码缩略图的路径；本轮未做完整性能基准，不宣称真机提速。
 
 ## 相关文档
 
@@ -271,5 +287,5 @@ README 是项目的入口和当前能力基线。后续每次修改用户可见�
 方式、验证结果或交付 APK 时，都必须在同一次变更中同步更新本 README；不能让实现、测试
 数量、环境要求或校验值与 README 脱节。
 
-本轮修改分支为 `feat/android10-settings-video-20260906`。原始可回滚基线为
-`backup/pre-android10-settings-video-20260906`（`b838e47`）；中间检查点也保留在 Git 历史中。
+本轮修改分支为 `feat/browser-productivity-20260907`。修改前已建立回滚分支
+`backup/pre-browser-productivity-20260907`（`82d0cb4`，0.2.0）；此前版本仍保留在 Git 历史中。

@@ -43,6 +43,7 @@ androidx-core = { group = "androidx.core", name = "core", version.ref = "core" }
 # WebViewFeature runtime detection.
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 
 # --- Compose ---
 # The entries without a version get it from the BOM below.

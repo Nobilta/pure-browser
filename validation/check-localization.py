@@ -15,6 +15,14 @@ def strings(folder):
         name = item.attrib["name"]
         assert name not in values, "Duplicate string: " + name
         values[name] = (item.text or "", item.attrib.get("formatted", "true"))
+    for plural in root.findall("plurals"):
+        name = plural.attrib["name"]
+        forms = {item.attrib["quantity"]: item.text or "" for item in plural.findall("item")}
+        assert "other" in forms, "Plural missing default: " + name
+        expected = sorted(re.findall(r"%\d+\$[sdif]", forms["other"]))
+        for value in forms.values():
+            assert sorted(re.findall(r"%\d+\$[sdif]", value)) == expected, "Plural format differs: " + name
+        values["plurals/" + name] = (forms["other"], "true")
     return values
 
 

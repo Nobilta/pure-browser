@@ -62,8 +62,8 @@ class HistoryManager(context: Context) {
 
     /** Gets all history entries, ordered by visit time descending; 0 means no limit. */
     @Synchronized
-    fun getAllHistory(limit: Int = 0): List<HistoryEntry> {
-        if (closed || limit < 0) return emptyList()
+    fun getAllHistory(limit: Int = 0, offset: Int = 0): List<HistoryEntry> {
+        if (closed || limit < 0 || offset < 0) return emptyList()
         val result = mutableListOf<HistoryEntry>()
         db.readableDatabase.query(
             "history",
@@ -72,8 +72,8 @@ class HistoryManager(context: Context) {
             null,
             null,
             null,
-            "visit_time DESC",
-            limitClause(limit),
+            "visit_time DESC, id DESC",
+            SqlLike.limitClause(limit, offset),
         ).use { cursor ->
             while (cursor.moveToNext()) result.add(cursor.toHistoryEntry())
         }
@@ -82,8 +82,8 @@ class HistoryManager(context: Context) {
 
     /** Searches history by title or URL with escaped substring matching and a hard cap. */
     @Synchronized
-    fun searchHistory(query: String, limit: Int = DEFAULT_SEARCH_LIMIT): List<HistoryEntry> {
-        if (closed || query.isBlank() || limit <= 0) return emptyList()
+    fun searchHistory(query: String, limit: Int = DEFAULT_SEARCH_LIMIT, offset: Int = 0): List<HistoryEntry> {
+        if (closed || query.isBlank() || limit <= 0 || offset < 0) return emptyList()
         val result = mutableListOf<HistoryEntry>()
         val pattern = SqlLike.pattern(query)
         val boundedLimit = limit.coerceAtMost(SqlLike.MAX_RESULTS)
@@ -94,8 +94,8 @@ class HistoryManager(context: Context) {
             arrayOf(pattern, pattern),
             null,
             null,
-            "visit_time DESC",
-            boundedLimit.toString(),
+            "visit_time DESC, id DESC",
+            SqlLike.limitClause(boundedLimit, offset),
         ).use { cursor ->
             while (cursor.moveToNext()) result.add(cursor.toHistoryEntry())
         }
@@ -135,9 +135,6 @@ class HistoryManager(context: Context) {
             "visit_time DESC",
             "1",
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else -1L }
-
-    private fun limitClause(limit: Int): String? =
-        if (limit == 0) null else limit.coerceAtMost(SqlLike.MAX_RESULTS).toString()
 
     private fun Cursor.toHistoryEntry() = HistoryEntry(
         id = getLong(0),

@@ -27,8 +27,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
         // Older devices with a 32-bit Android installation are not included. Overridable via
@@ -162,11 +162,8 @@ kotlin {
 // build/rustJniLibs/<abi>/. Legacy crates are opt-in (see includeLegacyRust below).
 // ---------------------------------------------------------------------------------------
 val rustDir = rootProject.file("rust")
-// Only these crates are on an application code path today. The downloader and legacy
-// filename parser remain source-compatible optional integrations, but packaging them by
-// default added roughly 3 MB of native code and made every build compile unused network
-// stacks. Enable them explicitly with -Pmybrowser.includeLegacyRust=true when an external
-// integration needs those JNI entry points.
+// The application uses adblock and url_utils. The cache, downloader and filename parser
+// remain optional integrations, enabled with -Pmybrowser.includeLegacyRust=true.
 val includeLegacyRust = providers.gradleProperty("mybrowser.includeLegacyRust")
     .map { it.equals("true", ignoreCase = true) }
     .orElse(false)
@@ -194,17 +191,17 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
 
     inputs.dir(rustDir.resolve("adblock/src"))
     inputs.dir(rustDir.resolve("url_utils/src"))
-    inputs.dir(rustDir.resolve("cache/src"))
     inputs.files(
         rustDir.resolve("adblock/Cargo.toml"),
         rustDir.resolve("url_utils/Cargo.toml"),
-        rustDir.resolve("cache/Cargo.toml"),
     )
     inputs.property("includeLegacyRust", includeLegacyRust)
     if (includeLegacyRust.get()) {
+        inputs.dir(rustDir.resolve("cache/src"))
         inputs.dir(rustDir.resolve("downloader/src"))
         inputs.dir(rustDir.resolve("filename_parser/src"))
         inputs.files(
+            rustDir.resolve("cache/Cargo.toml"),
             rustDir.resolve("downloader/Cargo.toml"),
             rustDir.resolve("filename_parser/Cargo.toml"),
         )
@@ -270,7 +267,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
             # Build only crates used by the Android application. Legacy JNI crates can be
             # opted in with -Pmybrowser.includeLegacyRust=true; keeping them out of the
             # default APK avoids shipping dead code and its transitive TLS/encoding stack.
-            cargo build --release --target ${'$'}target -p adblock -p cache -p url_utils
+            cargo build --release --target ${'$'}target -p adblock -p url_utils
 
             # Create output directory
             mkdir -p "${'$'}out"
@@ -278,10 +275,10 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
             # Copy all .so files with the names used by System.loadLibrary().
             cp "${cargoOutput.absolutePath}/${'$'}target/release/libadblock.so" "${'$'}out/libmybrowser_adblock.so"
             cp "${cargoOutput.absolutePath}/${'$'}target/release/liburl_utils.so" "${'$'}out/libmybrowser_url_utils.so"
-            cp "${cargoOutput.absolutePath}/${'$'}target/release/libcache.so" "${'$'}out/libmybrowser_cache.so"
 
             if [ "${includeLegacyRust.get()}" = "true" ]; then
-                cargo build --release --target ${'$'}target -p downloader -p filename_parser
+                cargo build --release --target ${'$'}target -p cache -p downloader -p filename_parser
+                cp "${cargoOutput.absolutePath}/${'$'}target/release/libcache.so" "${'$'}out/libmybrowser_cache.so"
                 cp "${cargoOutput.absolutePath}/${'$'}target/release/libdownloader.so" "${'$'}out/libmybrowser_downloader.so"
                 cp "${cargoOutput.absolutePath}/${'$'}target/release/libfilename_parser.so" "${'$'}out/libmybrowser_filename_parser.so"
             fi
@@ -313,6 +310,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation(libs.coroutines.test)
     // Robolectric 4.16 brings ASM 9.8, which cannot parse classes produced by JDK 26.
     // Pin the complete ASM family together for host-side tests; it is not packaged in the
     // Android application.

@@ -8,11 +8,11 @@ adb logcat -d > validation/diagnose-logcat.txt
 adb logcat -d | rg -n 'FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV|AndroidRuntime'
 ```
 
-确认 Android SDK >= 34、设备 ABI 与 APK 匹配（Release 为 arm64-v8a），并检查 APK 签名：
+确认设备 Android API >= 29、ABI 与 APK 匹配（Release 为 arm64-v8a），并检查 APK 签名：
 
 ```bash
-apksigner verify --verbose PureBrowser-v0.1.0-release.apk
-unzip -l PureBrowser-v0.1.0-release.apk | rg '\.so$'
+apksigner verify --verbose PureBrowser-v0.3.0-release.apk
+unzip -l PureBrowser-v0.3.0-release.apk | rg '\.so$'
 ```
 
 ## 常见问题
@@ -22,11 +22,11 @@ unzip -l PureBrowser-v0.1.0-release.apk | rg '\.so$'
 - 卸载旧的 debug/release 包后重试：`adb uninstall com.mybrowser` 或
   `adb uninstall com.mybrowser.debug`。
 - 检查 `adb shell getprop ro.product.cpu.abi`；x86_64 模拟器需要显式构建 x86_64 debug 包。
-- 确认设备系统为 Android 14+，并使用同一签名升级。
+- 确认设备系统为 Android 10+，并使用同一签名升级。
 
 ### native 库加载失败
 
-默认 APK 只需要三个库：`libmybrowser_adblock.so`、`libmybrowser_cache.so`、
+默认 APK 的产品 JNI 库是 `libmybrowser_adblock.so`、
 `libmybrowser_url_utils.so`。如果其中一个缺失，重新运行：
 
 ```bash

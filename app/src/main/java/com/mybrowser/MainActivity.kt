@@ -28,6 +28,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -69,6 +70,8 @@ import com.mybrowser.core.WebViewPool
 import com.mybrowser.core.WebViewConfig
 import com.mybrowser.core.DetachedWebViewClient
 import com.mybrowser.core.DefaultBrowser
+import com.mybrowser.core.PageContextTarget
+import com.mybrowser.core.PageContextMenuController
 import com.mybrowser.dlna.CastController
 import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.CustomFilterController
@@ -108,6 +111,8 @@ import com.mybrowser.ui.DownloadsSheet
 import com.mybrowser.ui.SettingsSheet
 import com.mybrowser.ui.FilterSettingsSheet
 import com.mybrowser.ui.BookmarkEditDialog
+import com.mybrowser.ui.LibraryPager
+import com.mybrowser.ui.PageContextSheet
 import com.mybrowser.ui.theme.MyBrowserTheme
 import com.mybrowser.ui.Dialogs
 import java.io.ByteArrayInputStream
@@ -151,9 +156,8 @@ class MainActivity : ComponentActivity(),
     private var browserPreferences by mutableStateOf(BrowserPreferences())
     private var showFilterSettings by mutableStateOf(false)
 
-    // Cached bookmarks and history for UI
-    private var bookmarks by mutableStateOf<List<Bookmark>>(emptyList())
-    private var history by mutableStateOf<List<HistoryEntry>>(emptyList())
+    private lateinit var bookmarkLibrary: LibraryPager<Bookmark>
+    private lateinit var historyLibrary: LibraryPager<HistoryEntry>
     private var currentPageBookmarked by mutableStateOf(false)
 
     private val state = BrowserState()
@@ -190,7 +194,15 @@ class MainActivity : ComponentActivity(),
     /** Non-null while the add-bookmark editor is visible. */
     private var bookmarkDraft: BookmarkDraft? by mutableStateOf(null)
 
-    private data class BookmarkDraft(val title: String, val url: String)
+    private data class BookmarkDraft(val title: String, val url: String, val id: Long? = null)
+
+    private var pageContextTarget by mutableStateOf<PageContextTarget?>(null)
+    private val pageContextMenu = PageContextMenuController({ it === webViewOrNull }) { target ->
+        if (fullscreenView == null) {
+            sheet = null
+            pageContextTarget = target
+        }
+    }
 
     // Homepage settings and user-created navigation tiles.
     private lateinit var homeRepository: HomeRepository
@@ -214,6 +226,7 @@ class MainActivity : ComponentActivity(),
      */
     private var webViewOrNull: WebView? by mutableStateOf(null)
     private var clearHistoryOnNextFinish = false
+    private var readyWebViewTabId: String? = null
 
     /**
      * A worker-thread-safe copy for shouldInterceptRequest. Reading Compose snapshot state
@@ -308,6 +321,14 @@ class MainActivity : ComponentActivity(),
         // Initialize bookmarks and history managers
         bookmarkManager = BookmarkManager(this)
         historyManager = HistoryManager(this)
+        bookmarkLibrary = LibraryPager(lifecycleScope, Bookmark::id) { query, limit, offset ->
+            if (query.isBlank()) bookmarkManager.getAllBookmarks(limit, offset)
+            else bookmarkManager.searchBookmarks(query, limit, offset)
+        }
+        historyLibrary = LibraryPager(lifecycleScope, HistoryEntry::id) { query, limit, offset ->
+            if (query.isBlank()) historyManager.getAllHistory(limit, offset)
+            else historyManager.searchHistory(query, limit, offset)
+        }
         downloadSettingsRepository = DownloadSettingsRepository(this)
         downloadSettings = downloadSettingsRepository.load()
         preferencesRepository = BrowserPreferencesRepository(this)
@@ -363,7 +384,7 @@ class MainActivity : ComponentActivity(),
                         sheet = Sheet.MENU
                     },
                     onTabs = {
-                        Log.d("MainActivity", "onTabs clicked, setting sheet to TABS")
+                        tabManager.captureCurrentThumbnail(webView, 200, 300)
                         sheet = Sheet.TABS
                     },
                     tabCount = tabManager.count,
@@ -416,6 +437,9 @@ class MainActivity : ComponentActivity(),
                         playbackSpeed = playbackSpeed,
                         isDesktopMode = state.isDesktopMode,
                         isCurrentPageBookmarked = currentPageBookmarked,
+                        canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
+                        onSharePage = { sheet = null; shareUrl(state.currentUrl) },
+                        onCopyPage = { sheet = null; copyToClipboard(state.currentUrl) },
                         onToggleIncognito = {
                             sheet = null
                             toggleIncognito()
@@ -440,11 +464,11 @@ class MainActivity : ComponentActivity(),
                         },
                         onOpenBookmarks = {
                             sheet = Sheet.BOOKMARKS
-                            loadBookmarks()
+                            bookmarkLibrary.search("")
                         },
                         onOpenHistory = {
                             sheet = Sheet.HISTORY
-                            loadHistory()
+                            historyLibrary.search("")
                         },
                         onOpenDownloads = {
                             sheet = Sheet.DOWNLOADS
@@ -507,12 +531,13 @@ class MainActivity : ComponentActivity(),
                         tabs = tabManager.tabs,
                         currentIndex = tabManager.currentIndex,
                         isIncognito = privacy.isIncognito,
-                        onSelectTab = { index ->
+                        canCreateTab = tabManager.canCreateTab,
+                        onSelectTab = { id ->
                             sheet = null
-                            switchToTab(index)
+                            switchToTab(tabManager.tabs.indexOfFirst { it.id == id })
                         },
-                        onCloseTab = { index ->
-                            closeTab(index)
+                        onCloseTab = { id ->
+                            closeTab(tabManager.tabs.indexOfFirst { it.id == id })
                         },
                         onNewTab = {
                             sheet = null
@@ -522,11 +547,27 @@ class MainActivity : ComponentActivity(),
                             sheet = null
                             closeAllTabs()
                         },
+                        onCloseOthers = {
+                            tabManager.closeOtherTabs()
+                            persistNormalSession()
+                        },
                         onDismiss = { sheet = null },
                     )
 
                     Sheet.BOOKMARKS -> BookmarksSheet(
-                        bookmarks = bookmarks,
+                        bookmarks = bookmarkLibrary.entries,
+                        query = bookmarkLibrary.query,
+                        loading = bookmarkLibrary.loading,
+                        hasMore = bookmarkLibrary.hasMore,
+                        error = bookmarkLibrary.error,
+                        onQueryChange = bookmarkLibrary::search,
+                        onLoadMore = bookmarkLibrary::loadMore,
+                        onOpenNewTab = { url -> sheet = null; openUrlInNewTab(url) },
+                        onCopy = ::copyToClipboard,
+                        onEditBookmark = { bookmark ->
+                            sheet = null
+                            bookmarkDraft = BookmarkDraft(bookmark.title, bookmark.url, bookmark.id)
+                        },
                         onSelectBookmark = { url ->
                             sheet = null
                             navigate(url)
@@ -542,11 +583,14 @@ class MainActivity : ComponentActivity(),
                             toast(getString(R.string.bookmark_removed))
                         },
                         onClearAll = {
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                bookmarkManager.clearAll()
-                                withContext(Dispatchers.Main) {
-                                    currentPageBookmarked = false
-                                    loadBookmarks()
+                            Dialogs.confirm(this, getString(R.string.bookmarks_clear),
+                                getString(R.string.bookmarks_clear_confirm)) { confirmed ->
+                                if (confirmed) lifecycleScope.launch(Dispatchers.IO) {
+                                    bookmarkManager.clearAll()
+                                    withContext(Dispatchers.Main) {
+                                        currentPageBookmarked = false
+                                        loadBookmarks()
+                                    }
                                 }
                             }
                         },
@@ -554,7 +598,15 @@ class MainActivity : ComponentActivity(),
                     )
 
                     Sheet.HISTORY -> HistorySheet(
-                        history = history,
+                        history = historyLibrary.entries,
+                        query = historyLibrary.query,
+                        loading = historyLibrary.loading,
+                        hasMore = historyLibrary.hasMore,
+                        error = historyLibrary.error,
+                        onQueryChange = historyLibrary::search,
+                        onLoadMore = historyLibrary::loadMore,
+                        onOpenNewTab = { url -> sheet = null; openUrlInNewTab(url) },
+                        onCopy = ::copyToClipboard,
                         onSelectHistory = { url ->
                             sheet = null
                             navigate(url)
@@ -566,9 +618,12 @@ class MainActivity : ComponentActivity(),
                             }
                         },
                         onClearAll = {
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                historyManager.clearAll()
-                                withContext(Dispatchers.Main) { loadHistory() }
+                            Dialogs.confirm(this, getString(R.string.history_clear),
+                                getString(R.string.history_clear_confirm)) { confirmed ->
+                                if (confirmed) lifecycleScope.launch(Dispatchers.IO) {
+                                    historyManager.clearAll()
+                                    withContext(Dispatchers.Main) { loadHistory() }
+                                }
                             }
                         },
                         onDismiss = { sheet = null },
@@ -738,8 +793,21 @@ class MainActivity : ComponentActivity(),
                         initialTitle = draft.title,
                         initialUrl = draft.url,
                         onSave = ::saveBookmark,
-                        onDismiss = { bookmarkDraft = null },
+                        isEditing = draft.id != null,
+                        onDismiss = {
+                            bookmarkDraft = null
+                            if (draft.id != null) sheet = Sheet.BOOKMARKS
+                        },
                     )
+                }
+
+                pageContextTarget?.let { target ->
+                    PageContextSheet(target,
+                        onOpen = { url, background -> pageContextTarget = null; openUrlInNewTab(url, background) },
+                        onCopy = { url -> pageContextTarget = null; copyToClipboard(url) },
+                        onShare = { url -> pageContextTarget = null; shareUrl(url) },
+                        onSaveImage = { url -> pageContextTarget = null; downloadImage(url) },
+                        onDismiss = { pageContextTarget = null })
                 }
 
                 // Security Info Dialog
@@ -877,6 +945,7 @@ class MainActivity : ComponentActivity(),
     private fun configure(view: WebView) {
         view.webViewClient = BrowserWebViewClient(this)
         view.webChromeClient = BrowserChromeClient(this, view)
+        pageContextMenu.attach(view)
         view.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             if (webViewOrNull === view) {
                 state.onPageScroll(scrollY, oldScrollY, resources.displayMetrics.density)
@@ -1140,6 +1209,7 @@ class MainActivity : ComponentActivity(),
         saveCurrentTab()
         val popup = runCatching { pool.acquire(this).also(::configure) }.getOrNull() ?: return null
         tabManager.createTab()
+        readyWebViewTabId = null
         webViewOrNull = popup
         // The old tab's state is already saved. A normal WebView can return to the pool;
         // an incognito/profile-bound instance must be discarded rather than reused.
@@ -1228,11 +1298,23 @@ class MainActivity : ComponentActivity(),
      */
     private fun loadCurrentTab() {
         val tab = tabManager.currentTab ?: return
+        readyWebViewTabId = null
+        dismissPageContext()
+        leaveFullscreen()
         state.revealToolbar()
         mediaProbeJob?.cancel()
         media.clear()
+        // WebView.restoreState is only supported before the instance builds history.
+        // Reusing a loaded instance loses restored navigation entries on older providers.
+        if (tab.savedState != null && webView.copyBackForwardList().size > 0) {
+            val old = webView
+            removeMediaPlaybackTracker(old)
+            pool.discard(old)
+            webViewOrNull = pool.acquireFresh(this).also(::configure)
+        }
         webViewOrNull?.let { mediaTrackers[it]?.reset() }
         val restored = tabManager.loadCurrentState(webView)
+        clearHistoryOnNextFinish = !restored
         if (!restored) {
             val url = tab.url.takeIf { it.isNotBlank() && it != ABOUT_BLANK }
                 ?: if (homepageMode == HomepageMode.NAVIGATION) ABOUT_BLANK else homeUrl
@@ -1240,8 +1322,10 @@ class MainActivity : ComponentActivity(),
             state.onTitleChanged(tab.title)
             webView.loadUrl(url)
         } else {
-            state.onPageFinished(webView.url ?: tab.url, webView.canGoBack(), webView.canGoForward())
-            state.onTitleChanged(webView.title ?: tab.title)
+            // restoreState starts an asynchronous navigation. Older providers briefly
+            // report about:blank, so neither display nor persist that intermediate page.
+            state.onPageStarted(tab.url)
+            state.onTitleChanged(tab.title)
         }
     }
 
@@ -1249,6 +1333,7 @@ class MainActivity : ComponentActivity(),
      * Saves the current WebView state into the current tab before switching away.
      */
     private fun saveCurrentTab() {
+        if (readyWebViewTabId != tabManager.currentTab?.id) return
         tabManager.saveCurrentState(webView)
         // Update thumbnail
         tabManager.captureCurrentThumbnail(webView, 200, 300)
@@ -1261,14 +1346,12 @@ class MainActivity : ComponentActivity(),
         }
         saveCurrentTab()
         tabManager.createTab()
-        clearHistoryOnNextFinish = true
         webView.stopLoading()
-        webView.loadUrl(ABOUT_BLANK)
         loadCurrentTab()
     }
 
     private fun switchToTab(index: Int) {
-        if (index == tabManager.currentIndex) return
+        if (index !in tabManager.tabs.indices || index == tabManager.currentIndex) return
         saveCurrentTab()
         webView.stopLoading()
         tabManager.switchToIndex(index)
@@ -1276,39 +1359,60 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun closeTab(index: Int) {
+        if (index !in tabManager.tabs.indices) return
         val wasCurrent = index == tabManager.currentIndex
         tabManager.closeTab(index)
         if (wasCurrent) {
-            clearHistoryOnNextFinish = true
             webView.stopLoading()
-            webView.loadUrl(ABOUT_BLANK)
             loadCurrentTab()
         }
+        persistNormalSession()
     }
 
     private fun closeAllTabs() {
         tabManager.clearAllTabs()
-        clearHistoryOnNextFinish = true
         webView.stopLoading()
-        webView.loadUrl(ABOUT_BLANK)
         loadCurrentTab()
+        persistNormalSession()
+    }
+
+    private fun openUrlInNewTab(url: String, background: Boolean = false) {
+        if (!UrlUtils.isHttpUrl(url)) { navigate(url); return }
+        if (!tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); return }
+        if (!background) saveCurrentTab()
+        tabManager.createTab(url, select = !background, title = UrlUtils.hostOf(url).orEmpty())
+        if (background) {
+            persistNormalSession()
+            toast(getString(R.string.context_opened_background))
+        } else {
+            webView.stopLoading()
+            loadCurrentTab()
+        }
+    }
+
+    private fun dismissPageContext() {
+        pageContextMenu.invalidate()
+        pageContextTarget = null
+    }
+
+    private fun shareUrl(url: String) {
+        if (!UrlUtils.isHttpUrl(url)) return
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
+        runCatching { startActivity(Intent.createChooser(send, getString(R.string.menu_share_page))) }
+            .onFailure { toast(getString(R.string.context_share_unavailable)) }
+    }
+
+    private fun downloadImage(url: String) {
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
+        val id = downloadHandler.enqueue(url, webView.settings.userAgentString, null, mime, referer = state.currentUrl)
+        toast(getString(if (id != null) R.string.download_started else R.string.ui_unable_to_start_the_download))
     }
 
     // --- Bookmarks and History ---
 
-    private fun loadBookmarks() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val result = bookmarkManager.getAllBookmarks()
-            withContext(Dispatchers.Main) { bookmarks = result }
-        }
-    }
+    private fun loadBookmarks() = bookmarkLibrary.refresh()
 
-    private fun loadHistory() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val result = historyManager.getAllHistory(limit = 100)
-            withContext(Dispatchers.Main) { history = result }
-        }
-    }
+    private fun loadHistory() = historyLibrary.refresh()
 
     /** Opens the editor with the URL and title currently shown by the WebView. */
     private fun openBookmarkEditor() {
@@ -1326,6 +1430,7 @@ class MainActivity : ComponentActivity(),
 
     /** Saves edited bookmark data after normalising a schemeless host. */
     private fun saveBookmark(title: String, rawUrl: String, addToHome: Boolean) {
+        val draft = bookmarkDraft ?: return
         val cleanTitle = title.trim()
         val cleanInput = rawUrl.trim()
         if (cleanTitle.isEmpty() || !UrlUtils.isNavigableInput(cleanInput)) {
@@ -1347,9 +1452,8 @@ class MainActivity : ComponentActivity(),
         }
 
         val shouldAddToHome = addToHome && UrlUtils.isHttpUrl(normalized)
-        // TabManager owns and may recycle Chromium's bitmap on the next navigation. The
-        // repository receives an independent copy only when the edited URL is still the
-        // current page; otherwise using the current site's icon would mislabel the tile.
+        // Give the background encoder its own bitmap, and only reuse the site's icon
+        // when the edited URL still identifies the current page.
         val faviconCopy = if (shouldAddToHome && normalized == state.currentUrl) {
             runCatching {
                 tabManager.currentTab?.favicon
@@ -1362,7 +1466,8 @@ class MainActivity : ComponentActivity(),
 
         lifecycleScope.launch(Dispatchers.IO) {
             val rowId = runCatching {
-                bookmarkManager.addBookmark(cleanTitle, normalized)
+                if (draft.id == null) bookmarkManager.addBookmark(cleanTitle, normalized)
+                else if (bookmarkManager.updateBookmark(draft.id, cleanTitle, normalized)) draft.id else -1L
             }.getOrDefault(-1L)
             val updatedShortcuts = if (rowId >= 0L && shouldAddToHome) {
                 runCatching {
@@ -1376,11 +1481,14 @@ class MainActivity : ComponentActivity(),
             faviconCopy?.recycle()
             withContext(Dispatchers.Main) {
                 if (rowId < 0L) {
-                    toast(getString(R.string.bookmark_save_failed))
+                    toast(getString(if (draft.id == null) R.string.bookmark_save_failed else R.string.library_edit_failed))
                     return@withContext
                 }
                 if (updatedShortcuts != null) homeShortcuts = updatedShortcuts
-                bookmarkDraft = null
+                if (bookmarkDraft == draft) {
+                    bookmarkDraft = null
+                    if (draft.id != null) sheet = Sheet.BOOKMARKS
+                }
                 if (state.currentUrl == normalized) {
                     currentPageBookmarked = true
                 } else {
@@ -1392,6 +1500,7 @@ class MainActivity : ComponentActivity(),
                         shouldAddToHome && updatedShortcuts?.any { it.url == normalized } == true ->
                             getString(R.string.bookmark_added_to_home)
                         shouldAddToHome -> getString(R.string.bookmark_home_add_failed)
+                        draft.id != null -> getString(R.string.library_bookmark_saved)
                         else -> getString(R.string.bookmark_added)
                     },
                 )
@@ -1467,7 +1576,7 @@ class MainActivity : ComponentActivity(),
             lifecycleScope.launch(Dispatchers.IO) {
                 historyManager.clearAll()
                 withContext(Dispatchers.Main) {
-                    history = emptyList()
+                    historyLibrary.refresh()
                     toast(getString(R.string.clear_data_done))
                 }
             }
@@ -1479,6 +1588,8 @@ class MainActivity : ComponentActivity(),
     override fun isCurrentWebView(view: WebView): Boolean = webViewOrNull === view
 
     override fun onPageStarted(url: String) {
+        readyWebViewTabId = null
+        dismissPageContext()
         leaveFullscreen()
         rememberedVideo = null
         documentUrlForWorkers = url
@@ -1501,13 +1612,15 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
+        if (url != webView.url || url != state.currentUrl) return
+        readyWebViewTabId = tabManager.currentTab?.id
         documentUrlForWorkers = url
         val resetHistory = clearHistoryOnNextFinish
         if (resetHistory) {
             webView.clearHistory()
             clearHistoryOnNextFinish = false
         }
-        state.onPageFinished(url, if (resetHistory) false else canGoBack, canGoForward)
+        state.onPageFinished(url, !resetHistory && canGoBack, !resetHistory && canGoForward)
         state.onTitleChanged(webView.title)
         networkLogs.markMainFrameFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView)
@@ -1698,12 +1811,7 @@ class MainActivity : ComponentActivity(),
     override fun onIconChanged(icon: Bitmap?) {
         // Update current tab favicon
         tabManager.currentTab?.let { tab ->
-            // Some WebView providers reuse the same Bitmap instance for repeated icon
-            // callbacks. Recycling it before assigning the callback value leaves the tab
-            // holding a bitmap that Chromium (and Compose) can no longer draw.
-            if (tab.favicon !== icon) {
-                tab.favicon?.recycle()
-            }
+            // Chromium and pending Compose frames may still hold the previous bitmap.
             tab.favicon = icon
             tabManager.notifyChanged()
         }
@@ -1823,6 +1931,7 @@ class MainActivity : ComponentActivity(),
 
     /** Clears page-scoped work before a new URL starts, closing the old-request race window. */
     private fun prepareForNavigation() {
+        dismissPageContext()
         state.revealToolbar()
         mediaProbeJob?.cancel()
         mediaProbeJob = null
@@ -1932,7 +2041,7 @@ class MainActivity : ComponentActivity(),
 
     private fun persistNormalSession() {
         if (!::normalTabManager.isInitialized) return
-        if (!privacy.isIncognito) {
+        if (!privacy.isIncognito && readyWebViewTabId == normalTabManager.currentTab?.id) {
             webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
         }
         if (restoreLastSession) normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
@@ -1950,7 +2059,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        if (!privacy.isIncognito) webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
+        persistNormalSession()
         outState.putBundle(STATE_NORMAL_TABS, normalTabManager.snapshotMetadata())
         outState.putString(STATE_PROCESS_SESSION, PROCESS_SESSION)
         outState.putBoolean(STATE_SETTINGS_OPEN, sheet == Sheet.SETTINGS)
@@ -1964,6 +2073,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPause() {
+        dismissPageContext()
         fullscreenView?.cancelTransientControls()
         super.onPause()
         // Suspends timers and JS so a backgrounded page cannot keep burning CPU. Media
@@ -1980,6 +2090,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onDestroy() {
+        dismissPageContext()
         mediaProbeJob?.cancel()
         mediaProbeJob = null
         leaveFullscreen()

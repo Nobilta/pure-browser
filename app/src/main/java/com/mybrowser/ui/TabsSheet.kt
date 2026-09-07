@@ -3,37 +3,19 @@ package com.mybrowser.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,187 +28,81 @@ fun TabsSheet(
     tabs: List<TabState>,
     currentIndex: Int,
     isIncognito: Boolean,
-    onSelectTab: (Int) -> Unit,
-    onCloseTab: (Int) -> Unit,
+    canCreateTab: Boolean,
+    onSelectTab: (String) -> Unit,
+    onCloseTab: (String) -> Unit,
     onNewTab: () -> Unit,
     onCloseAll: () -> Unit,
+    onCloseOthers: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-        ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = if (isIncognito) {
-                        stringResource(R.string.tabs_title) + " (${stringResource(R.string.incognito_badge)})"
-                    } else {
-                        stringResource(R.string.tabs_title)
-                    },
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                TextButton(onClick = onCloseAll) {
-                    Text(stringResource(R.string.tabs_close_all))
+    var query by rememberSaveable { mutableStateOf("") }
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<String?>(null) }
+    val filtered = tabs.filter { it.title.contains(query, true) || it.url.contains(query, true) }
+    val currentId = tabs.getOrNull(currentIndex)?.id
+    ModalBottomSheet(onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.tabs_count, tabs.size), style = MaterialTheme.typography.titleLarge)
+                    if (isIncognito) Text(stringResource(R.string.incognito_badge),
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-
-            // Tab list
-            if (tabs.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.tab_untitled),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .heightIn(max = 600.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
-                        TabCard(
-                            tab = tab,
-                            isSelected = index == currentIndex,
-                            onClick = {
-                                onSelectTab(index)
-                                onDismiss()
-                            },
-                            onClose = { onCloseTab(index) },
-                        )
+                BrowserIconAction(R.drawable.ic_add, stringResource(R.string.tabs_new), canCreateTab, onNewTab)
+                Box {
+                    BrowserIconAction(R.drawable.ic_more, stringResource(R.string.tabs_actions)) { menuOpen = true }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.tabs_close_others)) },
+                            enabled = tabs.size > 1, onClick = { menuOpen = false; confirm = "others" })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.tabs_close_all)) },
+                            onClick = { menuOpen = false; confirm = "all" })
                     }
                 }
             }
-
-            // New tab button
-            Button(
-                onClick = {
-                    onNewTab()
-                    onDismiss()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp),
-            ) {
-                Text(stringResource(R.string.tabs_new))
+            LibrarySearchField(query, stringResource(R.string.tabs_search)) { query = it }
+            if (filtered.isEmpty()) Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.library_no_results), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(filtered, key = { it.id }) { tab ->
+                    Surface(shape = RoundedCornerShape(8.dp), color = if (tab.id == currentId)
+                        MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(64.dp, 80.dp).clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+                                val thumbnail = tab.thumbnail
+                                if (thumbnail != null && !thumbnail.isRecycled) Image(thumbnail.asImageBitmap(), null, Modifier.fillMaxSize())
+                                else Icon(painterResource(R.drawable.ic_tabs), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(tab.title.ifBlank { stringResource(R.string.tab_untitled) },
+                                    style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(tab.url, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (tab.id == currentId) Text(stringResource(R.string.tabs_current),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                            BrowserIconAction(R.drawable.ic_close, stringResource(R.string.cd_close_tab)) { onCloseTab(tab.id) }
+                        }
+                    }
+                }
             }
         }
     }
-}
-
-@Composable
-private fun TabCard(
-    tab: TabState,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    onClose: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
-        color = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
+    if (confirm != null) AlertDialog(onDismissRequest = { confirm = null },
+        title = { Text(stringResource(if (confirm == "all") R.string.tabs_close_all else R.string.tabs_close_others)) },
+        text = {
+            val count = if (confirm == "all") tabs.size else (tabs.size - 1).coerceAtLeast(0)
+            Text(pluralStringResource(R.plurals.tabs_close_confirm, count, count))
         },
-        shape = RoundedCornerShape(8.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Thumbnail or placeholder
-            Box(
-                modifier = Modifier
-                    .size(60.dp, 80.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center,
-            ) {
-                tab.thumbnail?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } ?: run {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_home),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Title and URL
-            Column(
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    text = tab.title.takeIf { it.isNotBlank() }
-                        ?: stringResource(R.string.tab_untitled),
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                )
-                if (tab.url.isNotBlank()) {
-                    Text(
-                        text = tab.url,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-            }
-
-            // Close button
-            IconButton(onClick = onClose) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_close),
-                    contentDescription = stringResource(R.string.cd_close_tab),
-                    tint = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        }
-    }
+        confirmButton = { TextButton(onClick = {
+            val closeAll = confirm == "all"
+            confirm = null
+            if (closeAll) onCloseAll() else onCloseOthers()
+        }) { Text(stringResource(R.string.action_confirm)) } },
+        dismissButton = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.action_cancel)) } })
 }

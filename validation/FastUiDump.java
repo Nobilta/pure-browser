@@ -8,6 +8,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Xml;
 import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.KeyCharacterMap;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.StringWriter;
@@ -28,6 +30,13 @@ public final class FastUiDump {
             UiAutomation.class.getMethod("connect").invoke(automation);
             if (args.length == 3 && args[0].equals("doubleTap")) {
                 doubleTap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
+            } else if (args.length == 1 && args[0].equals("selectAll")) {
+                long down = SystemClock.uptimeMillis();
+                for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                    automation.injectInputEvent(new KeyEvent(down, SystemClock.uptimeMillis(), action,
+                            KeyEvent.KEYCODE_A, 0, KeyEvent.META_CTRL_ON, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                            0, 0, InputDevice.SOURCE_KEYBOARD), true);
+                }
             } else {
             AccessibilityServiceInfo service = automation.getServiceInfo();
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS

@@ -39,6 +39,9 @@ fun MenuSheet(
     playbackSpeed: Float,
     isDesktopMode: Boolean,
     isCurrentPageBookmarked: Boolean,
+    canUsePageActions: Boolean,
+    onSharePage: () -> Unit,
+    onCopyPage: () -> Unit,
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onToggleDesktopMode: () -> Unit,
@@ -73,25 +76,16 @@ fun MenuSheet(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             )
 
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                BrowserIconAction(R.drawable.ic_bookmark,
+                    stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark),
+                    canUsePageActions, onToggleBookmark)
+                BrowserIconAction(R.drawable.ic_share, stringResource(R.string.menu_share_page), canUsePageActions, onSharePage)
+                BrowserIconAction(R.drawable.ic_copy, stringResource(R.string.context_copy_link), canUsePageActions, onCopyPage)
+                BrowserIconAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind)
+            }
+
             MenuSection(title = stringResource(R.string.menu_section_page)) {
-                MenuRow(
-                    iconRes = R.drawable.ic_bookmark,
-                    title = stringResource(
-                        if (isCurrentPageBookmarked) R.string.menu_remove_bookmark
-                        else R.string.menu_add_bookmark,
-                    ),
-                    subtitle = stringResource(
-                        if (isCurrentPageBookmarked) R.string.menu_remove_bookmark_hint
-                        else R.string.menu_add_bookmark_hint,
-                    ),
-                    onClick = onToggleBookmark,
-                )
-                MenuRow(
-                    iconRes = R.drawable.ic_search,
-                    title = stringResource(R.string.menu_find),
-                    subtitle = stringResource(R.string.menu_find_hint),
-                    onClick = onOpenFind,
-                )
                 MenuRow(
                     iconRes = R.drawable.ic_desktop,
                     title = stringResource(R.string.menu_desktop_site),
@@ -138,19 +132,19 @@ fun MenuSheet(
                 MenuRow(
                     iconRes = R.drawable.ic_bookmark,
                     title = stringResource(R.string.menu_bookmarks),
-                    subtitle = stringResource(R.string.menu_bookmarks_hint),
+                    subtitle = "",
                     onClick = onOpenBookmarks,
                 )
                 MenuRow(
                     iconRes = R.drawable.ic_history,
                     title = stringResource(R.string.menu_history),
-                    subtitle = stringResource(R.string.menu_history_hint),
+                    subtitle = "",
                     onClick = onOpenHistory,
                 )
                 MenuRow(
                     iconRes = R.drawable.ic_download,
                     title = stringResource(R.string.menu_downloads),
-                    subtitle = stringResource(R.string.menu_downloads_hint),
+                    subtitle = "",
                     onClick = onOpenDownloads,
                 )
             }
@@ -162,10 +156,7 @@ fun MenuSheet(
                         if (isIncognito) R.string.menu_exit_incognito
                         else R.string.menu_enter_incognito,
                     ),
-                    subtitle = stringResource(
-                        if (isIncognito) R.string.menu_incognito_active_hint
-                        else R.string.menu_incognito_hint,
-                    ),
+                    subtitle = "",
                     onClick = onToggleIncognito,
                 )
                 MenuRow(
@@ -187,7 +178,7 @@ fun MenuSheet(
                 MenuRow(
                     iconRes = R.drawable.ic_delete,
                     title = stringResource(R.string.menu_clear_data),
-                    subtitle = stringResource(R.string.menu_clear_data_hint),
+                    subtitle = "",
                     onClick = onClearData,
                 )
             }
@@ -196,13 +187,13 @@ fun MenuSheet(
                 MenuRow(
                     iconRes = R.drawable.ic_settings,
                     title = stringResource(R.string.menu_settings),
-                    subtitle = stringResource(R.string.menu_settings_hint),
+                    subtitle = "",
                     onClick = onOpenSettings,
                 )
                 MenuRow(
                     iconRes = R.drawable.ic_code,
                     title = stringResource(R.string.menu_developer_tools),
-                    subtitle = stringResource(R.string.menu_developer_tools_hint),
+                    subtitle = "",
                     onClick = onOpenDeveloperTools,
                 )
             }

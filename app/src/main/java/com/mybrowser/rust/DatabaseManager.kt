@@ -66,7 +66,7 @@ object DatabaseManager {
             }
         }.getOrDefault(emptyList())
 
-    /** Legacy cache hooks are retained as no-ops; thumbnail caching lives in NativeCache. */
+    /** Legacy cache hooks are retained as no-ops; tabs own their display thumbnails. */
     fun addToCache(url: String, id: Long) = Unit
     fun removeFromCache(url: String) = Unit
     fun clearCache() = Unit
