@@ -289,6 +289,12 @@ class MainActivity : ComponentActivity(),
         val sessionSnapshot = savedInstanceState
             ?.takeIf { it.getString(STATE_PROCESS_SESSION) == PROCESS_SESSION }
             ?.getBundle(STATE_NORMAL_TABS)
+        if (savedInstanceState?.getString(STATE_PROCESS_SESSION) == PROCESS_SESSION &&
+            savedInstanceState.getBoolean(STATE_SETTINGS_OPEN)
+        ) {
+            sheet = Sheet.SETTINGS
+            showFilterSettings = savedInstanceState.getBoolean(STATE_FILTER_SETTINGS_OPEN)
+        }
         if (sessionSnapshot != null) {
             normalTabManager.restoreMetadata(sessionSnapshot)
         } else if (restoreLastSession) {
@@ -1947,6 +1953,8 @@ class MainActivity : ComponentActivity(),
         if (!privacy.isIncognito) webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
         outState.putBundle(STATE_NORMAL_TABS, normalTabManager.snapshotMetadata())
         outState.putString(STATE_PROCESS_SESSION, PROCESS_SESSION)
+        outState.putBoolean(STATE_SETTINGS_OPEN, sheet == Sheet.SETTINGS)
+        outState.putBoolean(STATE_FILTER_SETTINGS_OPEN, showFilterSettings)
         super.onSaveInstanceState(outState)
     }
 
@@ -2033,6 +2041,8 @@ class MainActivity : ComponentActivity(),
         const val NORMAL_TABS_PREFS = "normal_tabs"
         const val STATE_NORMAL_TABS = "normal_tab_snapshot"
         const val STATE_PROCESS_SESSION = "process_session"
+        const val STATE_SETTINGS_OPEN = "settings_open"
+        const val STATE_FILTER_SETTINGS_OPEN = "filter_settings_open"
         val PROCESS_SESSION = java.util.UUID.randomUUID().toString()
         const val MEDIA_PROBE_INTERVAL_MS = 1_200L
 

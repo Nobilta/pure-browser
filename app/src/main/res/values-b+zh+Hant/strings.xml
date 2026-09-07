@@ -365,14 +365,11 @@
     <string name="ui_pause_video">暫停視頻</string>
     <string name="ui_web_controls">網頁控件</string>
     <string name="ui_switch_to_web_controls">切換到網頁控件</string>
-    <string name="ui_lock">鎖定</string>
     <string name="ui_lock_screen">鎖定屏幕</string>
     <string name="ui_exit_fullscreen">退出全屏</string>
     <string name="ui_rotate_screen">切換橫竪屏</string>
     <string name="ui_video_progress">視頻進度</string>
-    <string name="ui_10_s">−10秒</string>
     <string name="ui_rewind_10_seconds">快退10秒</string>
-    <string name="ui_10_s_1eaeeb">+10秒</string>
     <string name="ui_forward_10_seconds">快進10秒</string>
     <string name="ui_play_video">播放視頻</string>
     <string name="ui_playback_speed">播放速度 %1$s</string>
@@ -382,7 +379,6 @@
     <string name="ui_start_playing_a_video_on_the_webpage_first">請先在網頁中開始播放視頻</string>
     <string name="ui_enhanced_controls">增強控件</string>
     <string name="ui_switch_to_enhanced_controls">切換到增強控件</string>
-    <string name="ui_unlock">解鎖</string>
     <string name="ui_unlock_screen">解鎖屏幕</string>
     <string name="ui_the_webpage_could_not_change_playback">網頁未能執行播放操作</string>
     <string name="ui_seeking_is_unavailable_for_this_video">當前視頻不能調整進度</string>
