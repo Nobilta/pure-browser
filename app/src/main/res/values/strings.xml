@@ -15,7 +15,6 @@
     <string name="cd_home">Homepage</string>
     <string name="cd_menu">Menu</string>
     <string name="cd_clear">Clear</string>
-    <string name="page_load_error">Unable to load the page</string>
     <string name="press_back_again">Press Back again to exit</string>
     <string name="cd_cast">Cast</string>
     <string name="cd_playback_speed">Playback speed, currently %1$s</string>
@@ -119,8 +118,6 @@
     <string name="ui_unable_to_delete_the_local_file_the_download">Unable to delete the local file. The download record was kept.</string>
     <string name="ui_download_record_and_local_file_deleted">Download record and local file deleted</string>
     <string name="ui_download_record_deleted">Download record deleted</string>
-    <string name="ui_cleared_items">"Cleared %1$s items; "</string>
-    <string name="ui_files_could_not_be_deleted">%1$s files could not be deleted</string>
     <string name="ui_cleared_records_and_files">Records and files cleared: %1$d</string>
     <string name="ui_cleared_records">Records cleared: %1$d</string>
     <string name="ui_search_engine_changed_to">Search engine changed to %1$s</string>
@@ -272,7 +269,6 @@
     <string name="ui_minutes_ago">%1$d min ago</string>
     <string name="ui_hours_ago">%1$d h ago</string>
     <string name="ui_days_ago">%1$d d ago</string>
-    <string name="ui_browse_by_category">Browse by category</string>
     <string name="ui_restore_previous_pages">Restore previous pages</string>
     <string name="ui_open_homepage_on_startup">Open homepage on startup</string>
     <string name="ui_ad_filtering_on">Ad filtering on</string>
@@ -332,7 +328,6 @@
     <string name="ui_custom_folder">Custom folder</string>
     <string name="ui_choose_a_folder_with_write_access">Choose a folder with write access</string>
     <string name="ui_tap_to_change">%1$s · Tap to change</string>
-    <string name="ui_folder_selected">Folder selected</string>
     <string name="ui_download_connections">Download connections</string>
     <string name="ui_connections_818c76">Connections: %1$d</string>
     <string name="ui_choose_1_16_connections_servers_without_range_support">Choose 1–16 connections. Servers without range support use one connection.</string>
@@ -354,12 +349,8 @@
     <string name="ui_this_is_embedded_data_not_a_verifiable_network">This is embedded data, not a verifiable network connection.</string>
     <string name="ui_insecure_protocol">Insecure protocol: %1$s</string>
     <string name="ui_unnamed_device">Unnamed device</string>
-    <string name="ui_search_failed">Search failed</string>
     <string name="ui_casting_to">Casting to %1$s</string>
-    <string name="ui_casting_failed">Casting failed: %1$s</string>
-    <string name="ui_unknown_error">Unknown error</string>
     <string name="ui_casting_stopped">Casting stopped</string>
-    <string name="ui_action_failed">Action failed: %1$s</string>
     <string name="ui_baidu">Baidu</string>
     <string name="ui_name_cannot_be_empty">Name cannot be empty</string>
     <string name="ui_name_is_too_long">Name is too long</string>
@@ -387,7 +378,6 @@
     <string name="ui_playback_speed">Playback speed %1$s</string>
     <string name="ui_live">Live · %1$s</string>
     <string name="ui_waiting_for_webpage_video">Waiting for webpage video</string>
-    <string name="ui_left_brightness_right_volume_hold_for_a_temporary">Left: brightness · Right: volume\nHold for a temporary speed boost</string>
     <string name="ui_enhanced_controls_are_unavailable_for_this_webpage">Enhanced controls are unavailable for this webpage</string>
     <string name="ui_start_playing_a_video_on_the_webpage_first">Start playing a video on the webpage first</string>
     <string name="ui_enhanced_controls">Enhanced controls</string>

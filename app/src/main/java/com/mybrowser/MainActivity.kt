@@ -1739,6 +1739,7 @@ class MainActivity : ComponentActivity(),
         )
         fullscreenView = host
         (window.decorView as ViewGroup).addView(host, ViewGroup.LayoutParams(-1, -1))
+        host.requestFocus()
         setSystemBarsVisible(false)
     }
 
@@ -1848,6 +1849,7 @@ class MainActivity : ComponentActivity(),
                 // destination page is immediately visible (and cannot be covered by a stale
                 // bookmark/cast sheet).
                 sheet = null
+                showFilterSettings = false
                 bookmarkDraft = null
                 navigate(url)
             }
