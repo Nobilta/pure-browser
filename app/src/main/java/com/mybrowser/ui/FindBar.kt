@@ -1,6 +1,6 @@
 package com.mybrowser.ui
 
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -38,7 +38,7 @@ fun FindBar(
     onPrevious: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val textResources = LocalContext.current.resources
+    val textResources = LocalResources.current
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {

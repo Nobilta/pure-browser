@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """ADB/UIAutomator helpers for repeatable signed-APK regression on a local emulator."""
 import argparse
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,44 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parent
 PACKAGE = "com.mybrowser"
 ADB = ["adb"] + (["-s", os.environ["ANDROID_SERIAL"]] if os.environ.get("ANDROID_SERIAL") else [])
+UI_PROBE = "/data/local/tmp/pure-ui-dump.jar"
+_probe_available = {}
+
+
+def resource_strings(folder):
+    resources = ROOT.parent / "app/src/main/res" / folder / "strings.xml"
+    values = {}
+    for item in ET.parse(resources).getroot().findall("string"):
+        value = item.text or ""
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        values[item.get("name")] = value.replace(r"\n", "\n").replace(r"\'", "'").replace(r'\"', '"')
+    return values
+
+
+_translations = [resource_strings(folder) for folder in ("values", "values-zh", "values-b+zh+Hant")]
+_label_variants = {}
+_formatted_labels = []
+for key in _translations[0]:
+    variants = {values[key] for values in _translations}
+    for value in variants:
+        _label_variants.setdefault(value, set()).update(variants)
+        arguments = re.findall(r"%(\d+)\$[sdif]", value)
+        if arguments:
+            pattern = "(.+?)".join(re.escape(part.replace("%%", "%")) for part in re.split(r"%\d+\$[sdif]", value))
+            _formatted_labels.append((re.compile(pattern), arguments, variants))
+
+
+@lru_cache(maxsize=512)
+def labels(label):
+    variants = set(_label_variants.get(label, {label}))
+    for pattern, arguments, templates in _formatted_labels:
+        found = pattern.fullmatch(label)
+        if found:
+            values = dict(zip(arguments, found.groups()))
+            variants.update(re.sub(r"%(\d+)\$[sdif]", lambda m: values[m[1]], template).replace("%%", "%")
+                            for template in templates)
+    return variants
 
 
 def adb(*args):
@@ -19,6 +58,20 @@ def adb(*args):
 
 
 def nodes():
+    device = tuple(ADB)
+    if device not in _probe_available:
+        _probe_available[device] = subprocess.run(
+            ADB + ["shell", "test", "-r", UI_PROBE], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=10).returncode == 0
+    if _probe_available[device]:
+        for _ in range(2):
+            try:
+                raw = adb("shell", "env", "CLASSPATH=" + UI_PROBE, "app_process", "/system/bin",
+                          "com.mybrowser.validation.FastUiDump")
+                raw = raw[raw.index("<?xml"):raw.index("</hierarchy>") + len("</hierarchy>")]
+                return ET.fromstring(raw), raw
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError, ValueError):
+                time.sleep(.15)
     for _ in range(3):
         adb("shell", "rm", "-f", "/sdcard/pure-ux.xml")
         adb("shell", "uiautomator", "dump", "/sdcard/pure-ux.xml")
@@ -31,7 +84,7 @@ def nodes():
 
 
 def bounds(node):
-    return list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+    return list(map(int, re.findall(r"-?\d+", node.get("bounds", ""))))
 
 
 def visible(node):
@@ -40,8 +93,9 @@ def visible(node):
 
 
 def match(root, label):
-    return next((n for n in root.iter("node") if visible(n) and label in (
-        n.get("text"), n.get("content-desc"), n.get("resource-id"))), None)
+    variants = labels(label)
+    return next((n for n in root.iter("node") if visible(n) and variants.intersection((
+        n.get("text"), n.get("content-desc"), n.get("resource-id")))), None)
 
 
 def tap(label):
@@ -98,7 +152,8 @@ def expect(label, present=True):
 
 
 def regress():
-    base = "http://127.0.0.1:8765/browser-ux.html"
+    adb("reverse", "tcp:8875", "tcp:8875")
+    base = "http://127.0.0.1:8875/browser-ux.html"
     launch(base)
     expect("Pure UX First Page")
     tap("SPA route")

@@ -31,7 +31,12 @@ class LocalizationTest {
         assertEquals("Cancel", resources("en").getString(R.string.action_cancel))
         assertEquals("取消", resources("zh-CN").getString(R.string.action_cancel))
         assertEquals("Enter a valid URL", resources("en").getString(R.string.bookmark_invalid_url))
-        assertEquals("请输入有效的网址", resources("zh-TW").getString(R.string.bookmark_invalid_url))
+        for (language in listOf("zh", "zh-CN", "zh-SG", "zh-Hans")) {
+            assertEquals(language, "请输入有效的网址", resources(language).getString(R.string.bookmark_invalid_url))
+        }
+        for (language in listOf("zh-TW", "zh-HK", "zh-MO", "zh-Hant")) {
+            assertEquals(language, "請輸入有效的網址", resources(language).getString(R.string.bookmark_invalid_url))
+        }
     }
 
     @Test fun unsupportedLanguagesUseTheEnglishFallback() {
