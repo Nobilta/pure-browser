@@ -128,7 +128,7 @@ class Regression:
             ux.adb("reverse", "tcp:" + str(port), "tcp:" + str(port))
         ux.adb("shell", "am", "force-stop", "com.mybrowser")
         page = "player-cross-frame.html" if self.variant == "cross" else "player-fixture.html"
-        query = "?case=" + self.case + ("&blob=1" if self.variant == "blob" else "")
+        query = "?case=" + self.case + ("&blob=1" if self.variant == "blob" else "&square=1" if self.variant == "square" else "")
         ux.launch("http://127.0.0.1:8875/" + page + query)
         inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
         original_brightness = self.brightness()
@@ -148,6 +148,19 @@ class Regression:
         enhanced = ux.match(root, "切换到网页控件") is not None
         self.record("single tap reveals controls", enhanced=enhanced)
         self.snapshot("controls")
+        if self.variant == "square":
+            assert enhanced and self.width < self.height
+            self.record("square video preserves portrait orientation")
+            self.button("切换横竖屏")
+            time.sleep(1)
+            self.snapshot("rotated")
+            assert self.width > self.height
+            self.button("退出全屏")
+            self.wait(lambda s: not s["fullscreen"] and s["controls"])
+            time.sleep(1)
+            assert self.snapshot("exited") == original_size
+            self.record("manual rotation and exit restore the original orientation")
+            return
         if not enhanced:
             assert self.variant == "cross", "Main-frame enhanced controls failed"
             self.button("退出全屏")
@@ -222,8 +235,10 @@ class Regression:
         self.swipe((.5, .5), (.8, .5))
         state = self.events()[-1]
         assert state["paused"] and abs(state["currentTime"] - before) < .5
+        back_started = time.time()
         ux.adb("shell", "input", "keyevent", "4")
-        self.wait(lambda s: s["fullscreen"])
+        self.wait(lambda s: s["receivedAt"] > back_started + .4 and s["fullscreen"])
+        assert ux.match(self.controls(), "锁定屏幕") is not None
         self.record("lock blocks gestures and Back unlocks before exiting")
 
         self.button("切换到网页控件")
@@ -249,7 +264,7 @@ class Regression:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
-    parser.add_argument("--variant", choices=["standard", "blob", "cross"], default="standard")
+    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square"], default="standard")
     args = parser.parse_args()
     test = Regression(args.serial, args.variant)
     try:
