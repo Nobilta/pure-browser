@@ -15,7 +15,6 @@
     <string name="cd_home">主页</string>
     <string name="cd_menu">菜单</string>
     <string name="cd_clear">清除</string>
-    <string name="page_load_error">页面加载失败</string>
     <string name="press_back_again">再按一次退出</string>
     <string name="cd_cast">投屏</string>
     <string name="cd_playback_speed">播放速度，当前 %1$s</string>
@@ -119,8 +118,6 @@
     <string name="ui_unable_to_delete_the_local_file_the_download">无法删除本地文件，下载记录已保留</string>
     <string name="ui_download_record_and_local_file_deleted">下载记录和本地文件已删除</string>
     <string name="ui_download_record_deleted">下载记录已删除</string>
-    <string name="ui_cleared_items">已清除 %1$s 项，</string>
-    <string name="ui_files_could_not_be_deleted">%1$s 个文件无法删除</string>
     <string name="ui_cleared_records_and_files">已清除 %1$d 项记录和文件</string>
     <string name="ui_cleared_records">已清除 %1$d 项记录</string>
     <string name="ui_search_engine_changed_to">搜索引擎已切换到 %1$s</string>
@@ -272,7 +269,6 @@
     <string name="ui_minutes_ago">%1$d 分钟前</string>
     <string name="ui_hours_ago">%1$d 小时前</string>
     <string name="ui_days_ago">%1$d 天前</string>
-    <string name="ui_browse_by_category">按功能分类</string>
     <string name="ui_restore_previous_pages">恢复上次网页</string>
     <string name="ui_open_homepage_on_startup">启动时打开主页</string>
     <string name="ui_ad_filtering_on">广告过滤已开启</string>
@@ -332,7 +328,6 @@
     <string name="ui_custom_folder">自定义目录</string>
     <string name="ui_choose_a_folder_with_write_access">选择一个有写入权限的文件夹</string>
     <string name="ui_tap_to_change">%1$s · 点按更换</string>
-    <string name="ui_folder_selected">已选择文件夹</string>
     <string name="ui_download_connections">下载线程数</string>
     <string name="ui_connections_818c76">%1$d 线程</string>
     <string name="ui_choose_1_16_connections_servers_without_range_support">范围 1–16；服务器不支持分段时自动改用单线程</string>
@@ -354,12 +349,8 @@
     <string name="ui_this_is_embedded_data_not_a_verifiable_network">这是内嵌数据内容，不是可验证的网络连接</string>
     <string name="ui_insecure_protocol">不安全的协议: %1$s</string>
     <string name="ui_unnamed_device">未命名设备</string>
-    <string name="ui_search_failed">搜索失败</string>
     <string name="ui_casting_to">已投送到 %1$s</string>
-    <string name="ui_casting_failed">投送失败：%1$s</string>
-    <string name="ui_unknown_error">未知错误</string>
     <string name="ui_casting_stopped">已停止投送</string>
-    <string name="ui_action_failed">操作失败：%1$s</string>
     <string name="ui_baidu">百度</string>
     <string name="ui_name_cannot_be_empty">名称不能为空</string>
     <string name="ui_name_is_too_long">名称过长</string>
@@ -387,7 +378,6 @@
     <string name="ui_playback_speed">播放速度 %1$s</string>
     <string name="ui_live">直播 · %1$s</string>
     <string name="ui_waiting_for_webpage_video">等待网页视频</string>
-    <string name="ui_left_brightness_right_volume_hold_for_a_temporary">左侧亮度 · 右侧音量\n长按临时倍速</string>
     <string name="ui_enhanced_controls_are_unavailable_for_this_webpage">此网页暂时无法连接增强控件</string>
     <string name="ui_start_playing_a_video_on_the_webpage_first">请先在网页中开始播放视频</string>
     <string name="ui_enhanced_controls">增强控件</string>

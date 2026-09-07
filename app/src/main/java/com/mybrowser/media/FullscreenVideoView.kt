@@ -18,6 +18,7 @@ import android.text.TextUtils
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -93,6 +94,7 @@ class FullscreenVideoView(
 
     init {
         setBackgroundColor(Color.BLACK)
+        isFocusableInTouchMode = true
         activity.volumeControlStream = AudioManager.STREAM_MUSIC
         activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         addView(videoView, LayoutParams(-1, -1))
@@ -273,6 +275,15 @@ class FullscreenVideoView(
         if (!locked) return false
         setLocked(false)
         return true
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Handle Back before Chromium's custom view, which otherwise exits while locked.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !unlockOnBack()) onExit()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun togglePlayback() {
