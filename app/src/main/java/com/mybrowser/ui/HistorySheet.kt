@@ -1,28 +1,12 @@
 package com.mybrowser.ui
 
-import android.content.res.Resources
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,160 +16,71 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.data.HistoryEntry
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HistorySheet(
-    history: List<HistoryEntry>,
-    onSelectHistory: (String) -> Unit,
-    onDeleteHistory: (Long) -> Unit,
-    onClearAll: () -> Unit,
-    onDismiss: () -> Unit,
+    history: List<HistoryEntry>, query: String, loading: Boolean, hasMore: Boolean, error: Boolean,
+    onQueryChange: (String) -> Unit, onLoadMore: () -> Unit,
+    onSelectHistory: (String) -> Unit, onOpenNewTab: (String) -> Unit, onCopy: (String) -> Unit,
+    onDeleteHistory: (Long) -> Unit, onClearAll: () -> Unit, onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-        ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.history_title),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                if (history.isNotEmpty()) {
-                    TextButton(onClick = onClearAll) {
-                        Text(stringResource(R.string.history_clear))
+    val resources = localizedResources()
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val locale = resources.configuration.locales[0]
+    val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
+    val timeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
+    val groups = history.groupBy { Instant.ofEpochMilli(it.visitTime).atZone(zone).toLocalDate() }
+    ModalBottomSheet(onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.history_title), style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f))
+                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)
+            }
+            LibrarySearchField(query, stringResource(R.string.history_search), onQueryChange)
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                if (history.isEmpty() && !loading) item {
+                    Text(stringResource(if (error) R.string.library_load_failed else if (query.isBlank()) R.string.history_empty else R.string.library_no_results),
+                        modifier = Modifier.padding(vertical = 40.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                groups.forEach { (date, entries) ->
+                    stickyHeader(key = date.toString()) {
+                        Text(when (date) {
+                            today -> resources.getString(R.string.history_today)
+                            today.minusDays(1) -> resources.getString(R.string.history_yesterday)
+                            else -> dateFormatter.format(date)
+                        }, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                            .padding(vertical = 12.dp), style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    items(entries, key = { it.id }) { entry ->
+                        Row(Modifier.fillMaxWidth().clickable { onSelectHistory(entry.url) }.padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(entry.url, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(timeFormatter.format(Instant.ofEpochMilli(entry.visitTime).atZone(zone)),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            LibraryItemMenu(onOpenNewTab = { onOpenNewTab(entry.url) }, onCopy = { onCopy(entry.url) },
+                                onDelete = { onDeleteHistory(entry.id) })
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
-            }
-
-            // History list
-            if (history.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.history_empty),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .heightIn(max = 600.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(history, key = { it.id }) { entry ->
-                        HistoryItem(
-                            entry = entry,
-                            onClick = {
-                                onSelectHistory(entry.url)
-                                onDismiss()
-                            },
-                            onDelete = { onDeleteHistory(entry.id) },
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.padding(bottom = 16.dp))
-        }
-    }
-}
-
-@Composable
-private fun HistoryItem(
-    entry: HistoryEntry,
-    onClick: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Icon placeholder
-            Icon(
-                painter = painterResource(R.drawable.ic_history),
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Title, URL and time
-            Column(
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    text = entry.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = entry.url,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = formatTime(entry.visitTime, localizedResources()),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                )
-            }
-
-            // Delete button
-            IconButton(onClick = onDelete) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_close),
-                    contentDescription = stringResource(R.string.cd_delete),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                item { LibraryFooter(loading, hasMore, onLoadMore, error) }
             }
         }
-    }
-}
-
-private fun formatTime(timestamp: Long, textResources: Resources): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-
-    return when {
-        diff < 60_000 -> textResources.getString(R.string.ui_just_now)
-        diff < 3600_000 -> textResources.getString(R.string.ui_minutes_ago, diff / 60_000)
-        diff < 86400_000 -> textResources.getString(R.string.ui_hours_ago, diff / 3600_000)
-        diff < 604800_000 -> textResources.getString(R.string.ui_days_ago, diff / 86400_000)
-        else -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
     }
 }

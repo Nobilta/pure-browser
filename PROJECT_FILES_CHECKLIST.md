@@ -4,8 +4,8 @@
 
 - [x] `app/src/main/java/com/mybrowser/`：Android/Kotlin 主程序与 Compose UI
 - [x] `app/src/main/res/`、`app/src/main/assets/`：资源和广告规则
-- [x] `rust/adblock/`、`rust/cache/`、`rust/url_utils/`：默认 native 模块
-- [x] `rust/downloader/`、`rust/filename_parser/`：兼容性 legacy 模块
+- [x] `rust/adblock/`、`rust/url_utils/`：默认 native 模块
+- [x] `rust/cache/`、`rust/downloader/`、`rust/filename_parser/`：兼容性 legacy 模块
 - [x] `rust/resolve-android-ndk.sh`、`rust/build.sh`：可移植 Rust 构建入口
 
 ## 验证与交付
@@ -15,7 +15,7 @@
 - [x] `diagnose.sh`：设备信息与崩溃关键词检查
 - [x] `APK_TEST_GUIDE.md`：手工回归清单
 - [x] `EMULATOR_TEST_REPORT.md`：模拟器验证记录
-- [x] `PureBrowser-v0.1.0-release.apk`：当前压缩 Release 交付文件（1,898,669 bytes，SHA-256 `d81f2c1d434a82aeddfe0c258b8674afaef0b7986f4677e3ea0fae86409ad7aa`）
+- [x] `PureBrowser-v0.3.0-release.apk`：当前 Release，体积与校验值见 README，不纳入 Git
 
 ## 架构与决策
 

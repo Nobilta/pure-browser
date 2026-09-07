@@ -9,10 +9,20 @@ import mimetypes
 import re
 import threading
 import time
+import struct
+import zlib
 
 ROOT = Path(__file__).resolve().parent
 EVENTS = defaultdict(lambda: deque(maxlen=600))
 LOCK = threading.Lock()
+
+def png_chunk(kind, payload):
+    return struct.pack('!I', len(payload)) + kind + payload + struct.pack('!I', zlib.crc32(kind + payload))
+
+IMAGE = (b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('!IIBBBBB', 160, 96, 8, 2, 0, 0, 0))
+         + png_chunk(b'IDAT', zlib.compress(b''.join(
+             b'\0' + bytes([40, 130, 90] if y < 48 else [230, 190, 70]) * 160 for y in range(96))))
+         + png_chunk(b'IEND', b''))
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -37,6 +47,16 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == '/productivity-fixture.html':
+            with LOCK:
+                EVENTS['context-requests'].append({'path': self.path, 'receivedAt': time.time()})
+        if parsed.path == '/context-image.png':
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', str(len(IMAGE)))
+            self.end_headers()
+            self.wfile.write(IMAGE)
+            return
         if parsed.path == '/download-test.bin':
             size = 6 * 1024 * 1024
             match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))

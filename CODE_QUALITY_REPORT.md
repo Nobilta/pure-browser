@@ -1,6 +1,6 @@
 # 代码质量与架构审查
 
-更新时间：2026-09-05
+更新时间：2026-09-07
 
 ## 检查范围
 
@@ -14,7 +14,7 @@ crate、单元测试和设备验证脚本。构建生成目录（`app/build`、`
 |---|---|
 | Kotlin 编译 | 通过 |
 | Android 单元测试 | 通过 |
-| Android lint | 通过，0 errors / 2 warnings（AGP 更新、ChromeOS x86_64） |
+| Android lint | 通过，0 errors / 3 warnings（AGP 更新、ChromeOS x86_64、低版本忽略 localeConfig） |
 | Rust format | 通过 |
 | Rust tests | 通过 |
 | Rust clippy `-D warnings` | 通过 |
@@ -25,7 +25,8 @@ crate、单元测试和设备验证脚本。构建生成目录（`app/build`、`
 - `core` 集中 WebView client、导航、安全、日志和池化；没有把页面业务塞进拦截回调。
 - `data`、`download`、`filter`、`privacy`、`search`、`tabs`、`media`、`dlna` 各自持有
   明确的存储/线程边界。
-- `ui` 是无副作用 Compose 表面；WebView 和 ActivityResult 仍由 `MainActivity` 编排。
+- Compose 负责界面渲染，`LibraryPager` 负责可取消的后台分页；WebView 和 ActivityResult
+  仍由 `MainActivity` 编排。
 - `MainActivity` 文件较大，但其复杂度主要来自 Android 生命周期回调。当前拆成多个
   ViewModel 不会减少 JNI/WebView 竞态；如果未来需要后台任务，再按生命周期边界拆分。
 
@@ -33,6 +34,9 @@ crate、单元测试和设备验证脚本。构建生成目录（`app/build`、`
 
 - 偏好 JSON、标签、下载元数据、文件名、header、URL、DLNA XML/SOAP 响应全部有界。
 - NativeCache 的 Kotlin 句柄访问/关闭共用锁；Rust 侧也拒绝过长 key 和 entry。
+  当前产品已移除重复缩略图缓存，NativeCache 仅为可选 legacy。
+- 标签搜索按稳定 ID 操作，恢复时使用未导航的 WebView，防止保存恢复中的空白地址或串用返回栈。
+- 数据库分页搜索取消旧请求；书签编辑保留 ID/创建时间，重复网址失败不覆盖原记录。
 - 无痕 Cookie 删除等待异步回调；清除数据的提示和页面刷新不再提前发生。
 - 数据库 repository 的查询与关闭同步；WebView 池容量计算和 DLNA 搜索 Job 竞态已修正。
 - 项目 Cargo 配置不再包含开发者绝对路径，旧脚本不再读取其他任务临时文件。
@@ -45,11 +49,11 @@ crate、单元测试和设备验证脚本。构建生成目录（`app/build`、`
 
 同步、密码管理、阅读模式、跨设备标签同步和浏览器数据导入导出没有实现，也没有被伪装
 成已完成。真实 DLNA 设备矩阵、不同 WebView provider 的兼容性和 Compose UI 自动化测试
-是后续验证工作，不是 Rust 重写工作的理由。
+仍需扩展；本轮已有签名 APK 的标签、列表和长按触摸回归，实际覆盖见回归报告。
 
-剩余两条 lint warning 均经过显式评估：AGP 9.4 升级应单独做工具链迁移回归；当前交付仅
+剩余三条 lint warning 均经过评估：AGP 9.4 升级应单独做工具链迁移回归；当前交付仅
 面向 arm64 真机，不能为消除 ChromeOS 提示就在未验证情况下扩大 Release ABI。它们不是
-源码正确性问题。
+源码正确性问题。`localeConfig` 仅在 API 33+ 生效，较早系统正常使用随系统语言切换的资源。
 
 ## 维护门槛
 

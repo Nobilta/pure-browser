@@ -165,6 +165,8 @@ class WebViewPool(
 
     private fun reset(webView: WebView) {
         webView.setOnScrollChangeListener(null)
+        webView.setOnLongClickListener(null)
+        webView.setFindListener(null)
         // Cut the host callbacks before the asynchronous blank navigation. Otherwise a
         // pooled view can deliver onPageStarted/onPageFinished to an Activity that has
         // already released it (especially during renderer replacement).
@@ -189,6 +191,10 @@ class WebViewPool(
         // Activity that is discarding this instance.
         runCatching { webView.webChromeClient = null }
         runCatching { webView.webViewClient = DetachedWebViewClient }
+        runCatching { webView.setOnLongClickListener(null) }
+        runCatching { webView.setFindListener(null) }
+        runCatching { webView.setOnScrollChangeListener(null) }
+        runCatching { webView.setDownloadListener(null) }
         // A renderer that has already gone can reject stop/load calls.  Teardown must be
         // best-effort so the recovery path itself cannot crash the process while discarding
         // the broken instance.

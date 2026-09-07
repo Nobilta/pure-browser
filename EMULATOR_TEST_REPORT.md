@@ -1,146 +1,120 @@
 # 模拟器回归报告
 
-更新时间：2026-09-07。本报告仅记录 0.2.0 最终签名 APK 的实际检查，未复测的旧版项目不计入通过项。
+更新时间：2026-09-07。本报告记录 0.3.0 签名 APK 的实际检查；旧版结果不计入当前通过项。
 
 ## 产物与环境
 
-- APK：`PureBrowser-v0.2.0-release.apk`，versionCode 2，包名 `com.mybrowser`。
-- 大小：2,131,247 bytes（约 2.03 MiB）；APK Signature Scheme v2 验证通过。
-- SHA-256：`591cc04ace4138ed8daa182e22189453891dbb28bf2747ae8abc2b3badff2908`。
-- 最低 API 29，compile/target API 37，Release 仅提供 `arm64-v8a`。
-- 同一个最终 APK 在两套系统上安装成功；API 34 上从 0.1.0 覆盖升级及默认安装脚本也通过。
+- APK：`PureBrowser-v0.3.0-release.apk`，versionCode 3，包名 `com.mybrowser`。
+- 大小：2,031,774 bytes（约 1.94 MiB），比 0.2.0 减少 99,473 bytes（约 4.7%）。
+- SHA-256：`983e5b4311f8680a7dbc2ff5b4565658825f7ad8038deca07506459169bd4514`。
+- APK Signature Scheme v2 验证通过；最低 API 29，compile/target API 37，Release 仅为 arm64-v8a。
+- 同一个最终 APK 在两套系统上覆盖安装成功。构建日志：`validation/build-productivity.log`。
 
-| 设备 | 系统 | WebView | 分辨率 | 用途 |
-|---|---|---|---|---|
-| `PureBrowser_API29` / `emulator-5554` | Android 10 / API 29 | 91.0.4472.114 | 1080 × 1920 | 低系统版本、旧 WebView 回退 |
-| `MyBrowser_Pixel7` / `emulator-5556` | Android 14 / API 34 | 113.0.5672.136 | 1080 × 2400 | 增强跨域控制、应用语言、宽屏布局、性能对照 |
+| 模拟器 | 系统 | WebView | 分辨率 |
+|---|---|---|---|
+| PureBrowser_API29 / emulator-5554 | Android 10 / API 29 | 91.0.4472.114 | 1080 x 1920 |
+| MyBrowser_Pixel7 / emulator-5556 | Android 14 / API 34 | 113.0.5672.136 | 1080 x 2400 |
 
-模拟器均为 arm64、2 核、1536 MiB、SwiftShader，无快照启动。最终测试每次只运行一台模拟器。
-本地测试服务器监听 `127.0.0.1:8875/8876`，通过 ADB reverse 提供页面和媒体。
+均为 arm64、2 核、1536 MiB、SwiftShader、无快照启动，每次只运行一台。
+本地服务器只监听 127.0.0.1:8875/8876，通过 ADB reverse 提供可控页面、图片及媒体。
+Release 没有启用 WebView 调试；UI 辅助程序位于模拟器的 `/data/local/tmp`，不进入 APK。
 
 ## 自动检查
 
-| 检查 | 实际结果 |
+| 检查 | 结果 |
 |---|---|
 | Rust fmt / test / clippy | 通过，49 tests |
-| Android / Robolectric | 150 tests，0 failures / errors / skipped |
+| Android / Robolectric | 164 tests，0 failures / errors / skipped |
 | Node 网页视频协议 | 15 tests，全部通过 |
-| 三语言资源 | 392 个字符串键及格式参数一致 |
+| 三语言资源 | 407 个资源键及格式参数一致，含 1 个复数资源 |
 | Android lint | 0 errors / 3 warnings |
-| R8 Release 构建、签名 | 通过 |
-| 安装脚本、Python 回归工具 | 默认安装执行通过，修改脚本语法检查通过 |
+| R8 Release、资源裁剪、签名 | 通过 |
+| 默认 JNI 库 | 仅 adblock、url_utils 两个产品库及 AndroidX graphics.path |
 
-Lint 的三个提示分别为 AGP 更新、ChromeOS x86_64 支持、`localeConfig` 在 API 33 以下不生效。
-低系统版本仍可根据系统语言选择资源。构建日志为 `validation/build-final-validation.log`。
-最终构建后只修改了验证工具和文档，交付 APK 未重新打包或替换。
+三条 lint 提示为 AGP 更新、ChromeOS x86_64 支持、API 33 以下忽略 localeConfig。
+新增单元覆盖包括分页偏移、旧查询结果失效、失败重试、重复网址编辑保护、稳定标签 ID、
+后台标签不加载及上下文 URL 校验。cache 的旧 JNI 门面仍可 opt-in，默认 APK 不包含它。
 
-## 设置与基础浏览
+## 新增浏览流程
+
+以下项目在 API 29、API 34 上均通过真实触摸验证：
+
+- 链接长按后后台打开保持原页面；服务器日志确认选中前没有请求目标网页，选中后才请求。
+- 标签标题/网址搜索后能选中和关闭正确条目；新标签返回按钮禁用，不继承其他标签的记录。
+- 关闭前台新标签后恢复原页面，原页面自己的返回记录仍可继续使用。
+- 图片链接同时显示网页链接和图片操作；复制图片地址后粘贴到地址栏，得到正确图片 URL。
+- 普通图片只提供图片操作；保存到系统 Download 的文件与服务器字节 SHA-256 一致。
+- 分享打开 Android 系统选择器后取消，没有向外部应用发送消息。
+- 关闭其他标签可取消或确认；关闭全部同样需确认。产品不提供最近关闭列表。
+- 在 123 条测试书签/历史记录中搜索最旧条目，确认搜索覆盖首次加载范围以外的数据。
+- 书签直接编辑成功；改成已有网址时保留原记录并停留在编辑器，可取消返回列表。
+- 书签加载下一页成功；清空书签/历史的确认可取消，取消后原记录仍可搜索。
+- 历史按日期分组；1.3 倍系统字体下重新打开列表，搜索和条目操作可见，截图无文字重叠。
+
+列表回归只接受模拟器序号，通过 adb root 写入夹具记录。数据库单元测试另行验证编辑保留
+ID/创建时间、分页无重复或缺失，以及失败重试的具体偏移量。
+API 34 另经截图确认网页文本长按仍显示原生选区及 Copy/Share/Select all 工具栏。
+新增菜单、标签、书签与历史列表在简体中文、繁体中文、英文下的实际文案通过校验；
+截图确认繁体历史列表与横屏书签列表布局正常。
+
+恢复标签时发现并修复了旧 WebView 的问题：已导航实例上的 restoreState 可能恢复为空白页。
+现在使用未导航的新实例恢复，并释放旧实例；恢复完成前不保存中间地址。
+普通后台标签仍只有元数据/快照，不为每个标签常驻一个 WebView。
+
+## 现有功能回归
 
 | 项目 | API 29 | API 34 |
 |---|---|---|
-| 六个设置分类及搜索选择弹层返回 | 通过 | 通过 |
-| 深浅主题切换、进程重启后保留主题 | 通过 | 通过 |
-| 过滤管理返回隐私分类，外部导航关闭过滤管理 | 通过 | 通过 |
-| 下载线程滑块 1–16、重启后保留 16 | 通过 | 通过 |
-| 1.3 倍字体后仍在视频设置，文字换行无重叠 | 通过 | 通过 |
-| 横屏布局 | 可用宽度不足 720dp，保持单栏 | 分类与详情双栏，截图确认 |
-| 应用语言切换后保留当前设置分类 | 不支持系统应用语言入口 | 简体中文、繁体中文、英文均通过 |
-| SPA 标题及完整地址同步、滚动隐藏/展开地址栏 | 通过 | 通过 |
-| 弹窗页面、后台后进程重启恢复普通标签 | 通过 | 通过 |
-| 关闭恢复后回主页、退出移除最近任务 | 通过 | 通过 |
-| 默认浏览器入口打开系统选择页 | 通过 | 通过 |
+| 六类设置、选项弹层返回、过滤管理返回 | 通过 | 通过 |
+| 深浅主题与下载线程数在进程重启后保留 | 通过 | 通过 |
+| 大字体设置与横屏 | 单栏可用 | 分类与详情双栏可用 |
+| SPA 地址/标题、滚动工具栏、弹窗标签、重启恢复、退出任务 | 通过 | 通过 |
+| 6 MiB Range 下载、完整文件校验及服务完成后退出 | 通过 | 通过 |
+| 默认浏览器系统入口 | 通过 | 通过 |
+| 应用语言切换并保留设置分类 | 系统不支持该入口 | 简体、繁体、英文通过 |
+| 主页面 MP4 全屏控制与手势 | 通过 | 通过 |
+| 跨域 iframe 视频 | 网页控件回退通过 | 增强控制通过 |
 
-语言验证检查了切换后的实际显示文本，并检查简繁中文、英文设置截图；未把资源文件存在当成运行结果。
+视频回归结合真实触摸与页面遥测，覆盖播放/暂停、长按临时倍速与后台恢复、双击中央控制、
+暂停时横向跳转、亮度/音量滑动、锁定返回、网页/增强控件切换及退出后的方向/亮度恢复。
+四个当前视频结果均为 `error: null`。没有新增独立解码器，仍由 WebView 与网站播放。
+下载文件 SHA-256 为 `e338caefa380bafe02a98dac6b2865a8c4783d80f5d813906abd01c250463d70`。
 
-## 视频播放
-
-| 夹具 | API 29 / WebView 91 | API 34 / WebView 113 |
-|---|---|---|
-| 主页面 MP4 | 增强控件完整回归通过 | 增强控件完整回归通过 |
-| Blob 视频 | 增强控件完整回归通过 | 增强控件完整回归通过 |
-| 方形视频 | 保持竖屏、手动旋转与退出恢复通过 | 同左 |
-| 跨域 iframe | 网站全屏与原控件回退通过；不提供增强控制 | 增强控件完整回归通过 |
-
-完整回归通过真实触摸和网页遥测共同验证了以下行为：
-
-- 全屏显示、单击显隐控件、横向视频自动横屏。
-- 播放/暂停后控制目标仍有效，双击中央暂停/恢复。
-- 1.5× 长按变为 2×，松手或切后台恢复 1.5×，默认倍速不被临时加速覆盖。
-- 暂停时横向拖动仍能跳转进度且保持暂停。
-- 左侧纵向滑动改变窗口亮度，右侧改变媒体流音量。
-- 锁定时双击和拖动不生效，返回键先解锁并保留全屏。
-- 网页/增强控件切换，退出恢复原方向、原窗口亮度及 HTML 控件状态。
-
-主页面、Blob、跨域媒体的播放画面均非空；横屏与方形竖屏控件截图已检查。
-进度跳转边界、不可跳转直播和任意原速度恢复另有协议/手势单元覆盖。
-双击两侧快进/快退未在本轮设备上单独执行，不列为逐项触摸通过结果。
-
-视频继续由网站和 WebView 解码，未加入 ExoPlayer/FFmpeg。WebView 91 的跨域能力限制是
-特性检测后的回退路径，不能据 Android 系统版本推断所有厂商 Provider 的能力。
-
-## 下载与日志
-
-两套系统都下载了可控的 6 MiB 文件，服务器记录到多个非零起点的 Range 请求。
-系统 Download 目录中的完整文件 SHA-256 均为
-`e338caefa380bafe02a98dac6b2865a8c4783d80f5d813906abd01c250463d70`，与预期字节一致。
-下载列表显示完成，完成后前台服务停止；API 34 还直接捕获到了传输期间的前台服务。
-API 29 的瞬时采样未捕获服务启动，只确认了完成后的退出状态。API 29 重复下载自动生成带编号的文件。
-
-API 34 最终回归崩溃缓冲区为空，未见应用的 Java 崩溃、JNI 链接错误、SIGSEGV 或 ANR。
-API 29 记录到两次 shell UI 读取辅助进程退出时的 ART JIT SIGSEGV；日志明确为 uid 2000 的
-`com.mybrowser.validation.FastUiDump`，不是浏览器进程，该辅助工具不进入 APK。
-浏览器和其 WebView 进程未出现对应崩溃，后续用例正常通过。
-
-## 性能对照
-
-API 34 同一模拟器、同一本地 `browser-ux.html`、相同默认配置，分别安装原版和最终版。
-安装后的 QA 应用数据均从干净状态开始；每版预热 2 次，随后测量 7 次。
-每次先 `am force-stop`，再用 `am start -W` 的 TotalTime 记录进程冷启动，等待 2 秒后取主进程 PSS。
-操作系统和页面缓存保持热状态，不代表设备刚重启后的首次启动。期间无 Gradle 构建或第二台模拟器。
-
-| 指标 | 原版 0.1.0 | 最终版 0.2.0 |
-|---|---|---|
-| 启动样本 / ms | 615, 3376, 547, 538, 664, 586, 469 | 565, 556, 532, 539, 471, 613, 800 |
-| 启动中位数 / ms | 586 | 556 |
-| 主进程 PSS 中位数 / KiB | 78,236 | 73,627 |
-| 主进程 PSS 中位数 / MiB | 76.4 | 71.9 |
-| APK / bytes | 1,910,313 | 2,131,247 |
-
-本次未观察到明显性能退化；样本存在波动，不能把 30 ms 的差异视为已证明提速。
-PSS 不包含 Chromium 子进程，未测量整机耗电、视频帧率或长时间热状态。
-APK 增量 220,934 bytes 包含设置、视频与三语言的全部改动，不是降低 minSdk 的独立成本。
-较早的双模拟器/构建负载下样本不参与本次对照。
+API 29 日志中的 5 次 ART JIT SIGSEGV 均对应 shell/root 启动的 FastUiDump 辅助进程，
+日志显示其在退出时发生问题；浏览器与 WebView 进程不属于这些 PID。未发现浏览器 Java
+崩溃、JNI 链接错误或 ANR。该辅助程序不进入交付 APK。
+API 34 当前回归的崩溃缓冲区为空，未发现浏览器 Java/native 崩溃、JNI 链接错误或 ANR。
 
 ## 复现与证据
 
 ```bash
 python3 validation/qa-server.py
-# 在另一个终端运行，每次只连接并测试一台已安装最终 APK 的 QA 模拟器。
+# 另开终端，每次只测试一台已安装最终 APK 的 QA 模拟器。
 python3 validation/setup-ui-probe.py emulator-5554
+python3 validation/productivity-regression.py --serial emulator-5554
+# 可单独运行 --section browser 或 --section library。
 python3 validation/settings-regression.py --serial emulator-5554
 python3 validation/download-regression.py --serial emulator-5554
 ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
 python3 validation/video-regression.py --serial emulator-5554 --variant standard
-# 分别再执行 --variant blob / square / cross；API 34 将 serial 替换为 emulator-5556。
+python3 validation/video-regression.py --serial emulator-5554 --variant cross
+# API 34 替换 serial，再运行：
 python3 validation/locale-regression.py --serial emulator-5556
-python3 validation/benchmark-startup.py --serial emulator-5556 --rounds 7 --warmups 2 --output validation/results/startup-local.json
+python3 validation/productivity-visual-regression.py --serial emulator-5556
 ```
 
-本地证据不纳入 Git：
-
-- `validation/results/api{29,34}-{standard,square,blob,cross}.json`：8 个最终视频结果，均为 `error: null`。
-- `validation/results/api{29,34}-settings.json`、`api34-locales.json`、`api{29,34}-download.json`。
-- `validation/results/api*-settings-*.png/xml`、`api34-locale-*.png/xml`、`api*-*-controls.png`：布局与视频画面。
-- `validation/{browser,download,settings,video,locales}-api*.log`：完整用例过程。
-- `validation/results/api{29,34}-{logcat,crash}.txt`：崩溃归属检查。
-- `validation/results/startup-final-v0.1.0.json`、`startup-final-v0.2.0.json`：全部启动及 PSS 样本。
+本地证据不纳入 Git：`validation/*-v030-api*.log`、`productivity-library-api29.log`、
+`validation/results/api*-productivity-*.json/png/xml`、`api{29,34}-{standard,cross}.json`、
+`api*-settings.json`、`api*-download.json`、`api34-locales.json`、`api*-v030-{logcat,crash}.txt`。
+截图与 XML 用于核对布局；旧 Provider 偶尔不再发布网页子节点时，夹具测试复用已取得的固定
+目标坐标。弹层等待有超时，英文原生按钮的全大写形式也纳入匹配。
 
 ## 未验证范围
 
-- Android 11/12/13 及 API 35–37 的设备、厂商 WebView；32 位 Android 不在本次 Release 支持范围内。
-- 低端真机帧率、耗电、长时间视频播放和多视频网站的广泛兼容性。
-- 第三方 DRM、实际直播网站、字幕/清晰度定制 UI 和 MSE 自适应流；Blob 文件夹具不等同于完整 MSE 验证。
-- 实体 DLNA 接收器投送、摄像头/麦克风、定位、文件上传。
-- 本轮未重新执行 SAF 授权目录、下载失败重试和删除文件的所有设备路径；它们属于既有功能，不能沿用旧 APK 的设备结果冒充本轮通过。
+- 未对 0.3.0 做完整启动/内存/耗电基准，不把 0.1.0 与 0.2.0 的历史性能样本当成当前结果。
+- Android 11/12/13、API 35-37、厂商 WebView、低端真机和 32 位系统；当前 Release 不支持 32 位。
+- 实体 DLNA、第三方 DRM/MSE/直播网站、字幕/清晰度定制、长期视频帧率和耗电。
+- 本轮未重新执行 Blob/方形视频全部设备用例，以及 SAF、上传、权限、下载重试/删除的完整矩阵。
+- 文本选区仅在 API 34 做了额外截图检查；清空确认的执行数据路径有单元覆盖，设备回归主要检查取消路径。
 
-原始代码回滚点为 `backup/pre-android10-settings-video-20260906`（`b838e47`）。
+修改前 Git 备份：`backup/pre-browser-productivity-20260907`，指向 0.2.0 的 `82d0cb4`。

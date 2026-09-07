@@ -228,6 +228,7 @@ fun BookmarkEditDialog(
     initialUrl: String,
     onSave: (title: String, url: String, addToHome: Boolean) -> Unit,
     onDismiss: () -> Unit,
+    isEditing: Boolean = false,
 ) {
     // Key both fields.  A user can open the editor on two pages with the same title but
     // different URLs; keying only one state would otherwise reuse the previous URL draft.
@@ -247,7 +248,7 @@ fun BookmarkEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.bookmark_editor_title)) },
+        title = { Text(stringResource(if (isEditing) R.string.library_edit_bookmark else R.string.bookmark_editor_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(

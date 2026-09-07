@@ -1,6 +1,6 @@
 # Pure 浏览器：架构审查与重构决策
 
-更新时间：2026-09-05
+更新时间：2026-09-07
 
 这份文档记录当前源码的真实边界、已经落地的整理，以及没有采用“为了 Rust 而 Rust”方案的原因。它和构建产物一起作为后续维护的基线。
 
@@ -23,7 +23,7 @@ app/src/main/java/com/mybrowser/
 
 rust/
 ├── adblock/              规则解析和匹配（默认打包）
-├── cache/                有界 LRU 字节缓存（默认打包）
+├── cache/                有界 LRU 字节缓存（legacy，显式 opt-in）
 ├── url_utils/            URL/搜索纯逻辑 JNI 快速路径（默认打包）
 ├── downloader/           私有目标下载原语（legacy，显式 opt-in）
 ├── filename_parser/      文件名解析 JNI 原语（legacy，显式 opt-in）
@@ -42,7 +42,9 @@ rust/
 - SQLite helper 采用进程内引用计数共享；书签是显式 upsert（保留 id/createdAt），历史访问合并计数，LIKE 搜索转义 `%`、`_`、`!` 并限制输入/结果长度。
 - WebView 控件回调都检查当前实例；弹窗先验证 `WebViewTransport`，favicon 重复回调不会回收仍在使用的 Bitmap；文件、权限、JS 对话框、SSL 和安全浏览回调均有释放路径。
 - 自定义搜索引擎现在限制名称、模板、数量，只接受带一个占位符的 HTTP(S) 模板；设置页提供添加/删除入口，坏的偏好 JSON 会被忽略。
-- Rust 构建由共享的 `rust/resolve-android-ndk.sh` 解析 NDK，不再依赖个人绝对路径。Gradle 默认只生成并打包 `adblock`、`cache`、`url_utils` 三个实际使用的库；每次 staging 会先清掉旧 ABI 目录。
+- Rust 构建由共享的 `rust/resolve-android-ndk.sh` 解析 NDK。Gradle 默认只生成并打包 `adblock`、`url_utils`；每次 staging 会先清掉旧 ABI 目录。
+- 标签缩略图只保留小尺寸 Bitmap，移除主线程编码与 NativeCache 的重复存储；后台标签只有元数据。
+- 书签/历史通过 `LibraryPager` 在 IO dispatcher 分页查询，查询代次避免旧结果覆盖新搜索，失败重试保留对应偏移量。
 - 旧的 checked-in `app/src/main/jniLibs` 二进制和重复 Cargo 配置不再作为源码输入，避免 stale JNI 库混入 APK。
 - Release 删除了覆盖整个 Compose/数据层/标签页层的过宽 R8 keep 规则，改由 Android 默认
   规则和依赖 consumer rules 精确保留；DEX 与 native 库采用可安装的 ZIP 压缩。相同功能
@@ -61,7 +63,7 @@ rust/
 | 模块 | 决策 | 理由 |
 |---|---|---|
 | `adblock` | 保留并默认打包 | 规则解析/匹配是高频、纯计算路径；共享不可变索引和有界匹配适合 Rust。 |
-| `cache` | 保留并默认打包 | 字节级 LRU 需要严格的总容量和线程安全；JNI 边界只传二进制。 |
+| `cache` | 保留为可选 legacy | 标签已有显示位图，重复编码/缓存没有实际收益；当前产品不再调用。 |
 | `url_utils` | 保留快速路径并有 Kotlin 回退 | 逻辑纯、容易测试；性能收益有限，但可作为统一实现，失败时不影响浏览。 |
 
 ### 维持 Kotlin/Android 原生
@@ -73,7 +75,7 @@ rust/
 | WebView/Compose/UI | 不迁移 | 生命周期、ActivityResult、权限和渲染器必须使用 Android API；Rust 只能增加 JNI 胶水。 |
 | 页面内搜索 | 不迁移 | WebView `findAllAsync` 已在渲染器内完成，不应复制整页 HTML 到 native。 |
 
-`downloader` 和 `filename_parser` 仍保留源码以兼容早期调用者，但默认构建不会编译/打包；需要旧 JNI 集成时使用 `-Pmybrowser.includeLegacyRust=true` 或 `INCLUDE_LEGACY_RUST=1`，并自行承担体积与维护成本。`rust/database` 明确隔离，不应重新接回 APK。
+`cache`、`downloader` 和 `filename_parser` 仍保留源码以兼容早期调用者，但默认构建不会编译/打包；需要旧 JNI 集成时使用 `-Pmybrowser.includeLegacyRust=true` 或 `INCLUDE_LEGACY_RUST=1`。`rust/database` 明确隔离，不应重新接回 APK。
 
 ## 4. 构建与验证基线
 
@@ -89,7 +91,8 @@ unzip -l app/build/outputs/apk/release/app-release.apk | rg 'lib/|META-INF'
 apksigner verify --verbose app/build/outputs/apk/release/app-release.apk
 ```
 
-Release 当前目标为 `arm64-v8a`、minSdk 34；安装前应确认 APK 中只有三个默认 native 库且不存在 `database`、`downloader`、`filename_parser`。模拟器回归至少覆盖启动、地址栏搜索/访问、标签、书签编辑、无痕切换、系统/SAF 下载目录、线程设置与持久化、分段下载、两种删除方式、投屏按钮和直播页当前流标记；日志中不应出现 `FATAL EXCEPTION`、`UnsatisfiedLinkError` 或 `SIGSEGV`。
+Release 当前目标为 `arm64-v8a`、minSdk 29；安装前确认默认只有两个产品 native 库及 AndroidX 库。
+完整测试清单见测试指南，实际设备覆盖以当前回归报告为准。
 
 ## 5. 本轮系统审查落地
 
@@ -114,8 +117,8 @@ Release 当前目标为 `arm64-v8a`、minSdk 34；安装前应确认 APK 中只�
 - 自定义过滤列表、书签草稿和 Bitmap 缓存入口增加了持久化/数量/长度/像素边界；损坏
   偏好不会再触发无界解析或重复提交。
 - 删除了未调用的旧 `TabSheet`、SSL 包装器、自定义规则 Rust 残留代码和无用 JNI 导出；
-  同时清理 69 个未使用资源并迁移 adaptive icon 目录。Android lint 从 101 条降至 2 条
-  有意保留的工具链/发版 ABI 提示，仍为 0 errors。
+  早期同时清理 69 个未使用资源并迁移 adaptive icon 目录；当前 lint 为 0 errors，
+  提示数量及原因见 README。
 - 安装脚本明确启动 `MainActivity`，并用花括号包住 shell 变量，已在模拟器上完整执行。
 
 ## 6. 后续边界

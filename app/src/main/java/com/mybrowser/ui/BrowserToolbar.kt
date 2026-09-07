@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 
@@ -135,10 +137,12 @@ private fun RowScope.TabsButton(
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val label = stringResource(R.string.tabs_count, count)
     Box(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
+            .semantics { contentDescription = label }
             .clip(CircleShape)
             .combinedClickable(
                 interactionSource = interaction,

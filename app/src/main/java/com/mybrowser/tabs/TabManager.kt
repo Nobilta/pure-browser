@@ -11,7 +11,6 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import androidx.core.graphics.createBitmap
 import com.mybrowser.core.UrlUtils
-import com.mybrowser.data.NativeCache
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -33,7 +32,6 @@ class TabManager(
         require(maxTabs in 1..MAX_TABS) { "maxTabs must be between 1 and $MAX_TABS" }
     }
 
-    private val thumbnailCache: NativeCache? = NativeCache.create()
     private val _tabs = mutableStateListOf<TabState>()
 
     var currentIndex by mutableIntStateOf(-1)
@@ -58,12 +56,12 @@ class TabManager(
         if (_tabs.isEmpty()) createTab()
     }
 
-    /** Creates and selects a tab, returning its id. At the cap, returns the current id. */
-    fun createTab(url: String = ""): String {
+    /** Background tabs remain metadata until selected. At the cap, returns the current id. */
+    fun createTab(url: String = "", select: Boolean = true, title: String = ""): String {
         if (_tabs.size >= maxTabs) return currentTab?.id.orEmpty()
-        val tab = TabState(id = UUID.randomUUID().toString(), url = url)
+        val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url), title = title.take(MAX_TAB_TITLE_LENGTH))
         _tabs += tab
-        currentIndex = _tabs.lastIndex
+        if (select || currentIndex < 0) currentIndex = _tabs.lastIndex
         changed()
         return tab.id
     }
@@ -103,7 +101,11 @@ class TabManager(
     /** Closes every tab except the selected one. */
     fun closeOtherTabs() {
         val current = currentTab ?: return
-        _tabs.filterNot { it.id == current.id }.forEach(::releaseBitmaps)
+        _tabs.forEach { tab ->
+            if (tab.id != current.id) {
+                releaseBitmaps(tab)
+            }
+        }
         _tabs.clear()
         _tabs += current
         currentIndex = 0
@@ -122,7 +124,7 @@ class TabManager(
     fun saveCurrentState(webView: WebView) {
         val tab = currentTab ?: return
         runCatching {
-            tab.savedState = Bundle().also { webView.saveState(it) }
+            tab.savedState = Bundle().takeIf { webView.saveState(it) != null }
         }
         webView.url?.takeIf { it.isNotBlank() }?.let { tab.url = it }
         webView.title?.takeIf { it.isNotBlank() }?.let { tab.title = it }
@@ -131,15 +133,15 @@ class TabManager(
 
     fun loadCurrentState(webView: WebView): Boolean {
         val state = currentTab?.savedState ?: return false
-        return runCatching { webView.restoreState(state) != null }.getOrElse {
+        val restored = runCatching { webView.restoreState(state) != null }.getOrDefault(false)
+        if (!restored) {
             currentTab?.savedState = null
             changed()
-            false
         }
+        return restored
     }
 
-    /** Captures a small preview. Java keeps the display copy; native cache is an optional
-     * second copy for callers that need low-GC access and must never be the sole source. */
+    /** Keep only the small display bitmap; encoding a duplicate cache copy blocked tab switching. */
     fun captureCurrentThumbnail(webView: WebView, width: Int, height: Int) {
         val tab = currentTab ?: return
         if (webView.width <= 0 || webView.height <= 0 || width <= 0 || height <= 0) return
@@ -154,15 +156,12 @@ class TabManager(
             }
         }.getOrNull() ?: return
 
-        tab.thumbnail?.recycle()
         tab.thumbnail = bitmap
-        thumbnailCache?.runCatching { putBitmap("thumb_${tab.id}", bitmap) }
         changed()
     }
 
     fun getThumbnail(tabId: String): Bitmap? =
         _tabs.find { it.id == tabId }?.thumbnail
-            ?: thumbnailCache?.getBitmap("thumb_$tabId")
 
     /** Saves URL/title metadata so normal tabs survive process death. */
     fun saveMetadata(context: Context, preferenceName: String) {
@@ -208,13 +207,14 @@ class TabManager(
         if (raw.length > MAX_PERSISTED_JSON_LENGTH) return false
         val restored = runCatching {
             val array = JSONArray(raw)
+            val ids = mutableSetOf<String>()
             buildList {
                 for (i in 0 until minOf(array.length(), maxTabs)) {
                     val obj = array.optJSONObject(i) ?: continue
                     val url = safeTabUrl(obj.optString("url"))
                     val title = sanitizePersistedText(obj.optString("title"), MAX_TAB_TITLE_LENGTH)
                     val id = obj.optString("id")
-                        .takeIf { TAB_ID_PATTERN.matches(it) }
+                        .takeIf { TAB_ID_PATTERN.matches(it) && ids.add(it) }
                         ?: UUID.randomUUID().toString()
                     add(
                         TabState(
@@ -237,7 +237,6 @@ class TabManager(
     }
 
     fun cleanup() {
-        thumbnailCache?.close()
         _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
         currentIndex = -1
@@ -249,11 +248,10 @@ class TabManager(
     }
 
     private fun releaseBitmaps(tab: TabState) {
-        tab.favicon?.recycle()
-        tab.thumbnail?.recycle()
+        // Compose/RenderThread may still be drawing the previous snapshot. Let bitmap
+        // references expire naturally instead of recycling memory under a pending frame.
         tab.favicon = null
         tab.thumbnail = null
-        thumbnailCache?.remove("thumb_${tab.id}")
     }
 
     private fun changed() {

@@ -5,7 +5,7 @@
 # overrides are discovered by the Android build tools and normal virtual dispatch.
 
 # Scope the standard JNI name rule to application classes. It allows unused legacy JNI
-# wrappers to be removed while guaranteeing the three reachable Rust entry-point names.
+# wrappers to be removed while preserving reachable Rust entry-point names.
 -keepclasseswithmembernames,includedescriptorclasses class com.mybrowser.** {
     native <methods>;
 }

@@ -1,6 +1,6 @@
 # Rust 重构评估
 
-更新时间：2026-09-05
+更新时间：2026-09-07
 
 ## 结论先行
 
@@ -14,7 +14,6 @@ SAF/MediaStore、前台服务和下载通知都是 Android 平台语义；改写
 | crate | 适合原因 | JNI 约束 |
 |---|---|---|
 | `adblock` | 规则解析和高频匹配，索引可复用 | Kotlin 读写锁保护 native handle |
-| `cache` | 字节级 LRU、容量和淘汰逻辑纯粹 | key/entry 有上限；Kotlin close 与访问共用锁 |
 | `url_utils` | URL/搜索分类是纯函数，易做 Kotlin fallback | native 失败时自动回退，不影响导航 |
 
 ## 明确不迁移
@@ -31,10 +30,13 @@ SAF/MediaStore、前台服务和下载通知都是 Android 平台语义；改写
 
 ## Legacy 与隔离模块
 
-`rust/downloader`、`rust/filename_parser` 为早期 JNI 调用者保留，只有显式传入
+`rust/cache`、`rust/downloader`、`rust/filename_parser` 为早期 JNI 调用者保留，只有显式传入
 `-Pmybrowser.includeLegacyRust=true` 或 `INCLUDE_LEGACY_RUST=1` 才构建。`rust/database`
 含早期实验代码，未加入 workspace，也不进入 APK；重新接入前必须先有迁移方案、schema
 测试和基准数据。
+
+标签已经保留显示用 Bitmap，额外编码并放进字节缓存没有必要；0.3.0 删除了这条调用路径，
+因此不再默认编译或打包 cache 库。其有界 LRU 和句柄同步实现仍保留单元覆盖。
 
 ## 下一步是否值得 Rust
 
@@ -52,4 +54,4 @@ cargo test --all
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Android 侧通过 Gradle 编译和 lint 后，再检查 APK 只包含默认三个 native 库。
+Android 侧通过 Gradle 编译和 lint 后，再检查 APK 只包含两个产品 native 库及 AndroidX 库。
