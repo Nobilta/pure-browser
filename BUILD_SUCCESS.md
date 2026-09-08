@@ -1,6 +1,6 @@
 # 构建记录
 
-更新时间：2026-09-07
+更新时间：2026-09-08
 
 这份文件只记录当前构建方式；早期记录中的 27.x NDK、35MB APK 和“全部 Rust 模块”描述
 已废弃。
@@ -25,7 +25,7 @@
 2. Android debug 单元测试和 debug lint（当前 AGP 配置只生成 `testDebugUnitTest`，没有独立的 `testReleaseUnitTest` 任务）；
 3. `app:assembleRelease`；
 4. `apksigner verify --verbose`（系统安装了 Build Tools 时）；
-5. 将产物复制到 `PureBrowser-v0.3.0-release.apk`，输出大小与 SHA-256。
+5. 将产物复制到 `PureBrowser-v0.3.1-release.apk`，输出大小与 SHA-256。
 
 构建前还会运行网页视频协议测试及三语言资源校验。实际数量、当前体积和校验值统一见
 [README](./README.md)。
@@ -65,7 +65,7 @@ lib/arm64-v8a/libmybrowser_url_utils.so
 ```bash
 ./install_and_test.sh
 # 或
-adb install -r PureBrowser-v0.3.0-release.apk
+adb install -r PureBrowser-v0.3.1-release.apk
 adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 ```
 

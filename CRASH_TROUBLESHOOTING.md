@@ -11,8 +11,8 @@ adb logcat -d | rg -n 'FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV|AndroidRunti
 确认设备 Android API >= 29、ABI 与 APK 匹配（Release 为 arm64-v8a），并检查 APK 签名：
 
 ```bash
-apksigner verify --verbose PureBrowser-v0.3.0-release.apk
-unzip -l PureBrowser-v0.3.0-release.apk | rg '\.so$'
+apksigner verify --verbose PureBrowser-v0.3.1-release.apk
+unzip -l PureBrowser-v0.3.1-release.apk | rg '\.so$'
 ```
 
 ## 常见问题

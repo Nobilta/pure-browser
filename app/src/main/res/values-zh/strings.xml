@@ -62,6 +62,14 @@
     <string name="bookmark_added_to_home">已添加到书签和首页</string>
     <string name="bookmark_home_add_failed">书签已保存，但首页快捷入口已满或无法写入</string>
     <string name="home_shortcut_removed">已从首页移除，书签仍保留</string>
+    <string name="home_shortcut_edit">编辑快捷入口</string>
+    <string name="home_shortcut_choose_icon">选择图片</string>
+    <string name="home_shortcut_text_icon">使用文字图标</string>
+    <string name="home_shortcut_invalid_url">请输入有效的 HTTP 或 HTTPS 网址</string>
+    <string name="home_shortcut_duplicate_url">首页已存在这个网址</string>
+    <string name="home_shortcut_not_found">这个快捷入口已不存在</string>
+    <string name="home_shortcut_icon_failed">无法读取或保存图片，请选择其他图片</string>
+    <string name="home_shortcut_operation_failed">无法更新快捷入口，请重试</string>
     <string name="download_started">已开始下载</string>
     <string name="download_notification_channel">下载</string>
     <string name="download_notification_channel_description">显示正在进行的浏览器下载</string>
@@ -138,7 +146,6 @@
     <string name="ui_unable_to_open_default_app_settings">无法打开系统默认应用设置</string>
     <string name="ui_favorite_sites">常用网站</string>
     <string name="ui_add_sites_to_your_homepage_when_bookmarking">添加书签时可同时放到首页</string>
-    <string name="ui_tap_to_open_hold_to_remove_from_the">轻触打开，长按可从首页移除</string>
     <string name="ui_remove_from_homepage">从首页移除？</string>
     <string name="ui_remove_from_the_homepage_its_bookmark_will_be">将“%1$s”从导航首页移除，书签仍会保留。</string>
     <string name="ui_remove">移除</string>

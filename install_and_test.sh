@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APK="${1:-$SCRIPT_DIR/PureBrowser-v0.3.0-release.apk}"
+APK="${1:-$SCRIPT_DIR/PureBrowser-v0.3.1-release.apk}"
 PACKAGE="${PACKAGE:-com.mybrowser}"
 ACTIVITY="${ACTIVITY:-$PACKAGE/com.mybrowser.MainActivity}"
 

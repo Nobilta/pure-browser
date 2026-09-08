@@ -61,7 +61,7 @@ if [[ ! -f "$apk" ]]; then
     exit 1
 fi
 
-delivery="$SCRIPT_DIR/PureBrowser-v0.3.0-release.apk"
+delivery="$SCRIPT_DIR/PureBrowser-v0.3.1-release.apk"
 cp "$apk" "$delivery"
 size="$(wc -c < "$delivery" | tr -d ' ')"
 hash="$(shasum -a 256 "$delivery" | awk '{print $1}')"

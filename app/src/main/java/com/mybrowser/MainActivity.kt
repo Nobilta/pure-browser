@@ -88,6 +88,8 @@ import com.mybrowser.media.MediaSniffer
 import com.mybrowser.privacy.PrivacyMode
 import com.mybrowser.home.HomeRepository
 import com.mybrowser.home.HomeShortcut
+import com.mybrowser.home.ShortcutIconChange
+import com.mybrowser.home.ShortcutSaveResult
 import com.mybrowser.home.HomepageMode
 import com.mybrowser.security.CertificateDetails
 import com.mybrowser.security.SecurityChecker
@@ -392,6 +394,7 @@ class MainActivity : ComponentActivity(),
                         state.currentUrl == ABOUT_BLANK,
                     homeShortcuts = homeShortcuts,
                     onOpenHomeShortcut = { shortcut -> navigate(shortcut.url) },
+                    onSaveHomeShortcut = ::saveHomeShortcut,
                     onRemoveHomeShortcut = ::removeHomeShortcut,
                     mediaCount = mediaSnapshot.count,
                     hasVideo = hasVideo,
@@ -1508,14 +1511,26 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun removeHomeShortcut(shortcut: HomeShortcut) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val updated = homeRepository.removeShortcut(shortcut.id)
-            withContext(Dispatchers.Main) {
-                homeShortcuts = updated
-                toast(getString(R.string.home_shortcut_removed))
-            }
+    private suspend fun saveHomeShortcut(id: String, title: String, url: String, icon: ShortcutIconChange): ShortcutSaveResult {
+        val (result, updated) = withContext(Dispatchers.IO) {
+            runCatching {
+                val result = homeRepository.updateShortcut(id, title, url, icon)
+                result to if (result == ShortcutSaveResult.SAVED) homeRepository.loadShortcuts() else null
+            }.onFailure { Log.w("MainActivity", "failed to edit homepage shortcut", it) }
+                .getOrElse { ShortcutSaveResult.FAILED to null }
         }
+        if (updated != null) homeShortcuts = updated
+        return result
+    }
+
+    private suspend fun removeHomeShortcut(shortcut: HomeShortcut): Boolean {
+        val updated = withContext(Dispatchers.IO) {
+            runCatching { homeRepository.removeShortcut(shortcut.id) }
+                .onFailure { Log.w("MainActivity", "failed to remove homepage shortcut", it) }.getOrNull()
+        } ?: return false
+        homeShortcuts = updated
+        toast(getString(R.string.home_shortcut_removed))
+        return true
     }
 
     private fun removeCurrentPageFromBookmarks() {
