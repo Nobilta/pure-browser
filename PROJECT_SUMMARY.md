@@ -21,7 +21,7 @@ SQLite、下载网络/存储编排、权限和 UI）保持 Kotlin/Android 原生
 ```
 
 该命令运行 Rust/Android 测试、lint、Release 构建和签名检查，并生成
-`PureBrowser-v0.3.0-release.apk`。当前 APK 大小和 hash 以 README 及脚本输出为准。
+`PureBrowser-v0.3.1-release.apk`。当前 APK 大小和 hash 以 README 及脚本输出为准。
 
 ## 未纳入当前产品的规划
 

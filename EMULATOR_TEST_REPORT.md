@@ -1,14 +1,14 @@
 # 模拟器回归报告
 
-更新时间：2026-09-07。本报告记录 0.3.0 签名 APK 的实际检查；旧版结果不计入当前通过项。
+更新时间：2026-09-08。本报告记录 0.3.1 签名 APK 的实际检查；旧版结果不计入当前通过项。
 
 ## 产物与环境
 
-- APK：`PureBrowser-v0.3.0-release.apk`，versionCode 3，包名 `com.mybrowser`。
-- 大小：2,031,774 bytes（约 1.94 MiB），比 0.2.0 减少 99,473 bytes（约 4.7%）。
-- SHA-256：`983e5b4311f8680a7dbc2ff5b4565658825f7ad8038deca07506459169bd4514`。
+- APK：`PureBrowser-v0.3.1-release.apk`，versionCode 4，包名 `com.mybrowser`。
+- 大小：2,046,530 bytes（约 1.95 MiB），比 0.3.0 增加 14,756 bytes（约 0.7%）。
+- SHA-256：`5c3cfe9ea5dda25fc55f7b5a6db66d9dcebb071a3a0853df3fe2904b5a160c37`。
 - APK Signature Scheme v2 验证通过；最低 API 29，compile/target API 37，Release 仅为 arm64-v8a。
-- 同一个最终 APK 在两套系统上覆盖安装成功。构建日志：`validation/build-productivity.log`。
+- 同一个最终 APK 在两套系统上覆盖安装成功。构建日志：`validation/build-home-shortcut-completion.log`。
 
 | 模拟器 | 系统 | WebView | 分辨率 |
 |---|---|---|---|
@@ -24,9 +24,9 @@ Release 没有启用 WebView 调试；UI 辅助程序位于模拟器的 `/data/l
 | 检查 | 结果 |
 |---|---|
 | Rust fmt / test / clippy | 通过，49 tests |
-| Android / Robolectric | 164 tests，0 failures / errors / skipped |
+| Android / Robolectric | 175 tests，0 failures / errors / skipped |
 | Node 网页视频协议 | 15 tests，全部通过 |
-| 三语言资源 | 407 个资源键及格式参数一致，含 1 个复数资源 |
+| 三语言资源 | 414 个资源键及格式参数一致，含 1 个复数资源 |
 | Android lint | 0 errors / 3 warnings |
 | R8 Release、资源裁剪、签名 | 通过 |
 | 默认 JNI 库 | 仅 adblock、url_utils 两个产品库及 AndroidX graphics.path |
@@ -50,6 +50,16 @@ Release 没有启用 WebView 调试；UI 辅助程序位于模拟器的 `/data/l
 - 书签直接编辑成功；改成已有网址时保留原记录并停留在编辑器，可取消返回列表。
 - 书签加载下一页成功；清空书签/历史的确认可取消，取消后原记录仍可搜索。
 - 历史按日期分组；1.3 倍系统字体下重新打开列表，搜索和条目操作可见，截图无文字重叠。
+
+本轮首页快捷入口回归在 API 29 与 API 34 上均通过真实触摸验证：
+
+- 长按入口打开一个同时包含标题、地址、图标选择和删除按钮的编辑窗口。
+- 无效地址、重复地址、损坏图片会停留在编辑窗口；取消不改变已保存记录。
+- 取消图片草稿不产生新图标文件；切换编辑另一个入口时标题和地址来自另一个入口。
+- 自定义图片按最长边 96px 保存，旋转与 1.3 倍字体后草稿和预览保留，重启后编辑结果仍在。
+- 使用文字图标、取消删除及确认删除都验证了旧图清理、入口位置和书签保留。
+- 两台设备记录的安装 APK SHA-256 均为 `5c3cfe9e...a160c37`，完整结果位于
+  `validation/results/api29-home-shortcut.json` 和 `api34-home-shortcut.json`。
 
 列表回归只接受模拟器序号，通过 adb root 写入夹具记录。数据库单元测试另行验证编辑保留
 ID/创建时间、分页无重复或缺失，以及失败重试的具体偏移量。
@@ -91,6 +101,7 @@ API 34 当前回归的崩溃缓冲区为空，未发现浏览器 Java/native 崩
 python3 validation/qa-server.py
 # 另开终端，每次只测试一台已安装最终 APK 的 QA 模拟器。
 python3 validation/setup-ui-probe.py emulator-5554
+python3 validation/home-shortcut-regression.py --serial emulator-5554
 python3 validation/productivity-regression.py --serial emulator-5554
 # 可单独运行 --section browser 或 --section library。
 python3 validation/settings-regression.py --serial emulator-5554
@@ -111,10 +122,10 @@ python3 validation/productivity-visual-regression.py --serial emulator-5556
 
 ## 未验证范围
 
-- 未对 0.3.0 做完整启动/内存/耗电基准，不把 0.1.0 与 0.2.0 的历史性能样本当成当前结果。
+- 未对 0.3.1 做完整启动/内存/耗电基准，不把 0.1.0 与 0.2.0 的历史性能样本当成当前结果。
 - Android 11/12/13、API 35-37、厂商 WebView、低端真机和 32 位系统；当前 Release 不支持 32 位。
 - 实体 DLNA、第三方 DRM/MSE/直播网站、字幕/清晰度定制、长期视频帧率和耗电。
 - 本轮未重新执行 Blob/方形视频全部设备用例，以及 SAF、上传、权限、下载重试/删除的完整矩阵。
 - 文本选区仅在 API 34 做了额外截图检查；清空确认的执行数据路径有单元覆盖，设备回归主要检查取消路径。
 
-修改前 Git 备份：`backup/pre-browser-productivity-20260907`，指向 0.2.0 的 `82d0cb4`。
+修改前 Git 备份：`backup/pre-home-shortcut-editor-20260907`，指向 0.3.0 的 `bf75a92`。

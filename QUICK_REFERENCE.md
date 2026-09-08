@@ -6,7 +6,7 @@
 ./build-and-test.sh
 ```
 
-最终文件：`PureBrowser-v0.3.0-release.apk`（arm64-v8a，Android 10+）。脚本会输出实际
+最终文件：`PureBrowser-v0.3.1-release.apk`（arm64-v8a，Android 10+）。脚本会输出实际
 大小和 SHA-256；不要引用旧文档中的固定数值。
 
 ## 安装与启动
@@ -14,7 +14,7 @@
 ```bash
 ./install_and_test.sh
 # 手工
-adb install -r PureBrowser-v0.3.0-release.apk
+adb install -r PureBrowser-v0.3.1-release.apk
 adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 ```
 
@@ -45,8 +45,8 @@ adb logcat -d | rg 'FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV'
 若只想查看 APK 内容：
 
 ```bash
-unzip -l PureBrowser-v0.3.0-release.apk | rg 'lib/|AndroidManifest.xml'
-apksigner verify --verbose PureBrowser-v0.3.0-release.apk
+unzip -l PureBrowser-v0.3.1-release.apk | rg 'lib/|AndroidManifest.xml'
+apksigner verify --verbose PureBrowser-v0.3.1-release.apk
 ```
 
 ## Rust 构建选项

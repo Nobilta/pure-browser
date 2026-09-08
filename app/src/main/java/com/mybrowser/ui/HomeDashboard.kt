@@ -1,6 +1,7 @@
 package com.mybrowser.ui
 
 import com.mybrowser.R
+import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -19,16 +20,15 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +41,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.home.HomeShortcut
+import com.mybrowser.home.ShortcutIconChange
+import com.mybrowser.home.ShortcutSaveResult
 
 /** Material 3 navigation homepage rendered above a blank WebView document. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -48,11 +50,12 @@ import com.mybrowser.home.HomeShortcut
 fun HomeDashboard(
     shortcuts: List<HomeShortcut>,
     onOpen: (HomeShortcut) -> Unit,
-    onRemove: (HomeShortcut) -> Unit,
+    onSave: suspend (String, String, String, ShortcutIconChange) -> ShortcutSaveResult,
+    onRemove: suspend (HomeShortcut) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     val textResources = localizedResources()
-    var pendingRemoval by remember { mutableStateOf<HomeShortcut?>(null) }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -71,12 +74,8 @@ fun HomeDashboard(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        text = if (shortcuts.isEmpty()) {
-                            textResources.getString(R.string.ui_add_sites_to_your_homepage_when_bookmarking)
-                        } else {
-                            textResources.getString(R.string.ui_tap_to_open_hold_to_remove_from_the)
-                        },
+                    if (shortcuts.isEmpty()) Text(
+                        text = textResources.getString(R.string.ui_add_sites_to_your_homepage_when_bookmarking),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
@@ -93,31 +92,17 @@ fun HomeDashboard(
                     HomeShortcutTile(
                         shortcut = shortcut,
                         onClick = { onOpen(shortcut) },
-                        onLongClick = { pendingRemoval = shortcut },
+                        onLongClick = { editingId = shortcut.id },
                     )
                 }
             }
         }
     }
 
-    pendingRemoval?.let { shortcut ->
-        AlertDialog(
-            onDismissRequest = { pendingRemoval = null },
-            icon = { Icon(Icons.Default.Home, contentDescription = null) },
-            title = { Text(textResources.getString(R.string.ui_remove_from_homepage)) },
-            text = { Text(textResources.getString(R.string.ui_remove_from_the_homepage_its_bookmark_will_be, shortcut.title)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingRemoval = null
-                        onRemove(shortcut)
-                    },
-                ) { Text(textResources.getString(R.string.ui_remove)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRemoval = null }) { Text(textResources.getString(R.string.action_cancel)) }
-            },
-        )
+    shortcuts.firstOrNull { it.id == editingId }?.let { shortcut ->
+        key(shortcut.id) {
+            HomeShortcutEditor(shortcut, onSave, onRemove, onDismiss = { editingId = null })
+        }
     }
 }
 
@@ -136,39 +121,12 @@ private fun HomeShortcutTile(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
-                onLongClickLabel = textResources.getString(R.string.ui_remove_from_homepage_13d6f7),
+                onLongClickLabel = textResources.getString(R.string.home_shortcut_edit),
             )
             .padding(horizontal = 4.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Surface(
-            modifier = Modifier.size(60.dp),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 2.dp,
-            shadowElevation = 1.dp,
-        ) {
-            val icon = shortcut.icon
-            if (icon != null && !icon.isRecycled) {
-                Image(
-                    bitmap = icon.asImageBitmap(),
-                    contentDescription = textResources.getString(R.string.ui_icon, shortcut.title),
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                )
-            } else {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = shortcut.title.firstOrNull()?.uppercase() ?: "·",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = fallbackColor(shortcut.url),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-        }
+        HomeShortcutIcon(shortcut.title, shortcut.url, shortcut.icon, Modifier.size(60.dp))
         Text(
             text = shortcut.title,
             style = MaterialTheme.typography.labelLarge,
@@ -177,6 +135,39 @@ private fun HomeShortcutTile(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 8.dp),
         )
+    }
+}
+
+@Composable
+internal fun HomeShortcutIcon(title: String, url: String, icon: Bitmap?, modifier: Modifier = Modifier) {
+    val textResources = localizedResources()
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
+        shadowElevation = 1.dp,
+    ) {
+        if (icon != null && !icon.isRecycled) {
+            Image(
+                bitmap = icon.asImageBitmap(),
+                contentDescription = textResources.getString(R.string.ui_icon, title),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+            )
+        } else {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = title.trim().takeIf { it.isNotEmpty() }
+                        ?.let { it.substring(0, it.offsetByCodePoints(0, 1)).uppercase() } ?: "·",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = fallbackColor(url),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 }
 

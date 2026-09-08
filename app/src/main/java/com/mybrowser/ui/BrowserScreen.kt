@@ -44,6 +44,8 @@ import com.mybrowser.R
 import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.HistoryManager
 import com.mybrowser.home.HomeShortcut
+import com.mybrowser.home.ShortcutIconChange
+import com.mybrowser.home.ShortcutSaveResult
 import com.mybrowser.media.PlaybackSpeed
 
 /**
@@ -65,7 +67,8 @@ fun BrowserScreen(
     showHomeDashboard: Boolean = false,
     homeShortcuts: List<HomeShortcut> = emptyList(),
     onOpenHomeShortcut: (HomeShortcut) -> Unit = {},
-    onRemoveHomeShortcut: (HomeShortcut) -> Unit = {},
+    onSaveHomeShortcut: suspend (String, String, String, ShortcutIconChange) -> ShortcutSaveResult = { _, _, _, _ -> ShortcutSaveResult.FAILED },
+    onRemoveHomeShortcut: suspend (HomeShortcut) -> Boolean = { false },
     /** Number of castable media candidates discovered on the current page. */
     mediaCount: Int = 0,
     /** True while an HTML5 video is available, including when it is paused. */
@@ -226,6 +229,7 @@ fun BrowserScreen(
                 HomeDashboard(
                     shortcuts = homeShortcuts,
                     onOpen = onOpenHomeShortcut,
+                    onSave = onSaveHomeShortcut,
                     onRemove = onRemoveHomeShortcut,
                     modifier = Modifier.fillMaxSize(),
                 )

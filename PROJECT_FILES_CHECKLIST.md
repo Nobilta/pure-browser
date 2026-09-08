@@ -15,7 +15,7 @@
 - [x] `diagnose.sh`：设备信息与崩溃关键词检查
 - [x] `APK_TEST_GUIDE.md`：手工回归清单
 - [x] `EMULATOR_TEST_REPORT.md`：模拟器验证记录
-- [x] `PureBrowser-v0.3.0-release.apk`：当前 Release，体积与校验值见 README，不纳入 Git
+- [x] `PureBrowser-v0.3.1-release.apk`：当前 Release，体积与校验值见 README，不纳入 Git
 
 ## 架构与决策
 

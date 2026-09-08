@@ -62,6 +62,14 @@
     <string name="bookmark_added_to_home">Added to bookmarks and homepage</string>
     <string name="bookmark_home_add_failed">Bookmark saved, but the homepage is full or the shortcut could not be saved</string>
     <string name="home_shortcut_removed">Removed from homepage. Bookmark kept.</string>
+    <string name="home_shortcut_edit">Edit shortcut</string>
+    <string name="home_shortcut_choose_icon">Choose image</string>
+    <string name="home_shortcut_text_icon">Use letter icon</string>
+    <string name="home_shortcut_invalid_url">Enter a valid HTTP or HTTPS address</string>
+    <string name="home_shortcut_duplicate_url">This address is already on the homepage</string>
+    <string name="home_shortcut_not_found">This shortcut no longer exists</string>
+    <string name="home_shortcut_icon_failed">Unable to read or save this image. Choose another image.</string>
+    <string name="home_shortcut_operation_failed">Unable to update the shortcut. Try again.</string>
     <string name="download_started">Download started</string>
     <string name="download_notification_channel">Downloads</string>
     <string name="download_notification_channel_description">Show ongoing browser downloads</string>
@@ -138,7 +146,6 @@
     <string name="ui_unable_to_open_default_app_settings">Unable to open default app settings</string>
     <string name="ui_favorite_sites">Favorite sites</string>
     <string name="ui_add_sites_to_your_homepage_when_bookmarking">Add sites to your homepage when bookmarking</string>
-    <string name="ui_tap_to_open_hold_to_remove_from_the">Tap to open; hold to remove from the homepage</string>
     <string name="ui_remove_from_homepage">Remove from homepage?</string>
     <string name="ui_remove_from_the_homepage_its_bookmark_will_be">Remove “%1$s” from the homepage? Its bookmark will be kept.</string>
     <string name="ui_remove">Remove</string>

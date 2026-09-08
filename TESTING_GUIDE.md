@@ -16,6 +16,7 @@ python3 validation/check-localization.py
 ```
 
 Android 单元测试使用 Robolectric，覆盖 URL/导航、数据库、下载设置/Range/HTTP 引擎、文件名、媒体候选和 DLNA 解析；
+首页数据测试还覆盖稳定 ID、重复地址、自定义图标保护、写入失败回滚与旧图清理。
 Rust 测试覆盖规则匹配、URL 工具、LRU、legacy 下载分片和文件名解析。
 网页协议测试覆盖视频目标隔离、临时倍速恢复、全屏切换与消息回执；字符串检查覆盖三语言键和格式参数。
 当前数量及最近一次执行结果见 [README](./README.md) 和 [回归报告](./EMULATOR_TEST_REPORT.md)。
@@ -23,7 +24,7 @@ Rust 测试覆盖规则匹配、URL 工具、LRU、legacy 下载分片和文件�
 ## APK 检查
 
 ```bash
-APK=PureBrowser-v0.3.0-release.apk
+APK=PureBrowser-v0.3.1-release.apk
 apksigner verify --verbose "$APK"
 unzip -l "$APK" | rg 'lib/|AndroidManifest.xml'
 ```
@@ -44,6 +45,7 @@ filename_parser，除非显式 opt-in。
 - 启动、WebView 页面加载、前进/后退、主页、刷新/停止
 - 地址栏访问/搜索按钮、建议、外部协议交接
 - 标签、书签新增编辑、历史、无痕清理
+- 首页长按统一编辑标题/地址/图标、导入与取消、重启保留、旋转/大字体、删除确认及书签保留
 - 链接/图片长按、后台延迟加载、标签搜索及返回记录隔离、批量关闭确认
 - 书签/历史数据库分页搜索、旧查询失效、失败重试、重复书签编辑保护
 - 系统 Download/SAF 自定义目录、线程设置持久化、Range/单线程回退、后台下载、重名文件
