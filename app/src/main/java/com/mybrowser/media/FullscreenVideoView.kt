@@ -177,12 +177,13 @@ class FullscreenVideoView(
             orientationChosen = true
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
-        if (enhanced && state.isFullscreen && controlIdentity != state.identity) {
-            tracker.setFullscreenControls(false)
-            enhanced = false
-            controlIdentity = null
+        if ((enhanced || connecting) &&
+            (!state.canUseEnhancedControls || controlIdentity != state.identity)
+        ) {
+            disconnectControls()
         }
-        if (wantEnhanced && !enhanced && !connecting && state.isFullscreen) connectControls()
+        refreshMode()
+        if (wantEnhanced && !enhanced && !connecting && state.canUseEnhancedControls) connectControls()
         play.setImageResource(if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play)
         play.contentDescription = if (state.isPlaying) activity.getString(R.string.ui_pause_video) else activity.getString(R.string.ui_play_video)
         play.isEnabled = state.hasVideo
@@ -198,41 +199,53 @@ class FullscreenVideoView(
     }
 
     private fun connectControls() {
+        if (!state.canUseEnhancedControls) return
         connecting = true
         val generation = ++controlGeneration
         val identity = state.identity
+        controlIdentity = identity
         tracker.setFullscreenControls(true) { ok ->
             if (released || generation != controlGeneration) return@setFullscreenControls
-            if (!wantEnhanced) {
-                tracker.setFullscreenControls(false)
+            if (!ok || !wantEnhanced || !state.canUseEnhancedControls || state.identity != identity) {
+                wantEnhanced = false
+                disconnectControls()
+                if (!ok && state.canUseEnhancedControls) {
+                    showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
+                }
                 return@setFullscreenControls
             }
             connecting = false
-            enhanced = ok
-            controlIdentity = if (ok) identity else null
-            if (!ok) {
-                wantEnhanced = false
-                tracker.setFullscreenControls(false)
-            }
+            enhanced = true
             refreshMode()
             showControls(true)
-            if (!ok) showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
         }
+    }
+
+    private fun disconnectControls() {
+        controlGeneration++
+        gestures.cancelGesture()
+        enhanced = false
+        connecting = false
+        controlIdentity = null
+        speedDialog?.dismiss()
+        speedDialog = null
+        hud.visibility = GONE
+        setLocked(false)
+        // Remove our input and playback layers before returning control to the page.
+        refreshMode()
+        tracker.setFullscreenControls(false)
     }
 
     private fun switchMode() {
         gestures.cancelGesture()
         if (enhanced || connecting) {
-            controlGeneration++
             wantEnhanced = false
-            tracker.setFullscreenControls(false)
-            enhanced = false
-            connecting = false
-            setLocked(false)
-            refreshMode()
-        } else if (state.hasVideo) {
+            disconnectControls()
+        } else if (state.canUseEnhancedControls) {
             wantEnhanced = true
             connectControls()
+        } else if (state.hasVideo) {
+            showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
         } else showHud(activity.getString(R.string.ui_start_playing_a_video_on_the_webpage_first), 2000)
     }
 
@@ -240,20 +253,22 @@ class FullscreenVideoView(
         gestures.visibility = if (enhanced) VISIBLE else GONE
         mode.text = if (enhanced) activity.getString(R.string.ui_web_controls) else activity.getString(R.string.ui_enhanced_controls)
         mode.contentDescription = if (enhanced) activity.getString(R.string.ui_switch_to_web_controls) else activity.getString(R.string.ui_switch_to_enhanced_controls)
-        if (!enhanced) {
-            bottom.visibility = GONE
-            lock.visibility = GONE
-            top.visibility = VISIBLE
-            ui.removeCallbacks(hideControls)
-        } else showControls(true)
+        mode.tooltipText = mode.contentDescription
+        if (!enhanced) ui.removeCallbacks(hideControls)
+        renderControls()
     }
 
     private fun showControls(show: Boolean) {
         controlsVisible = show
-        top.visibility = if (!locked && (show || !enhanced)) VISIBLE else GONE
-        bottom.visibility = if (enhanced && !locked && show) VISIBLE else GONE
-        lock.visibility = if (enhanced && (show || locked)) VISIBLE else GONE
+        renderControls()
         if (show) scheduleHide()
+    }
+
+    private fun renderControls() {
+        // State telemetry must not reveal controls or restart the user's hide timer.
+        top.visibility = if (state.canUseEnhancedControls && !locked && (controlsVisible || !enhanced)) VISIBLE else GONE
+        bottom.visibility = if (enhanced && !locked && controlsVisible) VISIBLE else GONE
+        lock.visibility = if (enhanced && (controlsVisible || locked)) VISIBLE else GONE
     }
 
     private fun scheduleHide() {
@@ -342,8 +357,7 @@ class FullscreenVideoView(
 
     fun release() {
         if (released) return
-        cancelTransientControls()
-        tracker.setFullscreenControls(false)
+        disconnectControls()
         released = true
         ui.removeCallbacksAndMessages(null)
         speedDialog?.dismiss()

@@ -1,8 +1,73 @@
 # 模拟器回归报告
 
-更新时间：2026-09-08。本报告记录 0.3.1 签名 APK 的实际检查；旧版结果不计入当前通过项。
+更新时间：2026-09-08。本报告按 APK 校验值区分本次图标/视频调整与此前首页编辑器的结果。
 
-## 产物与环境
+## 本次图标与视频调整
+
+- 产物：`PureBrowser-v0.3.1-release.apk`，versionCode 4，2,041,658 bytes（约 1.95 MiB）。
+- SHA-256：`05020b81fc04ac42b297ddfbd81b9094330926a379622fcbe81a84bced95c68d`。
+- Android 10+，arm64-v8a，APK Signature Scheme v2 验证通过。
+- 49 项 Rust、180 项 Android/Robolectric、25 项 Node 网页协议测试通过，414 项三语言资源校验通过。
+- Android lint：0 errors / 3 warnings；仍为 AGP 更新、ChromeOS ABI 和低版本 localeConfig 提示。
+- 图标产品 XML 与「青叶 P」三个候选 drawable 逐项解析一致，预览基于正式产品资源生成。
+
+本轮重点是标准视频控件交接、网页播放器独占控制及全屏投屏弹层。代码仍使用 WebView 解码；
+没有新增独立播放器、Google Cast、凭据代理或远端播放会话界面。详细方案见
+[`design/video-playback-and-casting.md`](./design/video-playback-and-casting.md)。
+
+### 最终安装包设备结果
+
+下表各通过项均由设备读取已安装 APK 的 SHA-256，确认是上面的 `05020b81...95c68d` 产物。
+
+| 模拟器 | WebView | 标准视频 | 自定义网页播放器 | 跨域 iframe | Blob 视频 |
+|---|---|---|---|---|---|
+| Android 10 / API 29 / emulator-5554 | 91.0.4472.114 | 通过 | 通过 | 网页控件回退通过 | 最终包未重测 |
+| Android 14 / API 34 / emulator-5556 | 113.0.5672.136 | 通过 | 通过 | 增强控制通过 | 通过 |
+
+均为 arm64、2 核、SwiftShader、无快照启动，每次只运行一台；模拟器实际内存为
+API 29 的 2048 MiB 和 API 34 的 2560 MiB。本地夹具只监听 127.0.0.1:8875/8876，经 ADB reverse 访问。
+
+- 标准视频覆盖控件自动隐藏、暂停/继续、倍速、长按临时加速、后台恢复后重新全屏、
+  双击、亮度/音量/进度手势、锁定返回、网页/增强控件切换及退出后的方向/亮度恢复。
+- 增强全屏内打开投屏选择窗口并取消后，确认全屏保留且暂停按钮仍可操作；网页内没有悬浮媒体按钮。
+- 自定义容器只有网页播放按钮，触摸可暂停/继续，退出后可重新全屏。API 29 跨域回退保留网页播放并可用系统返回退出。
+- 暂停与后台恢复后重进的截图确认仅显示一套播放控件。API 34 的 Blob 夹具仍能交接增强控制；
+  该夹具通过 fetch 加载了 MP4，投屏候选来自请求地址，不能据此宣称 Blob 本身可直接投送。
+- 青叶 P 图标在 Android 14 启动器的圆形裁切和应用名称已做截图检查；主题单色 XML/设计预览已核对，启动器主题开关未实测。
+
+最终结果位于 `validation/results/`：`api29-{standard,custom,cross}.json` 和
+`api34-{standard,custom,cross,blob}.json`，七个文件均为 `error: null`。
+对应 case 分别为 `api29-standard-1788881214`、`api29-custom-1788881411`、
+`api29-cross-1788881422`、`api34-standard-1788881699`、`api34-custom-1788881745`、
+`api34-cross-1788881756`、`api34-blob-1788881939`。截图以 case 命名，包含 `paused`、`reentered`、
+`cast-sheet` 等阶段；启动器截图为 `api34-launcher-leaf-p.png`。
+
+本轮日志中未发现浏览器进程的 Java/native 崩溃、JNI 链接错误或 ANR。API 29 的 PID 3432、7355 是
+shell 启动的 FastUiDump，正常输出后在 ART JIT 退出阶段 SIGSEGV；API 34 的 PID 7074 是同一
+辅助程序触摸注入失败，导致第一次 Blob 补测中断。保留失败记录后重跑通过，没有将该次中断记作通过。
+这些辅助程序不进入 APK。API 34 另有 SystemUI 和 Pixel Launcher 的手势监听 ANR，以及 Google Docs
+进程的可选 native 库加载警告，均保留在环境记录中，不作为浏览器通过项或浏览器崩溃。
+日志保存在 `api{29,34}-video-05020-{logcat,crash}.txt`。
+
+### 修复与边界
+
+本轮回归发现并修复：
+
+- WebView 全屏内置控件在暂停/重新进入时仍可能显示，接管期间增加只匹配目标视频的临时隐藏样式。
+- Android 10 再次打开同一标准 MP4 时，网络嗅探候选可能为空；使用已加载的 `currentSrc` 补充候选，保留签名参数。
+- Android 10 关闭投屏弹层后系统栏覆盖全屏按钮；窗口重新获得焦点时恢复沉浸全屏。
+
+测试脚本在关闭弹层后等待新的页面遥测和弹层消失，避免使用关闭前的状态。
+旧 Provider 可能不向辅助工具提供全屏网页节点；自定义按钮用页面报告的实时位置执行真实触摸，
+并通过暂停/继续遥测确认结果。该坐标回退不修改播放器代码或页面播放状态。
+
+本轮未验证真实 YouTube 在线页面、实体 DLNA 接收器、Google Cast、DRM、字幕/清晰度定制、
+低端真机和完整性能基准；最终包没有重测方形视频和 API 29 Blob 的完整流程。
+YouTube 域名策略和自定义网页夹具通过不能代替真实站点验收。
+
+下面的历史部分对应 SHA-256 为 `5c3cfe9e...a160c37` 的首页编辑器安装包，不能作为本次产物的通过项。
+
+## 历史：产物与环境
 
 - APK：`PureBrowser-v0.3.1-release.apk`，versionCode 4，包名 `com.mybrowser`。
 - 大小：2,046,530 bytes（约 1.95 MiB），比 0.3.0 增加 14,756 bytes（约 0.7%）。
@@ -19,7 +84,7 @@
 本地服务器只监听 127.0.0.1:8875/8876，通过 ADB reverse 提供可控页面、图片及媒体。
 Release 没有启用 WebView 调试；UI 辅助程序位于模拟器的 `/data/local/tmp`，不进入 APK。
 
-## 自动检查
+## 历史：自动检查
 
 | 检查 | 结果 |
 |---|---|
@@ -35,7 +100,7 @@ Release 没有启用 WebView 调试；UI 辅助程序位于模拟器的 `/data/l
 新增单元覆盖包括分页偏移、旧查询结果失效、失败重试、重复网址编辑保护、稳定标签 ID、
 后台标签不加载及上下文 URL 校验。cache 的旧 JNI 门面仍可 opt-in，默认 APK 不包含它。
 
-## 新增浏览流程
+## 历史：新增浏览流程
 
 以下项目在 API 29、API 34 上均通过真实触摸验证：
 
@@ -71,7 +136,7 @@ API 34 另经截图确认网页文本长按仍显示原生选区及 Copy/Share/S
 现在使用未导航的新实例恢复，并释放旧实例；恢复完成前不保存中间地址。
 普通后台标签仍只有元数据/快照，不为每个标签常驻一个 WebView。
 
-## 现有功能回归
+## 历史：现有功能回归
 
 | 项目 | API 29 | API 34 |
 |---|---|---|
@@ -95,7 +160,7 @@ API 29 日志中的 5 次 ART JIT SIGSEGV 均对应 shell/root 启动的 FastUiD
 崩溃、JNI 链接错误或 ANR。该辅助程序不进入交付 APK。
 API 34 当前回归的崩溃缓冲区为空，未发现浏览器 Java/native 崩溃、JNI 链接错误或 ANR。
 
-## 复现与证据
+## 历史：复现与证据
 
 ```bash
 python3 validation/qa-server.py
@@ -120,7 +185,7 @@ python3 validation/productivity-visual-regression.py --serial emulator-5556
 截图与 XML 用于核对布局；旧 Provider 偶尔不再发布网页子节点时，夹具测试复用已取得的固定
 目标坐标。弹层等待有超时，英文原生按钮的全大写形式也纳入匹配。
 
-## 未验证范围
+## 历史：未验证范围
 
 - 未对 0.3.1 做完整启动/内存/耗电基准，不把 0.1.0 与 0.2.0 的历史性能样本当成当前结果。
 - Android 11/12/13、API 35-37、厂商 WebView、低端真机和 32 位系统；当前 Release 不支持 32 位。

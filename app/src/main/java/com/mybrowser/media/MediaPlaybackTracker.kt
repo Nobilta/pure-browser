@@ -39,9 +39,12 @@ class MediaPlaybackTracker(
         val height: Int = 0,
         val isFullscreen: Boolean = false,
         val isBoosting: Boolean = false,
+        val nativeControlsAvailable: Boolean = false,
+        val sourceUrl: String? = null,
     ) {
         val canSeek: Boolean get() = hasVideo && duration > 0 && seekEnd > seekStart
         val identity: String get() = "$frameId/$videoId"
+        val canUseEnhancedControls: Boolean get() = hasVideo && isFullscreen && nativeControlsAvailable
     }
 
     var isInstalled = false
@@ -148,6 +151,7 @@ class MediaPlaybackTracker(
 
     fun setFullscreenControls(enabled: Boolean, onResult: (Boolean) -> Unit = {}) {
         if (enabled) {
+            if (!current.canUseEnhancedControls) { onResult(false); return }
             fullscreenTarget = activeTarget()
             send(fullscreenTarget, "nativeControls", onResult = onResult)
         } else {
@@ -281,6 +285,10 @@ class MediaPlaybackTracker(
                 width = json.optInt("width").coerceIn(0, 16384), height = json.optInt("height").coerceIn(0, 16384),
                 isFullscreen = hasVideo && json.optBoolean("fullscreen"),
                 isBoosting = hasVideo && json.optBoolean("boosting"),
+                nativeControlsAvailable = hasVideo && json.optBoolean("nativeControlsAvailable"),
+                sourceUrl = json.optString("sourceUrl").takeIf {
+                    hasVideo && it.length <= 8192 && it.toUri().scheme in listOf("http", "https", "blob")
+                },
             )
         }
     }

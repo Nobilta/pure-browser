@@ -2,6 +2,8 @@
 
 更新时间：2026-09-05
 
+本文为该日期的历史快照；悬浮入口、默认 Rust 模块和测试数量已有调整，最新信息见 [README](./README.md)。
+
 ## 已完成
 
 - WebView 池化与 renderer 崩溃恢复，旧回调隔离，ActivityResult 和媒体 tracker 生命周期

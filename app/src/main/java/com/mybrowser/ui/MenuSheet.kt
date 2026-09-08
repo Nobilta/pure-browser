@@ -118,10 +118,10 @@ fun MenuSheet(
                 MenuRow(
                     iconRes = R.drawable.ic_cast,
                     title = stringResource(R.string.menu_cast),
-                    subtitle = if (mediaCount > 0) {
-                        stringResource(R.string.menu_cast_found, mediaCount)
-                    } else {
-                        stringResource(R.string.menu_cast_none)
+                    subtitle = when {
+                        mediaCount > 0 -> stringResource(R.string.menu_cast_found, mediaCount)
+                        hasVideo -> stringResource(R.string.menu_cast_no_direct_source)
+                        else -> stringResource(R.string.menu_cast_none)
                     },
                     enabled = mediaCount > 0,
                     onClick = onOpenMedia,
