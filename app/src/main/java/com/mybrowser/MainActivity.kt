@@ -396,15 +396,6 @@ class MainActivity : ComponentActivity(),
                     onOpenHomeShortcut = { shortcut -> navigate(shortcut.url) },
                     onSaveHomeShortcut = ::saveHomeShortcut,
                     onRemoveHomeShortcut = ::removeHomeShortcut,
-                    mediaCount = mediaSnapshot.count,
-                    hasVideo = hasVideo,
-                    playbackSpeed = playbackSpeed,
-                    onPlaybackSpeed = { sheet = Sheet.PLAYBACK_SPEED },
-                    onCast = {
-                        mediaTrackers[webView]?.probe()
-                        sheet = Sheet.CAST
-                        cast.search()
-                    },
                     onFindQueryChange = { query ->
                         if (query.isEmpty()) {
                             webView.clearMatches()
@@ -999,7 +990,7 @@ class MainActivity : ComponentActivity(),
                 }
                 hasVideo = signal.hasVideo
                 playbackSpeed = signal.playbackRate ?: PlaybackSpeed.DEFAULT
-                media.setPlayingVideos(if (signal.isPlaying) signal.urls else emptyList())
+                media.updatePlayback(signal)
                 fullscreenView?.update(signal)
                 val preferences = browserPreferences.video
                 if (signal.isPlaying && !signal.isBoosting && preferences.rememberSpeed &&
@@ -1859,7 +1850,7 @@ class MainActivity : ComponentActivity(),
             canCast = { media.count > 0 },
             onExit = ::leaveFullscreen,
             onCast = {
-                leaveFullscreen()
+                fullscreenView?.cancelTransientControls()
                 tracker.probe()
                 sheet = Sheet.CAST
                 cast.search()
@@ -2045,6 +2036,15 @@ class MainActivity : ComponentActivity(),
     }
 
     // --- Lifecycle ---
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && fullscreenView != null) {
+            // Dialog windows can clear immersive flags on older Android versions.
+            fullscreenView?.requestFocus()
+            setSystemBarsVisible(false)
+        }
+    }
 
     private fun requestDefaultBrowser() {
         runCatching {

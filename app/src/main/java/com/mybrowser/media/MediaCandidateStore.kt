@@ -81,6 +81,15 @@ class MediaCandidateStore {
         if (_state.value != Snapshot()) _state.value = Snapshot()
     }
 
+    /** A loaded currentSrc can recover a candidate missed by the network interceptor. */
+    @Synchronized
+    fun updatePlayback(signal: MediaPlaybackTracker.Signal) {
+        if (signal.hasVideo) {
+            signal.sourceUrl?.let { source -> MediaSniffer.inspect(source, signal.frameUrl)?.let(::add) }
+        }
+        setPlayingVideosLocked(if (signal.isPlaying) signal.urls else emptyList())
+    }
+
     /** Records one URL hint for callers that only have currentSrc. */
     @Synchronized
     fun setPlayingVideo(url: String?) {

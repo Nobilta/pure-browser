@@ -6,10 +6,12 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/playback-probe.js'), 'utf8');
 
 function fixture(count = 1) {
-  const listeners = new Map(), timers = new Map(), messages = [];
+  const listeners = new Map(), timers = new Map(), messages = [], styles = [];
   let nextTimer = 0;
   const doc = {
     baseURI: 'https://example.com/watch', hidden: false, fullscreenElement: null,
+    head: { appendChild(style) { styles.push(style); } },
+    createElement() { return { textContent: '', sheet: { cssRules: [{}] }, remove() { const i = styles.indexOf(this); if (i >= 0) styles.splice(i, 1); } }; },
     addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); },
     removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
     querySelectorAll(name) { return name === 'video' ? videos : []; },
@@ -17,6 +19,7 @@ function fixture(count = 1) {
   function event(type, target) { for (const fn of listeners.get(type) || []) fn({ type, target }); }
   const videos = Array.from({ length: count }, (_, i) => {
     let rate = 1;
+    const attributes = new Map();
     const video = {
       tagName: 'VIDEO', currentSrc: `https://example.com/${i}.mp4`, src: '', controls: true,
       paused: false, ended: false, muted: false, currentTime: 20, duration: 120, readyState: 4,
@@ -24,6 +27,9 @@ function fixture(count = 1) {
       seekable: { length: 1, start: () => 0, end: () => 120 },
       querySelectorAll: () => [], getBoundingClientRect: () => ({ width: 640, height: 360 }),
       contains(other) { return other === this; },
+      getAttribute(name) { return attributes.get(name) ?? null; },
+      setAttribute(name, value) { attributes.set(name, value); },
+      removeAttribute(name) { attributes.delete(name); },
       pause() { this.paused = true; event('pause', this); },
       play() { this.paused = false; event('play', this); return Promise.resolve(); },
       get playbackRate() { return rate; },
@@ -46,8 +52,22 @@ function fixture(count = 1) {
   function command(type, values = {}, target = api.snapshot()) {
     return api.command({ type, id: ++commandId, frameId: target.frameId, videoId: target.videoId, ...values });
   }
-  return { api, videos, doc, win, event, command, messages, timers };
+  return { api, videos, doc, win, event, command, messages, timers, styles };
 }
+
+test('loaded source stays distinct from src attributes and page resource hints', () => {
+  const f = fixture(), v = f.videos[0];
+  assert.equal(f.api.snapshot().sourceUrl, v.currentSrc);
+  v.currentSrc = '';
+  v.src = 'https://example.com/pending.mp4';
+  f.win.performance.getEntriesByType = () => [{ name: 'https://example.com/unrelated.mp4' }];
+  const state = f.api.snapshot();
+  assert.equal(state.sourceUrl, null);
+  assert.ok(state.urls.includes(v.src));
+  assert.ok(state.urls.includes('https://example.com/unrelated.mp4'));
+  v.currentSrc = 'blob:https://example.com/loaded';
+  assert.equal(f.api.snapshot().sourceUrl, v.currentSrc);
+});
 
 test('long press restores an arbitrary original rate and never changes the default', () => {
   const f = fixture(), video = f.videos[0];
@@ -142,12 +162,104 @@ test('a new fullscreen element replaces a still-mounted native control target', 
   assert.equal(next.playbackRate, 2);
 });
 test('native mode restores the exact original controls setting and speed', () => {
-  for (const original of [true, false]) {
-    const f = fixture(), v = f.videos[0]; v.controls = original;
-    f.command('nativeControls'); assert.equal(v.controls, false);
-    f.command('beginBoost', { rate: 2 });
-    f.command('restoreControls'); assert.equal(v.controls, original); assert.equal(v.playbackRate, 1);
+  const f = fixture(), v = f.videos[0];
+  f.doc.fullscreenElement = v;
+  assert.equal(f.command('nativeControls'), true); assert.equal(v.controls, false);
+  assert.equal(f.api.snapshot().nativeControlsAvailable, true);
+  f.command('beginBoost', { rate: 2 });
+  f.command('restoreControls'); assert.equal(v.controls, true); assert.equal(v.playbackRate, 1);
+});
+test('inline videos and custom fullscreen containers retain webpage controls', () => {
+  const f = fixture(), v = f.videos[0];
+  assert.equal(f.api.snapshot().nativeControlsAvailable, false);
+  assert.equal(f.command('nativeControls'), false);
+  f.doc.fullscreenElement = { contains: child => child === v };
+  assert.equal(f.api.snapshot().fullscreen, true);
+  assert.equal(f.command('nativeControls'), false);
+  assert.equal(v.controls, true);
+  f.doc.fullscreenElement = v;
+  v.controls = false;
+  assert.equal(f.command('nativeControls'), false);
+});
+test('UA control suppression is scoped and restores the exact previous marker', () => {
+  const f = fixture(2), v = f.videos[0];
+  v.setAttribute('data-pure-browser-controls', 'existing-value');
+  f.doc.fullscreenElement = v;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.styles.length, 1);
+  const marker = v.getAttribute('data-pure-browser-controls');
+  assert.notEqual(marker, 'existing-value');
+  assert.match(f.styles[0].textContent, /::-webkit-media-controls/);
+  assert.ok(f.styles[0].textContent.includes(`video[data-pure-browser-controls="${marker}"]`));
+  assert.equal(f.videos[1].getAttribute('data-pure-browser-controls'), null);
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.styles.length, 1);
+  f.command('restoreControls');
+  assert.equal(f.styles.length, 0);
+  assert.equal(v.getAttribute('data-pure-browser-controls'), 'existing-value');
+  assert.equal(v.controls, true);
+});
+test('failed suppression restores the page instead of leaving half a handoff', () => {
+  const f = fixture(), v = f.videos[0];
+  f.doc.fullscreenElement = v;
+  f.doc.head.appendChild = () => { throw new Error('DOM unavailable'); };
+  assert.equal(f.command('nativeControls'), false);
+  assert.equal(v.controls, true);
+  assert.equal(v.getAttribute('data-pure-browser-controls'), null);
+  assert.equal(f.styles.length, 0);
+});
+test('a content policy blocking the stylesheet keeps the web player intact', () => {
+  const f = fixture(), v = f.videos[0];
+  f.doc.fullscreenElement = v;
+  f.doc.head.appendChild = style => { f.styles.push(style); style.sheet = null; };
+  assert.equal(f.command('nativeControls'), false);
+  assert.equal(v.controls, true);
+  assert.equal(v.getAttribute('data-pure-browser-controls'), null);
+  assert.equal(f.styles.length, 0);
+});
+test('YouTube and embedded YouTube players never hand off their controls', () => {
+  for (const host of ['youtube.com', 'm.youtube.com', 'www.youtube.com', 'www.youtube-nocookie.com']) {
+    const f = fixture(), v = f.videos[0];
+    f.win.location.href = `https://${host}/watch?v=abc`;
+    f.doc.fullscreenElement = v;
+    assert.equal(f.api.snapshot().nativeControlsAvailable, false, host);
+    assert.equal(f.command('nativeControls'), false, host);
+    assert.equal(v.controls, true, host);
   }
+});
+test('lookalike hostnames do not change standard video ownership', () => {
+  const f = fixture();
+  f.win.location.href = 'https://notyoutube.com/watch';
+  f.doc.fullscreenElement = f.videos[0];
+  assert.equal(f.command('nativeControls'), true);
+});
+test('Blob source and direct casting are independent of fullscreen UI ownership', () => {
+  const f = fixture(), v = f.videos[0];
+  v.currentSrc = 'blob:https://example.com/local-video';
+  f.doc.fullscreenElement = v;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(v.controls, false);
+});
+test('page-driven fullscreen exit restores controls and a held speed', () => {
+  const f = fixture(), v = f.videos[0];
+  f.doc.fullscreenElement = v;
+  f.command('nativeControls'); f.command('beginBoost', { rate: 2 });
+  f.doc.fullscreenElement = null;
+  f.event('fullscreenchange', f.doc);
+  assert.equal(v.controls, true); assert.equal(v.playbackRate, 1);
+  assert.equal(f.api.snapshot().nativeControlsAvailable, false);
+  assert.equal(f.command('nativeControls'), false);
+});
+test('late restore for a previous video cannot release its replacement', () => {
+  const f = fixture(2), [first, next] = f.videos;
+  f.doc.fullscreenElement = first;
+  const previous = f.api.snapshot();
+  f.command('nativeControls');
+  f.doc.fullscreenElement = next;
+  f.command('nativeControls');
+  assert.equal(f.command('restoreControls', {}, previous), false);
+  assert.equal(first.controls, true);
+  assert.equal(next.controls, false);
 });
 test('unsafe speeds and unknown commands leave the player unchanged', () => {
   const f = fixture();
@@ -163,9 +275,12 @@ test('reply messages acknowledge the exact command id and frame', () => {
 });
 test('disposing a detached WebView removes timers and restores transient state', () => {
   const f = fixture(), v = f.videos[0];
+  f.doc.fullscreenElement = v;
   f.command('nativeControls'); f.command('beginBoost', { rate: 2 });
   f.api.dispose();
   assert.equal(v.controls, true); assert.equal(v.playbackRate, 1);
+  assert.equal(v.getAttribute('data-pure-browser-controls'), null);
+  assert.equal(f.styles.length, 0);
   assert.equal(f.timers.size, 0); assert.equal(f.win.__pureBrowserVideoV2, undefined);
 });
 test('video-free pages do not keep a recurring scan timer', () => {

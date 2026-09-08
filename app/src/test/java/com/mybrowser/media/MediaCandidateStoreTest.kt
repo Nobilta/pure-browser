@@ -1,6 +1,8 @@
 package com.mybrowser.media
 
 import android.app.Application
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,6 +22,41 @@ class MediaCandidateStoreTest {
         label = label,
         pageUrl = "https://example.com/watch",
     )
+
+    @Test
+    fun `loaded video recovers a missed candidate with its full signed URL`() {
+        val source = "https://cdn.example/movie.mp4?signature=keep%2Bthis&expires=123"
+        val signal = MediaPlaybackTracker.decodeSignal(
+            JSONObject().put("frameId", "frame").put("videoId", "v1")
+                .put("frameUrl", "https://example.com/watch").put("hasVideo", true)
+                .put("playing", true).put("sourceUrl", source).put("urls", JSONArray(listOf(source))),
+        )!!
+        val store = MediaCandidateStore()
+        store.updatePlayback(signal)
+        assertEquals(source, store.preferredCandidate?.url)
+        assertEquals("https://example.com/watch", store.preferredCandidate?.pageUrl)
+        assertEquals(setOf(source), store.playingCandidateUrls)
+        store.updatePlayback(signal.copy(isPlaying = false))
+        assertEquals(1, store.count)
+        assertTrue(store.playingCandidateUrls.isEmpty())
+        store.clear()
+        store.updatePlayback(signal.copy(isPlaying = false))
+        assertEquals(source, store.preferredCandidate?.url)
+    }
+
+    @Test
+    fun `blob sources and resource hints do not create direct candidates`() {
+        val store = MediaCandidateStore()
+        val signal = MediaPlaybackTracker.Signal(
+            hasVideo = true, isPlaying = true, sourceUrl = "blob:https://example.com/video",
+            urls = listOf("https://cdn.example/unrelated.mp4"),
+        )
+        store.updatePlayback(signal)
+        store.updatePlayback(signal.copy(sourceUrl = null))
+        store.updatePlayback(signal.copy(sourceUrl = "https://cdn.example/video.m4s"))
+        store.updatePlayback(signal.copy(hasVideo = false, sourceUrl = "https://cdn.example/movie.mp4"))
+        assertEquals(0, store.count)
+    }
 
     @Test
     fun `active manifest is marked and preferred`() {

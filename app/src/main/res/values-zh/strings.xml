@@ -17,7 +17,6 @@
     <string name="cd_clear">清除</string>
     <string name="press_back_again">再按一次退出</string>
     <string name="cd_cast">投屏</string>
-    <string name="cd_playback_speed">播放速度，当前 %1$s</string>
     <string name="cast_no_devices">未找到设备，确认电视与手机在同一 Wi-Fi</string>
     <string name="cast_pick_media">选择要投送的内容</string>
     <string name="cast_playing">正在播放</string>
@@ -89,6 +88,7 @@
     <string name="menu_exit_incognito">退出无痕模式</string>
     <string name="menu_cast_found">发现 %1$d 个可投送视频</string>
     <string name="menu_cast_none">当前页面无可投送视频</string>
+    <string name="menu_cast_no_direct_source">未检测到此视频可直接投送的媒体地址</string>
     <string name="playback_speed_title">播放速度</string>
     <string name="playback_speed_normal">%1$s（正常）</string>
     <string name="playback_speed_applied">播放速度已设为 %1$s</string>
@@ -288,7 +288,7 @@
     <string name="ui_open_incognito_mode_from_the_browser_menu_supported">无痕入口保留在浏览菜单。支持独立存储的 WebView 会隔离登录数据；旧 WebView 使用退出清除模式，可能同时清除普通模式的登录状态。书签与下载文件会保留。</string>
     <string name="ui_fullscreen_experience">全屏体验</string>
     <string name="ui_enhanced_fullscreen_controls">增强全屏控件</string>
-    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">播放、进度、倍速与锁定；随时切回网页控件</string>
+    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">支持交接的全屏视频自动使用增强控件</string>
     <string name="ui_rotate_landscape_videos_automatically">横向视频自动横屏</string>
     <string name="ui_portrait_videos_stay_upright_orientation_is_restored_on">竖向视频保持竖屏，退出后恢复方向</string>
     <string name="ui_fullscreen_gestures">全屏手势</string>
@@ -303,7 +303,7 @@
     <string name="ui_remember_playback_speed">记住播放速度</string>
     <string name="ui_use_the_selected_speed_for_future_videos_temporary">将选择的速度用于之后播放的视频；临时倍速不保存</string>
     <string name="ui_default_playback_speed">默认播放速度</string>
-    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">视频继续由网页播放，保留网站的登录、清晰度与字幕能力。需要使用网站专属按钮时，点全屏右上角的“网页控件”。</string>
+    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">YouTube 等自定义网页播放器保留网站自己的控件、清晰度与字幕选项。</string>
     <string name="ui_pure_browser">Pure 浏览器</string>
     <string name="ui_version_android_10_or_later_64_bit_arm">版本 %1$s\n支持 Android 10 及以上 · 64 位 ARM 设备</string>
     <string name="ui_developer_tools">开发工具</string>

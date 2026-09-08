@@ -17,7 +17,6 @@
     <string name="cd_clear">Clear</string>
     <string name="press_back_again">Press Back again to exit</string>
     <string name="cd_cast">Cast</string>
-    <string name="cd_playback_speed">Playback speed, currently %1$s</string>
     <string name="cast_no_devices">No devices found. Connect your TV and phone to the same Wi-Fi network.</string>
     <string name="cast_pick_media">Choose media to cast</string>
     <string name="cast_playing">Now playing</string>
@@ -89,6 +88,7 @@
     <string name="menu_exit_incognito">Exit incognito mode</string>
     <string name="menu_cast_found">Castable videos found: %1$d</string>
     <string name="menu_cast_none">No castable videos on this page</string>
+    <string name="menu_cast_no_direct_source">No direct media address detected for this video</string>
     <string name="playback_speed_title">Playback speed</string>
     <string name="playback_speed_normal">%1$s (normal)</string>
     <string name="playback_speed_applied">Playback speed set to %1$s</string>
@@ -288,7 +288,7 @@
     <string name="ui_open_incognito_mode_from_the_browser_menu_supported">Open incognito mode from the browser menu. Supported WebView versions isolate sign-in data. Older versions clear data on exit and may also sign you out of regular tabs. Bookmarks and downloaded files are kept.</string>
     <string name="ui_fullscreen_experience">Fullscreen experience</string>
     <string name="ui_enhanced_fullscreen_controls">Enhanced fullscreen controls</string>
-    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">Playback, seeking, speed, and lock controls; switch to webpage controls anytime</string>
+    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">Use enhanced controls for compatible fullscreen videos</string>
     <string name="ui_rotate_landscape_videos_automatically">Rotate landscape videos automatically</string>
     <string name="ui_portrait_videos_stay_upright_orientation_is_restored_on">Portrait videos stay upright; orientation is restored on exit</string>
     <string name="ui_fullscreen_gestures">Fullscreen gestures</string>
@@ -303,7 +303,7 @@
     <string name="ui_remember_playback_speed">Remember playback speed</string>
     <string name="ui_use_the_selected_speed_for_future_videos_temporary">Use the selected speed for future videos. Temporary boosts are not saved.</string>
     <string name="ui_default_playback_speed">Default playback speed</string>
-    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">Videos keep playing through the webpage, preserving sign-in, quality, and subtitle options. Tap “Web controls” at the top right for website-specific controls.</string>
+    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">YouTube and custom web players keep their own controls, quality and subtitle options.</string>
     <string name="ui_pure_browser">Pure Browser</string>
     <string name="ui_version_android_10_or_later_64_bit_arm">Version %1$s\nAndroid 10 or later · 64-bit ARM devices</string>
     <string name="ui_developer_tools">Developer tools</string>

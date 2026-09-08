@@ -11,6 +11,7 @@ const { pathToFileURL } = require('node:url');
       deviceScaleFactor: 2,
     });
     await page.goto(pathToFileURL(path.join(__dirname, 'comparison.html')).href);
+    await page.locator('[data-name="leaf-p"]').screenshot({ path: path.join(__dirname, 'selected.png') });
     await page.screenshot({ path: path.join(__dirname, 'comparison.png'), fullPage: true });
     await page.getByRole('button', { name: '深色背景' }).click();
     await page.screenshot({ path: path.join(__dirname, 'comparison-dark.png'), fullPage: true });
