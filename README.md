@@ -4,7 +4,7 @@ Pure 浏览器是一款面向 Android 10 及以上设备的轻量浏览器。界
 Kotlin、Jetpack Compose 和 WebView 实现；只有规则匹配及纯 URL 逻辑默认使用
 Rust。项目追求体积可控、行为透明，以及在 Android 生命周期和存储规则下可验证地工作。
 
-当前版本为 `0.3.0`（versionCode 3），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
+当前版本为 `0.3.1`（versionCode 4），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
 项目目录和 Gradle 根项目均命名为
 `pure-browser`；为保持已安装应用的升级兼容，Android applicationId 暂时仍为
 `com.mybrowser`。
@@ -43,8 +43,14 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 
 - 可在导航首页和固定网址主页之间切换。
 - 书签支持新增、编辑和删除；新增时默认使用当前页面标题及 URL，也可手动修改。
-- 添加书签时可同时添加到导航首页，快捷入口使用网页 favicon；长按只移除首页入口，
-  不会删除书签。
+- 添加书签时可同时添加到导航首页，快捷入口默认使用网页 favicon。
+- 长按首页快捷入口打开统一编辑窗口，可修改标题、网址，从系统文件选择器导入图片或
+  使用标题文字图标；窗口内提供删除按钮和二次确认。编辑和删除均不改变书签。
+- 保存时保留快捷入口 ID、创建时间和排列位置；重复网址会提示冲突，取消不保存草稿。
+  图标经 Android ImageDecoder 按方向解码并缩小到最长边 96px，再存入应用私有目录；
+  无需申请整个相册的读取权限。自定义图标不会被之后添加书签时的网页 favicon 覆盖。
+- 快捷入口信息在后台线程确认写入后才报告保存成功；替换图片先写新文件，成功后才清理旧图。
+  写入失败会回滚标题、网址及图标选择，删除失败也会保留原入口和图片。取消图片草稿不写入图标文件。
 - 历史记录合并重复访问，并为持久化内容和查询结果设置边界。
 - 书签和历史记录搜索直接查询完整数据库，每次显示 50 条并可继续加载；快速输入取消旧查询，
   失败时可重试。历史按日期分组，条目菜单可新标签打开、复制和删除。
@@ -161,6 +167,7 @@ pure-browser/
 │   ├── filename_parser/      legacy，可选
 │   └── database/             隔离的早期实验，不进 APK
 ├── validation/               可复现页面/媒体夹具；生成的模拟器证据仅保留本地
+├── design/app-icon/          当前图标与「青叶 P」候选、Android 矢量源文件及对比预览
 ├── build-and-test.sh         完整本地验证与 Release 构建
 └── PureBrowser-*.apk         本地交付产物，不纳入 Git
 ```
@@ -174,7 +181,7 @@ DLNA 已按职责下沉；不为缩短文件行数而机械拆分 ViewModel。
 - JDK 17 或更高版本
 - Android SDK Platform 37、Build Tools 及 NDK
 - Rust stable、`aarch64-linux-android` target
-- Node.js 18+、Python 3（仅本地验证工具，不打包进 APK）
+- Node.js 18+、Python 3.9+（仅本地验证工具，不打包进 APK）
 - Android 10+ arm64 真机或模拟器
 
 项目通过 `local.properties` 或 `ANDROID_SDK_ROOT` 查找 Android SDK，通过
@@ -202,8 +209,8 @@ keyPassword=...
 该脚本执行：
 
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
-2. 15 项 Node 网页视频协议测试、407 项三语言资源及格式参数一致性检查（含复数资源）；
-3. Android/Robolectric 164 项单元测试；
+2. 15 项 Node 网页视频协议测试、414 项三语言资源及格式参数一致性检查（含复数资源）；
+3. Android/Robolectric 175 项单元测试；
 4. Android lint；
 5. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
 6. APK 签名、大小和 SHA-256 检查。
@@ -215,10 +222,14 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 
 当前本地 Release 产物：
 
-- `PureBrowser-v0.3.0-release.apk`
-- 2,031,774 bytes（约 1.94 MiB），比 0.2.0 减少 99,473 bytes（约 4.7%）
-- SHA-256：`983e5b4311f8680a7dbc2ff5b4565658825f7ad8038deca07506459169bd4514`
+- `PureBrowser-v0.3.1-release.apk`
+- 2,046,530 bytes（约 1.95 MiB），比 0.3.0 增加 14,756 bytes（约 0.7%）
+- SHA-256：`5c3cfe9ea5dda25fc55f7b5a6db66d9dcebb071a3a0853df3fe2904b5a160c37`
 - APK Signature Scheme v2：通过
+
+安装包继续使用原有应用图标。新绘制的「青叶 P」保存在 [图标比选目录](./design/app-icon/README.md)，
+提供 [并排预览](./design/app-icon/comparison.png)、可切换背景的 HTML 和可直接接入的 Android
+矢量资源，等待选定后替换；设计预览不进入 APK。
 
 只运行 Android 单元测试或 lint：
 
@@ -230,7 +241,7 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 连接设备后安装并冷启动：
 
 ```bash
-./install_and_test.sh PureBrowser-v0.3.0-release.apk
+./install_and_test.sh PureBrowser-v0.3.1-release.apk
 ```
 
 诊断设备与崩溃日志：
@@ -246,6 +257,7 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 python3 validation/qa-server.py
 # 在另一个终端运行；替换为当前模拟器序号。
 python3 validation/setup-ui-probe.py emulator-5554
+python3 validation/home-shortcut-regression.py --serial emulator-5554
 python3 validation/productivity-regression.py --serial emulator-5554
 ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
 python3 validation/settings-regression.py --serial emulator-5554
@@ -260,6 +272,11 @@ python3 validation/productivity-visual-regression.py --serial emulator-5556
 测试服务器只监听本机的 8875/8876 端口，脚本自动设置 ADB 反向端口。
 截图、遥测和性能结果位于 `validation/results/`，不纳入 Git。UI 读取辅助程序仅安装到模拟器
 的 `/data/local/tmp`，Release APK 不开放 WebView 调试。
+
+首页编辑回归仅接受可 root 的模拟器，会暂存并恢复其首页偏好，验证图片选取、校验与取消、
+草稿隔离、图片文件清理、保存后重启、旋转与大字体、删除及书签保留；结果记录设备 APK 的
+SHA-256。每个版本的实际执行范围见回归报告，旧版本的
+下载、视频和性能结果不自动计入新版。
 新增 productivity 回归只接受模拟器，会通过 `adb root` 写入 123 条测试书签/历史记录，
 用于验证跨页搜索和分页；不要用于存有个人浏览数据的设备。
 
@@ -287,5 +304,6 @@ README 是项目的入口和当前能力基线。后续每次修改用户可见�
 方式、验证结果或交付 APK 时，都必须在同一次变更中同步更新本 README；不能让实现、测试
 数量、环境要求或校验值与 README 脱节。
 
-本轮修改分支为 `feat/browser-productivity-20260907`。修改前已建立回滚分支
-`backup/pre-browser-productivity-20260907`（`82d0cb4`，0.2.0）；此前版本仍保留在 Git 历史中。
+本轮修改分支为 `feat/browser-productivity-20260907`。上个版本的回滚分支为
+`backup/pre-home-shortcut-editor-20260907`（`bf75a92`，0.3.0）。本轮收尾前的未提交编辑器草稿
+另保存在 `backup/pre-home-shortcut-completion-20260908`（`cdbd083`），当前工作区与原暂存区保持独立。

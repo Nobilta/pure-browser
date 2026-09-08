@@ -52,7 +52,7 @@ bash rust/resolve-android-ndk.sh .
 或手工：
 
 ```bash
-adb install -r PureBrowser-v0.3.0-release.apk
+adb install -r PureBrowser-v0.3.1-release.apk
 adb shell am start -n com.mybrowser/com.mybrowser.MainActivity
 ```
 

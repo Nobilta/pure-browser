@@ -1,5 +1,6 @@
 package com.mybrowser.home
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.UUID
 
 /** The two user-selectable meanings of the browser's Home action. */
@@ -32,6 +34,14 @@ data class HomeShortcut(
     val icon: Bitmap?,
     val createdAt: Long,
 )
+
+sealed interface ShortcutIconChange {
+    data object Keep : ShortcutIconChange
+    data object UseText : ShortcutIconChange
+    data class Replace(val bitmap: Bitmap) : ShortcutIconChange
+}
+
+enum class ShortcutSaveResult { SAVED, INVALID_URL, DUPLICATE_URL, NOT_FOUND, ICON_ERROR, FAILED }
 
 /**
  * Owns homepage settings and shortcut persistence.
@@ -107,6 +117,7 @@ class HomeRepository(context: Context) {
         if (old == null && records.size >= MAX_SHORTCUTS) return loadShortcuts()
         val id = old?.id ?: UUID.randomUUID().toString()
         val iconFile = when {
+            old?.customIcon == true -> old.iconFile
             favicon != null -> writeIcon(id, favicon) ?: old?.iconFile
             else -> old?.iconFile
         }
@@ -116,12 +127,46 @@ class HomeRepository(context: Context) {
             url = cleanUrl,
             iconFile = iconFile,
             createdAt = old?.createdAt ?: System.currentTimeMillis(),
+            customIcon = old?.customIcon ?: false,
         )
         if (existingIndex >= 0) records[existingIndex] = updated
         else if (records.size < MAX_SHORTCUTS) records += updated
 
-        persist(records)
+        if (!persist(records)) {
+            if (iconFile != old?.iconFile) deleteIcon(iconFile)
+            throw IOException("Unable to save homepage shortcut")
+        }
+        if (iconFile != old?.iconFile) deleteIcon(old?.iconFile)
         return loadShortcuts()
+    }
+
+    /** Editing uses the stable id so changing a URL never creates or replaces another tile. */
+    @Synchronized
+    fun updateShortcut(id: String, title: String, url: String, icon: ShortcutIconChange): ShortcutSaveResult {
+        val cleanUrl = if (UrlUtils.isNavigableInput(url)) UrlUtils.normalizeOrSearch(url, "") else ""
+        if (!UrlUtils.isHttpUrl(cleanUrl)) return ShortcutSaveResult.INVALID_URL
+        val records = readRecords().toMutableList()
+        val index = records.indexOfFirst { it.id == id }
+        if (index < 0) return ShortcutSaveResult.NOT_FOUND
+        if (records.any { it.id != id && it.url == cleanUrl }) return ShortcutSaveResult.DUPLICATE_URL
+        val old = records[index]
+        val iconFile = when (icon) {
+            ShortcutIconChange.Keep -> old.iconFile
+            ShortcutIconChange.UseText -> null
+            is ShortcutIconChange.Replace -> writeIcon(id, icon.bitmap) ?: return ShortcutSaveResult.ICON_ERROR
+        }
+        records[index] = old.copy(
+            title = sanitizeTitle(title).ifBlank { UrlUtils.hostOf(cleanUrl).orEmpty() }.ifBlank { cleanUrl },
+            url = cleanUrl,
+            iconFile = iconFile,
+            customIcon = old.customIcon || icon != ShortcutIconChange.Keep,
+        )
+        if (!persist(records)) {
+            if (iconFile != old.iconFile) deleteIcon(iconFile)
+            return ShortcutSaveResult.FAILED
+        }
+        if (iconFile != old.iconFile) deleteIcon(old.iconFile)
+        return ShortcutSaveResult.SAVED
     }
 
     @Synchronized
@@ -130,8 +175,8 @@ class HomeRepository(context: Context) {
         val records = readRecords().toMutableList()
         val removed = records.firstOrNull { it.id == id } ?: return loadShortcuts()
         records.removeAll { it.id == id }
-        removed.iconFile?.let { name -> safeIconFile(name)?.delete() }
-        persist(records)
+        if (!persist(records)) throw IOException("Unable to remove homepage shortcut")
+        deleteIcon(removed.iconFile)
         return loadShortcuts()
     }
 
@@ -161,6 +206,7 @@ class HomeRepository(context: Context) {
                             iconFile = iconName,
                             createdAt = item.optLong("createdAt", 0L)
                                 .takeIf { it > 0L } ?: System.currentTimeMillis(),
+                            customIcon = item.optBoolean("customIcon", false),
                         ),
                     )
                 }
@@ -171,7 +217,9 @@ class HomeRepository(context: Context) {
         }
     }
 
-    private fun persist(records: List<Record>) {
+    /** Callers run on IO: report success only after the metadata reaches storage. */
+    @SuppressLint("UseKtx") // KTX edit returns Unit; the commit result gates image cleanup.
+    private fun persist(records: List<Record>): Boolean {
         val array = JSONArray()
         records.take(MAX_SHORTCUTS).forEach { record ->
             array.put(
@@ -180,10 +228,16 @@ class HomeRepository(context: Context) {
                     .put("title", record.title)
                     .put("url", record.url)
                     .put("icon", record.iconFile ?: JSONObject.NULL)
-                    .put("createdAt", record.createdAt),
+                    .put("createdAt", record.createdAt)
+                    .put("customIcon", record.customIcon),
             )
         }
-        prefs.edit { putString(KEY_SHORTCUTS, array.toString()) }
+        val previous = prefs.getString(KEY_SHORTCUTS, null)
+        if (prefs.edit().putString(KEY_SHORTCUTS, array.toString()).commit()) return true
+        // SharedPreferences updates its in-memory map even when commit returns false.
+        // Restore the previous map as well so a failed edit cannot reappear on reload.
+        prefs.edit(commit = true) { putString(KEY_SHORTCUTS, previous) }
+        return false
     }
 
     private fun writeIcon(id: String, bitmap: Bitmap): String? {
@@ -191,7 +245,9 @@ class HomeRepository(context: Context) {
             bitmap.width.toLong() * bitmap.height.toLong() > MAX_SOURCE_PIXELS
         ) return null
 
-        val fileName = "$id.png"
+        // Keep the previous image intact until the metadata commit succeeds. The stable
+        // shortcut id is independent of its image filename, including for older records.
+        val fileName = "${UUID.randomUUID()}.png"
         val target = safeIconFile(fileName) ?: return null
         val temporary = safeIconFile("$id.tmp") ?: return null
         val scale = minOf(1f, ICON_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height))
@@ -209,24 +265,25 @@ class HomeRepository(context: Context) {
                 output.fd.sync()
             }
             if (temporary.length() !in 1..MAX_ICON_BYTES) {
-                temporary.delete()
                 return null
             }
-            if (target.exists() && !target.delete()) return null
+            // Publish only a fully written image; metadata still references the old file.
             if (!temporary.renameTo(target)) {
-                temporary.delete()
                 return null
             }
             fileName
         } catch (_: RuntimeException) {
-            temporary.delete()
             null
-        } catch (_: java.io.IOException) {
-            temporary.delete()
+        } catch (_: IOException) {
             null
         } finally {
+            temporary.delete()
             if (scaled !== bitmap) scaled.recycle()
         }
+    }
+
+    private fun deleteIcon(name: String?) {
+        name?.let { safeIconFile(it)?.delete() }
     }
 
     private fun decodeIcon(name: String): Bitmap? {
@@ -260,6 +317,7 @@ class HomeRepository(context: Context) {
         val url: String,
         val iconFile: String?,
         val createdAt: Long,
+        val customIcon: Boolean = false,
     )
 
     private companion object {
