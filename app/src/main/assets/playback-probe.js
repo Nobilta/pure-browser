@@ -6,6 +6,7 @@
   var ids = new WeakMap(), speeds = new WeakMap(), nextId = 0;
   var selected = null, boost = null, nativeControls = null, disposed = false;
   var scheduled = null, pulse = null, observer = null;
+  var controlsAttribute = 'data-pure-browser-controls';
   var rates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
   function finite(value, fallback) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
   function id(video) {
@@ -22,6 +23,16 @@
   function fullscreen(video) {
     var root = doc.fullscreenElement || doc.webkitFullscreenElement;
     return !!video.webkitDisplayingFullscreen || !!(root && (root === video || root.contains(video)));
+  }
+  function canUseNativeControls(video) {
+    if (!video) return false;
+    var host = new URL(win.location.href).hostname.toLowerCase();
+    if (/(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(host)) return false;
+    var root = doc.fullscreenElement || doc.webkitFullscreenElement;
+    var controls = nativeControls && nativeControls.video === video ? nativeControls.controls : video.controls;
+    // A container may render its own controls. Only the video's built-in controls can
+    // be handed off through video.controls; Blob/MSE alone says nothing about UI ownership.
+    return !!controls && (root === video || !!video.webkitDisplayingFullscreen);
   }
   function rank(video) {
     var score = fullscreen(video) ? 10000 : 0;
@@ -52,13 +63,15 @@
       var url = new URL(String(value || ''), doc.baseURI).href;
       if (!/^(https?:|blob:)/i.test(url) || url.length > 8192 || /\.(ts|m4s)(?:[?#]|$)/i.test(url)) return;
       if (list.length < 64 && list.indexOf(url) < 0) list.push(url);
+      return url;
     } catch (_) {}
   }
   function snapshot() {
-    var video = pick(), urls = [], rangeStart = 0, rangeEnd = 0;
+    var video = pick(), urls = [], sourceUrl = null, rangeStart = 0, rangeEnd = 0;
     if (video) {
       selected = video;
-      addUrl(urls, video.currentSrc || video.src);
+      sourceUrl = addUrl(urls, video.currentSrc) || null;
+      if (!sourceUrl) addUrl(urls, video.src);
       Array.prototype.slice.call(video.querySelectorAll('source'), 0, 16).forEach(function(source) {
         addUrl(urls, source.src || source.getAttribute('src'));
       });
@@ -79,7 +92,8 @@
       videoId: video ? id(video) : null, hasVideo: !!video,
       playing: !!video && !video.paused && !video.ended,
       fullscreen: !!video && fullscreen(video), score: video ? rank(video) : 0,
-      urls: urls, playbackRate: video ? finite(video.playbackRate, 1) : null,
+      nativeControlsAvailable: canUseNativeControls(video),
+      urls: urls, sourceUrl: sourceUrl, playbackRate: video ? finite(video.playbackRate, 1) : null,
       position: video ? Math.max(0, finite(video.currentTime, 0)) : 0,
       duration: video ? Math.max(0, finite(video.duration, 0)) : 0,
       seekStart: Math.max(0, finite(rangeStart, 0)), seekEnd: Math.max(0, finite(rangeEnd, 0)),
@@ -116,9 +130,33 @@
   }
   function restoreControls() {
     if (nativeControls) {
-      try { nativeControls.video.controls = nativeControls.controls; } catch (_) {}
+      var saved = nativeControls;
       nativeControls = null;
+      try {
+        if (saved.attribute === null) saved.video.removeAttribute(controlsAttribute);
+        else saved.video.setAttribute(controlsAttribute, saved.attribute);
+        saved.video.controls = saved.controls;
+      } catch (_) {}
+      try { saved.style.remove(); } catch (_) {}
     }
+  }
+  function hideControls(video) {
+    if (!nativeControls || nativeControls.video !== video) {
+      restoreControls();
+      var style = doc.createElement('style'), marker = frameId + '-' + id(video);
+      nativeControls = { video: video, controls: video.controls,
+        attribute: video.getAttribute(controlsAttribute), style: style };
+      // Chromium can force its UA controls in fullscreen even with controls=false.
+      // Scope suppression to this element, and remove both marker and style on exit.
+      var selector = 'video[' + controlsAttribute + '="' + marker + '"]';
+      style.textContent = selector + '::-webkit-media-controls{display:none!important}' +
+        selector + '::-webkit-media-controls-enclosure{display:none!important}';
+      (doc.head || doc.documentElement).appendChild(style);
+      if (!style.sheet || !style.sheet.cssRules.length) throw new Error('Control styles unavailable');
+      video.setAttribute(controlsAttribute, marker);
+    }
+    video.controls = false;
+    return !video.controls;
   }
   function seek(video, requested) {
     if (!Number.isFinite(requested) || !Number.isFinite(video.duration) || video.duration <= 0 || !video.seekable.length) return false;
@@ -142,7 +180,9 @@
       if (message.type === 'endBoost') {
         ok = restoreBoost();
       } else if (message.type === 'restoreControls') {
-        restoreBoost(); restoreControls(); ok = true;
+        if (!nativeControls || id(nativeControls.video) === message.videoId) {
+          restoreBoost(); restoreControls(); ok = true;
+        }
       } else if (!video) {
         complete(false); return false;
       } else if (message.type === 'setPlaybackRate') {
@@ -172,13 +212,12 @@
         } else { restoreBoost(); video.pause(); }
         ok = true;
       } else if (message.type === 'nativeControls') {
-        if (!nativeControls || nativeControls.video !== video) {
-          restoreControls(); nativeControls = { video: video, controls: video.controls };
-        }
-        video.controls = false;
-        ok = true;
+        if (canUseNativeControls(video)) ok = hideControls(video);
       }
-    } catch (_) { ok = false; }
+    } catch (_) {
+      if (message.type === 'nativeControls') restoreControls();
+      ok = false;
+    }
     complete(ok); post(); return ok;
   }
   function mediaEvent(event) {
@@ -196,9 +235,15 @@
   var events = ['play', 'playing', 'timeupdate', 'loadedmetadata', 'pause', 'ended', 'emptied', 'durationchange', 'ratechange'];
   function visibilityChanged() { if (doc.hidden) restoreBoost(); schedule(); }
   function pageHide() { restoreBoost(); restoreControls(); }
+  function fullscreenChanged() {
+    if (nativeControls && !canUseNativeControls(nativeControls.video)) {
+      restoreBoost(); restoreControls();
+    }
+    schedule();
+  }
   events.forEach(function(name) { doc.addEventListener(name, mediaEvent, true); });
-  doc.addEventListener('fullscreenchange', schedule);
-  doc.addEventListener('webkitfullscreenchange', schedule);
+  doc.addEventListener('fullscreenchange', fullscreenChanged);
+  doc.addEventListener('webkitfullscreenchange', fullscreenChanged);
   doc.addEventListener('visibilitychange', visibilityChanged);
   win.addEventListener('pagehide', pageHide);
   try {
@@ -217,8 +262,8 @@
       win.clearTimeout(scheduled); win.clearTimeout(pulse);
       if (observer) observer.disconnect();
       events.forEach(function(name) { doc.removeEventListener(name, mediaEvent, true); });
-      doc.removeEventListener('fullscreenchange', schedule);
-      doc.removeEventListener('webkitfullscreenchange', schedule);
+      doc.removeEventListener('fullscreenchange', fullscreenChanged);
+      doc.removeEventListener('webkitfullscreenchange', fullscreenChanged);
       doc.removeEventListener('visibilitychange', visibilityChanged);
       win.removeEventListener('pagehide', pageHide);
       if (bridge) bridge.onmessage = null;

@@ -31,6 +31,8 @@ class Regression:
         self.output.mkdir(exist_ok=True)
         self.checks = []
         self.width = self.height = 0
+        apk_path = ux.adb("shell", "pm", "path", "com.mybrowser").partition(":")[2].strip()
+        self.apk_hash = ux.adb("shell", "sha256sum", apk_path).split()[0]
 
     def record(self, name, **details):
         self.checks.append({"check": name, **details})
@@ -77,6 +79,14 @@ class Regression:
     def button(self, label, reveal=True):
         root = self.controls() if reveal else ux.nodes()[0]
         node = ux.match(root, label)
+        if node is None and label == "Web play/pause" and self.variant == "custom":
+            # Older providers can omit the custom fullscreen DOM from accessibility.
+            state = self.wait(lambda s: s["fullscreen"] and s.get("webPlayRect", {}).get("width", 0) > 0)
+            rect, scale = state["webPlayRect"], state["viewport"]["dpr"]
+            ux.adb("shell", "input", "tap", str(int((rect["x"] + rect["width"] / 2) * scale)),
+                   str(int((rect["y"] + rect["height"] / 2) * scale)))
+            time.sleep(.4)
+            return
         if node is None:
             raise AssertionError("Control missing: " + label)
         x1, y1, x2, y2 = ux.bounds(node)
@@ -134,11 +144,15 @@ class Regression:
             ux.adb("reverse", "tcp:" + str(port), "tcp:" + str(port))
         ux.adb("shell", "am", "force-stop", "com.mybrowser")
         page = "player-cross-frame.html" if self.variant == "cross" else "player-fixture.html"
-        query = "?case=" + self.case + ("&blob=1" if self.variant == "blob" else "&square=1" if self.variant == "square" else "")
+        query = "?case=" + self.case + ("&" + self.variant + "=1" if self.variant in ("blob", "square", "custom") else "")
         ux.launch("http://127.0.0.1:8875/" + page + query)
         inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
         original_brightness = self.brightness()
         original_size = self.snapshot("inline")
+        root, _ = ux.nodes()
+        assert ux.match(root, "播放速度，当前 1×") is None
+        assert ux.match(root, "投屏") is None
+        self.record("inline page has no floating speed or cast buttons")
         self.enter_fullscreen()
         root, _ = ux.nodes()
         if ux.match(root, "Got it") is not None:
@@ -146,7 +160,36 @@ class Regression:
         self.snapshot("entered")
         self.record("fullscreen opened", width=self.width, height=self.height)
 
+        if self.variant == "custom":
+            assert ux.match(root, "退出全屏") is None
+            assert ux.match(root, "切换到增强控件") is None
+            assert ux.match(root, "暂停视频") is None
+            self.button("Web play/pause", reveal=False)
+            self.wait(lambda s: s["paused"] and not s["controls"])
+            self.button("Web play/pause", reveal=False)
+            self.wait(lambda s: not s["paused"] and s["fullscreen"])
+            self.record("custom container retains its only control layer and accepts touches")
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda s: not s["fullscreen"] and not s["controls"])
+            self.enter_fullscreen()
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda s: not s["fullscreen"])
+            self.record("custom fullscreen can exit and reopen without native controls")
+            time.sleep(1)
+            assert self.snapshot("exited") == original_size
+            return
+
+        if self.variant == "cross" and not inline.get("probe"):
+            assert ux.match(root, "退出全屏") is None
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda s: not s["fullscreen"])
+            self.record("unsupported cross-origin provider preserves webpage playback")
+            return
+
         time.sleep(4)
+        root, _ = ux.nodes()
+        assert ux.match(root, "退出全屏") is None, "Telemetry repeatedly revealed native controls"
+        self.record("native controls auto-hide while telemetry continues")
         self.touch()
         time.sleep(.4)
         root, _ = ux.nodes()
@@ -176,8 +219,20 @@ class Regression:
         assert self.width > self.height, "Landscape video did not rotate"
         self.record("landscape video rotates automatically")
 
+        self.button("投屏")
+        root, _ = ux.nodes()
+        assert ux.match(root, "选择要投送的内容") is not None
+        self.wait(lambda s: s["fullscreen"])
+        self.snapshot("cast-sheet")
+        dismiss_started = time.time()
+        ux.adb("shell", "input", "keyevent", "4")
+        self.wait(lambda s: s["receivedAt"] > dismiss_started + .5 and s["fullscreen"] and not s["controls"])
+        ux.expect("选择要投送的内容", present=False)
+        self.record("cast picker opens and dismisses without leaving fullscreen")
+
         self.button("暂停视频")
         self.wait(lambda s: s["paused"])
+        self.snapshot("paused")
         self.button("播放视频")
         self.wait(lambda s: not s["paused"])
         self.record("pause and resume retain control target")
@@ -199,14 +254,22 @@ class Regression:
         self.wait(lambda s: s["rate"] == 2)
         ux.adb("shell", "input", "keyevent", "3")
         hold.wait(timeout=10)
+        resume_started = time.time()
         ux.launch()
-        resumed = self.wait(lambda s: s["rate"] == 1.5)
+        resumed = self.wait(lambda s: s["receivedAt"] >= resume_started and s["rate"] == 1.5)
         self.record("backgrounding cancels temporary speed before returning", fullscreen=resumed["fullscreen"])
         if not resumed["fullscreen"]:
             assert resumed["controls"] and self.brightness() == original_brightness
             self.enter_fullscreen()
             self.wait(lambda s: not s["controls"])
             self.snapshot("reentered")
+        else:
+            self.button("退出全屏")
+            self.wait(lambda s: not s["fullscreen"] and s["controls"])
+            self.enter_fullscreen()
+            self.wait(lambda s: not s["controls"] and not s["paused"])
+            self.snapshot("reentered")
+        self.record("fullscreen handoff works again after backgrounding")
 
         self.double_tap()
         self.wait(lambda s: s["paused"])
@@ -262,6 +325,7 @@ class Regression:
 
     def save(self, error=None):
         value = {"serial": self.serial, "sdk": self.sdk, "case": self.case,
+                 "apkSha256": self.apk_hash,
                  "checks": self.checks, "error": error, "lastPlayback": self.events()[-1:]}
         (self.output / ("api" + self.sdk + "-" + self.variant + ".json")).write_text(
             json.dumps(value, ensure_ascii=False, indent=2))
@@ -270,7 +334,7 @@ class Regression:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
-    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square"], default="standard")
+    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square", "custom"], default="standard")
     args = parser.parse_args()
     test = Regression(args.serial, args.variant)
     try:

@@ -36,6 +36,7 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - 字体或语言变化导致 Activity 重建时保留设置分类；用户冷启动仍遵循主页/恢复设置。
 - 支持跟随系统、浅色和深色主题；状态栏与导航栏图标跟随应用主题。
 - Android 12+ 使用动态配色，Android 10–11 使用内置配色。
+- 当前应用图标已切换为「青叶 P」：青绿色渐变背景、字母 P 与叶片前景；同时提供 Android 13+ 主题单色图标。
 - 应用提示、按钮及设置支持简体中文、繁体中文和英文；其他语言使用英文。
   Android 13+ 可在系统的应用语言页面选择语言，较早系统跟随系统语言。
 
@@ -72,13 +73,19 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 
 ### 媒体与投屏
 
-- 检测页面视频、音频以及 HLS/DASH 地址。
-- 页面出现可投屏媒体时，在右下角显示悬浮投屏按钮。
+- 根据网络请求路径和 Accept 请求头识别视频、音频及 HLS/DASH 候选地址。
+- 当前视频已加载的 `currentSrc` 可补充嗅探遗漏的可识别 HTTP(S) 媒体候选，保留完整签名参数；
+  尚未加载的 `src` 属性、页面资源线索和 Blob 地址不会通过此路径直接变成投屏候选。
+- 投屏入口位于菜单和增强全屏播放器控制栏，不再覆盖网页右下角。
+  控制栏内打开媒体/设备选择窗口不会退出全屏，取消后仍留在原播放器。
+  关闭弹层或从后台返回时恢复沉浸全屏，避免旧系统导航栏覆盖播放器按钮。
 - 多视频直播页会追踪实际处于播放状态的 `<video>`，并在候选列表标注“正在播放”。
-- 页面存在视频时显示倍速入口，暂停后仍可使用。可选择 `0.5×`、`0.75×`、`1×`、
+- 页面存在视频时可从菜单打开倍速入口，暂停后仍可使用；网页内不显示悬浮倍速按钮。可选择 `0.5×`、`0.75×`、`1×`、
   `1.25×`、`1.5×`、`2×` 或 `3×`；记住速度默认关闭，长按临时加速不会写入偏好。
-- 增强全屏控件提供播放/暂停、进度条、快退/快进 10 秒、倍速、旋转、投屏和锁定。
-- 全屏左侧上下滑动调整当前窗口亮度，右侧调整媒体音量；亮度退出后恢复，不修改系统亮度。
+- 开启增强控件设置时，标准 `<video controls>` 自身全屏可交接给浏览器，提供播放/暂停、
+  进度条、快退/快进 10 秒、倍速、旋转、投屏和锁定。网站自定义容器全屏、YouTube 及
+  无法访问的跨域播放器保留网页控件，不叠加浏览器标题栏、播放栏或手势层。
+- 增强全屏模式下，左侧上下滑动调整当前窗口亮度，右侧调整媒体音量；亮度退出后恢复，不修改系统亮度。
 - 横向滑动预览进度，松手跳转。直播或没有可跳转范围的视频不启用进度跳转。
 - 长按临时使用 2× 或 3×（不降低原有更快速度），松手、取消或切后台恢复原速度。
 - 单击显示/隐藏控件，双击中央播放/暂停，双击两侧快退/快进 10 秒。
@@ -87,9 +94,18 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 - 支持 SSDP 发现和 DLNA/UPnP AVTransport 控制。手机与接收设备必须处于同一局域网。
 
 视频解码仍由网站与 WebView 完成，没有新增 ExoPlayer/FFmpeg 等独立解码依赖。
-原生全屏界面只控制对应的 HTML 视频元素，网站登录、清晰度、字幕及 DRM 能力仍由网站负责；
-可切回“网页控件”使用网站专属按钮。DRM、MSE/Blob 视频能否播放取决于网站与 WebView，
-Blob 地址不能直接作为 DLNA 接收器可访问的网络地址。
+原生全屏界面只控制对应的 HTML 视频元素，网站登录、清晰度、字幕及 DRM 能力仍由网站负责。
+兼容的标准视频可以切回“网页控件”；复杂网站直接使用自己的全屏按钮或系统返回退出。
+网页确认交接后才显示浏览器播放栏；目标变化或退出时先撤下播放/手势层，再恢复视频原有控件。
+临时隐藏样式仅作用于接管的视频元素，用于抑制 WebView 全屏时强制显示的内置控件；退出后移除。
+播放遥测不会重置自动隐藏计时，过期回执不能重新开启已撤下的控件。
+
+MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，但 Blob 地址不能交给 DLNA
+接收器直接访问。YouTube 常使用 MSE、分离音视频及短期签名请求，通常没有本嗅探器支持的完整媒体地址；
+没有候选时菜单显示“未检测到此视频可直接投送的媒体地址”。这不代表已经判断为 DRM。
+识别到 HTTP(S) 候选也不保证投送成功：Cookie、Referer、地址有效期和接收设备格式支持都会影响结果。
+当前仅实现 DLNA 直投，不包含 Google Cast 集成、远端会话控制界面或鉴权代理。
+后续设计见 [播放器与投屏方案](./design/video-playback-and-casting.md)。
 
 支持 `WEB_MESSAGE_LISTENER` 和 `DOCUMENT_START_SCRIPT` 的 WebView 通过逐 frame 消息与
 确认回执控制跨域视频。旧 WebView 仅控制主文档及可访问的同源 iframe；不能访问的跨域播放器
@@ -167,7 +183,7 @@ pure-browser/
 │   ├── filename_parser/      legacy，可选
 │   └── database/             隔离的早期实验，不进 APK
 ├── validation/               可复现页面/媒体夹具；生成的模拟器证据仅保留本地
-├── design/app-icon/          当前图标与「青叶 P」候选、Android 矢量源文件及对比预览
+├── design/                   图标源文件/预览、播放器与投屏方案
 ├── build-and-test.sh         完整本地验证与 Release 构建
 └── PureBrowser-*.apk         本地交付产物，不纳入 Git
 ```
@@ -209,8 +225,8 @@ keyPassword=...
 该脚本执行：
 
 1. Rust `fmt --check`、49 项测试及 `clippy -D warnings`；
-2. 15 项 Node 网页视频协议测试、414 项三语言资源及格式参数一致性检查（含复数资源）；
-3. Android/Robolectric 175 项单元测试；
+2. 25 项 Node 网页视频协议测试、414 项三语言资源及格式参数一致性检查（含复数资源）；
+3. Android/Robolectric 180 项单元测试；
 4. Android lint；
 5. R8 全模式、资源裁剪、DEX/native ZIP 压缩与 `arm64-v8a` Release 构建；
 6. APK 签名、大小和 SHA-256 检查。
@@ -223,13 +239,13 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 当前本地 Release 产物：
 
 - `PureBrowser-v0.3.1-release.apk`
-- 2,046,530 bytes（约 1.95 MiB），比 0.3.0 增加 14,756 bytes（约 0.7%）
-- SHA-256：`5c3cfe9ea5dda25fc55f7b5a6db66d9dcebb071a3a0853df3fe2904b5a160c37`
+- 2,041,658 bytes（约 1.95 MiB）
+- SHA-256：`05020b81fc04ac42b297ddfbd81b9094330926a379622fcbe81a84bced95c68d`
 - APK Signature Scheme v2：通过
 
-安装包继续使用原有应用图标。新绘制的「青叶 P」保存在 [图标比选目录](./design/app-icon/README.md)，
-提供 [并排预览](./design/app-icon/comparison.png)、可切换背景的 HTML 和可直接接入的 Android
-矢量资源，等待选定后替换；设计预览不进入 APK。
+安装包已使用「青叶 P」图标，包括自适应和主题单色资源。
+[图标目录](./design/app-icon/README.md) 提供 [并排预览](./design/app-icon/comparison.png) 及可切换背景的 HTML；
+旧图标原始 XML 作为设计快照保留，设计预览不进入 APK。
 
 只运行 Android 单元测试或 lint：
 
@@ -251,6 +267,8 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 ```
 
 模拟器结果以 [回归报告](EMULATOR_TEST_REPORT.md) 记录的当前 APK 与系统版本为准。
+本次最终包已通过 Android 10/14 的标准视频、自定义网页播放器和跨域场景回归，Android 14
+另通过 Blob 全流程；真实 YouTube 在线播放与实体 DLNA 接收器尚未验收。
 本地测试页及 Release APK 的真实触摸回归可重复运行：
 
 ```bash
@@ -263,7 +281,7 @@ ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
 python3 validation/settings-regression.py --serial emulator-5554
 python3 validation/download-regression.py --serial emulator-5554
 python3 validation/video-regression.py --serial emulator-5554 --variant standard
-# 其他媒体夹具：--variant square / blob / cross
+# 其他媒体夹具：--variant square / blob / cross / custom
 # Android 13+ 可额外验证应用语言切换：
 python3 validation/locale-regression.py --serial emulator-5556
 python3 validation/productivity-visual-regression.py --serial emulator-5556
@@ -297,6 +315,7 @@ Android 10 支持始于 0.2.0，minSdk 降低本身不会改变新系统的运�
 - [最终交付摘要](./FINAL_DELIVERY_SUMMARY.md)
 - [更新日志](./CHANGELOG.md)
 - [第三方图标说明](./THIRD_PARTY_NOTICES.md)
+- [播放器与投屏方案](./design/video-playback-and-casting.md)
 
 ## 维护约定
 
@@ -306,4 +325,5 @@ README 是项目的入口和当前能力基线。后续每次修改用户可见�
 
 本轮修改分支为 `feat/browser-productivity-20260907`。上个版本的回滚分支为
 `backup/pre-home-shortcut-editor-20260907`（`bf75a92`，0.3.0）。本轮收尾前的未提交编辑器草稿
-另保存在 `backup/pre-home-shortcut-completion-20260908`（`cdbd083`），当前工作区与原暂存区保持独立。
+另保存在 `backup/pre-home-shortcut-completion-20260908`（`cdbd083`）。首页编辑器与新图标资源的
+检查点为 `checkpoint/pre-video-redesign-20260908`（`04f6628`），本轮视频调整从该检查点继续。

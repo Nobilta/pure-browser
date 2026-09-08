@@ -66,7 +66,7 @@ def svg(resources, identity, mask='rounded', themed=False):
             f'{foreground}</g></svg>')
 
 
-sources = {'current': PROJECT / 'app/src/main/res', 'leaf-p': ROOT / 'leaf-p/android'}
+sources = {'current': ROOT / 'legacy/android', 'leaf-p': PROJECT / 'app/src/main/res'}
 cards = []
 for name, source in sources.items():
     normal = svg(source, name)
@@ -74,8 +74,8 @@ for name, source in sources.items():
     circle = svg(source, name + '-circle', mask='circle')
     themed = svg(source, name + '-themed', mask='circle', themed=True)
     code, title, description = (
-        ('A', '当前图标', '浏览器窗口 · P 字母 · 叶片') if name == 'current'
-        else ('B', '青叶 P', '更饱满的字形 · 轻盈的叶片 · 深青绿')
+        ('A', '旧版图标', '浏览器窗口 · P 字母 · 叶片') if name == 'current'
+        else ('B', '青叶 P · 已启用', 'P 字母 · 叶片 · 深青绿')
     )
     cards.append(f'''<article class="card">
       <div class="card-heading"><span class="letter">{code}</span><h2>{title}</h2></div>
