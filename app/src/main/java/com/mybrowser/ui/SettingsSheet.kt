@@ -112,11 +112,11 @@ fun SettingsSheet(
 
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            val wide = maxWidth >= 720.dp
+            val twoPane = maxWidth >= 720.dp && selected != null
             Row(Modifier.fillMaxSize()) {
-                if (wide || selected == null) {
-                    Box(if (wide) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
-                        SettingsPage(textResources.getString(R.string.menu_settings), onDismiss) {
+                if (twoPane || selected == null) {
+                    Box(if (twoPane) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
+                        SettingsPage(textResources.getString(R.string.menu_settings), back) {
                             SettingsCategory.entries.forEach { category ->
                                 val summary = when (category) {
                                     SettingsCategory.BROWSING -> "${currentSearchEngine.displayName(textResources)} · " +
@@ -130,7 +130,7 @@ fun SettingsSheet(
                                 Card(
                                     onClick = { sectionName = category.name },
                                     colors = CardDefaults.cardColors(containerColor =
-                                        if (wide && category == (selected ?: SettingsCategory.BROWSING)) MaterialTheme.colorScheme.secondaryContainer
+                                        if (twoPane && category == selected) MaterialTheme.colorScheme.secondaryContainer
                                         else MaterialTheme.colorScheme.surfaceContainerLow),
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -151,17 +151,16 @@ fun SettingsSheet(
                         }
                     }
                 }
-                if (wide) VerticalDivider()
-                if (wide || selected != null) {
-                    val category = selected ?: SettingsCategory.BROWSING
+                if (twoPane) VerticalDivider()
+                if (selected != null) {
+                    val category = selected
                     Box(Modifier.weight(1f)) {
                         key(category) {
-                            val detailBack = { if (wide) onDismiss() else sectionName = null }
                             when (category) {
                                 SettingsCategory.DOWNLOADS -> DownloadSettingsPage(downloadSettings,
                                     onUseSystemDownloadDirectory, onChooseDownloadDirectory,
-                                    onDownloadThreadCountChange, detailBack)
-                                else -> SettingsPage(textResources.getString(category.titleRes), detailBack) {
+                                    onDownloadThreadCountChange, back)
+                                else -> SettingsPage(textResources.getString(category.titleRes), back) {
                                     when (category) {
                                         SettingsCategory.BROWSING -> {
                                             SettingsGroup(textResources.getString(R.string.ui_startup))

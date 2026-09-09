@@ -31,7 +31,9 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 ### 设置与主题
 
 - 设置首页分为浏览与启动、外观、隐私与过滤、下载设置、视频播放、关于六类。
-- 手机逐级进入分类；可用宽度达到 720dp 时同时显示分类导航和详情。
+- 设置首页只显示分类列表；进入分类后，可用宽度达到 720dp 时同时显示分类导航和详情。
+- 工具栏返回、系统返回键和边缘返回手势均逐级返回：选项弹层 → 原分类 → 设置首页 → 关闭设置。
+  宽屏两侧的返回按钮遵循相同顺序，二级页不会直接关闭整个设置。
 - 搜索引擎、主页、主题和默认倍速在弹层中选择；关闭弹层返回原分类。
 - 字体或语言变化导致 Activity 重建时保留设置分类；用户冷启动仍遵循主页/恢复设置。
 - 支持跟随系统、浅色和深色主题；状态栏与导航栏图标跟随应用主题。
@@ -239,8 +241,8 @@ arm64 native 库在 APK 内采用 ZIP 压缩，Android 10+ 安装时由 PackageM
 当前本地 Release 产物：
 
 - `PureBrowser-v0.3.1-release.apk`
-- 2,041,658 bytes（约 1.95 MiB）
-- SHA-256：`05020b81fc04ac42b297ddfbd81b9094330926a379622fcbe81a84bced95c68d`
+- 2,041,130 bytes（约 1.95 MiB）
+- SHA-256：`a2b7d691526940e1f4496a69530651e6173983e544884b3f53f3848d7ba1e594`
 - APK Signature Scheme v2：通过
 
 安装包已使用「青叶 P」图标，包括自适应和主题单色资源。
@@ -279,6 +281,7 @@ python3 validation/home-shortcut-regression.py --serial emulator-5554
 python3 validation/productivity-regression.py --serial emulator-5554
 ANDROID_SERIAL=emulator-5554 python3 validation/emulator-ux.py regress
 python3 validation/settings-regression.py --serial emulator-5554
+python3 validation/settings-back-regression.py --serial emulator-5554
 python3 validation/download-regression.py --serial emulator-5554
 python3 validation/video-regression.py --serial emulator-5554 --variant standard
 # 其他媒体夹具：--variant square / blob / cross / custom
@@ -327,3 +330,4 @@ README 是项目的入口和当前能力基线。后续每次修改用户可见�
 `backup/pre-home-shortcut-editor-20260907`（`bf75a92`，0.3.0）。本轮收尾前的未提交编辑器草稿
 另保存在 `backup/pre-home-shortcut-completion-20260908`（`cdbd083`）。首页编辑器与新图标资源的
 检查点为 `checkpoint/pre-video-redesign-20260908`（`04f6628`），本轮视频调整从该检查点继续。
+设置返回修复前的图标/视频完成版本保存在 `checkpoint/pre-settings-back-fix-20260908`（`c78ac47`）。
