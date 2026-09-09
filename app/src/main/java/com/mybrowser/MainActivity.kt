@@ -350,6 +350,8 @@ class MainActivity : ComponentActivity(),
             webViewOrNull?.let { mediaTrackers[it]?.reset() }
         }
 
+        // Register the fallback before Compose, including when restoring open settings.
+        setUpBackHandling()
         setContent {
             MyBrowserTheme(themeMode = browserPreferences.theme) {
                 val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
@@ -850,7 +852,6 @@ class MainActivity : ComponentActivity(),
             }
         }
 
-        setUpBackHandling()
         if (savedInstanceState == null && intentNavigationText(intent) != null) {
             handleIntent(intent)
         }
