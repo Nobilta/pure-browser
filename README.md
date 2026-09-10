@@ -4,7 +4,7 @@ Pure 浏览器是一款面向 Android 10 及以上设备的轻量浏览器。界
 Kotlin、Jetpack Compose 和 WebView 实现；网络规则、元素隐藏与 URL/书签解析使用
 Rust。项目追求体积可控、行为透明，以及在 Android 生命周期和存储规则下可验证地工作。
 
-当前版本为 `0.5.1`（versionCode 8），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
+当前版本为 `0.5.2`（versionCode 9），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
 项目目录和 Gradle 根项目均命名为
 `pure-browser`；为保持已安装应用的升级兼容，Android applicationId 暂时仍为
 `com.mybrowser`。
@@ -28,6 +28,8 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
   选中后才加载网页。关闭标签后可撤销；最近关闭列表最多保留 20 条普通网页，支持搜索、恢复、清空和重启恢复，
   独立于“启动时恢复上次网页”开关。清空历史会同时清空最近关闭及撤销提示。
 - 页面内查找、桌面站点模式、文件上传、摄像头/麦克风/定位权限处理；导航到新文档会关闭并清空上页查找。
+- 修复 `m.jrs16.com` 开启桌面模式后反复重载、开关反复变化：移动站与桌面站共用桌面偏好，
+  避免跳转到 `www.jrs16.com` 时恢复移动 UA；相同 UA 不重复写入，桌面视口在新文档加载完成后应用。
 - HTTPS 安全弹窗展示证书主体、组织、签发者和有效期；有效期只说明当前时间是否处于范围内。
   用户明确忽略证书错误后，地址栏与站点信息持续显示警告，刷新和同站重访也不会显示安全锁。
 - 地址栏未编辑时显示网页标题和站点域名；点按标题区域进入完整 URL 编辑。页面向下滚动
@@ -53,7 +55,10 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 ### 网站设置与权限
 
 - 菜单 → 网站设置：独立配置广告过滤、JavaScript、图片、第三方 Cookie、桌面模式和 50%–200% 文字缩放，保存后刷新。
-- 按完整 origin（协议、主机、端口）管理，不继承子域授权；默认端口归一化。设置 → 隐私与过滤可搜索已管理网站、修改及重置。
+- 权限及其他设置按完整 origin（协议、主机、端口）管理，不继承子域授权；默认端口归一化。
+  只有桌面模式与同站的裸域、`m.`、`mobile.`、`www.` 入口共用，不同协议、端口、其他子域和网站仍独立。
+  从任一入口关闭或重置桌面模式会同步已有入口；重置不会清除其他来源的权限和显示设置。
+  旧版本偏好直接兼容，无需清数据；设置 → 隐私与过滤可搜索已管理网站、修改及重置。
 - 相机、麦克风、定位与受保护媒体标识分别提供询问/允许/阻止。网站同意和 Android 系统权限分别处理，导航取消旧请求，迟到的系统回执不会授权后来的网站。
 - 权限仅向 HTTPS 和本机测试来源开放；WebView 不额外记忆定位授权，应用内撤销始终生效。已允许使用的网站仍须满足操作系统授权。
 - 最多保存 256 个网站，偏好快照有界并串行写入。无痕设置只在当前会话内存中生效，普通模式的允许权限改为重新询问，阻止保留。
@@ -315,23 +320,24 @@ keyPassword=...
 ```
 
 该脚本执行 Rust fmt、51 项 Rust 测试、clippy，40 项 Node 协议测试、520 项三语言资源检查，
-以及 279 项 Android/Robolectric 测试（含真实 host JNI）、lint、R8 Release 和 APK 签名检查。
+以及 289 项 Android/Robolectric 测试（含真实 host JNI）、lint、R8 Release 和 APK 签名检查。
 删除的 11 项 Rust 测试属于已移除的未使用实验模块，现有两个产品模块的测试保留。
 Lint 当前为 0 errors / 3 warnings：AGP 更新、ChromeOS x86_64 支持及低版本 localeConfig 提示。
 
 当前签名 Release：
 
-- [PureBrowser-v0.5.1-release.apk](PureBrowser-v0.5.1-release.apk)
-- Android 10+、arm64-v8a，3,633,556 bytes（约 3.47 MiB）
-- SHA-256：`e13dbe9d9602514318f51c65c31b16d7f5c3ea966f40d7bc746462e211a73bde`
+- [PureBrowser-v0.5.2-release.apk](PureBrowser-v0.5.2-release.apk)
+- Android 10+、arm64-v8a，3,634,176 bytes（约 3.47 MiB）
+- SHA-256：`214b0908c9e92a8d52486c5104c259991be7fe846fac59ca87ce126e924158cf`
 - APK Signature Scheme v2：通过
+- 与 0.5.1 签名证书相同，versionCode 从 8 升至 9，可直接覆盖安装。
 
 Release 使用 R8 全模式和资源裁剪；仅对实际 JNI 入口保留必要符号，其他代码使用 Android/AndroidX
 默认规则。DEX 与已剥离符号的 native 库采用 ZIP 压缩，Android 安装时解压。当前图标来源见
 [图标说明](design/app-icon/README.md)，旧候选及重复 XML 已删除。
 
 ```bash
-./install_and_test.sh PureBrowser-v0.5.1-release.apk
+./install_and_test.sh PureBrowser-v0.5.2-release.apk
 ./diagnose.sh
 # 单独执行 Android 检查：
 ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
@@ -339,27 +345,30 @@ Release 使用 R8 全模式和资源裁剪；仅对实际 JNI 入口保留必要
 ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 ```
 
-同一 APK 在 Android 10 / WebView 91 和 Android 14 / WebView 113 上均通过 12 个受影响阶段，
-每版菜单专项包含 17 组检查和 24 轮快速往返。Android 14 两次测试定位问题的重跑、辅助进程
-异常与未覆盖范围均记录在 [回归报告](EMULATOR_TEST_REPORT.md)，不将这些结果算作全矩阵重跑。
-清理无用源码后重新构建的 APK 与菜单修复包 SHA-256 一致，最终证据集中于
-`validation/results/release-0.5.1/`，只保留当前版本。
-旧包与旧版本结果不计入当前覆盖。
+本轮围绕桌面模式验证 JavaScript/HTTP 重定向、请求 UA、页面 UA、1024 视口、开关稳定、关闭、
+刷新、重启和来源隔离，并额外检查实际 JRS 网站。Android 10 与 Android 14 模拟器各通过本机 12 项、
+实际网站 4 项，以及 browser、site、permissions、layout 四个相关阶段；最终诊断均无崩溃或 ANR。
+设备阶段均绑定当前 APK SHA-256，
+实际完成项、测试脚本的重跑和未覆盖范围见 [回归报告](EMULATOR_TEST_REPORT.md)。
+最终证据集中于 `validation/results/release-0.5.2/`；旧 APK 的开关翻转记录仅用于根因对照，
+不计入新版覆盖，也不将选定阶段描述为全功能矩阵重跑。
 
 ```bash
 python3 validation/qa-server.py
 # 另一个终端，在专用模拟器安装同一 APK 并串行运行 UI 回归：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.1-release.apk
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.2-release.apk
 # 仅在 APK、AVD 和所选阶段完全相同时使用 --resume
 # 菜单专项：
 python3 validation/menu-navigation-regression.py --serial emulator-5554
 python3 validation/settings-back-regression.py --serial emulator-5554
+# 桌面模式专项，自带本机服务器；--online 额外验证实际 JRS 网站：
+python3 validation/desktop-mode-regression.py --serial emulator-5554 --online
 ```
 
 使用 `--stages` 可以指定受影响的阶段，runner 将选择范围记录到 manifest，不将局部验证算作
 完整功能矩阵。具体命令、手工验收和故障排查见 [测试指南](TESTING_GUIDE.md)。
-QA 仅监听本机 8875/8876 端口，证书夹具另用 8877；通过 ADB reverse 访问。
+QA 仅监听本机 8875/8876 端口，证书夹具另用 8877，桌面模式夹具使用 8878/8879；通过 ADB reverse 访问。
 测试会写入专用模拟器的夹具书签、下载和文件，不用于个人数据设备。UI 辅助程序仅安装到
 `/data/local/tmp`；Release 不开放 WebView 调试。输入需有完成回执，并核对页面状态或文件内容。
 安装脚本默认读取 Gradle 的当前版本，避免指向已删除的旧 APK；诊断脚本只保存现有设备日志，
@@ -401,6 +410,11 @@ python3 validation/cosmetic-benchmark.py
 最新完整源码统一提交到 `master`，只保留该本地分支。正常 Git 提交历史保留，不额外创建
 backup/checkpoint/rollback 分支或源码副本。重复摘要、过期路线图、旧图标候选、无调用的 JNI
 模块和兼容等待脚本已删除。构建缓存可重新生成，本地交付只保留最新 APK 及必要验证记录。
+
+0.5.2 桌面模式修复前的源码提交为 `edb2f29`。修复以独立普通提交保存，可用
+`git log --oneline` 定位 `Fix desktop mode redirect loops and release 0.5.2`，再执行
+`git revert <修复提交哈希>` 撤销该变更。此操作回滚源码；若需覆盖已安装的 0.5.2，重新构建时须
+保留同一签名并使用高于 9 的 versionCode。
 
 README 是当前能力和构建入口；用户可见行为、依赖、验证结果和交付包发生变化时在同一次变更
 中更新，避免旧计数、哈希或能力说明继续流传。签名配置、密钥、local.properties、APK、构建
