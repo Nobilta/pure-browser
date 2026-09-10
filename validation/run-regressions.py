@@ -56,7 +56,8 @@ def main():
                         'webView': device('shell', 'dumpsys', 'webviewupdate')}
 
     # Exercise new capabilities and recent lifecycle fixes before the older feature matrix.
-    stages = [('menu-navigation', ['menu-navigation-regression.py']),
+    stages = [('desktop-mode', ['desktop-mode-regression.py']),
+              ('menu-navigation', ['menu-navigation-regression.py']),
               ('security', ['security-regression.py']), ('download', ['download-regression.py']),
               ('developer-tools', ['developer-tools-regression.py']), ('browser', ['emulator-ux.py', 'regress']),
               ('video-blob', ['video-regression.py', '--variant', 'blob'])]
