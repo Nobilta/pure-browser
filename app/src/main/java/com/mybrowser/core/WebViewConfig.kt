@@ -105,9 +105,7 @@ object WebViewConfig {
         // setForceDark is deprecated (API 33). Algorithmic darkening is the replacement:
         // it respects a site's own prefers-color-scheme when present and only inverts
         // pages that have no dark theme of their own.
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
-            WebSettingsCompat.setAlgorithmicDarkeningAllowed(s, true)
-        }
+        applyDarkening(webView, true)
 
         // --- Rendering ---
         webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
@@ -148,9 +146,10 @@ object WebViewConfig {
     }
 
     /** Applies the desktop viewport to the document that is currently loaded. */
-    fun applyDesktopViewport(webView: WebView) {
+    fun applyDesktopViewport(webView: WebView, width: Int = 1024) {
+        if (width == 0) return
         if (webView.url.isNullOrBlank() || webView.url == "about:blank") return
-        webView.evaluateJavascript(DESKTOP_VIEWPORT_JS, null)
+        webView.evaluateJavascript(DESKTOP_VIEWPORT_JS.replace("1024", width.coerceIn(980, 1440).toString()), null)
     }
 
     /** No-image mode, for slow connections. */
@@ -163,10 +162,20 @@ object WebViewConfig {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun applySiteSettings(webView: WebView, settings: com.mybrowser.site.SiteSettings) {
+        applyDarkening(webView, settings.webDarkening)
         webView.settings.javaScriptEnabled = settings.javaScript
         webView.settings.textZoom = settings.textZoom
         setImagesEnabled(webView, settings.images)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, settings.thirdPartyCookies)
         applyDesktopMode(webView, settings.desktop)
+    }
+
+    private fun applyDarkening(webView: WebView, enabled: Boolean) {
+        // Some framework/provider combinations advertise the feature but reject its
+        // settings bridge. A display preference must not interrupt page navigation.
+        runCatching {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING))
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, enabled)
+        }
     }
 }

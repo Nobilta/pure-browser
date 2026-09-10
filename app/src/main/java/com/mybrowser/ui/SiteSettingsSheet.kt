@@ -23,7 +23,9 @@ import kotlin.math.roundToInt
 
 @Composable
 fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Boolean, busy: Boolean,
-    onSave: (SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit) {
+    onSave: (SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
+    onClearSiteData: (() -> Unit)? = null, temporaryFilteringOff: Boolean = false,
+    onTemporaryFilteringChange: (() -> Unit)? = null) {
     var draft by remember(origin, settings) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() },
@@ -41,10 +43,28 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                     Text(stringResource(R.string.site_connection_info))
                 }
                 SiteToggle(stringResource(R.string.site_filtering), draft.filtering, !busy) { draft = draft.copy(filtering = it) }
+                onTemporaryFilteringChange?.let { change -> TextButton(onClick = change, enabled = !busy) {
+                    Text(stringResource(if (temporaryFilteringOff) R.string.filter_resume_site else R.string.filter_pause_site))
+                } }
                 SiteToggle(stringResource(R.string.site_javascript), draft.javaScript, !busy) { draft = draft.copy(javaScript = it) }
                 SiteToggle(stringResource(R.string.site_images), draft.images, !busy) { draft = draft.copy(images = it) }
                 SiteToggle(stringResource(R.string.site_third_party_cookies), draft.thirdPartyCookies, !busy) { draft = draft.copy(thirdPartyCookies = it) }
                 SiteToggle(stringResource(R.string.menu_desktop_site), draft.desktop, !busy) { draft = draft.copy(desktop = it) }
+                SiteToggle(stringResource(R.string.site_web_darkening), draft.webDarkening, !busy) { draft = draft.copy(webDarkening = it) }
+                var viewportExpanded by remember { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.site_desktop_viewport), Modifier.weight(1f))
+                    Box {
+                        TextButton(onClick = { viewportExpanded = true }, enabled = !busy && draft.desktop) {
+                            Text(if (draft.desktopWidth == 0) stringResource(R.string.site_viewport_original) else draft.desktopWidth.toString())
+                        }
+                        DropdownMenu(viewportExpanded, { viewportExpanded = false }) {
+                            SiteSettingsRepository.DESKTOP_WIDTHS.forEach { width -> DropdownMenuItem(
+                                text = { Text(if (width == 0) stringResource(R.string.site_viewport_original) else width.toString()) },
+                                onClick = { draft = draft.copy(desktopWidth = width); viewportExpanded = false }) }
+                        }
+                    }
+                }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 val textZoomLabel = stringResource(R.string.site_text_zoom, draft.textZoom)
                 Text(textZoomLabel, style = MaterialTheme.typography.titleSmall)
@@ -53,6 +73,17 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                     modifier = Modifier.semantics { contentDescription = textZoomLabel })
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text(stringResource(R.string.site_permissions), style = MaterialTheme.typography.titleSmall)
+                var externalExpanded by remember { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.external_apps), Modifier.weight(1f))
+                    Box {
+                        TextButton(onClick = { externalExpanded = true }, enabled = !busy) { Text(stringResource(draft.externalApps.label())) }
+                        DropdownMenu(externalExpanded, { externalExpanded = false }) {
+                            SitePermission.entries.forEach { value -> DropdownMenuItem(text = { Text(stringResource(value.label())) },
+                                onClick = { draft = draft.copy(externalApps = value); externalExpanded = false }) }
+                        }
+                    }
+                }
                 SiteCapability.entries.forEach { capability ->
                     var expanded by remember(capability) { mutableStateOf(false) }
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -74,6 +105,7 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 Text(stringResource(R.string.site_os_permission_note), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { confirmReset = true }, enabled = !busy) { Text(stringResource(R.string.site_reset)) }
+                if (onClearSiteData != null) TextButton(onClick = onClearSiteData, enabled = !busy) { Text(stringResource(R.string.clear_this_site)) }
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.weight(1f).fillMaxHeight()) { Text(stringResource(R.string.action_cancel)) }

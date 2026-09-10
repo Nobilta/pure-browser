@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,11 +23,25 @@ import androidx.compose.ui.window.DialogProperties
 import com.mybrowser.R
 import com.mybrowser.reading.ReadingArticle
 import kotlin.math.roundToInt
+import com.mybrowser.reading.ReadingPosition
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun ReadingSheet(article: ReadingArticle, textZoom: Int, saved: Boolean, busy: Boolean,
-    onTextZoom: (Int) -> Unit, onSave: () -> Unit, onCopy: () -> Unit, onOpenOriginal: () -> Unit, onDismiss: () -> Unit) {
+    onTextZoom: (Int) -> Unit, onSave: () -> Unit, onCopy: () -> Unit, onOpenOriginal: () -> Unit, onDismiss: () -> Unit,
+    initialPosition: ReadingPosition = ReadingPosition(), onPosition: (ReadingPosition) -> Unit = {}, onOpenLink: (String) -> Unit = {}) {
     var showTextSize by rememberSaveable { mutableStateOf(false) }
+    val listState = remember(article.url) { LazyListState(initialPosition.index.coerceAtMost(article.blocks.size), initialPosition.offset) }
+    val savePosition by rememberUpdatedState(onPosition)
+    LaunchedEffect(article.url, listState) {
+        snapshotFlow { ReadingPosition(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+            .distinctUntilChanged().debounce(600).collect { savePosition(it) }
+    }
+    DisposableEffect(article.url, listState) {
+        onDispose { savePosition(ReadingPosition(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)) }
+    }
     // Android 10 can report zero system-bar insets inside a dialog. Both windows
     // fill the display, so observe the host window's insets before entering it.
     val contentInsets = WindowInsets.safeDrawing
@@ -49,7 +65,7 @@ fun ReadingSheet(article: ReadingArticle, textZoom: Int, saved: Boolean, busy: B
                         steps = 19, modifier = Modifier.weight(1f).padding(start = 12.dp).semantics { contentDescription = sizeLabel })
                 }
                 HorizontalDivider()
-                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(24.dp),
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     item {
                         SelectionContainer { Text(article.title, style = MaterialTheme.typography.headlineMedium) }
@@ -58,8 +74,16 @@ fun ReadingSheet(article: ReadingArticle, textZoom: Int, saved: Boolean, busy: B
                     }
                     items(article.blocks) { block ->
                         val size = (if (block.heading) 23f else 18f) * textZoom / 100
-                        SelectionContainer { Text(block.text, fontSize = size.sp, lineHeight = (size * 1.6f).sp,
-                            fontFamily = FontFamily.Serif, color = MaterialTheme.colorScheme.onSurface) }
+                        Column {
+                            SelectionContainer { Text(block.text, fontSize = size.sp, lineHeight = (size * if (block.kind == "code") 1.35f else 1.6f).sp,
+                                fontFamily = if (block.kind == "code") FontFamily.Monospace else FontFamily.Serif,
+                                modifier = if (block.kind == "code" || block.kind == "quote") Modifier.fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.small).padding(12.dp) else Modifier,
+                                color = MaterialTheme.colorScheme.onSurface) }
+                            block.links.forEach { link ->
+                                TextButton(onClick = { onOpenLink(link.url) }) { Text(link.text, maxLines = 2) }
+                            }
+                        }
                     }
                 }
             }

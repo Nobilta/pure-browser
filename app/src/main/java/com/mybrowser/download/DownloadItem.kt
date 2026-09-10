@@ -13,6 +13,10 @@ data class DownloadItem(
     val threadCount: Int = 1,
     val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
     val canPause: Boolean = false,
+    val bytesPerSecond: Long = 0,
+    val savingProgress: Int = 0,
 )
 
-enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED }
+enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAITING_NETWORK, SAVING;
+    val active: Boolean get() = this == DOWNLOADING || this == QUEUED || this == WAITING_NETWORK || this == SAVING
+}

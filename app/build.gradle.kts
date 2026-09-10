@@ -29,6 +29,7 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 9
         versionName = "0.5.2"
+        testInstrumentationRunner = "com.mybrowser.validation.NativeFilterInstrumentation"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
         // Older devices with a 32-bit Android installation are not included. Overridable via
@@ -178,12 +179,15 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     )
     inputs.property("abis", abis)
     inputs.property("androidApi", libs.versions.minSdk.get())
+    val filterOpt = providers.gradleProperty("mybrowser.filterOpt").orElse("")
+    inputs.property("filterOpt", filterOpt)
     outputs.dir(outDir)
 
     workingDir(rustDir)
     environment("PATH", "$toolchainPath:${System.getenv("PATH")}")
     environment("RUSTUP_HOME", rustupHome)
     environment("CARGO_HOME", cargoHome)
+    environment("PURE_FILTER_OPT", filterOpt.get())
     commandLine(listOf("bash", "-c", """
         set -euo pipefail
         for abi in "${'$'}@"; do

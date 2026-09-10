@@ -66,4 +66,21 @@ class ReadingListTest {
             .put("blocks", JSONArray().apply { repeat(601) { put(JSONObject().put("text", "x")) } })
         assertThrows(IllegalArgumentException::class.java) { ReadingArticle.parse(json) }
     }
+
+    @Test fun codeLinksAndReadingPositionSurviveRepositoryRecreation() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val store = ReadingList(context)
+        val article = article().copy(blocks = listOf(ReadingBlock("fn main() {\n    example();\n}", kind = "code",
+            links = listOf(ReadingLink("Guide", "https://example.com/guide")))))
+        store.save(article)
+        store.recordPosition(article.url, 1, 128)
+        val restored = ReadingList(context)
+        restored.initialize()
+        assertEquals(article, restored.articles.value.single())
+        assertEquals(ReadingPosition(1, 128), restored.positions.value[article.url])
+        assertThrows(IllegalArgumentException::class.java) {
+            ReadingArticle.parse(article.copy(blocks = listOf(ReadingBlock("Unsafe", links = listOf(ReadingLink("Bad", "javascript:alert(1)"))))).json())
+        }
+        Unit
+    }
 }

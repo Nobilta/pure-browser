@@ -14,12 +14,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-data class ReadingBlock(val text: String, val heading: Boolean = false)
+data class ReadingLink(val text: String, val url: String)
+data class ReadingBlock(val text: String, val heading: Boolean = false, val kind: String = "paragraph", val links: List<ReadingLink> = emptyList())
+data class ReadingPosition(val index: Int = 0, val offset: Int = 0)
 data class ReadingArticle(val url: String, val title: String, val blocks: List<ReadingBlock>) {
     fun plainText() = title + "\n" + url + "\n\n" + blocks.joinToString("\n\n") { it.text }
 
     fun json() = JSONObject().put("url", url).put("title", title).put("blocks", JSONArray().apply {
-        blocks.forEach { put(JSONObject().put("text", it.text).put("heading", it.heading)) }
+        blocks.forEach { block -> put(JSONObject().put("text", block.text).put("heading", block.heading).put("kind", block.kind)
+            .put("links", JSONArray().apply { block.links.forEach { put(JSONObject().put("text", it.text).put("url", it.url)) } })) }
     })
 
     companion object {
@@ -34,7 +37,16 @@ data class ReadingArticle(val url: String, val title: String, val blocks: List<R
                 require(text.length <= 10000)
                 characters += text.length
                 require(characters <= 150000)
-                ReadingBlock(text, block.optBoolean("heading"))
+                val links = block.optJSONArray("links") ?: JSONArray()
+                require(links.length() <= 12)
+                ReadingBlock(text, block.optBoolean("heading"), block.optString("kind", "paragraph")
+                    .takeIf { it in setOf("paragraph", "code", "quote", "list") } ?: "paragraph",
+                    List(links.length()) { index ->
+                        val link = links.getJSONObject(index)
+                        val url = link.getString("url")
+                        require(url.length <= 8192 && UrlUtils.isHttpUrl(url))
+                        ReadingLink(link.optString("text").take(256).ifBlank { url }, url)
+                    })
             }
             val title = value.optString("title").take(512)
             val body = if (blocks.first().heading && blocks.first().text == title) blocks.drop(1) else blocks
@@ -47,9 +59,12 @@ data class ReadingArticle(val url: String, val title: String, val blocks: List<R
 /** Explicitly saved text articles are readable offline; web video and scripts are not saved. */
 class ReadingList(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "reading-list.json"))
+    private val progressFile = AtomicFile(File(context.filesDir, "reading-positions.json"))
     private val mutex = Mutex()
     private val mutable = MutableStateFlow<List<ReadingArticle>>(emptyList())
     val articles = mutable.asStateFlow()
+    private val progress = MutableStateFlow<Map<String, ReadingPosition>>(emptyMap())
+    val positions = progress.asStateFlow()
     private var initialized = false
 
     suspend fun initialize() = withContext(Dispatchers.IO) { mutex.withLock { read() } }
@@ -68,6 +83,20 @@ class ReadingList(context: Context) {
         mutex.withLock { read(); write(mutable.value.filterNot { it.url == url }) }
     }
 
+    suspend fun recordPosition(url: String, index: Int, offset: Int) = withContext(Dispatchers.IO) {
+        require(url.length <= 8192 && UrlUtils.isHttpUrl(url))
+        mutex.withLock {
+            read()
+            val next = linkedMapOf(url to ReadingPosition(index.coerceIn(0, 600), offset.coerceIn(0, 500_000)))
+            progress.value.filterKeys { it != url }.entries.take(199).forEach { next[it.key] = it.value }
+            val json = JSONArray().apply { next.forEach { (key, value) ->
+                put(JSONObject().put("url", key).put("index", value.index).put("offset", value.offset))
+            } }.toString()
+            progressFile.writeUtf8(json)
+            progress.value = next
+        }
+    }
+
     private fun read() {
         if (initialized) return
         if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) {
@@ -76,6 +105,18 @@ class ReadingList(context: Context) {
                 val array = JSONArray(String(bytes, Charsets.UTF_8))
                 require(array.length() <= 50)
                 mutable.value = List(array.length()) { ReadingArticle.parse(array.getJSONObject(it)) }.distinctBy { it.url }
+            }
+        }
+        if (progressFile.baseFile.exists()) runCatching {
+            val array = progressFile.openRead().use { JSONArray(com.mybrowser.core.TextDownloader.readText(it, 2 * 1024 * 1024)) }
+            require(array.length() <= 200)
+            progress.value = buildMap {
+                repeat(array.length()) { i ->
+                    val entry = array.getJSONObject(i)
+                    val url = entry.getString("url")
+                    if (url.length <= 8192 && UrlUtils.isHttpUrl(url)) put(url, ReadingPosition(
+                        entry.optInt("index").coerceIn(0, 600), entry.optInt("offset").coerceIn(0, 500_000)))
+                }
             }
         }
         initialized = true

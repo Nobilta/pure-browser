@@ -53,6 +53,8 @@ class BrowserWebViewClient(
 
         /** Navigation the WebView cannot perform; caller opens it elsewhere. */
         fun onExternalUrl(url: String): Boolean
+        fun onExternalNavigation(url: String, hasGesture: Boolean, isMainFrame: Boolean): Boolean =
+            if (hasGesture) onExternalUrl(url) else true
         fun onUserScriptUrl(url: String): Boolean = false
 
         /**
@@ -103,7 +105,7 @@ class BrowserWebViewClient(
             return true
         }
 
-        return listener.onExternalUrl(url)
+        return listener.onExternalNavigation(url, request.hasGesture(), request.isForMainFrame)
     }
 
     override fun shouldInterceptRequest(

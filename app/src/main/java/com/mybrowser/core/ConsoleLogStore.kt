@@ -19,10 +19,11 @@ data class ConsoleLogEntry(
 /** Keeps the browser's real WebChromeClient console stream bounded and observable. */
 class ConsoleLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
 
-    private val lock = Any()
     private val nextId = AtomicLong(1L)
-    private val _entries = MutableStateFlow<List<ConsoleLogEntry>>(emptyList())
-    val entries: StateFlow<List<ConsoleLogEntry>> = _entries.asStateFlow()
+    private val buffer = BufferedLog<ConsoleLogEntry>(maxEntries)
+    val entries = buffer.entries
+    fun setVisible(value: Boolean) = buffer.setVisible(value)
+    fun snapshot(): List<ConsoleLogEntry> = buffer.snapshot()
 
     init {
         require(maxEntries > 0) { "maxEntries must be positive" }
@@ -36,7 +37,7 @@ class ConsoleLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     ) {
         val text = message?.trim()?.take(MAX_MESSAGE_LENGTH)
             ?.takeIf { it.isNotBlank() } ?: ""
-        synchronized(lock) {
+        buffer.edit { ring ->
             val entry = ConsoleLogEntry(
                 id = nextId.getAndIncrement(),
                 level = level,
@@ -45,13 +46,12 @@ class ConsoleLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
                 lineNumber = lineNumber.coerceAtLeast(0),
                 timestampMs = System.currentTimeMillis(),
             )
-            val next = _entries.value + entry
-            _entries.value = if (next.size <= maxEntries) next else next.takeLast(maxEntries)
+            ring.add(entry)
         }
     }
 
     fun clear() {
-        synchronized(lock) { _entries.value = emptyList() }
+        buffer.clear()
     }
 
     private companion object {

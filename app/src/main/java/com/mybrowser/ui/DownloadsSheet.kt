@@ -31,11 +31,17 @@ fun DownloadsSheet(
     onOpenFile: (Long) -> Unit = {},
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
     onClearCompleted: (deleteFiles: Boolean) -> Unit = {},
+    focusedId: Long? = null,
 ) {
     val textResources = localizedResources()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClearCompleted by remember { mutableStateOf(false) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(focusedId, downloads.map { it.id }) {
+        val index = downloads.indexOfFirst { it.id == focusedId }
+        if (index >= 0) listState.scrollToItem(index)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -117,13 +123,14 @@ fun DownloadsSheet(
             } else {
                 // Downloads list
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         // Keep the sheet header and actions visible when DownloadManager
                         // has accumulated many tasks.
                         .heightIn(max = 600.dp),
                 ) {
-                    items(downloads) { download ->
+                    items(downloads, key = { it.id }) { download ->
                         DownloadItemRow(
                             download = download,
                             onCancel = { onCancelDownload(download.id) },
@@ -188,7 +195,7 @@ private fun DownloadItemRow(
         Icon(
             painter = painterResource(
                 when (download.status) {
-                    DownloadStatus.DOWNLOADING -> R.drawable.ic_download
+                    DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> R.drawable.ic_download
                     DownloadStatus.COMPLETED -> R.drawable.ic_file
                     DownloadStatus.FAILED -> R.drawable.ic_close
                     DownloadStatus.PAUSED -> R.drawable.ic_pause
@@ -228,10 +235,23 @@ private fun DownloadItemRow(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    LinearProgressIndicator(
+                    if (download.bytesPerSecond > 0) Text(textResources.getString(R.string.download_speed_eta,
+                        formatBytes(download.bytesPerSecond),
+                        if (download.totalBytes > 0) ((download.totalBytes - download.bytesDownloaded).coerceAtLeast(0) / download.bytesPerSecond).toString() else "—"),
+                        style = MaterialTheme.typography.bodySmall)
+                    if (download.totalBytes <= 0) LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(
                         progress = { download.progress / 100f },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+                DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> {
+                    Text(stringResource(when(download.status) {
+                        DownloadStatus.SAVING -> R.string.download_saving
+                        DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
+                        else -> R.string.download_queued
+                    }), style = MaterialTheme.typography.bodySmall)
+                    if (download.status == DownloadStatus.SAVING) LinearProgressIndicator(progress = { download.savingProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 DownloadStatus.COMPLETED -> {
                     Text(
@@ -259,7 +279,7 @@ private fun DownloadItemRow(
 
         // Action button
         when (download.status) {
-            DownloadStatus.DOWNLOADING -> {
+            DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> {
                 Column {
                     if (download.canPause) BrowserIconAction(R.drawable.ic_pause, stringResource(R.string.download_pause), onClick = onPause)
                     BrowserIconAction(R.drawable.ic_close, textResources.getString(R.string.ui_cancel_download), onClick = onCancel)

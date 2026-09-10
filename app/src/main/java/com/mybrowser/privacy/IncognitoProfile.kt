@@ -74,15 +74,18 @@ object IncognitoProfile {
      * a profile that is still attached, and that refusal is how a session's data survives a
      * sloppy teardown.
      */
-    fun destroy() {
-        if (!isSupported) return
-        try {
+    fun destroy(): Boolean {
+        if (!isSupported) return true
+        return try {
             ProfileStore.getInstance().deleteProfile(PROFILE_NAME)
+            true
         } catch (e: IllegalStateException) {
             // Still in use. The next launch's deleteStaleProfile catches it.
             Log.w(TAG, "incognito profile still in use, deferring deletion", e)
+            false
         } catch (e: IllegalArgumentException) {
             // Already gone, or never created. Nothing to do.
+            true
         }
     }
 

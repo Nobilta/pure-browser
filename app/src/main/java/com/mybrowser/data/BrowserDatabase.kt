@@ -57,6 +57,7 @@ class BrowserDatabase private constructor(context: Context) : SQLiteOpenHelper(
 
         // Index on history.url for fast lookups
         db.execSQL("CREATE INDEX idx_history_url ON history(url)")
+        addOrganizationAndSearch(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -72,11 +73,34 @@ class BrowserDatabase private constructor(context: Context) : SQLiteOpenHelper(
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_time ON history(visit_time DESC)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_url ON history(url)")
         }
+        if (oldVersion < 3) addOrganizationAndSearch(db)
+    }
+
+    private fun addOrganizationAndSearch(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE bookmark_folders (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0)")
+        db.execSQL("CREATE INDEX idx_folder_parent ON bookmark_folders(parent_id, position, id)")
+        db.execSQL("ALTER TABLE bookmarks ADD COLUMN folder_id INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE bookmarks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE bookmarks SET position = -id")
+        db.execSQL("CREATE INDEX idx_bookmark_folder ON bookmarks(folder_id, position, id)")
+        db.execSQL("CREATE INDEX idx_bookmark_order ON bookmarks(created_at DESC, id DESC)")
+        db.execSQL("DROP INDEX IF EXISTS idx_history_time")
+        db.execSQL("CREATE INDEX idx_history_time ON history(visit_time DESC, id DESC)")
+        for (table in listOf("bookmarks", "history")) {
+            db.execSQL("ALTER TABLE $table ADD COLUMN host TEXT NOT NULL DEFAULT ''")
+            db.query(table, arrayOf("id", "url"), null, null, null, null, null).use { rows ->
+                while (rows.moveToNext()) db.execSQL("UPDATE $table SET host = ? WHERE id = ?",
+                    arrayOf(SearchKey.host(rows.getString(1)), rows.getLong(0)))
+            }
+            db.execSQL("CREATE INDEX idx_${table}_host ON $table(host COLLATE NOCASE)")
+            db.execSQL("CREATE INDEX idx_${table}_title ON $table(title COLLATE NOCASE)")
+            db.execSQL("CREATE INDEX idx_${table}_prefix ON $table(url COLLATE NOCASE)")
+        }
     }
 
     companion object {
         private const val DATABASE_NAME = "browser.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         private val lock = Any()
         private var shared: BrowserDatabase? = null
@@ -137,5 +161,14 @@ internal object SqlLike {
         return "%$escaped%"
     }
 
+    fun prefix(query: String): String = pattern(query).removePrefix("%")
+
     const val ESCAPE_CLAUSE = " ESCAPE '!'"
+}
+
+internal object SearchKey {
+    fun host(url: String): String = runCatching { android.net.Uri.parse(url).host.orEmpty()
+        .lowercase(java.util.Locale.ROOT).removePrefix("www.").trimEnd('.') }.getOrDefault("")
+    fun input(query: String): String = query.trim().lowercase(java.util.Locale.ROOT)
+        .removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/')
 }

@@ -37,6 +37,8 @@ internal data class DownloadPayload(
  * every byte has been validated.
  */
 internal class HttpDownloadEngine {
+    private val connections = ConcurrencyBudget(total = 8, perHost = 4)
+    private val leases = java.util.concurrent.ConcurrentHashMap<HttpURLConnection, ConcurrencyBudget.Lease>()
 
     suspend fun download(
         url: String,
@@ -116,7 +118,7 @@ internal class HttpDownloadEngine {
         }
     }
 
-    private fun probeRangeSupport(
+    private suspend fun probeRangeSupport(
         url: String,
         headers: DownloadRequestHeaders,
     ): RangeProbe {
@@ -141,7 +143,7 @@ internal class HttpDownloadEngine {
                     entityUrl = connection.url.toExternalForm(),
                 )
             } else {
-                if (code !in 200..299 && code != 416) throw IOException("Range probe returned HTTP $code")
+                if (code !in 200..299 && code != 416) throw DownloadHttpException(code)
                 // Do not consume a server that ignored Range: disconnecting immediately
                 // avoids downloading the full file twice.
                 RangeProbe(
@@ -152,7 +154,7 @@ internal class HttpDownloadEngine {
                 )
             }
         } finally {
-            connection.disconnect()
+            releaseConnection(connection)
         }
     }
 
@@ -168,7 +170,7 @@ internal class HttpDownloadEngine {
             val code = connection.responseCode
             requireIdentityEncoding(connection)
             if (code !in 200..299 || code == HttpURLConnection.HTTP_PARTIAL) {
-                throw IOException("Full download returned HTTP $code")
+                throw DownloadHttpException(code)
             }
             val finalScheme = connection.url.protocol.lowercase()
             if (finalScheme != "http" && finalScheme != "https") {
@@ -213,7 +215,7 @@ internal class HttpDownloadEngine {
             if (error is ResumeRejected || DownloadCheckpoint.read(tempDirectory, url) == null) destination.delete()
             throw error
         } finally {
-            connection.disconnect()
+            releaseConnection(connection)
         }
     }
 
@@ -284,7 +286,7 @@ internal class HttpDownloadEngine {
             if (connection.responseCode != HttpURLConnection.HTTP_PARTIAL) {
                 val code = connection.responseCode
                 if (code in listOf(200, 400, 416, 429)) throw ResumeRejected("Range request returned HTTP $code")
-                throw IOException("Range request returned HTTP $code")
+                throw DownloadHttpException(code)
             }
             val contentRange = connection.getHeaderField("Content-Range")
             val responseRange = parseContentRange(contentRange)
@@ -315,11 +317,11 @@ internal class HttpDownloadEngine {
                 throw IOException("Range length mismatch: expected $expected, got $written")
             }
         } finally {
-            connection.disconnect()
+            releaseConnection(connection)
         }
     }
 
-    private fun openConnection(
+    private suspend fun openConnection(
         url: String,
         headers: DownloadRequestHeaders,
         range: String? = null,
@@ -331,7 +333,10 @@ internal class HttpDownloadEngine {
             if (current.protocol !in setOf("http", "https") || current.host.isBlank()) {
                 throw IOException("Unsupported download URL")
             }
-            val connection = (current.openConnection() as HttpURLConnection).apply {
+            val lease = connections.acquire(current.host)
+            val connection = try {
+                currentCoroutineContext().ensureActive()
+                (current.openConnection() as HttpURLConnection).apply {
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
                 instanceFollowRedirects = false
@@ -347,7 +352,12 @@ internal class HttpDownloadEngine {
                 headers.referer?.takeIf(String::isNotBlank)?.let { setRequestProperty("Referer", it) }
                 range?.let { setRequestProperty("Range", it) }
                 validator?.let { setRequestProperty("If-Range", it) }
+                }
+            } catch (error: Throwable) {
+                lease.close()
+                throw error
             }
+            leases[connection] = lease
             try {
                 if (connection.responseCode !in REDIRECT_CODES) return connection
                 if (hop == MAX_REDIRECTS) throw IOException("Too many download redirects")
@@ -359,12 +369,16 @@ internal class HttpDownloadEngine {
                 }
                 current = next
             } catch (error: Exception) {
-                connection.disconnect()
+                releaseConnection(connection)
                 throw error
             }
-            connection.disconnect()
+            releaseConnection(connection)
         }
         throw IOException("Too many download redirects")
+    }
+
+    private fun releaseConnection(connection: HttpURLConnection) {
+        try { connection.disconnect() } finally { leases.remove(connection)?.close() }
     }
 
     private fun entityValidator(connection: HttpURLConnection): String? {
@@ -457,3 +471,5 @@ internal object DownloadRanges {
         }
     }
 }
+
+internal class DownloadHttpException(val code: Int) : IOException("Download returned HTTP $code")

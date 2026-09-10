@@ -27,13 +27,15 @@ require_command cargo
 require_command rustup
 require_command shasum
 require_command node
+require_command npm
 require_command python3
 
 echo "检查中英文提示资源..."
 python3 validation/check-localization.py
 
-echo "运行网页视频控制及用户脚本协议测试..."
-node --test validation/playback-probe.test.cjs validation/userscript-runtime.test.cjs
+echo "运行网页视频控制、阅读提取及用户脚本协议测试..."
+npm --prefix validation ci --ignore-scripts --no-audit --no-fund
+npm --prefix validation test
 
 java_version="$(java -version 2>&1 | sed -n '1s/.*version \"\([^\"]*\)\".*/\1/p')"
 echo "Java: ${java_version:-unknown}"

@@ -48,6 +48,13 @@ class TabManager(
     val currentTab: TabState? get() = _tabs.getOrNull(currentIndex)
     val count: Int get() = _tabs.size
     val canCreateTab: Boolean get() = _tabs.size < maxTabs
+    private val saveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingSave: Runnable? = null
+
+    fun scheduleSaveMetadata(context: Context, preferenceName: String) {
+        pendingSave?.let(saveHandler::removeCallbacks)
+        pendingSave = Runnable { saveMetadata(context.applicationContext, preferenceName) }.also { saveHandler.postDelayed(it, 350) }
+    }
 
     init {
         createTab()
@@ -62,7 +69,8 @@ class TabManager(
     /** Background tabs remain metadata until selected. At the cap, returns the current id. */
     fun createTab(url: String = "", select: Boolean = true, title: String = ""): String {
         if (_tabs.size >= maxTabs) return currentTab?.id.orEmpty()
-        val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url), title = title.take(MAX_TAB_TITLE_LENGTH))
+        val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url), title = title.take(MAX_TAB_TITLE_LENGTH),
+            group = currentTab?.group.orEmpty())
         _tabs += tab
         if (select || currentIndex < 0) currentIndex = _tabs.lastIndex
         changed()
@@ -79,6 +87,22 @@ class TabManager(
     fun switchToId(id: String): TabState? {
         val index = _tabs.indexOfFirst { it.id == id }
         return if (index < 0) null else switchToIndex(index)
+    }
+
+    fun move(id: String, offset: Int) {
+        val from = _tabs.indexOfFirst { it.id == id }
+        if (from < 0) return
+        val current = currentTab?.id
+        val destination = (from + offset.coerceIn(-1, 1)).coerceIn(_tabs.indices)
+        if (destination == from) return
+        val tab = _tabs.removeAt(from); _tabs.add(destination, tab)
+        currentIndex = _tabs.indexOfFirst { it.id == current }
+        changed()
+    }
+
+    fun setGroup(id: String, name: String) {
+        _tabs.firstOrNull { it.id == id }?.group = sanitizePersistedText(name, 40)
+        changed()
     }
 
     fun closeTab(index: Int): TabState? {
@@ -130,7 +154,7 @@ class TabManager(
     private fun rememberClosed(tab: TabState, index: Int) {
         if (!rememberClosedTabs || !UrlUtils.isHttpUrl(tab.url)) return
         _recentlyClosed.add(0, ClosedTab(UUID.randomUUID().toString(), safeTabUrl(tab.url),
-            sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH), index))
+            sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH), index, tab.group))
         while (_recentlyClosed.size > MAX_RECENTLY_CLOSED) _recentlyClosed.removeAt(_recentlyClosed.lastIndex)
     }
 
@@ -140,7 +164,7 @@ class TabManager(
         if (!canCreateTab && !replaceBlank) return null
         if (replaceBlank) { releaseBitmaps(_tabs[0]); _tabs.clear() }
         val index = entry.index.coerceIn(0, _tabs.size)
-        val tab = TabState(UUID.randomUUID().toString(), entry.url, entry.title)
+        val tab = TabState(UUID.randomUUID().toString(), entry.url, entry.title, group = entry.group)
         _tabs.add(index, tab)
         currentIndex = index
         _recentlyClosed.remove(entry)
@@ -164,7 +188,7 @@ class TabManager(
 
     private fun recentJson(): String = JSONArray().apply {
         _recentlyClosed.forEach { entry -> put(JSONObject().put("id", entry.id).put("url", entry.url)
-            .put("title", entry.title).put("index", entry.index)) }
+            .put("title", entry.title).put("index", entry.index).put("group", entry.group)) }
     }.toString()
 
     private fun restoreRecentJson(raw: String?) {
@@ -178,7 +202,7 @@ class TabManager(
                     if (!UrlUtils.isHttpUrl(url)) continue
                     add(ClosedTab(UUID.randomUUID().toString(), url,
                         sanitizePersistedText(entry.optString("title"), MAX_TAB_TITLE_LENGTH),
-                        entry.optInt("index").coerceIn(0, MAX_TABS - 1)))
+                        entry.optInt("index").coerceIn(0, MAX_TABS - 1), sanitizePersistedText(entry.optString("group"), 40)))
                 }
             }
         }.getOrDefault(emptyList())
@@ -229,6 +253,8 @@ class TabManager(
 
     /** Saves URL/title metadata so normal tabs survive process death. */
     fun saveMetadata(context: Context, preferenceName: String) {
+        pendingSave?.let(saveHandler::removeCallbacks)
+        pendingSave = null
         val snapshot = snapshotMetadata()
         context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit {
             putString(KEY_TABS, snapshot.getString(KEY_TABS))
@@ -247,7 +273,7 @@ class TabManager(
                 JSONObject()
                     .put("id", tab.id.take(MAX_TAB_ID_LENGTH))
                     .put("url", safeTabUrl(tab.url))
-                    .put("title", sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH)),
+                    .put("title", sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH)).put("group", tab.group),
             )
         }
         return Bundle().apply {
@@ -286,6 +312,7 @@ class TabManager(
                             id = id.take(MAX_TAB_ID_LENGTH),
                             url = url,
                             title = title,
+                            group = sanitizePersistedText(obj.optString("group"), 40),
                         ),
                     )
                 }
@@ -303,6 +330,7 @@ class TabManager(
     }
 
     fun cleanup() {
+        pendingSave?.run()
         _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
         _recentlyClosed.clear()
