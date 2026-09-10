@@ -34,7 +34,7 @@ Gradle 自动构建 host JNI，并将其作为测试输入；不使用假 native
 ## APK 检查
 
 ```bash
-APK=PureBrowser-v0.5.1-release.apk
+APK=PureBrowser-v0.5.2-release.apk
 apksigner verify --verbose "$APK"
 unzip -l "$APK" | rg 'lib/|AndroidManifest.xml'
 ```
@@ -85,6 +85,12 @@ filename_parser；这些无调用的实验模块已删除。
 拖动手柄安全区域、重建与外部链接打断，以及最终网页真实点击。输入没有完成回执即失败，
 不重发可能已送达的返回事件。
 
+桌面模式专项：`python3 validation/desktop-mode-regression.py --serial emulator-5554 --online`。
+脚本自建 8878/8879 端口的本机服务器，通过 `.localhost` 的 m./www. 主机模拟 JavaScript 和 HTTP 302 跳转；
+同时检查请求 UA、页面 UA、1024 视口、文档标识、请求数量及真实菜单开关，覆盖关闭、刷新、重启、子域和端口隔离。
+`--online` 额外验证 `https://m.jrs16.com/` 的桌面/移动切换；结果绑定安装 APK SHA-256。
+默认不依赖公网，已纳入 runner 的 `desktop-mode` 阶段。运行前安装同一签名包及 UI 辅助程序。
+
 设置返回的专项回归：`python3 validation/settings-back-regression.py --serial emulator-5556`。
 需先启动 `validation/qa-server.py` 并安装 UI 辅助程序；脚本恢复旋转和字体配置，将设备 APK
 SHA-256、逐项结果、跳过项及截图写入 `validation/results/`。边缘手势仅在设备已启用手势导航时执行。
@@ -125,24 +131,24 @@ cargo run --release --manifest-path rust/Cargo.toml -p adblock --example benchma
 python3 validation/qa-server.py
 # 在另一个终端，同一台模拟器只运行一个 UI 测试：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.1-release.apk
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.2-release.apk
 # 只有 APK 和 AVD 都相同时才能恢复通过的阶段：加 --resume
 python3 validation/capabilities-regression.py --serial emulator-5554 --section downloads
 python3 validation/cosmetic-benchmark.py
 ```
 
 新增分段为 site、permissions、tabs、reader、printing、bookmarks、downloads、layout。
-完整 runner 提供 API 29 的 29 阶段、API 34 的 31 阶段，每阶段记录包哈希、退出码、耗时和日志。
-当前 0.5.1 选择受菜单/弹层改动影响的 12 个阶段，实际执行结果见回归报告，不算作全矩阵重跑。
+完整 runner 提供 API 29 的 30 阶段、API 34 的 32 阶段，每阶段记录包哈希、退出码、耗时和日志。
+当前 0.5.2 按桌面模式改动选择相关阶段，实际执行结果见回归报告，不算作全矩阵重跑。
 它只接受专用模拟器；分页测试会写入测试数据库，书签/下载/PDF 会创建测试文件。
 系统文件选择器通过 Downloads 导航和列表滚动查找文件，避免依赖 Recent 的媒体索引或首屏位置。
 
 本轮阶段选择可复现为：
 
 ```bash
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.1-release.apk \
-  --label menu-051 --stages menu-navigation developer-tools browser site reader layout \
-  features-filters features-dialogs video-standard settings-back settings productivity
+python3 validation/desktop-mode-regression.py --serial emulator-5554 --online
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.2-release.apk \
+  --label desktop-052 --stages browser site permissions layout
 ```
 
 `--resume` 只接受完全相同的 APK、AVD 和阶段选择；失败保留在 `priorAttempts`，完成时清除顶层错误状态。

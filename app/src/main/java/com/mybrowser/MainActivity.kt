@@ -900,8 +900,9 @@ class MainActivity : ComponentActivity(),
                 androidx.compose.runtime.key(activeSheetEntry?.route?.key, showSiteOrigin) {
                     showSiteOrigin?.let { origin ->
                         val sites by activeSites.entries.collectAsState()
+                        val settings = androidx.compose.runtime.remember(sites, origin) { activeSites.get(origin) }
                         val siteOwner = activeSheetEntry?.takeIf { it.destination == Sheet.SITE_SETTINGS }
-                        SiteSettingsSheet(origin, sites[origin] ?: SiteSettings(), privacy.isIncognito, siteSettingsBusy,
+                        SiteSettingsSheet(origin, settings, privacy.isIncognito, siteSettingsBusy,
                             onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin, SiteSettings()) },
                             onConnectionInfo = if (origin == SiteOrigin.of(state.currentUrl)) ({
                                 securityCertificate = SecurityChecker.certificateDetails(webView.certificate)
@@ -1137,12 +1138,6 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun applyDesktopMode(view: WebView, enabled: Boolean) {
-        WebViewConfig.setUserAgent(view, enabled)
-        view.settings.useWideViewPort = true
-        view.settings.loadWithOverviewMode = true
-    }
-
     private fun handleFileChooser(
         callback: ValueCallback<Array<Uri>?>,
         params: WebChromeClient.FileChooserParams,
@@ -1217,7 +1212,8 @@ class MainActivity : ComponentActivity(),
         lifecycleScope.launch {
             try {
                 repository.update(origin) { settings }
-                if (repository === activeSites && SiteOrigin.of(state.currentUrl) == origin) {
+                if (repository === activeSites && (SiteOrigin.of(state.currentUrl) == origin ||
+                    repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
                     cancelWebsitePermissions()
                     applySiteSettings(webView, state.currentUrl)
                     webView.reload()

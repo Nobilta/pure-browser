@@ -78,17 +78,22 @@ class SiteSettingsRepository private constructor(
     private val mutable = MutableStateFlow(if (prefs == null) initial else decode(prefs.getString("sites", null)))
     val entries = mutable.asStateFlow()
 
-    fun get(url: String): SiteSettings = mutable.value[SiteOrigin.of(url)] ?: SiteSettings()
+    fun get(url: String): SiteSettings = settingsFor(mutable.value, url)
 
     suspend fun update(url: String, transform: (SiteSettings) -> SiteSettings) = withContext(Dispatchers.IO) {
         val origin = requireNotNull(SiteOrigin.of(url))
         mutex.withLock {
             val next = mutable.value.toMutableMap()
-            val settings = transform(next[origin] ?: SiteSettings()).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200)) }
-            if (settings == SiteSettings()) next.remove(origin) else {
-                require(origin in next || next.size < MAX_SITES) { "Site settings limit reached" }
-                next[origin] = settings
+            val desktopSite = requireNotNull(DesktopSite.of(origin))
+            val settings = transform(settingsFor(next, origin)).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200)) }
+            next[origin] = settings
+            // One display choice across existing aliases, committed atomically. Do
+            // not create extra origins or copy any permission to another host.
+            next.replaceAll { site, value ->
+                if (DesktopSite.of(site) == desktopSite) value.copy(desktop = settings.desktop) else value
             }
+            next.entries.removeAll { it.value == SiteSettings() }
+            require(next.size <= MAX_SITES) { "Site settings limit reached" }
             save(next)
         }
     }
@@ -124,6 +129,17 @@ class SiteSettingsRepository private constructor(
 
     companion object {
         private const val MAX_SITES = 256
+        private fun settingsFor(sites: Map<String, SiteSettings>, url: String): SiteSettings {
+            val desktopSite = DesktopSite.of(url)
+            // Read legacy exact-origin records directly; no lossy migration or extra
+            // storage entries. An enabled alias remains effective until explicitly
+            // disabled/reset from any of the same site's presentation aliases.
+            val desktop = desktopSite != null && sites.any { (origin, settings) ->
+                settings.desktop && DesktopSite.of(origin) == desktopSite
+            }
+            return (sites[SiteOrigin.of(url)] ?: SiteSettings()).copy(desktop = desktop)
+        }
+
         private fun decode(raw: String?): Map<String, SiteSettings> = runCatching {
             if (raw == null || raw.length > 512 * 1024) return emptyMap()
             val json = JSONObject(raw)

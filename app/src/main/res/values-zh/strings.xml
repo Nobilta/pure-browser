@@ -451,8 +451,8 @@
     <!-- Website preferences and permission consent. -->
     <string name="site_settings">网站设置</string>
     <string name="site_settings_summary">按网站管理权限、过滤和显示</string>
-    <string name="site_scope">仅对该来源生效；子域名和不同端口分别设置。</string>
-    <string name="site_private_scope">更改仅在本次无痕浏览期间生效。</string>
+    <string name="site_scope">桌面模式与同站的 m.、mobile. 和 www. 地址共用；其他设置、不同协议和端口仍分别管理。</string>
+    <string name="site_private_scope">更改仅在本次无痕浏览期间生效；桌面模式也适用于同站的 m.、mobile. 和 www. 地址。</string>
     <string name="site_connection_info">连接信息</string>
     <string name="site_filtering">过滤此网站的广告</string>
     <string name="site_javascript">JavaScript</string>
@@ -462,7 +462,7 @@
     <string name="site_permissions">网站权限</string>
     <string name="site_os_permission_note">摄像头、麦克风和定位还需要 Android 系统授权。</string>
     <string name="site_reset">重置网站设置</string>
-    <string name="site_reset_confirm">重置 %1$s 的权限和显示偏好？</string>
+    <string name="site_reset_confirm">重置 %1$s 的权限和显示偏好？同站 m.、mobile. 和 www. 地址共用的桌面模式也将重置。</string>
     <string name="site_save_reload">保存并刷新</string>
     <string name="site_search">搜索网站</string>
     <string name="site_none">没有已保存的网站设置</string>

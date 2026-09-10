@@ -452,8 +452,8 @@
     <!-- Website preferences and permission consent. -->
     <string name="site_settings">Website settings</string>
     <string name="site_settings_summary">Permissions, filtering and display for each website</string>
-    <string name="site_scope">Applies to this origin only. Subdomains and different ports have separate settings.</string>
-    <string name="site_private_scope">Changes last only for this private session.</string>
+    <string name="site_scope">Desktop mode is shared with this site’s m., mobile. and www. addresses. Other settings, schemes and ports stay separate.</string>
+    <string name="site_private_scope">Changes last only for this private session. Desktop mode also applies to this site’s m., mobile. and www. addresses.</string>
     <string name="site_connection_info">Connection information</string>
     <string name="site_filtering">Filter ads on this website</string>
     <string name="site_javascript">JavaScript</string>
@@ -463,7 +463,7 @@
     <string name="site_permissions">Website permissions</string>
     <string name="site_os_permission_note">Camera, microphone and location also require Android permission.</string>
     <string name="site_reset">Reset website settings</string>
-    <string name="site_reset_confirm">Reset permissions and display preferences for %1$s?</string>
+    <string name="site_reset_confirm">Reset permissions and display preferences for %1$s? Shared desktop mode will also be reset for its m., mobile. and www. addresses.</string>
     <string name="site_save_reload">Save and reload</string>
     <string name="site_search">Search websites</string>
     <string name="site_none">No saved website settings</string>

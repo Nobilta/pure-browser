@@ -27,8 +27,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 8
-        versionName = "0.5.1"
+        versionCode = 9
+        versionName = "0.5.2"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
         // Older devices with a 32-bit Android installation are not included. Overridable via

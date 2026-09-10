@@ -126,8 +126,10 @@ object WebViewConfig {
 
     fun setUserAgent(webView: WebView, desktop: Boolean) {
         val s = webView.settings
-        s.userAgentString =
-            if (desktop) UserAgent.desktop(s) else UserAgent.mobile(s)
+        val userAgent = if (desktop) UserAgent.desktop(s) else UserAgent.mobile(s)
+        // Changing the UA during navigation can restart the load. Redirect and page
+        // callbacks reapply site settings, so leave an already-correct UA untouched.
+        if (s.userAgentString != userAgent) s.userAgentString = userAgent
     }
 
     /**
@@ -135,15 +137,14 @@ object WebViewConfig {
      *
      * Changing the UA alone is not enough: a page that declares
      * `<meta name=viewport content="width=device-width">` will still lay out at phone
-     * width. The JS override forces a desktop-ish viewport. It has to run after the
-     * document exists, so callers invoke this again from onPageFinished.
+     * width. Call [applyDesktopViewport] from onPageFinished, once the new document
+     * exists. Injecting it here would mutate the previous page during navigation.
      */
     fun applyDesktopMode(webView: WebView, desktop: Boolean) {
         setUserAgent(webView, desktop)
         val s = webView.settings
         s.useWideViewPort = true
         s.loadWithOverviewMode = true
-        if (desktop) applyDesktopViewport(webView)
     }
 
     /** Applies the desktop viewport to the document that is currently loaded. */
