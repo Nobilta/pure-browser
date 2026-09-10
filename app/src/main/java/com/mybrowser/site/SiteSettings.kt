@@ -44,6 +44,9 @@ data class SiteSettings(
     val microphone: SitePermission = SitePermission.ASK,
     val location: SitePermission = SitePermission.ASK,
     val protectedMedia: SitePermission = SitePermission.ASK,
+    val externalApps: SitePermission = SitePermission.ASK,
+    val webDarkening: Boolean = true,
+    val desktopWidth: Int = 1024,
 ) {
     fun permission(capability: SiteCapability) = when (capability) {
         SiteCapability.CAMERA -> camera
@@ -59,7 +62,9 @@ data class SiteSettings(
         SiteCapability.PROTECTED_MEDIA -> copy(protectedMedia = permission)
     }
 
-    fun forPrivateSession(): SiteSettings = SiteCapability.entries.fold(this) { settings, capability ->
+    fun forPrivateSession(): SiteSettings = SiteCapability.entries.fold(copy(
+        externalApps = if (externalApps == SitePermission.BLOCK) externalApps else SitePermission.ASK,
+    )) { settings, capability ->
         settings.withPermission(capability, if (permission(capability) == SitePermission.BLOCK)
             SitePermission.BLOCK else SitePermission.ASK)
     }
@@ -85,12 +90,13 @@ class SiteSettingsRepository private constructor(
         mutex.withLock {
             val next = mutable.value.toMutableMap()
             val desktopSite = requireNotNull(DesktopSite.of(origin))
-            val settings = transform(settingsFor(next, origin)).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200)) }
+            val settings = transform(settingsFor(next, origin)).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200),
+                desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024) }
             next[origin] = settings
             // One display choice across existing aliases, committed atomically. Do
             // not create extra origins or copy any permission to another host.
             next.replaceAll { site, value ->
-                if (DesktopSite.of(site) == desktopSite) value.copy(desktop = settings.desktop) else value
+                if (DesktopSite.of(site) == desktopSite) value.copy(desktop = settings.desktop, desktopWidth = settings.desktopWidth) else value
             }
             next.entries.removeAll { it.value == SiteSettings() }
             require(next.size <= MAX_SITES) { "Site settings limit reached" }
@@ -103,7 +109,7 @@ class SiteSettingsRepository private constructor(
     suspend fun clearPermissions() = withContext(Dispatchers.IO) {
         mutex.withLock {
             val next = mutable.value.mapValues { (_, value) ->
-                SiteCapability.entries.fold(value) { settings, capability -> settings.withPermission(capability, SitePermission.ASK) }
+                SiteCapability.entries.fold(value.copy(externalApps = SitePermission.ASK)) { settings, capability -> settings.withPermission(capability, SitePermission.ASK) }
             }.filterValues { it != SiteSettings() }
             save(next)
         }
@@ -118,6 +124,8 @@ class SiteSettingsRepository private constructor(
             val entry = JSONObject().put("filtering", settings.filtering).put("javascript", settings.javaScript)
                 .put("images", settings.images).put("thirdPartyCookies", settings.thirdPartyCookies)
                 .put("desktop", settings.desktop).put("textZoom", settings.textZoom)
+                .put("externalApps", settings.externalApps.name)
+                .put("webDarkening", settings.webDarkening).put("desktopWidth", settings.desktopWidth)
             SiteCapability.entries.forEach { entry.put(it.name, settings.permission(it).name) }
             json.put(origin, entry)
         }
@@ -128,6 +136,7 @@ class SiteSettingsRepository private constructor(
     }
 
     companion object {
+        val DESKTOP_WIDTHS = listOf(0, 980, 1024, 1280, 1440)
         private const val MAX_SITES = 256
         private fun settingsFor(sites: Map<String, SiteSettings>, url: String): SiteSettings {
             val desktopSite = DesktopSite.of(url)
@@ -137,7 +146,10 @@ class SiteSettingsRepository private constructor(
             val desktop = desktopSite != null && sites.any { (origin, settings) ->
                 settings.desktop && DesktopSite.of(origin) == desktopSite
             }
-            return (sites[SiteOrigin.of(url)] ?: SiteSettings()).copy(desktop = desktop)
+            val presentation = sites.entries.firstOrNull { (origin, settings) -> settings.desktop && DesktopSite.of(origin) == desktopSite }?.value
+            return (sites[SiteOrigin.of(url)] ?: SiteSettings()).let {
+                it.copy(desktop = desktop, desktopWidth = presentation?.desktopWidth ?: it.desktopWidth)
+            }
         }
 
         private fun decode(raw: String?): Map<String, SiteSettings> = runCatching {
@@ -150,7 +162,10 @@ class SiteSettingsRepository private constructor(
                     var value = SiteSettings(filtering = entry.optBoolean("filtering", true),
                         javaScript = entry.optBoolean("javascript", true), images = entry.optBoolean("images", true),
                         thirdPartyCookies = entry.optBoolean("thirdPartyCookies", true), desktop = entry.optBoolean("desktop", false),
-                        textZoom = entry.optInt("textZoom", 100).coerceIn(50, 200))
+                        textZoom = entry.optInt("textZoom", 100).coerceIn(50, 200),
+                        externalApps = runCatching { SitePermission.valueOf(entry.optString("externalApps")) }.getOrDefault(SitePermission.ASK),
+                        webDarkening = entry.optBoolean("webDarkening", true),
+                        desktopWidth = entry.optInt("desktopWidth", 1024).takeIf { it in DESKTOP_WIDTHS } ?: 1024)
                     SiteCapability.entries.forEach { capability ->
                         val permission = runCatching { SitePermission.valueOf(entry.optString(capability.name)) }.getOrDefault(SitePermission.ASK)
                         value = value.withPermission(capability, permission)

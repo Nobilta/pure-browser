@@ -41,7 +41,7 @@ class BookmarkDocuments(private val activity: ComponentActivity, private val sco
                 }
                 val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes)).toString().removePrefix("\uFEFF")
-                BookmarkHtml.parse(text).also { require(it.entries.isNotEmpty()) }
+                BookmarkHtml.parse(text).also { require(it.entries.isNotEmpty() || it.folders.isNotEmpty()) }
             }
         }
     }
@@ -69,7 +69,7 @@ class BookmarkDocuments(private val activity: ComponentActivity, private val sco
         runJob {
             exportSnapshot = withContext(Dispatchers.IO) {
                 val entries = repository().bookmarksForExport().filter { UrlUtils.isHttpUrl(it.url) }
-                Export(BookmarkHtml.encode(entries), entries.size)
+                Export(BookmarkHtml.encode(entries, repository().getFolders()), entries.size)
             }
             create.launch("PureBrowser-bookmarks.html")
         }
@@ -81,7 +81,7 @@ class BookmarkDocuments(private val activity: ComponentActivity, private val sco
         val data = preview ?: return
         if (busy) return
         runJob {
-            val inserted = withContext(Dispatchers.IO) { repository().importBookmarks(data.entries) }
+            val inserted = withContext(Dispatchers.IO) { repository().importBookmarks(data.entries, data.folders) }
             preview = null
             onChanged()
             message(activity.getString(R.string.bookmarks_imported, inserted, data.entries.size - inserted + data.skipped))

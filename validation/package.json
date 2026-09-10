@@ -1,0 +1,6 @@
+{
+  "name": "pure-browser-validation",
+  "private": true,
+  "scripts": { "test": "node --test *.test.cjs" },
+  "devDependencies": { "linkedom": "0.18.12" }
+}

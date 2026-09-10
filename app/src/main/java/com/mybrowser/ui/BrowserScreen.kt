@@ -76,6 +76,12 @@ fun BrowserScreen(
     onFindPrevious: () -> Unit,
     onFindClose: () -> Unit,
     isIncognito: Boolean = false,
+    hasPrivateIsolation: Boolean = false,
+    onNewTab: () -> Unit = onTabs,
+    bottomAddressBar: Boolean = false,
+    swipeTabs: Boolean = false,
+    onSwitchTab: (Int) -> Unit = {},
+    onRetryPage: () -> Unit = onReloadOrStop,
     onSecurityClick: () -> Unit = {},
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
@@ -103,6 +109,27 @@ fun BrowserScreen(
         focusManager.clearFocus()
         state.onOmnibarFocusChange(false)
         keyboard?.hide()
+    }
+
+    val addressBar: @Composable () -> Unit = {
+                Omnibar(
+                    value = state.omnibarValue,
+                    onValueChange = state::onOmnibarValueChange,
+                    onFocusChange = state::onOmnibarFocusChange,
+                    onNavigate = onNavigate,
+                    onClear = state::clearOmnibar,
+                    onRefresh = onReloadOrStop,
+                    isFocused = state.isOmnibarFocused,
+                    isLoading = state.isLoading,
+                    certificateError = certificateError,
+                    currentUrl = state.currentUrl,
+                    displayTitle = state.displayTitle,
+                    onSecurityClick = onSecurityClick,
+                    bookmarkManager = bookmarkManager,
+                    historyManager = if (isIncognito) null else historyManager,
+                    suggestionsAbove = bottomAddressBar,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -138,7 +165,7 @@ fun BrowserScreen(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = stringResource(R.string.incognito_badge),
+                        text = stringResource(if (hasPrivateIsolation) R.string.private_isolated else R.string.private_shared),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -150,23 +177,7 @@ fun BrowserScreen(
                 enter = expandVertically(expandFrom = Alignment.Top),
                 exit = shrinkVertically(shrinkTowards = Alignment.Top),
             ) {
-                Omnibar(
-                    value = state.omnibarValue,
-                    onValueChange = state::onOmnibarValueChange,
-                    onFocusChange = state::onOmnibarFocusChange,
-                    onNavigate = onNavigate,
-                    onClear = state::clearOmnibar,
-                    onRefresh = onReloadOrStop,
-                    isFocused = state.isOmnibarFocused,
-                    isLoading = state.isLoading,
-                    certificateError = certificateError,
-                    currentUrl = state.currentUrl,
-                    displayTitle = state.displayTitle,
-                    onSecurityClick = onSecurityClick,
-                    bookmarkManager = bookmarkManager,
-                    historyManager = historyManager,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
+                if (!bottomAddressBar) addressBar()
             }
 
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting
@@ -251,6 +262,8 @@ fun BrowserScreen(
                 }
             }
 
+            state.pageFailure?.let { PageRecovery(it, onRetryPage, onHome, onSecurityClick) }
+
             snackbarHostState?.let {
                 SnackbarHost(it, modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
             }
@@ -263,6 +276,7 @@ fun BrowserScreen(
         // inset source instead of two, same result: the bar sits directly on the keyboard
         // when it is up and on the navigation bar when it is not.
         Column {
+            if (bottomAddressBar) AnimatedVisibility(visible = !state.isToolbarHidden || showHomeDashboard) { addressBar() }
             // Find bar appears above the toolbar
             if (state.isFindBarVisible) {
                 FindBar(
@@ -287,6 +301,9 @@ fun BrowserScreen(
                 onForward = onForward,
                 onHome = onHome,
                 onTabs = onTabs,
+                onNewTab = onNewTab,
+                swipeTabs = swipeTabs,
+                onSwitchTab = onSwitchTab,
                 tabCount = tabCount,
                 onMenu = onMenu,
                 modifier = Modifier

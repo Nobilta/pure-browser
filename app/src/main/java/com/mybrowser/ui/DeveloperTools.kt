@@ -94,6 +94,7 @@ fun DeveloperTools(
     onClearNetwork: () -> Unit = {},
     onClearConsole: () -> Unit = {},
     pageUrl: String? = null,
+    onExplainFilter: (NetworkRequestLog) -> Unit = {},
 ) {
     val textResources = localizedResources()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -206,6 +207,7 @@ fun DeveloperTools(
                 1 -> NetworkTab(
                     entries = networkEntries,
                     onClear = onClearNetwork,
+                    onExplain = onExplainFilter,
                 )
                 2 -> SourceCodeTab(pageSource)
                 3 -> InfoTab(webView, pageUrl)
@@ -336,7 +338,7 @@ private fun ConsoleTab(
 }
 
 @Composable
-private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit) {
+private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit, onExplain: (NetworkRequestLog) -> Unit) {
     val textResources = localizedResources()
     Column(modifier = Modifier.fillMaxSize()) {
         DiagnosticsHeader(
@@ -354,7 +356,12 @@ private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit) {
                     .padding(horizontal = 8.dp),
             ) {
                 items(entries.asReversed(), key = { it.id }) { request ->
-                    NetworkRequestItem(request)
+                    Column {
+                        NetworkRequestItem(request)
+                        if (!request.isForMainFrame) TextButton(onClick = { onExplain(request) }) {
+                            Text(textResources.getString(R.string.filter_explain))
+                        }
+                    }
                 }
             }
         }

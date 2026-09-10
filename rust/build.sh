@@ -60,7 +60,14 @@ fi
 
 echo "Building Rust libraries for $TARGET..."
 rustup target add "$TARGET" >/dev/null 2>&1 || true
-cargo build --release --target "$TARGET" -p adblock -p url_utils
+cargo_args=(build --release --locked --target "$TARGET" -p adblock -p url_utils)
+case "${PURE_FILTER_OPT:-}" in
+    "") ;;
+    z) cargo_args+=(--config 'profile.release.package.adblock.opt-level="z"') ;;
+    2|3) cargo_args+=(--config "profile.release.package.adblock.opt-level=$PURE_FILTER_OPT") ;;
+    *) echo "Unsupported filter optimization level" >&2; exit 1 ;;
+esac
+cargo "${cargo_args[@]}"
 
 out_dir="$PROJECT_DIR/app/build/rustJniLibs/$ABI"
 rm -rf "$out_dir"

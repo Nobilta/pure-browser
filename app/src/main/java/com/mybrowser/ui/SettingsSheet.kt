@@ -53,6 +53,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.composed
+import androidx.compose.foundation.background
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -97,10 +104,12 @@ fun SettingsSheet(
     onManageCustomFilters: () -> Unit,
     onManageUserScripts: () -> Unit,
     onManageSites: () -> Unit,
+    onBackup: () -> Unit = {},
     downloadSettings: DownloadSettings,
     onUseSystemDownloadDirectory: () -> Unit,
     onChooseDownloadDirectory: () -> Unit,
     onDownloadThreadCountChange: (Int) -> Unit,
+    onDownloadNetworkChange: (Boolean) -> Unit = {},
     preferences: BrowserPreferences,
     onPreferencesChange: (BrowserPreferences) -> Unit,
     isFilterEnabled: Boolean,
@@ -110,6 +119,8 @@ fun SettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val textResources = localizedResources()
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var highlightTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
     var pickerGeneration by rememberSaveable { mutableLongStateOf(0L) }
@@ -119,6 +130,7 @@ fun SettingsSheet(
     BackHandler(enabled = !childOpen && picker == null, onBack = back)
     val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
 
+    CompositionLocalProvider(LocalSettingHighlight provides highlightTitle) {
     Surface(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
         .testTag(if (selected == null) "settings_root" else "settings_detail")) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -127,7 +139,19 @@ fun SettingsSheet(
                 if (twoPane || selected == null) {
                     Box(if (twoPane) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
                         SettingsPage(textResources.getString(R.string.menu_settings), back) {
-                            SettingsCategory.entries.forEach { category ->
+                            OutlinedTextField(searchQuery, { searchQuery = it.take(128) }, label = { Text(textResources.getString(R.string.settings_search)) },
+                                singleLine = true, modifier = Modifier.fillMaxWidth().padding(12.dp))
+                            if (searchQuery.isNotBlank()) {
+                                SETTINGS_SEARCH.filter { (title, category) ->
+                                    textResources.getString(title).contains(searchQuery, true) || textResources.getString(category.titleRes).contains(searchQuery, true)
+                                }.take(24).forEach { (title, category) ->
+                                    val label = textResources.getString(title)
+                                    SettingsItem(label, textResources.getString(category.titleRes), {
+                                        highlightTitle = label; sectionName = category.name
+                                    }, category.icon)
+                                }
+                            }
+                            if (searchQuery.isBlank()) SettingsCategory.entries.forEach { category ->
                                 val summary = when (category) {
                                     SettingsCategory.BROWSING -> "${currentSearchEngine.displayName(textResources)} · " +
                                         if (restoreLastSession) textResources.getString(R.string.ui_restore_previous_pages) else textResources.getString(R.string.ui_open_homepage_on_startup)
@@ -167,9 +191,12 @@ fun SettingsSheet(
                     Box(Modifier.weight(1f)) {
                         key(category) {
                             when (category) {
-                                SettingsCategory.DOWNLOADS -> DownloadSettingsPage(downloadSettings,
-                                    onUseSystemDownloadDirectory, onChooseDownloadDirectory,
-                                    onDownloadThreadCountChange, back)
+                                SettingsCategory.DOWNLOADS -> Column {
+                                    SettingsToggle(textResources.getString(R.string.download_unmetered), textResources.getString(R.string.download_budget_summary),
+                                        downloadSettings.unmeteredOnly, onDownloadNetworkChange)
+                                    DownloadSettingsPage(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
+                                        onDownloadThreadCountChange, back)
+                                }
                                 else -> SettingsPage(textResources.getString(category.titleRes), back) {
                                     when (category) {
                                         SettingsCategory.BROWSING -> {
@@ -185,16 +212,24 @@ fun SettingsSheet(
                                                 onSetDefaultBrowser, R.drawable.ic_desktop)
                                         }
                                         SettingsCategory.APPEARANCE -> {
+                                            SettingsToggle(textResources.getString(R.string.bottom_address_bar), textResources.getString(R.string.preference_immediate),
+                                                preferences.bottomAddressBar, { onPreferencesChange(preferences.copy(bottomAddressBar = it)) })
+                                            SettingsToggle(textResources.getString(R.string.swipe_tab_switch), textResources.getString(R.string.swipe_tab_switch_summary),
+                                                preferences.swipeTabs, { onPreferencesChange(preferences.copy(swipeTabs = it)) })
                                             SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_settings)
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
+                                            SettingsToggle(textResources.getString(R.string.private_screenshot_protection),
+                                                textResources.getString(R.string.private_screenshot_summary), preferences.protectPrivateScreens,
+                                                { onPreferencesChange(preferences.copy(protectPrivateScreens = it)) })
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
                                             SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_settings)
                                             SettingsGroup(textResources.getString(R.string.menu_section_data))
+                                            SettingsItem(textResources.getString(R.string.backup_title), textResources.getString(R.string.backup_summary), onBackup, R.drawable.ic_folder)
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                         }
@@ -279,6 +314,8 @@ fun SettingsSheet(
     }
 }
 
+}
+
 private enum class SettingsCategory(val titleRes: Int, val icon: Int) {
     BROWSING(R.string.ui_browsing_and_startup, R.drawable.ic_home),
     APPEARANCE(R.string.ui_appearance, R.drawable.ic_settings),
@@ -291,7 +328,7 @@ private enum class SettingsCategory(val titleRes: Int, val icon: Int) {
 @Composable
 private fun SettingsToggle(title: String, summary: String, checked: Boolean,
     onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+    Row(Modifier.fillMaxWidth().highlightSetting(title).toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
         .padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
@@ -677,6 +714,7 @@ private fun SettingsItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .highlightSetting(title)
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -703,3 +741,37 @@ private fun SettingsItem(
         Icon(painterResource(R.drawable.ic_forward), null, modifier = Modifier.size(18.dp))
     }
 }
+
+private val LocalSettingHighlight = staticCompositionLocalOf<String?> { null }
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Modifier.highlightSetting(title: String): Modifier = composed {
+    val highlighted = LocalSettingHighlight.current == title
+    val requester = remember { BringIntoViewRequester() }
+    LaunchedEffect(highlighted) { if (highlighted) { kotlinx.coroutines.delay(250); requester.bringIntoView() } }
+    bringIntoViewRequester(requester).then(if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
+}
+private val SETTINGS_SEARCH = listOf(
+    R.string.backup_title to SettingsCategory.PRIVACY,
+    R.string.cd_home to SettingsCategory.BROWSING,
+    R.string.ui_restore_pages_on_startup to SettingsCategory.BROWSING,
+    R.string.ui_search_engine to SettingsCategory.BROWSING,
+    R.string.ui_default_browser to SettingsCategory.BROWSING,
+    R.string.ui_app_theme to SettingsCategory.APPEARANCE,
+    R.string.bottom_address_bar to SettingsCategory.APPEARANCE,
+    R.string.swipe_tab_switch to SettingsCategory.APPEARANCE,
+    R.string.private_screenshot_protection to SettingsCategory.PRIVACY,
+    R.string.ui_ad_filtering to SettingsCategory.PRIVACY,
+    R.string.ui_custom_ad_filter_rules to SettingsCategory.PRIVACY,
+    R.string.script_title to SettingsCategory.PRIVACY,
+    R.string.site_settings to SettingsCategory.PRIVACY,
+    R.string.menu_clear_data to SettingsCategory.PRIVACY,
+    R.string.download_unmetered to SettingsCategory.DOWNLOADS,
+    R.string.ui_download_settings to SettingsCategory.DOWNLOADS,
+    R.string.ui_brightness_and_volume_gestures to SettingsCategory.VIDEO,
+    R.string.ui_swipe_to_seek to SettingsCategory.VIDEO,
+    R.string.ui_hold_for_temporary_speed_boost to SettingsCategory.VIDEO,
+    R.string.ui_hold_speed to SettingsCategory.VIDEO,
+    R.string.ui_remember_playback_speed to SettingsCategory.VIDEO,
+    R.string.ui_default_playback_speed to SettingsCategory.VIDEO,
+    R.string.ui_developer_tools to SettingsCategory.ABOUT,
+)

@@ -11,6 +11,21 @@ pub struct Matcher {
     exceptions: RuleSet,
 }
 
+#[derive(Debug)]
+pub struct DocumentContext {
+    host: String,
+    site: Option<site_identity::SiteKey>,
+}
+
+impl DocumentContext {
+    pub fn new(url: &str) -> Self {
+        let lower = url.to_lowercase();
+        let host = extract_host(&lower).unwrap_or("").to_owned();
+        let site = site_identity::SiteKey::new(&host);
+        Self { host, site }
+    }
+}
+
 /// An index is only a prefilter: complete patterns and options always decide the result.
 #[derive(Default)]
 struct RuleSet {
@@ -179,13 +194,21 @@ impl Matcher {
     }
 
     pub fn should_block(&self, url: &str, first_party: &str, resource_type: ResourceType) -> bool {
+        self.should_block_context(url, &DocumentContext::new(first_party), resource_type)
+    }
+
+    pub fn should_block_context(
+        &self,
+        url: &str,
+        document: &DocumentContext,
+        resource_type: ResourceType,
+    ) -> bool {
         if !is_http_url(url) {
             return false;
         }
         let lower = url.to_lowercase();
-        let page_lower = first_party.to_lowercase();
         let host = extract_host(&lower).unwrap_or("");
-        let first_party_host = extract_host(&page_lower).unwrap_or("");
+        let first_party_host = document.host.as_str();
         let request = Request {
             original: url,
             lower: &lower,
@@ -193,13 +216,60 @@ impl Matcher {
             first_party_host,
             resource_type,
             is_third_party: !first_party_host.is_empty()
-                && !site_identity::same_site(host, first_party_host),
+                && !document
+                    .site
+                    .as_ref()
+                    .is_some_and(|site| site.contains(host)),
         };
         self.blocking.matches(&request) && !self.exceptions.matches(&request)
     }
 
     pub fn rule_count(&self) -> usize {
         self.blocking.count + self.exceptions.count
+    }
+
+    /// Only used on explicit diagnosis; no explanation strings are allocated by requests.
+    pub fn explain(
+        content: &str,
+        url: &str,
+        page: &str,
+        resource_type: ResourceType,
+    ) -> (Option<String>, Option<String>) {
+        if !is_http_url(url) {
+            return (None, None);
+        }
+        let lower = url.to_lowercase();
+        let document = DocumentContext::new(page);
+        let host = extract_host(&lower).unwrap_or("");
+        let request = Request {
+            original: url,
+            lower: &lower,
+            host,
+            first_party_host: &document.host,
+            resource_type,
+            is_third_party: !document.host.is_empty()
+                && !document
+                    .site
+                    .as_ref()
+                    .is_some_and(|site| site.contains(host)),
+        };
+        let mut blocking = None;
+        let mut exception = None;
+        for line in content.lines().filter(|line| line.len() <= MAX_RULE_LENGTH) {
+            if let Ok(rule) = Rule::parse(line) {
+                if request.matches(&rule) {
+                    if rule.is_exception {
+                        exception.get_or_insert_with(|| line.trim().to_owned());
+                    } else {
+                        blocking.get_or_insert_with(|| line.trim().to_owned());
+                    }
+                    if blocking.is_some() && exception.is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+        (blocking, exception)
     }
 }
 

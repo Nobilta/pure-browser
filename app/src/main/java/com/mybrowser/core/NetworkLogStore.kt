@@ -31,6 +31,8 @@ data class NetworkRequestLog(
     val startedAtElapsedMs: Long = 0L,
     val durationMs: Long? = null,
     val sizeBytes: Long? = null,
+    val documentUrl: String = "",
+    val resourceType: Int = com.mybrowser.filter.NativeFilter.ResourceType.OTHER.ordinal,
 ) {
     fun statusText(resources: Resources): String = when {
             blocked -> resources.getString(R.string.ui_blocked)
@@ -65,10 +67,11 @@ data class NetworkRequestLog(
 /** Thread-safe, bounded state used by WebView worker callbacks and Compose. */
 class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
 
-    private val lock = Any()
     private val nextId = AtomicLong(1L)
-    private val _entries = MutableStateFlow<List<NetworkRequestLog>>(emptyList())
-    val entries: StateFlow<List<NetworkRequestLog>> = _entries.asStateFlow()
+    private val buffer = BufferedLog<NetworkRequestLog>(maxEntries)
+    val entries = buffer.entries
+    fun setVisible(value: Boolean) = buffer.setVisible(value)
+    fun snapshot(): List<NetworkRequestLog> = buffer.snapshot()
 
     init {
         require(maxEntries > 0) { "maxEntries must be positive" }
@@ -81,8 +84,9 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
             clear()
             return
         }
-        synchronized(lock) {
-            _entries.value = listOf(
+        buffer.edit { ring ->
+            ring.clear()
+            ring.add(
                 NetworkRequestLog(
                     id = nextId.getAndIncrement(),
                     method = "GET",
@@ -95,26 +99,27 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     }
 
     fun clear() {
-        synchronized(lock) { _entries.value = emptyList() }
+        buffer.clear()
     }
 
     /** Records a request before the filter gets a chance to return a replacement response. */
-    fun recordRequest(request: WebResourceRequest): Long {
+    fun recordRequest(request: WebResourceRequest, documentUrl: String = "",
+        type: com.mybrowser.filter.NativeFilter.ResourceType = com.mybrowser.filter.FilterController.classify(request)): Long {
         val url = request.url.toString().trim().take(MAX_URL_LENGTH)
         val method = request.method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
         val now = SystemClock.elapsedRealtime()
 
-        synchronized(lock) {
+        return buffer.edit { ring ->
             // beginPage() cannot see the WebResourceRequest itself. Coalesce the synthetic
             // main-frame row with Chromium's corresponding callback when it arrives shortly
             // afterwards, instead of showing the document twice.
             if (request.isForMainFrame) {
-                val existingIndex = _entries.value.indexOfLast {
+                val existingIndex = ring.indexOfLast {
                     it.isForMainFrame && it.method == method && it.url == url &&
                         it.statusCode == null && !it.blocked &&
                         now - it.startedAtElapsedMs in 0..MAIN_FRAME_COALESCE_MS
                 }
-                if (existingIndex >= 0) return _entries.value[existingIndex].id
+                if (existingIndex >= 0) return@edit ring[existingIndex].id
             }
 
             val entry = NetworkRequestLog(
@@ -123,9 +128,11 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
                 url = url,
                 isForMainFrame = request.isForMainFrame,
                 startedAtElapsedMs = now,
+                documentUrl = documentUrl.take(MAX_URL_LENGTH),
+                resourceType = type.ordinal,
             )
-            publishLocked(_entries.value + entry)
-            return entry.id
+            ring.add(entry)
+            entry.id
         }
     }
 
@@ -188,12 +195,10 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     }
 
     private fun updateById(id: Long, transform: (NetworkRequestLog) -> NetworkRequestLog) {
-        synchronized(lock) {
-            val index = _entries.value.indexOfLast { it.id == id }
-            if (index < 0) return
-            val next = _entries.value.toMutableList()
-            next[index] = transform(next[index])
-            _entries.value = next
+        return buffer.edit { ring ->
+            val index = ring.indexOfLast { it.id == id }
+            if (index < 0) return@edit
+            ring[index] = transform(ring[index])
         }
     }
 
@@ -203,17 +208,15 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     ) {
         val url = request.url.toString().trim().take(MAX_URL_LENGTH)
         val method = request.method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
-        synchronized(lock) {
-            val index = _entries.value.indexOfLast {
+        return buffer.edit { ring ->
+            val index = ring.indexOfLast {
                 it.url == url && it.method == method &&
                     it.statusCode == null && !it.blocked && it.errorCode == null
-            }.takeIf { it >= 0 } ?: _entries.value.indexOfLast {
+            }.takeIf { it >= 0 } ?: ring.indexOfLast {
                 it.url == url && it.method == method
             }
-            if (index < 0) return
-            val next = _entries.value.toMutableList()
-            next[index] = transform(next[index])
-            _entries.value = next
+            if (index < 0) return@edit
+            ring[index] = transform(ring[index])
         }
     }
 
@@ -223,20 +226,14 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         transform: (NetworkRequestLog) -> NetworkRequestLog,
     ) {
         val boundedUrl = url.trim().take(MAX_URL_LENGTH)
-        synchronized(lock) {
-            val index = _entries.value.indexOfLast {
+        return buffer.edit { ring ->
+            val index = ring.indexOfLast {
                 it.url == boundedUrl && (!mainFrameOnly || it.isForMainFrame) &&
                     it.statusCode == null && !it.blocked && it.errorCode == null
             }
-            if (index < 0) return
-            val next = _entries.value.toMutableList()
-            next[index] = transform(next[index])
-            _entries.value = next
+            if (index < 0) return@edit
+            ring[index] = transform(ring[index])
         }
-    }
-
-    private fun publishLocked(entries: List<NetworkRequestLog>) {
-        _entries.value = if (entries.size <= maxEntries) entries else entries.takeLast(maxEntries)
     }
 
     private fun elapsedSince(entry: NetworkRequestLog): Long =

@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resident fixture</title><style>body{font:18px sans-serif;padding:12px}button,input{font:inherit;margin:8px;padding:10px}video{width:96%;max-width:400px}p{line-height:2}</style>
+<h1 id="heading"></h1><label>Unsubmitted draft<input id="draft" autocomplete="off"></label>
+<button id="prepare">Prepare form and SPA</button><button id="scroll">Scroll article</button>
+<video id="movie" src="sample.mp4" controls loop playsinline></video><button id="play">Play video</button>
+<main id="article"></main><script>
+const params=new URLSearchParams(location.search),name=params.get('name')||'A',key=params.get('case')||'resident';
+document.title='Resident '+name;heading.textContent=document.title;
+const token=crypto.randomUUID(),started=Date.now();let spa=0;
+article.innerHTML=Array.from({length:90},(_,i)=>'<p>Article paragraph '+i+' — 中文长文章与代码阅读位置验证。</p>').join('');
+prepare.onclick=()=>{draft.value='Unsubmitted '+name;spa++;history.pushState({spa},'',location.pathname+location.search+'#step'+spa);report()};
+document.getElementById('scroll').onclick=()=>{scrollTo(0,1050);report()};play.onclick=()=>movie.play();
+function report(){fetch('/__state?case='+key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,token,started,draft:draft.value,spa,state:history.state,scroll:scrollY,paused:movie.paused,time:movie.currentTime,ready:document.readyState})}).catch(()=>{})}
+setInterval(report,650);document.addEventListener('visibilitychange',report);movie.addEventListener('pause',report);report();
+</script></html>

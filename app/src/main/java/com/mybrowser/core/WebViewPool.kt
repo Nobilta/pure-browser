@@ -30,9 +30,8 @@ import android.webkit.WebView
 class WebViewPool(
     private val appContext: Context,
     /**
-     * Live instances allowed. One foreground plus three background matches what the
-     * lightweight browsers settle on: enough that switching between recent tabs is
-     * instant, few enough to stay inside a normal memory budget.
+     * Admission limit when returning an instance to the idle pool. Fresh acquisition
+     * can exceed this count; each window separately bounds its retained page instances.
      */
     private val maxSize: Int = 4,
 ) {
@@ -41,12 +40,12 @@ class WebViewPool(
     private val active = mutableSetOf<WebView>()
     private val instances = mutableSetOf<WebView>()
 
-    /** Instances created so far, for logging and to enforce [maxSize]. */
+    /** Live instance count, for logging and idle admission. */
     private var created = 0
 
     /**
      * Builds one instance ahead of time so the first navigation does not pay Chromium
-     * startup. Call from Application.onCreate.
+     * startup. Call on the main thread when prewarming fits the startup budget.
      */
     fun preWarm() {
         if (created > 0 || idle.isNotEmpty()) return

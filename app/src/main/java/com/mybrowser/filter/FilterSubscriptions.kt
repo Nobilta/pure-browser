@@ -258,7 +258,8 @@ class FilterSubscriptions(
         }
 
     private suspend fun rebuild() {
-        filter?.replaceLists(_subscriptions.value.filter { it.enabled }.mapNotNull(::readPayload))?.join()
+        val enabled = _subscriptions.value.filter { it.enabled }.mapNotNull { list -> readPayload(list)?.let { list.name to it } }
+        filter?.replaceLists(enabled.map { it.second }, enabled.map { it.first })?.join()
     }
 
     private fun persist(lists: List<Subscription>) {

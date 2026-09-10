@@ -60,6 +60,7 @@ class MediaPlaybackTracker(
     private var nextCommand = 0
     private var fullscreenTarget: Target? = null
     private var boostTarget: Target? = null
+    private var suspended = false
     private val source: String get() = probeSource(webView.context)
 
     private data class Frame(val signal: Signal, val time: Long, val proxy: JavaScriptReplyProxy?)
@@ -147,6 +148,15 @@ class MediaPlaybackTracker(
 
     fun togglePlayback(onResult: (Boolean) -> Unit = {}) = send(target(), "togglePlayback", onResult = onResult)
 
+    /** Pause every known frame and prevent autoplay while the tab is parked. */
+    fun setSuspended(value: Boolean) {
+        suspended = value
+        frames.values.toList().forEach { frame ->
+            send(Target(frame.signal.frameId, frame.signal.videoId, frame.proxy), "suspend", JSONObject().put("value", value))
+        }
+        runCatching { webView.evaluateJavascript(walkScript("api.suspend($value);", "true"), null) }
+    }
+
     fun seekTo(position: Double, onResult: (Boolean) -> Unit = {}) {
         if (!position.isFinite() || !current.canSeek) { onResult(false); return }
         send(target(), "seek", JSONObject().put("position", position.coerceIn(current.seekStart, current.seekEnd)), onResult)
@@ -214,6 +224,9 @@ class MediaPlaybackTracker(
 
     private fun accept(signal: Signal, proxy: JavaScriptReplyProxy?) {
         if (closed) return
+        if (suspended && signal.isPlaying) {
+            send(Target(signal.frameId, signal.videoId, proxy), "suspend", JSONObject().put("value", true))
+        }
         val now = SystemClock.uptimeMillis()
         frames[signal.frameId] = Frame(signal, now, proxy ?: frames[signal.frameId]?.proxy)
         frames.entries.removeAll { now - it.value.time > 4_000L }

@@ -26,6 +26,7 @@ import com.mybrowser.core.UrlUtils
  */
 @Stable
 class BrowserState {
+    var pageFailure: com.mybrowser.core.PageFailure? by mutableStateOf(null)
 
     var currentUrl: String by mutableStateOf(ABOUT_BLANK)
 
@@ -116,6 +117,7 @@ class BrowserState {
     // --- WebView callbacks push in here ---
 
     fun onPageStarted(url: String) {
+        pageFailure = null
         hideFindBar()
         revealToolbar()
         currentUrl = url

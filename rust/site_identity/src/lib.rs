@@ -54,6 +54,35 @@ pub fn same_site(a: &str, b: &str) -> bool {
     }
 }
 
+/// A precomputed document identity; invalid hosts never compare equal to each other.
+#[derive(Debug, Clone)]
+pub struct SiteKey {
+    host: String,
+    domain: Option<String>,
+}
+
+impl SiteKey {
+    pub fn new(host: &str) -> Option<Self> {
+        let host = canonical_host(host)?.into_owned();
+        let domain = if host.parse::<IpAddr>().is_ok() {
+            None
+        } else {
+            psl::domain_str(&host).map(str::to_owned)
+        };
+        Some(Self { host, domain })
+    }
+
+    pub fn contains(&self, host: &str) -> bool {
+        let Some(host) = canonical_host(host) else {
+            return false;
+        };
+        self.host == host
+            || (self.domain.is_some()
+                && host.parse::<IpAddr>().is_err()
+                && psl::domain_str(&host) == self.domain.as_deref())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

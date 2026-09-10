@@ -36,6 +36,7 @@ class BookmarkManager(context: Context) {
             val updateValues = ContentValues().apply {
                 put("title", cleanTitle)
                 put("url", cleanUrl)
+                put("host", SearchKey.host(cleanUrl))
                 if (faviconUrl == null) putNull("favicon_url")
                 else put("favicon_url", faviconUrl.trim().take(SqlLike.MAX_URL_LENGTH))
             }
@@ -50,6 +51,7 @@ class BookmarkManager(context: Context) {
             } else {
                 val insertValues = ContentValues(updateValues).apply {
                     put("created_at", System.currentTimeMillis())
+                    put("position", nextPosition(database, "bookmarks", "folder_id", 0, first = true))
                 }
                 val inserted = database.insertWithOnConflict(
                     "bookmarks",
@@ -148,22 +150,49 @@ class BookmarkManager(context: Context) {
 
     @Synchronized
     fun clearAll() {
-        if (!closed) db.writableDatabase.delete("bookmarks", null, null)
+        if (!closed) db.writableDatabase.transaction {
+            delete("bookmarks", null, null)
+            delete("bookmark_folders", null, null)
+        }
     }
 
     /** Import is one transaction; duplicates keep the user's existing title and identity. */
     @Synchronized
-    fun importBookmarks(entries: List<ImportedBookmark>): Int {
+    fun importBookmarks(entries: List<ImportedBookmark>, folders: List<List<String>> = emptyList()): Int {
         check(!closed)
         require(entries.size <= BookmarkHtml.MAX_BOOKMARKS)
         val database = db.writableDatabase
         return database.transaction {
+            val ids = HashMap<List<String>, Long>()
+            ids[emptyList()] = 0
+            fun folderId(path: List<String>): Long {
+                require(path.size <= BookmarkFolders.MAX_DEPTH)
+                var parent = 0L
+                path.forEachIndexed { index, raw ->
+                    val title = raw.trim()
+                    require(title.isNotBlank() && title.length <= BookmarkFolders.MAX_NAME)
+                    val key = path.take(index + 1)
+                    parent = ids.getOrPut(key) {
+                        database.query("bookmark_folders", arrayOf("id"), "parent_id = ? AND title = ?",
+                            arrayOf(parent.toString(), title), null, null, "id", "1").use { cursor ->
+                            if (cursor.moveToFirst()) cursor.getLong(0) else addFolder(title, parent)
+                        }
+                    }
+                }
+                return parent
+            }
+            require(folders.size <= BookmarkFolders.MAX_FOLDERS)
+            folders.forEach(::folderId)
             var inserted = 0
             entries.forEach { entry ->
                 require(entry.url.length <= SqlLike.MAX_URL_LENGTH && com.mybrowser.core.UrlUtils.isHttpUrl(entry.url))
                 val values = ContentValues().apply {
                     put("title", entry.title.take(SqlLike.MAX_TITLE_LENGTH).ifBlank { entry.url })
                     put("url", entry.url)
+                    put("host", SearchKey.host(entry.url))
+                    val target = folderId(entry.folderPath)
+                    put("folder_id", target)
+                    put("position", nextPosition(database, "bookmarks", "folder_id", target))
                     put("created_at", System.currentTimeMillis())
                 }
                 if (database.insertWithOnConflict("bookmarks", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) inserted++
@@ -176,11 +205,45 @@ class BookmarkManager(context: Context) {
     fun bookmarksForExport(): List<Bookmark> {
         check(!closed)
         val entries = db.readableDatabase.query("bookmarks", COLUMNS, null, null, null, null,
-            "created_at DESC, id DESC", (BookmarkHtml.MAX_BOOKMARKS + 1).toString()).use { cursor ->
+            "folder_id, position, id", (BookmarkHtml.MAX_BOOKMARKS + 1).toString()).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) }
         }
         check(entries.size <= BookmarkHtml.MAX_BOOKMARKS) { "Too many bookmarks to export" }
         return entries
+    }
+
+    @Synchronized
+    fun backupSnapshot(): org.json.JSONObject = db.readableDatabase.transaction { org.json.JSONObject()
+        .put("bookmarks", org.json.JSONArray().apply { bookmarksForExport().forEach { row ->
+            put(org.json.JSONObject().put("id", row.id).put("title", row.title).put("url", row.url)
+                .put("faviconUrl", row.faviconUrl).put("createdAt", row.createdAt).put("folderId", row.folderId).put("position", row.position))
+        } }).put("folders", org.json.JSONArray().apply { getFolders().forEach { folder ->
+            put(org.json.JSONObject().put("id", folder.id).put("parentId", folder.parentId).put("title", folder.title).put("position", folder.position))
+        } }) }
+
+    /** The backup coordinator validates first; this transaction also protects journal recovery. */
+    @Synchronized
+    fun restoreSnapshot(snapshot: org.json.JSONObject) {
+        check(!closed)
+        val folders = com.mybrowser.backup.BackupFormat.bookmarkFolders(snapshot)
+        val rows = snapshot.getJSONArray("bookmarks")
+        require(rows.length() <= BookmarkHtml.MAX_BOOKMARKS)
+        db.writableDatabase.transaction {
+            delete("bookmarks", null, null); delete("bookmark_folders", null, null)
+            folders.forEach { folder -> insertOrThrow("bookmark_folders", null, ContentValues().apply {
+                put("id", folder.id); put("parent_id", folder.parentId); put("title", folder.title); put("position", folder.position)
+            }) }
+            repeat(rows.length()) { i ->
+                val row = rows.getJSONObject(i)
+                val url = row.getString("url")
+                insertOrThrow("bookmarks", null, ContentValues().apply {
+                    put("id", row.getLong("id")); put("title", row.getString("title")); put("url", url)
+                    put("host", SearchKey.host(url)); put("created_at", row.getLong("createdAt"))
+                    put("folder_id", row.optLong("folderId")); put("position", row.optLong("position"))
+                    if (!row.isNull("faviconUrl")) put("favicon_url", row.getString("faviconUrl"))
+                })
+            }
+        }
     }
 
     /** Editing preserves row identity and fails atomically when another bookmark owns the URL. */
@@ -197,12 +260,128 @@ class BookmarkManager(context: Context) {
             database.update("bookmarks", ContentValues().apply {
                 put("title", title.trim().take(SqlLike.MAX_TITLE_LENGTH).ifBlank { cleanUrl })
                 put("url", cleanUrl)
+                put("host", SearchKey.host(cleanUrl))
                 if (previousUrl != cleanUrl) putNull("favicon_url")
             }, "id = ?", arrayOf(id.toString())) == 1
         } catch (_: RuntimeException) {
             false
         }
     }
+
+    @Synchronized
+    fun getFolders(): List<BookmarkFolder> {
+        check(!closed)
+        return db.readableDatabase.query("bookmark_folders", arrayOf("id", "parent_id", "title", "position"),
+            null, null, null, null, "position, id", (BookmarkFolders.MAX_FOLDERS + 1).toString()).use { c ->
+            buildList { while (c.moveToNext()) add(BookmarkFolder(c.getLong(0), c.getLong(1), c.getString(2), c.getLong(3))) }
+        }.also(BookmarkFolders::validate)
+    }
+
+    @Synchronized
+    fun getFolderBookmarks(folderId: Long, limit: Int = 50, offset: Int = 0): List<Bookmark> {
+        check(!closed)
+        return db.readableDatabase.query("bookmarks", COLUMNS, "folder_id = ?", arrayOf(folderId.toString()),
+            null, null, "position, id", SqlLike.limitClause(limit, offset)).use { c ->
+            buildList { while (c.moveToNext()) add(c.toBookmark()) }
+        }
+    }
+
+    @Synchronized
+    fun addFolder(title: String, parentId: Long = 0): Long {
+        check(!closed)
+        val folders = getFolders()
+        val name = title.trim()
+        require(name.isNotBlank() && name.length <= BookmarkFolders.MAX_NAME && folders.size < BookmarkFolders.MAX_FOLDERS)
+        require(BookmarkFolders.path(parentId, folders).size < BookmarkFolders.MAX_DEPTH)
+        return db.writableDatabase.insertOrThrow("bookmark_folders", null, ContentValues().apply {
+            put("parent_id", parentId); put("title", name)
+            put("position", nextPosition(db.writableDatabase, "bookmark_folders", "parent_id", parentId))
+        })
+    }
+
+    @Synchronized
+    fun updateFolder(id: Long, title: String, parentId: Long) {
+        check(!closed)
+        val folders = getFolders()
+        require(folders.any { it.id == id })
+        val name = title.trim()
+        BookmarkFolders.validate(folders.map { if (it.id == id) it.copy(title = name, parentId = parentId) else it })
+        db.writableDatabase.update("bookmark_folders", ContentValues().apply {
+            put("title", name); put("parent_id", parentId)
+        }, "id = ?", arrayOf(id.toString()))
+    }
+
+    /** Deleting a folder keeps its contents and moves them up one level. */
+    @Synchronized
+    fun removeFolder(id: Long) {
+        check(!closed)
+        val folder = getFolders().first { it.id == id }
+        db.writableDatabase.transaction {
+            execSQL("UPDATE bookmarks SET folder_id = ? WHERE folder_id = ?", arrayOf(folder.parentId, id))
+            execSQL("UPDATE bookmark_folders SET parent_id = ? WHERE parent_id = ?", arrayOf(folder.parentId, id))
+            delete("bookmark_folders", "id = ?", arrayOf(id.toString()))
+        }
+    }
+
+    @Synchronized
+    fun moveBookmarks(ids: Set<Long>, folderId: Long) {
+        check(!closed)
+        require(ids.size <= BookmarkHtml.MAX_BOOKMARKS)
+        BookmarkFolders.path(folderId, getFolders())
+        db.writableDatabase.transaction {
+            var position = nextPosition(this, "bookmarks", "folder_id", folderId)
+            ids.forEach { id ->
+                update("bookmarks", ContentValues().apply { put("folder_id", folderId); put("position", position++) },
+                    "id = ?", arrayOf(id.toString()))
+            }
+        }
+    }
+
+    @Synchronized
+    fun deleteBookmarks(ids: Set<Long>) {
+        check(!closed)
+        require(ids.size <= BookmarkHtml.MAX_BOOKMARKS)
+        db.writableDatabase.transaction { ids.forEach { delete("bookmarks", "id = ?", arrayOf(it.toString())) } }
+    }
+
+    @Synchronized
+    fun reorder(id: Long, folder: Boolean, direction: Int) {
+        check(!closed)
+        require(direction == -1 || direction == 1)
+        val table = if (folder) "bookmark_folders" else "bookmarks"
+        val parent = if (folder) "parent_id" else "folder_id"
+        db.writableDatabase.transaction {
+            val parentId = query(table, arrayOf(parent), "id = ?", arrayOf(id.toString()), null, null, null).use {
+                check(it.moveToFirst()); it.getLong(0)
+            }
+            val ids = query(table, arrayOf("id"), "$parent = ?", arrayOf(parentId.toString()), null, null, "position, id").use {
+                buildList { while (it.moveToNext()) add(it.getLong(0)) }.toMutableList()
+            }
+            val index = ids.indexOf(id)
+            val next = index + direction
+            if (next in ids.indices) {
+                java.util.Collections.swap(ids, index, next)
+                ids.forEachIndexed { i, row -> execSQL("UPDATE $table SET position = ? WHERE id = ?", arrayOf(i, row)) }
+            }
+        }
+    }
+
+    /** Indexed prefixes lead; bounded substring fallback preserves Chinese/URL search. */
+    @Synchronized
+    fun suggestions(query: String): List<Bookmark> {
+        if (closed || query.isBlank()) return emptyList()
+        val prefix = SqlLike.prefix(SearchKey.input(query))
+        val first = db.readableDatabase.query("bookmarks", COLUMNS,
+            "host LIKE ?${SqlLike.ESCAPE_CLAUSE} OR title LIKE ?${SqlLike.ESCAPE_CLAUSE} OR url LIKE ?${SqlLike.ESCAPE_CLAUSE}",
+            arrayOf(prefix, SqlLike.prefix(query), SqlLike.prefix(query)), null, null,
+            "created_at DESC, id DESC", "30").use { c -> buildList { while (c.moveToNext()) add(c.toBookmark()) } }
+        return (first + searchBookmarks(query, 20)).distinctBy { it.id }
+    }
+
+    private fun nextPosition(database: SQLiteDatabase, table: String, parent: String, id: Long, first: Boolean = false): Long =
+        database.rawQuery("SELECT COALESCE(${if (first) "MIN" else "MAX"}(position), 0) FROM $table WHERE $parent = ?", arrayOf(id.toString())).use {
+            it.moveToFirst(); it.getLong(0) + if (first) -1 else 1
+        }
 
     private fun findId(database: SQLiteDatabase, url: String): Long =
         database.query(
@@ -222,6 +401,8 @@ class BookmarkManager(context: Context) {
         url = getString(2),
         faviconUrl = getString(3),
         createdAt = getLong(4),
+        folderId = getLong(5),
+        position = getLong(6),
     )
 
     @Synchronized
@@ -232,7 +413,7 @@ class BookmarkManager(context: Context) {
     }
 
     private companion object {
-        val COLUMNS = arrayOf("id", "title", "url", "favicon_url", "created_at")
+        val COLUMNS = arrayOf("id", "title", "url", "favicon_url", "created_at", "folder_id", "position")
         const val DEFAULT_SEARCH_LIMIT = 50
     }
 }

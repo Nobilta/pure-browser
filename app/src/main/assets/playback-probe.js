@@ -4,7 +4,7 @@
   var doc = win.document, bridge = win.mybrowserMediaProbe;
   var frameId = Date.now().toString(36) + Math.random().toString(36).slice(2);
   var ids = new WeakMap(), speeds = new WeakMap(), nextId = 0;
-  var selected = null, boost = null, nativeControls = null, disposed = false;
+  var selected = null, boost = null, nativeControls = null, disposed = false, suspended = false;
   var scheduled = null, pulse = null, observer = null;
   var controlsAttribute = 'data-pure-browser-controls';
   var rates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
@@ -177,7 +177,9 @@
     var video = videos().find(function(item) { return id(item) === message.videoId; });
     var ok = false;
     try {
-      if (message.type === 'endBoost') {
+      if (message.type === 'suspend') {
+        suspend(!!message.value); ok = true;
+      } else if (message.type === 'endBoost') {
         ok = restoreBoost();
       } else if (message.type === 'restoreControls') {
         if (!nativeControls || id(nativeControls.video) === message.videoId) {
@@ -222,6 +224,7 @@
   }
   function mediaEvent(event) {
     var video = event.target;
+    if (suspended && event.type === 'play' && video && typeof video.pause === 'function') video.pause();
     if (video && String(video.tagName).toLowerCase() === 'video') {
       if (boost && boost.video === video &&
           (event.type === 'emptied' || event.type === 'ended' || event.type === 'pause' || boost.source !== video.currentSrc)) restoreBoost();
@@ -255,8 +258,15 @@
     try { message = JSON.parse(String(event.data)); } catch (_) { return; }
     command(message, function(ok) { emit({ type: 'ack', id: message.id, frameId: frameId, ok: ok }); });
   };
+  function suspend(value) {
+    suspended = !!value;
+    if (suspended) {
+      restoreBoost();
+      Array.prototype.slice.call(doc.querySelectorAll('video,audio'), 0, 128).forEach(function(media) { media.pause(); });
+    }
+  }
   var api = {
-    snapshot: snapshot, post: post, command: command,
+    snapshot: snapshot, post: post, command: command, suspend: suspend,
     dispose: function() {
       restoreBoost(); restoreControls(); disposed = true;
       win.clearTimeout(scheduled); win.clearTimeout(pulse);

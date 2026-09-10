@@ -29,6 +29,7 @@ class HistoryManager(context: Context) {
             val updated = ContentValues().apply {
                 put("title", cleanTitle)
                 put("visit_time", now)
+                put("host", SearchKey.host(cleanUrl))
             }
             val changed = database.update(
                 "history",
@@ -46,6 +47,7 @@ class HistoryManager(context: Context) {
                 val values = ContentValues().apply {
                     put("title", cleanTitle)
                     put("url", cleanUrl)
+                    put("host", SearchKey.host(cleanUrl))
                     put("visit_time", now)
                     put("visit_count", 1)
                 }
@@ -119,10 +121,27 @@ class HistoryManager(context: Context) {
         if (!closed) db.writableDatabase.delete("history", null, null)
     }
 
+    @Synchronized
+    fun clearSince(sinceMs: Long) {
+        check(!closed) { "History database closed" }
+        db.writableDatabase.delete("history", "visit_time >= ?", arrayOf(sinceMs.toString()))
+    }
+
     /** Gets the most recent history entries (useful for autocomplete). */
     @Synchronized
     fun getRecentHistory(limit: Int = 10): List<HistoryEntry> =
         getAllHistory(limit.coerceAtLeast(0))
+
+    @Synchronized
+    fun suggestions(query: String): List<HistoryEntry> {
+        if (closed || query.isBlank()) return emptyList()
+        val prefix = SqlLike.prefix(SearchKey.input(query))
+        val first = db.readableDatabase.query("history", COLUMNS,
+            "host LIKE ?${SqlLike.ESCAPE_CLAUSE} OR title LIKE ?${SqlLike.ESCAPE_CLAUSE} OR url LIKE ?${SqlLike.ESCAPE_CLAUSE}",
+            arrayOf(prefix, SqlLike.prefix(query), SqlLike.prefix(query)), null, null,
+            "visit_time DESC, id DESC", "30").use { c -> buildList { while (c.moveToNext()) add(c.toHistoryEntry()) } }
+        return (first + searchHistory(query, 20)).distinctBy { it.id }
+    }
 
     private fun findId(database: SQLiteDatabase, url: String): Long =
         database.query(

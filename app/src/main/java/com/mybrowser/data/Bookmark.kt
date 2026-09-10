@@ -9,4 +9,6 @@ data class Bookmark(
     val url: String,
     val faviconUrl: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    val folderId: Long = 0,
+    val position: Long = 0,
 )

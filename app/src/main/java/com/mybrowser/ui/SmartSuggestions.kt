@@ -28,6 +28,7 @@ data class Suggestion(
     val url: String,
     val type: SuggestionType,
     val visitCount: Int = 0,
+    val lastVisit: Long = 0,
     val faviconUrl: String? = null
 )
 
@@ -41,8 +42,10 @@ enum class SuggestionType {
 fun SmartSuggestions(
     query: String,
     bookmarkManager: BookmarkManager,
-    historyManager: HistoryManager,
+    historyManager: HistoryManager?,
     onSuggestionClick: (String) -> Unit,
+    onFillSuggestion: (String) -> Unit,
+    maxHeight: androidx.compose.ui.unit.Dp = 400.dp,
     modifier: Modifier = Modifier
 ) {
     val textResources = localizedResources()
@@ -57,7 +60,7 @@ fun SmartSuggestions(
         delay(150) // Debounce
         val results = withContext(Dispatchers.IO) {
             val found = mutableListOf<Suggestion>()
-            runCatching { bookmarkManager.searchBookmarks(query) }
+            runCatching { bookmarkManager.suggestions(query) }
                 .getOrDefault(emptyList())
                 .forEach { bookmark ->
                     found += Suggestion(
@@ -67,7 +70,7 @@ fun SmartSuggestions(
                         faviconUrl = bookmark.faviconUrl,
                     )
                 }
-            runCatching { historyManager.searchHistory(query, limit = 20) }
+            runCatching { historyManager?.suggestions(query).orEmpty() }
                 .getOrDefault(emptyList())
                 .forEach { entry ->
                     found += Suggestion(
@@ -75,28 +78,17 @@ fun SmartSuggestions(
                         url = entry.url,
                         type = SuggestionType.HISTORY,
                         visitCount = entry.visitCount,
+                        lastVisit = entry.visitTime,
                     )
                 }
             found
         }.toMutableList()
 
-        // Keep a search action available for ordinary text, while letting host-like input
-        // resolve through the same URL heuristic as the omnibar.
-        if (!query.contains("://") && !query.contains(".") && !query.contains(" ")) {
-            results += Suggestion(
-                title = textResources.getString(R.string.ui_search, query),
-                url = query,
-                type = SuggestionType.SEARCH,
-            )
-        }
+        val ranked = rankSuggestions(query, results)
+        val search = if (!com.mybrowser.core.UrlUtils.isNavigableInput(query)) listOf(Suggestion(
+            title = textResources.getString(R.string.ui_search, query), url = query, type = SuggestionType.SEARCH)) else emptyList()
+        suggestions = ranked.take(8 - search.size) + search
 
-        suggestions = results
-            .distinctBy { it.url }
-            .sortedWith(
-                compareByDescending<Suggestion> { it.type == SuggestionType.BOOKMARK }
-                    .thenByDescending { it.visitCount },
-            )
-            .take(8)
     }
 
     if (suggestions.isNotEmpty()) {
@@ -110,12 +102,13 @@ fun SmartSuggestions(
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             LazyColumn(
-                modifier = Modifier.heightIn(max = 400.dp)
+                modifier = Modifier.heightIn(max = maxHeight)
             ) {
                 items(suggestions) { suggestion ->
                     SuggestionItem(
                         suggestion = suggestion,
-                        onClick = { onSuggestionClick(suggestion.url) }
+                        onClick = { onSuggestionClick(suggestion.url) },
+                        onFill = { onFillSuggestion(suggestion.url) }
                     )
                     if (suggestion != suggestions.last()) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -129,8 +122,10 @@ fun SmartSuggestions(
 @Composable
 private fun SuggestionItem(
     suggestion: Suggestion,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onFill: () -> Unit,
 ) {
+    val textResources = localizedResources()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -189,6 +184,11 @@ private fun SuggestionItem(
             }
         }
 
+        IconButton(onClick = onFill) {
+            Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_forward),
+                contentDescription = textResources.getString(R.string.suggestion_fill, suggestion.title))
+        }
+
         // Visit count badge for history
         if (suggestion.type == SuggestionType.HISTORY && suggestion.visitCount > 1) {
             Surface(
@@ -204,4 +204,25 @@ private fun SuggestionItem(
             }
         }
     }
+}
+
+internal fun rankSuggestions(query: String, candidates: List<Suggestion>, now: Long = System.currentTimeMillis()): List<Suggestion> {
+    val needle = query.trim().lowercase(java.util.Locale.ROOT).removePrefix("https://").removePrefix("http://").trimEnd('/')
+    val merged = candidates.groupBy { it.url }.values.map { group ->
+        val saved = group.firstOrNull { it.type == SuggestionType.BOOKMARK } ?: group.first()
+        saved.copy(visitCount = group.maxOf { it.visitCount }, lastVisit = group.maxOf { it.lastVisit })
+    }
+    fun score(s: Suggestion): Long {
+        val address = s.url.lowercase(java.util.Locale.ROOT).removePrefix("https://").removePrefix("http://")
+        val host = address.substringBefore('/').removePrefix("www.")
+        return (when {
+            host == needle || address.trimEnd('/') == needle -> 10000L
+            host.startsWith(needle) -> 6000L
+            address.startsWith(needle) -> 4000L
+            s.title.startsWith(query.trim(), true) -> 3000L
+            else -> 1000L
+        }) + (if (s.type == SuggestionType.BOOKMARK) 200L else 0L) +
+            s.visitCount.coerceIn(0, 100) + (if (s.lastVisit > 0 && now - s.lastVisit < 86_400_000) 100L else 0L)
+    }
+    return merged.sortedWith(compareByDescending<Suggestion>(::score).thenByDescending { it.lastVisit }.thenBy { it.url })
 }

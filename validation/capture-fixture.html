@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Capture fixture</title>
+<style>body{font:20px sans-serif}button{display:block;font:inherit;padding:16px;margin:16px}</style>
+<h1>Capture upload</h1><input id="photo" type="file" accept="image/*" capture="environment" hidden>
+<input id="video" type="file" accept="video/*" capture="environment" hidden>
+<button onclick="photo.click()">Capture photo</button><button onclick="video.click()">Capture video</button>
+<pre id="result">No file selected</pre><script>
+const key=new URLSearchParams(location.search).get('case')||'capture';
+for(const field of [photo,video]) field.onchange=async()=>{const file=field.files[0];if(!file)return;
+const bytes=await file.arrayBuffer(); const data={kind:field.id,size:file.size,type:file.type,bytes:bytes.byteLength,head:Array.from(new Uint8Array(bytes).slice(0,16))};
+result.textContent=JSON.stringify(data);fetch('/__state?case='+key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).catch(()=>{})};
+</script></html>

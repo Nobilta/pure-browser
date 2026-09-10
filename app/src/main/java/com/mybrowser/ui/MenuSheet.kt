@@ -1,6 +1,9 @@
 package com.mybrowser.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -52,6 +55,7 @@ fun MenuSheet(
     onPrintPage: () -> Unit,
     onOpenReadingList: () -> Unit,
     onSharePage: () -> Unit,
+    onPinWebsite: () -> Unit = {},
     onCopyPage: () -> Unit,
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
@@ -98,21 +102,27 @@ fun MenuSheet(
             )
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                BrowserIconAction(R.drawable.ic_bookmark,
-                    stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark),
-                    canUsePageActions, onToggleBookmark)
-                BrowserIconAction(R.drawable.ic_share, stringResource(R.string.menu_share_page), canUsePageActions, onSharePage)
-                BrowserIconAction(R.drawable.ic_copy, stringResource(R.string.context_copy_link), canUsePageActions, onCopyPage)
-                BrowserIconAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind)
+                QuickMenuAction(R.drawable.ic_bookmark, stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
+                QuickMenuAction(R.drawable.ic_share, stringResource(R.string.menu_share_page), canUsePageActions, onSharePage, Modifier.weight(1f))
+                QuickMenuAction(R.drawable.ic_copy, stringResource(R.string.context_copy_link), canUsePageActions, onCopyPage, Modifier.weight(1f))
+                QuickMenuAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind, Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth()) {
+                QuickMenuAction(R.drawable.ic_bookmark, stringResource(R.string.menu_bookmarks), true, onOpenBookmarks, Modifier.weight(1f))
+                QuickMenuAction(R.drawable.ic_download, stringResource(R.string.menu_downloads), true, onOpenDownloads, Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth()) {
+                QuickMenuAction(R.drawable.ic_settings, stringResource(R.string.site_settings), canUsePageActions, onOpenSiteSettings, Modifier.weight(1f))
+                QuickMenuAction(R.drawable.ic_settings, stringResource(R.string.menu_settings), true, onOpenSettings, Modifier.weight(1f))
             }
 
             MenuSection(title = stringResource(R.string.menu_section_page)) {
-                MenuRow(iconRes = R.drawable.ic_settings, title = stringResource(R.string.site_settings),
-                    subtitle = "", enabled = canUsePageActions, onClick = onOpenSiteSettings)
                 MenuRow(iconRes = R.drawable.ic_file, title = stringResource(R.string.reading_mode),
                     subtitle = "", enabled = canUsePageActions, onClick = onOpenReader)
                 MenuRow(iconRes = R.drawable.ic_print, title = stringResource(R.string.page_print),
                     subtitle = "", enabled = canUsePageActions, onClick = onPrintPage)
+                MenuRow(iconRes = R.drawable.ic_home, title = stringResource(R.string.pin_website),
+                    subtitle = "", enabled = canUsePageActions && !isIncognito, onClick = onPinWebsite)
                 MenuRow(
                     iconRes = R.drawable.ic_desktop,
                     title = stringResource(R.string.menu_desktop_site),
@@ -122,10 +132,12 @@ fun MenuSheet(
                         else R.string.menu_desktop_off,
                     ),
                     onClick = onToggleDesktopMode,
+                    toggleState = isDesktopMode,
                     trailing = {
                         Switch(
                             checked = isDesktopMode,
-                            onCheckedChange = { onToggleDesktopMode() },
+                            onCheckedChange = null,
+                            enabled = canUsePageActions,
                         )
                     },
                 )
@@ -161,22 +173,10 @@ fun MenuSheet(
                 MenuRow(iconRes = R.drawable.ic_file, title = stringResource(R.string.reading_list),
                     subtitle = "", onClick = onOpenReadingList)
                 MenuRow(
-                    iconRes = R.drawable.ic_bookmark,
-                    title = stringResource(R.string.menu_bookmarks),
-                    subtitle = "",
-                    onClick = onOpenBookmarks,
-                )
-                MenuRow(
                     iconRes = R.drawable.ic_history,
                     title = stringResource(R.string.menu_history),
                     subtitle = "",
                     onClick = onOpenHistory,
-                )
-                MenuRow(
-                    iconRes = R.drawable.ic_download,
-                    title = stringResource(R.string.menu_downloads),
-                    subtitle = "",
-                    onClick = onOpenDownloads,
                 )
             }
 
@@ -199,10 +199,11 @@ fun MenuSheet(
                         stringResource(R.string.menu_adblock_off)
                     },
                     onClick = { onToggleFilter(!isFilterEnabled) },
+                    toggleState = isFilterEnabled,
                     trailing = {
                         Switch(
                             checked = isFilterEnabled,
-                            onCheckedChange = onToggleFilter,
+                            onCheckedChange = null,
                         )
                     },
                 )
@@ -215,12 +216,6 @@ fun MenuSheet(
             }
 
             MenuSection(title = stringResource(R.string.menu_section_tools)) {
-                MenuRow(
-                    iconRes = R.drawable.ic_settings,
-                    title = stringResource(R.string.menu_settings),
-                    subtitle = "",
-                    onClick = onOpenSettings,
-                )
                 MenuRow(
                     iconRes = R.drawable.ic_code,
                     title = stringResource(R.string.menu_developer_tools),
@@ -261,6 +256,7 @@ private fun MenuRow(
     onClick: () -> Unit,
     enabled: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
+    toggleState: Boolean? = null,
 ) {
     val contentColor = if (enabled) {
         MaterialTheme.colorScheme.onSurface
@@ -271,7 +267,7 @@ private fun MenuRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (toggleState != null) Modifier.toggleable(toggleState, enabled, Role.Switch) { onClick() } else Modifier.clickable(enabled = enabled, onClick = onClick))
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -301,5 +297,16 @@ private fun MenuRow(
             Spacer(Modifier.width(12.dp))
             trailing()
         }
+    }
+}
+
+@Composable
+private fun QuickMenuAction(icon: Int, label: String, enabled: Boolean, action: () -> Unit, modifier: Modifier) {
+    Column(modifier.heightIn(min = 64.dp).clickable(enabled = enabled, role = Role.Button, onClick = action).padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else .38f)
+        Icon(painterResource(icon), null, Modifier.size(24.dp), tint = color)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
