@@ -66,8 +66,8 @@ fun Omnibar(
     onRefresh: () -> Unit,
     isFocused: Boolean,
     isLoading: Boolean,
-    securityLevel: BrowserState.SecurityLevel,
     modifier: Modifier = Modifier,
+    certificateError: Boolean = false,
     currentUrl: String? = null,
     displayTitle: String = "",
     onSecurityClick: () -> Unit = {},
@@ -126,6 +126,7 @@ fun Omnibar(
                 if (!isFocused) {
                     SecurityIndicator(
                         url = currentUrl,
+                        certificateError = certificateError,
                         onClick = onSecurityClick,
                         modifier = Modifier.padding(end = 8.dp),
                     )
@@ -195,7 +196,7 @@ fun Omnibar(
                 )
 
                 if (isFocused) {
-                    IconButton(onClick = onClear, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = onClear, modifier = Modifier.size(48.dp)) {
                         Icon(
                             painter = painterResource(R.drawable.ic_stop),
                             contentDescription = stringResource(R.string.cd_clear),
@@ -207,7 +208,7 @@ fun Omnibar(
                     // Refresh/Stop button inside the address surface when not focused.
                     IconButton(
                         onClick = onRefresh,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             painter = painterResource(
@@ -231,7 +232,7 @@ fun Omnibar(
                     onClick = ::submitInput,
                     enabled = value.text.isNotBlank(),
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(48.dp)
                         .padding(start = 4.dp),
                     contentPadding = PaddingValues(horizontal = 6.dp),
                 ) {

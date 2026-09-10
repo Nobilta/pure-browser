@@ -55,9 +55,12 @@ class BrowserChromeClient(
         fun onPermissionRequest(request: PermissionRequest)
         fun onPermissionRequestCanceled(request: PermissionRequest) {}
         fun onGeolocationRequest(origin: String, callback: GeolocationPermissions.Callback)
+        fun onGeolocationRequestCanceled() {}
 
         /** target=_blank or window.open(). Host creates a tab and returns its WebView. */
         fun onCreateWindow(isDialog: Boolean, isUserGesture: Boolean): WebView?
+        /** Chromium has replaced the popup's native contents; document scripts can be registered. */
+        fun onPopupContentsAttached(view: WebView, opener: WebView) {}
         fun onCloseWindow()
 
         /**
@@ -140,7 +143,7 @@ class BrowserChromeClient(
     // --- Permissions ---
 
     override fun onPermissionRequest(request: PermissionRequest) {
-        listener.onPermissionRequest(request)
+        if (listener.isCurrentWebView(sourceView)) listener.onPermissionRequest(request) else request.deny()
     }
 
     override fun onPermissionRequestCanceled(request: PermissionRequest) {
@@ -151,7 +154,12 @@ class BrowserChromeClient(
         origin: String,
         callback: GeolocationPermissions.Callback,
     ) {
-        listener.onGeolocationRequest(origin, callback)
+        if (listener.isCurrentWebView(sourceView)) listener.onGeolocationRequest(origin, callback)
+        else callback.invoke(origin, false, false)
+    }
+
+    override fun onGeolocationPermissionsHidePrompt() {
+        if (listener.isCurrentWebView(sourceView)) listener.onGeolocationRequestCanceled()
     }
 
     // --- Windows ---
@@ -169,6 +177,7 @@ class BrowserChromeClient(
         // occur.  Creating a tab first would leave an orphan WebView and tab even though
         // there is nowhere to send the popup navigation.
         val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+        val handoffHandler = resultMsg.target ?: return false
         val newWebView = listener.onCreateWindow(isDialog, isUserGesture)
             ?: return false
 
@@ -177,6 +186,12 @@ class BrowserChromeClient(
         // leaves a blank popup with no error.
         transport.webView = newWebView
         resultMsg.sendToTarget()
+        // The transport replaces the child's native WebContents. Older providers restore
+        // message listeners but discard document-start scripts. Use the same handler to
+        // register scripts after that replacement, before the new document is parsed.
+        handoffHandler.post {
+            listener.onPopupContentsAttached(newWebView, view)
+        }
         return true
     }
 

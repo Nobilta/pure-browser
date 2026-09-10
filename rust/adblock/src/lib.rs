@@ -7,15 +7,22 @@
 //! via an opaque handle (the pointer cast to `jlong`). Thread-safe for reads once loaded,
 //! but `addList` must finish before any `shouldBlock` calls happen.
 
+pub mod cosmetic;
 pub mod engine;
 pub mod matcher;
 pub mod rule;
 
 use jni::objects::{JClass, JString};
-use jni::sys::{jboolean, jint, jlong};
+use jni::sys::{jboolean, jint, jlong, jstring};
 use jni::JNIEnv;
 use matcher::Matcher;
 use rule::ResourceType;
+
+#[derive(Default)]
+struct FilterEngine {
+    network: Matcher,
+    cosmetic: cosmetic::CosmeticMatcher,
+}
 
 /// Create a new empty engine. Returns an opaque handle (Matcher pointer as jlong).
 #[no_mangle]
@@ -23,7 +30,7 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeNew(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
-    let matcher = Box::new(Matcher::new());
+    let matcher = Box::new(FilterEngine::default());
     Box::into_raw(matcher) as jlong
 }
 
@@ -36,7 +43,7 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeFree(
 ) {
     if handle != 0 {
         unsafe {
-            let _ = Box::from_raw(handle as *mut Matcher);
+            let _ = Box::from_raw(handle as *mut FilterEngine);
         }
     }
 }
@@ -59,9 +66,10 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeAddList(
         Err(_) => return -1,
     };
 
-    let matcher = unsafe { &mut *(handle as *mut Matcher) };
-    let _stats = matcher.load(&text);
-    matcher.rule_count().min(jint::MAX as usize) as jint
+    let engine = unsafe { &mut *(handle as *mut FilterEngine) };
+    engine.network.load(&text);
+    engine.cosmetic.load(&text);
+    engine.network.rule_count().min(jint::MAX as usize) as jint
 }
 
 /// True if this request should be blocked.
@@ -101,8 +109,11 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeShouldBlock(
         _ => ResourceType::Other,
     };
 
-    let matcher = unsafe { &*(handle as *const Matcher) };
-    if matcher.should_block(&request_url, &document_url, resource_type) {
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    if engine
+        .network
+        .should_block(&request_url, &document_url, resource_type)
+    {
         1
     } else {
         0
@@ -119,6 +130,39 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeRuleCount(
     if handle == 0 {
         return 0;
     }
-    let matcher = unsafe { &*(handle as *const Matcher) };
-    matcher.rule_count().min(jint::MAX as usize) as jint
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    engine.network.rule_count().min(jint::MAX as usize) as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCosmeticRuleCount(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    engine.cosmetic.rule_count().min(jint::MAX as usize) as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCosmeticCss(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    url: JString,
+) -> jstring {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    let url: String = match env.get_string(&url) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    env.new_string(engine.cosmetic.css_for(&url).as_ref())
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }

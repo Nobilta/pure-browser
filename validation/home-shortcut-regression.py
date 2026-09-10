@@ -114,30 +114,8 @@ def bookmarks():
 
 
 def choose_image(name):
-    def document(root):
-        return next((n for n in root.iter('node') if ux.visible(n) and
-                     (n.get('text') == name or n.get('content-desc', '').split(', ')[0] == name)), None)
-
     ux.tap('Choose image')
-    root, _ = ux.nodes()
-    if document(root) is None:
-        node = next((n for n in root.iter('node') if ux.visible(n) and
-                     n.get('content-desc') in ('Show roots', '显示根目录', '顯示根目錄')), None)
-        if node is not None:
-            x1, y1, x2, y2 = ux.bounds(node)
-            ux.adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
-            time.sleep(.5)
-        ux.tap('Downloads')
-    deadline = time.monotonic() + 5
-    while True:
-        root, _ = ux.nodes()
-        node = document(root)
-        if node is not None:
-            break
-        assert time.monotonic() < deadline, name
-        time.sleep(.2)
-    x1, y1, x2, y2 = ux.bounds(node)
-    ux.adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
+    ux.choose_download_document(name)
     ux.expect('Edit shortcut')
     time.sleep(.7)
 

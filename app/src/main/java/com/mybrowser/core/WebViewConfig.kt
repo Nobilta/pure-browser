@@ -98,8 +98,7 @@ object WebViewConfig {
         // --- Cookies ---
         val cookies = CookieManager.getInstance()
         cookies.setAcceptCookie(true)
-        // Third-party cookies default OFF in WebView, which breaks a lot of federated
-        // logins ("sign in with ..."). On for now; revisit when a per-site toggle exists.
+        // The Activity replaces this default with the current origin's cookie choice.
         cookies.setAcceptThirdPartyCookies(webView, true)
 
         // --- Dark mode ---
@@ -159,5 +158,14 @@ object WebViewConfig {
             loadsImagesAutomatically = enabled
             blockNetworkImage = !enabled
         }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    fun applySiteSettings(webView: WebView, settings: com.mybrowser.site.SiteSettings) {
+        webView.settings.javaScriptEnabled = settings.javaScript
+        webView.settings.textZoom = settings.textZoom
+        setImagesEnabled(webView, settings.images)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, settings.thirdPartyCookies)
+        applyDesktopMode(webView, settings.desktop)
     }
 }

@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Icon
@@ -117,7 +116,7 @@ private fun HomeShortcutTile(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(MaterialTheme.shapes.large)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -143,7 +142,7 @@ internal fun HomeShortcutIcon(title: String, url: String, icon: Bitmap?, modifie
     val textResources = localizedResources()
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 2.dp,
         shadowElevation = 1.dp,
@@ -175,7 +174,7 @@ internal fun HomeShortcutIcon(title: String, url: String, icon: Bitmap?, modifie
 private fun EmptyHomeCard() {
     val textResources = localizedResources()
     Surface(
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -205,13 +204,12 @@ private fun EmptyHomeCard() {
     }
 }
 
+@Composable
 private fun fallbackColor(key: String): Color {
     val colors = listOf(
-        Color(0xFF006A60),
-        Color(0xFF315DA8),
-        Color(0xFF7A4EAB),
-        Color(0xFF9B4D5C),
-        Color(0xFF765A00),
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.tertiary,
     )
     return colors[(key.hashCode() and Int.MAX_VALUE) % colors.size]
 }

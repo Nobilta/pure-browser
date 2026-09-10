@@ -45,4 +45,27 @@ class SecurityCheckerTest {
 
         assertFalse(SecurityChecker.certificateDetails(certificate, nowMillis = 3L)!!.isCurrentlyValid!!)
     }
+
+    @Test
+    fun `overriding a certificate error does not become a secure HTTPS claim`() {
+        val url = "https://untrusted.example/"
+        assertEquals(SecurityLevel.SECURE, SecurityChecker.getSecurityLevel(url))
+        assertEquals(SecurityLevel.DANGEROUS, SecurityChecker.getSecurityLevel(url, certificateError = true))
+        val info = SecurityChecker.getSecurityInfo(url, certificateError = true)
+        assertFalse(info.isSecure)
+        assertEquals(true, info.hasWarnings)
+        assertEquals("HTTPS", info.protocol)
+    }
+
+    @Test
+    fun `SSL warning identity survives paths and reloads without affecting other origins`() {
+        val warnings = CertificateWarnings()
+        warnings.remember("https://EXAMPLE.com/a")
+        assertEquals(true, warnings.contains("https://example.com:443/b?reload=1"))
+        assertFalse(warnings.contains("https://sub.example.com/a"))
+        assertFalse(warnings.contains("https://example.com:8443/a"))
+        assertFalse(warnings.contains("http://example.com/a"))
+        warnings.clear()
+        assertFalse(warnings.contains("https://example.com/a"))
+    }
 }

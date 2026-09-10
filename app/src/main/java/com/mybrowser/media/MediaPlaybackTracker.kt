@@ -99,6 +99,21 @@ class MediaPlaybackTracker(
         }.getOrElse { removeHooks(); false }
     }
 
+    /** Remove handles while they still refer to the original native contents. */
+    fun prepareForPopup() {
+        scriptHandler?.let { runCatching { it.remove() } }
+        scriptHandler = null
+    }
+
+    /** The popup transport preserves the bridge, but older providers drop scripts. */
+    fun onPopupContentsAttached() {
+        if (closed || !isInstalled) return
+        isInstalled = runCatching {
+            scriptHandler = WebViewCompat.addDocumentStartJavaScript(webView, "$source(window);", setOf("*"))
+            true
+        }.getOrDefault(false)
+    }
+
     /** Modern providers post from each frame; old providers inspect accessible frames only. */
     fun probe() {
         if (closed) return

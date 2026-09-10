@@ -36,6 +36,9 @@ class MediaCandidateStore {
 
     private val _state = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
+    @Volatile
+    var pageGeneration: Long = 0
+        private set
 
     // Compatibility accessors keep non-Compose callers and existing integrations small;
     // they are read-only StateFlow snapshots, never independently mutable state.
@@ -75,9 +78,17 @@ class MediaCandidateStore {
         return true
     }
 
+    /** A request that began on an earlier page must not publish after navigation. */
+    @Synchronized
+    fun add(candidate: MediaSniffer.Candidate, expectedGeneration: Long): Boolean {
+        if (expectedGeneration != pageGeneration) return false
+        return add(candidate)
+    }
+
     /** Called on every main-frame navigation: candidates belong to one page only. */
     @Synchronized
     fun clear() {
+        pageGeneration++
         if (_state.value != Snapshot()) _state.value = Snapshot()
     }
 
@@ -119,6 +130,7 @@ class MediaCandidateStore {
             .take(MAX_PLAYING_HINTS)
             .toList()
         val current = _state.value
+        if (hints == current.playingVideoHints) return
         val playing = findPlayingCandidate(current.candidates, hints)?.url
         publish(
             current.copy(
@@ -181,67 +193,47 @@ class MediaCandidateStore {
         return bounded to retainedPlaying
     }
 
-    /** Resolves URL hints to one candidate; ambiguous paths stay unmarked. */
+    /** Resolves hints in O(candidates × hints), parsing each URL once per update. */
     private fun findPlayingCandidate(
         pool: List<MediaSniffer.Candidate>,
         hints: List<String>,
     ): MediaSniffer.Candidate? {
-        if (hints.isEmpty()) return null
+        if (hints.isEmpty() || pool.isEmpty()) return null
+        val endpoints = pool.map { endpointOf(it.url) }
+        val peers = endpoints.filterNotNull().groupingBy { it.location }.eachCount()
         var best: MediaSniffer.Candidate? = null
         var bestQuality = 0
-        var bestHintIndex = Int.MAX_VALUE
-        hints.forEachIndexed { hintIndex, hint ->
-            pool.forEach { candidate ->
-                val quality = matchQuality(hint, candidate.url, pool)
-                if (quality > bestQuality ||
-                    (quality == bestQuality && quality > 0 && hintIndex < bestHintIndex)
-                ) {
+        hints.forEach { hint ->
+            val left = endpointOf(hint)
+            pool.forEachIndexed { index, candidate ->
+                val right = endpoints[index]
+                val quality = when {
+                    hint == candidate.url || (left != null && left == right) -> 2
+                    left != null && right != null && left.location == right.location &&
+                        peers[right.location] == 1 -> 1
+                    else -> 0
+                }
+                // Earlier hints and candidate order break ties. An exact match is final.
+                if (quality > bestQuality) {
                     best = candidate
                     bestQuality = quality
-                    bestHintIndex = hintIndex
+                    if (quality == 2) return best
                 }
             }
         }
         return best
     }
 
-    /** 2 = exact endpoint, 1 = unique signed-query path, 0 = no match. */
-    private fun matchQuality(
-        playing: String,
-        candidate: String,
-        pool: List<MediaSniffer.Candidate>,
-    ): Int {
-        val left = endpointOf(playing) ?: return if (playing == candidate) 2 else 0
-        val right = endpointOf(candidate) ?: return if (playing == candidate) 2 else 0
-        if (left.scheme != right.scheme || left.host != right.host || left.port != right.port) {
-            return 0
-        }
-        if (left.path != right.path) return 0
-        if (left.query == right.query) return 2
-
-        val peers = pool.count { other ->
-            val endpoint = endpointOf(other.url)
-            endpoint != null && endpoint.scheme == right.scheme &&
-                endpoint.host == right.host && endpoint.port == right.port &&
-                endpoint.path == right.path
-        }
-        return if (peers == 1) 1 else 0
-    }
-
-    private data class Endpoint(
-        val scheme: String?,
-        val host: String?,
-        val port: Int?,
-        val path: String?,
-        val query: String?,
-    )
+    private data class Location(val scheme: String, val host: String, val port: Int, val path: String)
+    private data class Endpoint(val location: Location, val query: String?)
 
     private fun endpointOf(raw: String): Endpoint? = runCatching {
         val uri = raw.trim().toUri()
-        val scheme = uri.scheme?.lowercase()
-        val host = uri.host?.lowercase()
-        if (scheme.isNullOrBlank() || host.isNullOrBlank()) return@runCatching null
-        Endpoint(scheme, host, uri.port.takeIf { it >= 0 }, uri.path, uri.query)
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT) ?: return@runCatching null
+        val host = uri.host?.lowercase(java.util.Locale.ROOT)?.takeIf(String::isNotBlank) ?: return@runCatching null
+        val port = uri.port.takeIf { it >= 0 } ?: when (scheme) { "https" -> 443; "http" -> 80; else -> -1 }
+        // Reserved escapes must not turn into path separators or query delimiters.
+        Endpoint(Location(scheme, host, port, uri.encodedPath.orEmpty().ifEmpty { "/" }), uri.encodedQuery)
     }.getOrNull()
 
     private companion object {

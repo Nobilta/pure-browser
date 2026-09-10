@@ -8,12 +8,18 @@ import android.webkit.WebView
 import com.mybrowser.core.WebViewPool
 import com.mybrowser.download.DownloadHandler
 import com.mybrowser.filter.FilterController
+import com.mybrowser.filter.FilterSubscriptions
+import com.mybrowser.filter.FilterUpdateJob
+import com.mybrowser.userscript.UserScriptStore
 import com.mybrowser.privacy.IncognitoProfile
 import com.mybrowser.privacy.PrivacyMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class App : Application() {
+
+    val certificateWarnings = com.mybrowser.security.CertificateWarnings()
 
     lateinit var webViewPool: WebViewPool
         private set
@@ -24,6 +30,10 @@ class App : Application() {
      */
     lateinit var filterController: FilterController
         private set
+    lateinit var filterSubscriptions: FilterSubscriptions
+        private set
+    lateinit var userScripts: UserScriptStore
+        private set
 
     lateinit var privacyMode: PrivacyMode
         private set
@@ -31,9 +41,14 @@ class App : Application() {
     /** Process-scoped so Activity recreation never cancels an in-flight download. */
     lateinit var downloadHandler: DownloadHandler
         private set
+    lateinit var castController: com.mybrowser.dlna.CastController
+        private set
+    // One writer per persisted store, including during Activity recreation.
+    val siteSettings by lazy { com.mybrowser.site.SiteSettingsRepository(this) }
+    val readingList by lazy { com.mybrowser.reading.ReadingList(this) }
 
     /** Outlives every Activity; only used for work that must not be cancelled by rotation. */
-    private val appScope = CoroutineScope(SupervisorJob())
+    private val appScope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
@@ -53,6 +68,7 @@ class App : Application() {
         webViewPool = WebViewPool(applicationContext)
         privacyMode = PrivacyMode(applicationContext)
         downloadHandler = DownloadHandler(applicationContext)
+        castController = com.mybrowser.dlna.CastController(applicationContext, appScope)
 
         // If the process died while incognito was active, the profile survived on disk with
         // its cookies intact. Deleting it before anything can attach is what makes the
@@ -61,7 +77,11 @@ class App : Application() {
 
         filterController = FilterController(applicationContext)
         // Parsing happens off the main thread; shouldBlock() is a no-op until it lands.
-        filterController.load(appScope)
+        filterSubscriptions = FilterSubscriptions(applicationContext, filterController)
+        appScope.launch { filterSubscriptions.initialize() }
+        FilterUpdateJob.schedule(this, filterSubscriptions.autoUpdate.value)
+        userScripts = UserScriptStore(applicationContext)
+        appScope.launch { userScripts.initialize() }
 
         // Pays Chromium's several-hundred-millisecond first-instance cost here instead
         // of on the user's first navigation. Safe before any Activity exists because the

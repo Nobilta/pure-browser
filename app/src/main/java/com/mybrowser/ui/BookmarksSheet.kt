@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -23,14 +23,24 @@ fun BookmarksSheet(
     onSelectBookmark: (String) -> Unit, onOpenNewTab: (String) -> Unit,
     onEditBookmark: (Bookmark) -> Unit, onCopy: (String) -> Unit,
     onDeleteBookmark: (String) -> Unit, onClearAll: () -> Unit, onDismiss: () -> Unit,
+    onImport: () -> Unit, onExport: () -> Unit, transferBusy: Boolean,
 ) {
+    var actions by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ApplySheetSystemBars()
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.bookmarks_title), style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f))
                 BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.bookmarks_clear), bookmarks.isNotEmpty(), onClearAll)
+                Box {
+                    BrowserIconAction(R.drawable.ic_more, stringResource(R.string.bookmarks_transfer), !transferBusy) { actions = true }
+                    DropdownMenu(actions, onDismissRequest = { actions = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks_import)) }, onClick = { actions = false; onImport() })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks_export)) }, onClick = { actions = false; onExport() })
+                    }
+                }
             }
             LibrarySearchField(query, stringResource(R.string.bookmarks_search), onQueryChange)
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -57,4 +67,13 @@ fun BookmarksSheet(
             }
         }
     }
+}
+
+@Composable
+fun BookmarkImportDialog(data: com.mybrowser.data.BookmarkImport, busy: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(stringResource(R.string.bookmarks_import)) },
+        text = { Text(stringResource(R.string.bookmarks_import_preview, data.entries.size, data.skipped)) },
+        confirmButton = { TextButton(onClick = onConfirm, enabled = !busy) { Text(stringResource(R.string.bookmarks_import)) } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.action_cancel)) } })
 }

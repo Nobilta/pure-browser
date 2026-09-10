@@ -61,6 +61,7 @@ internal class DownloadDestinationWriter(context: Context) {
                     }
                 }
             }
+            currentCoroutineContext().ensureActive()
             markCompleteIfMediaStore(published.uri)
             published
         } catch (error: Exception) {

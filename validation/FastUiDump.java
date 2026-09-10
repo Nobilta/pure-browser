@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.graphics.Rect;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Xml;
 import android.view.InputDevice;
@@ -13,6 +14,9 @@ import android.view.KeyCharacterMap;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import org.json.JSONArray;
 import org.xmlpull.v1.XmlSerializer;
 
 /** Shell-only UI snapshot: video progress updates must not wait for a 10-second idle period. */
@@ -28,8 +32,37 @@ public final class FastUiDump {
                 .newInstance(thread.getLooper(), connection);
         try {
             UiAutomation.class.getMethod("connect").invoke(automation);
-            if (args.length == 3 && args[0].equals("doubleTap")) {
+            if (args.length == 2 && args[0].equals("sequence")) {
+                JSONArray events = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                if (events.length() > 256) throw new IllegalArgumentException("Too many input events");
+                long started = SystemClock.uptimeMillis();
+                for (int i = 0; i < events.length(); i++) {
+                    JSONArray event = events.getJSONArray(i);
+                    switch (event.getString(0)) {
+                        case "tap":
+                            tap(automation, (float) event.getDouble(1), (float) event.getDouble(2));
+                            break;
+                        case "key":
+                            long down = SystemClock.uptimeMillis();
+                            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                                if (!automation.injectInputEvent(new KeyEvent(down, SystemClock.uptimeMillis(), action,
+                                        event.getInt(1), 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                                        0, 0, InputDevice.SOURCE_KEYBOARD), true))
+                                    throw new IllegalStateException("Key injection failed");
+                            }
+                            break;
+                        case "wait":
+                            int millis = event.getInt(1);
+                            if (millis < 0 || millis > 2000) throw new IllegalArgumentException("Invalid input delay");
+                            Thread.sleep(millis);
+                            break;
+                        default: throw new IllegalArgumentException("Unknown input event");
+                    }
+                }
+                System.out.println("Sequence completed in " + (SystemClock.uptimeMillis() - started) + " ms");
+            } else if (args.length == 3 && args[0].equals("doubleTap")) {
                 doubleTap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
+                System.out.println("Double tapped");
             } else if (args.length == 1 && args[0].equals("selectAll")) {
                 long down = SystemClock.uptimeMillis();
                 for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
@@ -45,11 +78,30 @@ public final class FastUiDump {
             // WebView enables its accessibility tree asynchronously after a service connects.
             Thread.sleep(150);
             AccessibilityNodeInfo root = null;
-            for (int i = 0; i < 10 && root == null; i++) {
+            for (int i = 0; i < 30 && root == null; i++) {
                 root = automation.getRootInActiveWindow();
                 if (root == null) Thread.sleep(50);
             }
             if (root == null) throw new IllegalStateException("No active UI root");
+            if (args.length == 2 && args[0].equals("setText")) {
+                AccessibilityNodeInfo input = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (input == null || !input.isEditable()) throw new IllegalStateException("No focused text input");
+                Bundle values = new Bundle();
+                values.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, values))
+                    throw new IllegalStateException("Text input rejected");
+                System.out.println("Text entered");
+            } else if (args.length == 2 && args[0].equals("tap")) {
+                JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                AccessibilityNodeInfo target = findVisible(root, labels, 0);
+                if (target != null) {
+                    Rect bounds = new Rect();
+                    target.getBoundsInScreen(bounds);
+                    tap(automation, bounds.exactCenterX(), bounds.exactCenterY());
+                    System.out.println("Tapped");
+                } else System.out.println("Target not visible");
+            } else {
             StringWriter output = new StringWriter();
             XmlSerializer xml = Xml.newSerializer();
             xml.setOutput(output);
@@ -60,11 +112,48 @@ public final class FastUiDump {
             xml.endDocument();
             System.out.println(output);
             }
+            }
         } finally {
             UiAutomation.class.getMethod("disconnect").invoke(automation);
             thread.quitSafely();
         }
         System.exit(0);
+    }
+
+    private static AccessibilityNodeInfo findVisible(AccessibilityNodeInfo node, JSONArray labels, int depth) {
+        if (depth > 50) return null;
+        if (node.isVisibleToUser()) {
+            for (int i = 0; i < labels.length(); i++) {
+                String label = labels.optString(i);
+                if (label.contentEquals(node.getText() == null ? "" : node.getText())
+                        || label.contentEquals(node.getContentDescription() == null ? "" : node.getContentDescription())) {
+                    Rect bounds = new Rect();
+                    node.getBoundsInScreen(bounds);
+                    if (!bounds.isEmpty()) return node;
+                }
+            }
+        }
+        // Native fullscreen controls and modal sheets are the last/topmost children.
+        // Visiting them first avoids a slow WebView tree consuming the hide timeout.
+        for (int i = node.getChildCount() - 1; i >= 0; i--) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo found = findVisible(child, labels, depth + 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static void tap(UiAutomation automation, float x, float y) {
+        long down = SystemClock.uptimeMillis();
+        for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+            MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Touch injection failed");
+            event.recycle();
+            SystemClock.sleep(30);
+        }
     }
 
     private static void doubleTap(UiAutomation automation, float x, float y) {
@@ -96,9 +185,12 @@ public final class FastUiDump {
         attribute(xml, "resource-id", node.getViewIdResourceName());
         attribute(xml, "class", node.getClassName());
         attribute(xml, "checked", node.isChecked());
+        attribute(xml, "checkable", node.isCheckable());
+        attribute(xml, "selected", node.isSelected());
         attribute(xml, "clickable", node.isClickable());
         attribute(xml, "enabled", node.isEnabled());
         attribute(xml, "scrollable", node.isScrollable());
+        attribute(xml, "visible-to-user", node.isVisibleToUser());
         Rect bounds = new Rect();
         node.getBoundsInScreen(bounds);
         attribute(xml, "bounds", bounds.toShortString());

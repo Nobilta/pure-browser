@@ -10,6 +10,26 @@ use jni::objects::{JClass, JString};
 use jni::sys::jstring;
 use jni::JNIEnv;
 
+mod bookmarks;
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_data_BookmarkHtml_nativeParse(
+    mut env: JNIEnv,
+    _class: JClass,
+    input: JString,
+) -> jstring {
+    let input: String = match env.get_string(&input) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let Ok(parsed) = bookmarks::parse(&input) else {
+        return std::ptr::null_mut();
+    };
+    env.new_string(parsed.json())
+        .map(|value| value.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 const INTERNAL_SCHEMES: &[&str] = &["http", "https", "about"];
 
 // Schemes that the omnibar is allowed to hand to another application.  Keep this list in

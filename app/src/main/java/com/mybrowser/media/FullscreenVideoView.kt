@@ -2,7 +2,6 @@ package com.mybrowser.media
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.ColorStateList
@@ -48,7 +47,7 @@ class FullscreenVideoView(
     private val canCast: () -> Boolean,
     private val onExit: () -> Unit,
     private val onCast: () -> Unit,
-    private val onSpeedSelected: (Float) -> Unit,
+    private val onChooseSpeed: () -> Unit,
 ) : FrameLayout(activity) {
     private val ui = Handler(Looper.getMainLooper())
     private val audio = activity.getSystemService(AudioManager::class.java)
@@ -58,7 +57,9 @@ class FullscreenVideoView(
     private val originalVolumeStream = activity.volumeControlStream
     private val keptScreenOn = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
     private val accent = Color.rgb(165, 200, 255)
-    private var state = tracker.current
+    // Chromium may create this custom view before the tracker observes the new
+    // fullscreen event. A previous session's cached flag must not start a handoff.
+    private var state = tracker.current.copy(isFullscreen = false)
     private var released = false
     private var enhanced = false
     private var wantEnhanced = preferences.enhancedControls
@@ -69,7 +70,6 @@ class FullscreenVideoView(
     private var locked = false
     private var orientationChosen = false
     private var seeking = false
-    private var speedDialog: AlertDialog? = null
     private val top = LinearLayout(activity)
     private val bottom = LinearLayout(activity)
     private val title = TextView(activity)
@@ -127,7 +127,7 @@ class FullscreenVideoView(
         seek.progressTintList = ColorStateList.valueOf(accent)
         seek.thumbTintList = ColorStateList.valueOf(accent)
         seek.contentDescription = activity.getString(R.string.ui_video_progress)
-        bottom.addView(seek, LinearLayout.LayoutParams(-1, dp(40)))
+        bottom.addView(seek, LinearLayout.LayoutParams(-1, dp(48)))
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onStartTrackingTouch(bar: SeekBar) { seeking = true; ui.removeCallbacks(hideControls); gestures.cancelGesture() }
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -227,8 +227,6 @@ class FullscreenVideoView(
         enhanced = false
         connecting = false
         controlIdentity = null
-        speedDialog?.dismiss()
-        speedDialog = null
         hud.visibility = GONE
         setLocked(false)
         // Remove our input and playback layers before returning control to the page.
@@ -323,19 +321,8 @@ class FullscreenVideoView(
     private fun showSpeedPicker() {
         gestures.cancelGesture()
         ui.removeCallbacks(hideControls)
-        val rates = PlaybackSpeed.OPTIONS
-        speedDialog = AlertDialog.Builder(activity)
-            .setTitle(activity.getString(R.string.menu_playback_speed))
-            .setSingleChoiceItems(rates.map(PlaybackSpeed::label).toTypedArray(), rates.indexOf(state.playbackRate)) { dialog, which ->
-                tracker.setPlaybackRate(rates[which]) { ok ->
-                    if (released) return@setPlaybackRate
-                    if (ok) onSpeedSelected(rates[which]) else showHud(activity.getString(R.string.ui_playback_speed_cannot_be_changed_for_this_video), 1800)
-                }
-                dialog.dismiss()
-            }.setNegativeButton(activity.getString(R.string.action_cancel), null).create().also { dialog ->
-                dialog.setOnDismissListener { speedDialog = null; scheduleHide() }
-                dialog.show()
-            }
+        tracker.endBoost()
+        onChooseSpeed()
     }
 
     private fun rotate() {
@@ -353,15 +340,17 @@ class FullscreenVideoView(
         if (millis > 0) ui.postDelayed(hideHud, millis)
     }
 
-    fun cancelTransientControls() { gestures.cancelGesture(); tracker.endBoost() }
+    fun cancelTransientControls() {
+        gestures.cancelGesture()
+        tracker.endBoost()
+        ui.removeCallbacks(hideControls)
+    }
 
     fun release() {
         if (released) return
         disconnectControls()
         released = true
         ui.removeCallbacksAndMessages(null)
-        speedDialog?.dismiss()
-        speedDialog = null
         activity.window.attributes = activity.window.attributes.apply { screenBrightness = originalBrightness }
         activity.requestedOrientation = originalOrientation
         activity.volumeControlStream = originalVolumeStream
@@ -373,11 +362,16 @@ class FullscreenVideoView(
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (!hasWindowFocus) cancelTransientControls()
+        else if (!released && enhanced && !locked) {
+            // A sheet can remain open longer than the hide timeout. Start a fresh
+            // interaction window after it closes, so the first tap reaches its button.
+            showControls(true)
+        }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
-    private fun rounded(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(8).toFloat() }
-    private fun buttonBackground() = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), rounded(0x55343A46), null)
+    private fun rounded(color: Int, radius: Int = 16) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
+    private fun buttonBackground() = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), rounded(0x55343A46, 24), null)
     private fun imageButton(resource: Int, description: String, click: () -> Unit) = ImageButton(activity).apply {
         setImageResource(resource); imageTintList = ColorStateList.valueOf(Color.WHITE)
         contentDescription = description; background = buttonBackground(); setPadding(dp(12), dp(12), dp(12), dp(12))

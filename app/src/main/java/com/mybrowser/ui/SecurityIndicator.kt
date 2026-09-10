@@ -14,7 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import com.mybrowser.ui.theme.BrowserColors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,16 +29,17 @@ import java.util.Locale
 fun SecurityIndicator(
     url: String?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    certificateError: Boolean = false,
 ) {
     val textResources = localizedResources()
     val isNativeHomepage = url == "about:blank"
-    val securityLevel = SecurityChecker.getSecurityLevel(url)
-    val securityInfo = SecurityChecker.getSecurityInfo(url)
+    val securityLevel = SecurityChecker.getSecurityLevel(url, certificateError)
+    val securityInfo = SecurityChecker.getSecurityInfo(url, certificateError)
 
     Box(
         modifier = modifier
-            .size(32.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .clickable(enabled = !isNativeHomepage, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -56,15 +57,19 @@ fun SecurityIndicator(
                     SecurityLevel.DANGEROUS -> Icons.Default.Close
                 }
             },
-            contentDescription = if (isNativeHomepage) textResources.getString(R.string.ui_shortcuts_homepage) else securityInfo.protocol,
+            contentDescription = when {
+                isNativeHomepage -> textResources.getString(R.string.ui_shortcuts_homepage)
+                certificateError -> textResources.getString(R.string.ui_ssl_certificate_verification_failed)
+                else -> securityInfo.protocol
+            },
             tint = if (isNativeHomepage) {
                 MaterialTheme.colorScheme.primary
             } else {
                 when (securityLevel) {
-                    SecurityLevel.SECURE -> Color(0xFF4CAF50)
-                    SecurityLevel.WARNING -> Color(0xFFFF9800)
-                    SecurityLevel.INSECURE -> Color.Gray
-                    SecurityLevel.DANGEROUS -> Color(0xFFF44336)
+                    SecurityLevel.SECURE -> BrowserColors.secure
+                    SecurityLevel.WARNING -> BrowserColors.warning
+                    SecurityLevel.INSECURE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    SecurityLevel.DANGEROUS -> MaterialTheme.colorScheme.error
                 }
             },
             modifier = Modifier.size(20.dp)
@@ -77,11 +82,13 @@ fun SecurityIndicator(
 fun SecurityInfoDialog(
     url: String?,
     certificate: CertificateDetails?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    certificateError: Boolean = false,
+    onSiteSettings: (() -> Unit)? = null,
 ) {
     val textResources = localizedResources()
-    val securityInfo = SecurityChecker.getSecurityInfo(url)
-    val securityLevel = SecurityChecker.getSecurityLevel(url)
+    val securityInfo = SecurityChecker.getSecurityInfo(url, certificateError)
+    val securityLevel = SecurityChecker.getSecurityLevel(url, certificateError)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -95,10 +102,10 @@ fun SecurityInfoDialog(
                 },
                 contentDescription = null,
                 tint = when (securityLevel) {
-                    SecurityLevel.SECURE -> Color(0xFF4CAF50)
-                    SecurityLevel.WARNING -> Color(0xFFFF9800)
-                    SecurityLevel.INSECURE -> Color.Gray
-                    SecurityLevel.DANGEROUS -> Color(0xFFF44336)
+                    SecurityLevel.SECURE -> BrowserColors.secure
+                    SecurityLevel.WARNING -> BrowserColors.warning
+                    SecurityLevel.INSECURE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    SecurityLevel.DANGEROUS -> MaterialTheme.colorScheme.error
                 },
                 modifier = Modifier.size(48.dp)
             )
@@ -192,7 +199,12 @@ fun SecurityInfoDialog(
             TextButton(onClick = onDismiss) {
                 Text(textResources.getString(R.string.ui_ok))
             }
-        }
+        },
+        dismissButton = {
+            if (onSiteSettings != null) TextButton(onClick = onSiteSettings) {
+                Text(textResources.getString(R.string.site_settings))
+            }
+        },
     )
 }
 
@@ -279,7 +291,7 @@ fun SSLErrorDialog(
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = null,
-                tint = Color(0xFFF44336),
+                tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(48.dp)
             )
         },
@@ -287,7 +299,7 @@ fun SSLErrorDialog(
             Text(
                 text = textResources.getString(R.string.ui_ssl_certificate_verification_failed),
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFF44336)
+                color = MaterialTheme.colorScheme.error
             )
         },
         text = {
@@ -295,7 +307,8 @@ fun SSLErrorDialog(
                 Text(textResources.getString(R.string.ui_website_b7aba5, url), fontSize = 13.sp)
 
                 Surface(
-                    color = Color(0xFFF44336).copy(alpha = 0.1f),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
                     shape = MaterialTheme.shapes.small
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -315,7 +328,7 @@ fun SSLErrorDialog(
                     text = textResources.getString(R.string.ui_we_recommend_leaving_this_website),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFF44336)
+                    color = MaterialTheme.colorScheme.error
                 )
             }
         },
@@ -326,7 +339,7 @@ fun SSLErrorDialog(
         },
         dismissButton = {
             TextButton(onClick = onProceed) {
-                Text(textResources.getString(R.string.ui_continue_anyway_unsafe), color = Color(0xFFF44336))
+                Text(textResources.getString(R.string.ui_continue_anyway_unsafe), color = MaterialTheme.colorScheme.error)
             }
         }
     )

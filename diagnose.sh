@@ -4,7 +4,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE="${PACKAGE:-com.mybrowser}"
-ACTIVITY="$PACKAGE/com.mybrowser.MainActivity"
 
 if ! command -v adb >/dev/null 2>&1; then
     echo "找不到 adb。" >&2
@@ -29,18 +28,13 @@ if ! adb shell pm path "$PACKAGE" >/dev/null 2>&1; then
 fi
 
 echo "已安装：$PACKAGE"
-adb logcat -c
-adb shell am force-stop "$PACKAGE"
-adb shell am start -n "$ACTIVITY" >/dev/null
-sleep 3
-
-log_file="$SCRIPT_DIR/validation/diagnose-logcat.txt"
-mkdir -p "$SCRIPT_DIR/validation"
+log_file="$SCRIPT_DIR/validation/results/diagnose-logcat.txt"
+mkdir -p "$SCRIPT_DIR/validation/results"
 adb logcat -d > "$log_file"
 if rg -n "FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV" "$log_file"; then
-    echo "检测到崩溃关键词，完整日志：$log_file" >&2
+    echo "检测到异常关键词，请按 PID 确认所属进程；完整日志：$log_file" >&2
     exit 1
 fi
 
-echo "启动检查通过；日志中未发现 FATAL EXCEPTION、UnsatisfiedLinkError 或 SIGSEGV。"
+echo "当前日志中未发现 FATAL EXCEPTION、UnsatisfiedLinkError 或 SIGSEGV。"
 echo "日志：$log_file"

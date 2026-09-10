@@ -19,6 +19,8 @@ data class DlnaDevice(
     val controlUrl: String,
     /** Absent on renderers that do not implement RenderingControl; volume then stays fixed. */
     val renderingControlUrl: String?,
+    val avTransportServiceType: String = "urn:schemas-upnp-org:service:AVTransport:1",
+    val renderingServiceType: String = "urn:schemas-upnp-org:service:RenderingControl:1",
 ) {
     fun displayName(resources: Resources): String = friendlyName.ifBlank {
         manufacturer?.takeIf { it.isNotBlank() } ?: resources.getString(R.string.ui_unnamed_device)
@@ -97,6 +99,8 @@ object DeviceDescription {
         var manufacturer: String? = null
         var avTransportPath: String? = null
         var renderingControlPath: String? = null
+        var avTransportType = AV_TRANSPORT
+        var renderingType = RENDERING_CONTROL
 
         // Service blocks are flat siblings, so the parse tracks which service it is inside
         // rather than building a tree.
@@ -130,8 +134,14 @@ object DeviceDescription {
                     val url = serviceControlUrl
                     when {
                         url.isNullOrBlank() -> Unit
-                        serviceType.equals(AV_TRANSPORT, true) -> avTransportPath = url
-                        serviceType.equals(RENDERING_CONTROL, true) -> renderingControlPath = url
+                        serviceType?.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[1-9][0-9]*", RegexOption.IGNORE_CASE)) == true -> {
+                            avTransportPath = url
+                            avTransportType = serviceType!!
+                        }
+                        serviceType?.matches(Regex("urn:schemas-upnp-org:service:RenderingControl:[1-9][0-9]*", RegexOption.IGNORE_CASE)) == true -> {
+                            renderingControlPath = url
+                            renderingType = serviceType!!
+                        }
                     }
                     inService = false
                 }
@@ -146,6 +156,8 @@ object DeviceDescription {
             manufacturer = manufacturer,
             controlUrl = absolute(reply.location, control) ?: return null,
             renderingControlUrl = renderingControlPath?.let { absolute(reply.location, it) },
+            avTransportServiceType = avTransportType,
+            renderingServiceType = renderingType,
         )
     }
 
