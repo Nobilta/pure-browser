@@ -156,6 +156,13 @@ object UrlUtils {
     @JvmStatic
     private external fun nativeExtractDomain(url: String): String?
 
+    /** PSL registrable domain including private suffixes; absence must never widen scope. */
+    fun registrableDomain(host: String): String? = if (nativeAvailable)
+        runCatching { nativeRegistrableDomain(host) }.getOrNull() else null
+
+    @JvmStatic
+    private external fun nativeRegistrableDomain(host: String): String?
+
     /**
      * Whether text without a scheme should be treated as a host.
      *

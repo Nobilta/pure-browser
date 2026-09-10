@@ -19,3 +19,12 @@ one of the alternatives offered by the [upstream licence notice](https://easylis
 This licence covers the rule data. Source URLs, versions and SHA-256 hashes are
 recorded in [the bundled notice](app/src/main/assets/filters/NOTICE.txt).
 Both the notice and full licence text are included in the APK assets.
+# Public Suffix List and IDNA
+
+The `site_identity` Rust module uses `psl` 2.1.232 (MIT/Apache-2.0) and its compiled
+Mozilla Public Suffix List, including ICANN and PRIVATE sections. List data is licensed
+under MPL-2.0; source: https://publicsuffix.org/list/ and https://github.com/addr-rs/psl.
+`idna` 1.1 (MIT/Apache-2.0) provides UTS #46 normalization using ICU4X (Unicode-3.0).
+Exact transitive versions are pinned in `rust/Cargo.lock`. Update the pinned PSL version,
+run the site-identity/filter/desktop-alias regressions, and rebuild both JNI libraries
+when refreshing the list. Permissions continue to use full origins, not PSL domains.

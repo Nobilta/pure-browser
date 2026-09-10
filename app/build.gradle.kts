@@ -170,6 +170,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
 
     inputs.dir(rustDir.resolve("adblock/src"))
     inputs.dir(rustDir.resolve("url_utils/src"))
+    inputs.dir(rustDir.resolve("site_identity"))
     inputs.files(
         rustDir.resolve("adblock/Cargo.toml"), rustDir.resolve("url_utils/Cargo.toml"),
         rustDir.resolve("Cargo.toml"), rustDir.resolve("Cargo.lock"),
@@ -204,6 +205,7 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders"
 // Exercise the real JNI integration on the development host as well as in emulator runs.
 val hostTestJni = layout.buildDirectory.dir("hostTestJni")
 val cargoBuildHostTests = tasks.register<Exec>("cargoBuildHostTests") {
+    inputs.dir(rustDir.resolve("site_identity"))
     inputs.dir(rustDir.resolve("adblock/src"))
     inputs.dir(rustDir.resolve("url_utils/src"))
     inputs.files(rustDir.resolve("Cargo.toml"), rustDir.resolve("Cargo.lock"),

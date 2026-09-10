@@ -13,6 +13,24 @@ use jni::JNIEnv;
 mod bookmarks;
 
 #[no_mangle]
+pub extern "system" fn Java_com_mybrowser_core_UrlUtils_nativeRegistrableDomain(
+    mut env: JNIEnv,
+    _class: JClass,
+    host: JString,
+) -> jstring {
+    let host: String = match env.get_string(&host) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let Some(domain) = site_identity::registrable_domain(&host) else {
+        return std::ptr::null_mut();
+    };
+    env.new_string(domain)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_mybrowser_data_BookmarkHtml_nativeParse(
     mut env: JNIEnv,
     _class: JClass,

@@ -175,8 +175,10 @@ MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，�
 - 基础元素隐藏从 Kotlin 迁到现有 Rust 过滤库，按域名后缀索引、加载期 selector ID 去重；32 个 host/8 MiB 的有界 LRU 避免重复生成 CSS。
 - 支持网络规则子集及基础 `##` 元素隐藏、`#@#` 例外。隐藏样式在主文档加载完成后应用；不会对所有跨域 iframe 注入样式。
   不支持完整 uBlock/AdGuard 扩展语法、scriptlet、重写和全部正则规则。完整来源规则数与实际可用规则数分别显示，不能将下载规则数量当成兼容数量。
-- 已知待修正项：第三方条件当前按主机后缀关系判断，同站兄弟子域可能被错判，从而影响 `$third-party` / `$~third-party` 规则。
-  独立复现结果和修正优先级见 [系统审查](design/follow-up-priorities.md)。这项不属于 0.5.2 桌面模式修复范围。
+- 当前源码已用 Public Suffix List（包含 PRIVATE 租户、通配和例外）修正 `$third-party` / `$~third-party`，
+  同站兄弟子域、`co.uk`、IP 和 IDN 均有回归；桌面别名不会越过可注册域边界。
+  使用固定版本 `psl 2.1.232`，升级列表随源码提交及边界测试一起进行，不在运行时下载未经校验的数据。
+  这些后续改动尚未进入上方的 0.5.2 APK；全部进度见 [实施记录](design/implementation-status.md)。
 - 修改开关或规则后刷新网页生效。源码、版本、校验值与许可见 [第三方说明](THIRD_PARTY_NOTICES.md)，APK 内同时附带原始归属和许可文本。
 
 ### 油猴脚本

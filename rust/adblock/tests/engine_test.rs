@@ -255,6 +255,35 @@ fn malformed_urls_do_not_panic() {
 }
 
 #[test]
+fn party_rules_use_registrable_domains_including_private_suffixes() {
+    for (page, request, third_party) in [
+        ("www.example.com", "cdn.example.com", false),
+        ("www.example.com", "cdn.other.com", true),
+        ("example.com", "cdn.example.com", false),
+        ("www.example.co.uk", "cdn.example.co.uk", false),
+        ("alice.github.io", "bob.github.io", true),
+        ("a.b.ck", "x.b.ck", true),
+        ("www.ck", "a.www.ck", false),
+        ("www.食狮.com.cn", "cdn.xn--85x722f.com.cn", false),
+        ("127.0.0.1", "127.0.0.2", true),
+        ("localhost", "localhost", false),
+    ] {
+        for (option, expected) in [("third-party", third_party), ("~third-party", !third_party)] {
+            let e = engine(&[&format!("/app.js${option}")]);
+            assert_eq!(
+                e.should_block(
+                    &format!("https://{request}/app.js"),
+                    &format!("https://{page}/"),
+                    ResourceType::Script
+                ),
+                expected,
+                "{page} -> {request} ${option}"
+            );
+        }
+    }
+}
+
+#[test]
 fn domain_anchor_accepts_case_insensitive_http_scheme() {
     let e = engine(&["||ads.example^"]);
     assert!(e.should_block("HTTPS://ADS.EXAMPLE/script.js", DOC, ResourceType::Script));
