@@ -175,6 +175,8 @@ MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，�
 - 基础元素隐藏从 Kotlin 迁到现有 Rust 过滤库，按域名后缀索引、加载期 selector ID 去重；32 个 host/8 MiB 的有界 LRU 避免重复生成 CSS。
 - 支持网络规则子集及基础 `##` 元素隐藏、`#@#` 例外。隐藏样式在主文档加载完成后应用；不会对所有跨域 iframe 注入样式。
   不支持完整 uBlock/AdGuard 扩展语法、scriptlet、重写和全部正则规则。完整来源规则数与实际可用规则数分别显示，不能将下载规则数量当成兼容数量。
+- 已知待修正项：第三方条件当前按主机后缀关系判断，同站兄弟子域可能被错判，从而影响 `$third-party` / `$~third-party` 规则。
+  独立复现结果和修正优先级见 [系统审查](design/follow-up-priorities.md)。这项不属于 0.5.2 桌面模式修复范围。
 - 修改开关或规则后刷新网页生效。源码、版本、校验值与许可见 [第三方说明](THIRD_PARTY_NOTICES.md)，APK 内同时附带原始归属和许可文本。
 
 ### 油猴脚本
@@ -392,6 +394,11 @@ python3 validation/cosmetic-benchmark.py
 只测量当前规则计算，生成最新结果 JSON；不保留旧 Kotlin 实验源码或构建副本。
 真实低端设备的启动、内存、整页加载和功耗仍未测量。
 
+0.5.2 的 [系统审查与优化清单](design/follow-up-priorities.md) 覆盖 Rust 边界、请求日志、下载并发、
+搜索查询、标签状态、隐私清理、UI 交互和功能缺口，并区分已复现问题、源码发现及待验证建议。
+审查新增的 6 个主机 Rust 检查中有 3 个暴露第三方身份判断问题；SQLite 查询计划也单独记录。
+这些审查结果不计入上面的已通过发布测试，建议项尚未实现，当前交付 APK 保持不变。
+
 ## 相关文档
 
 - [菜单返回与窗口生命周期](design/menu-navigation-20260910.md)
@@ -403,7 +410,7 @@ python3 validation/cosmetic-benchmark.py
 - [第三方许可与来源](THIRD_PARTY_NOTICES.md)
 - [播放器与投屏方案](design/video-playback-and-casting.md)
 - [Material 3 界面审查](design/md3-ui-audit.md)
-- [剩余能力与设备验证](design/follow-up-priorities.md)
+- [系统审查与优化优先级](design/follow-up-priorities.md)
 
 ## 维护约定
 
