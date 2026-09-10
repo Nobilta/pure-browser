@@ -24,6 +24,17 @@ public final class FastUiDump {
     private static int count;
 
     public static void main(String[] args) throws Exception {
+        // API 37's accessibility client constructs a Handler on the main Looper even
+        // for shell UiAutomation. app_process has no Application to prepare it for us.
+        Looper.prepareMainLooper();
+        new Thread(() -> {
+            try { run(args); }
+            catch (Throwable error) { error.printStackTrace(); System.exit(1); }
+        }, "pure-ui-command").start();
+        Looper.loop();
+    }
+
+    private static void run(String[] args) throws Exception {
         HandlerThread thread = new HandlerThread("pure-ui-snapshot");
         thread.start();
         Class<?> connectionInterface = Class.forName("android.app.IUiAutomationConnection");
@@ -73,7 +84,8 @@ public final class FastUiDump {
             } else {
             AccessibilityServiceInfo service = automation.getServiceInfo();
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
+                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                    | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(service);
             // WebView enables its accessibility tree asynchronously after a service connects.
             Thread.sleep(150);
@@ -85,6 +97,15 @@ public final class FastUiDump {
             if (root == null) throw new IllegalStateException("No active UI root");
             if (args.length == 2 && args[0].equals("setText")) {
                 AccessibilityNodeInfo input = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (input == null || !input.isEditable()) {
+                    // A non-focusable suggestions Popup may be the active accessibility
+                    // window while the actual editor keeps IME focus in the app window.
+                    for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                        AccessibilityNodeInfo candidateRoot = window.getRoot();
+                        AccessibilityNodeInfo candidate = candidateRoot == null ? null : candidateRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                        if (candidate != null && candidate.isEditable()) { input = candidate; break; }
+                    }
+                }
                 if (input == null || !input.isEditable()) throw new IllegalStateException("No focused text input");
                 Bundle values = new Bundle();
                 values.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
@@ -107,7 +128,12 @@ public final class FastUiDump {
             xml.setOutput(output);
             xml.startDocument("UTF-8", true);
             xml.startTag("", "hierarchy");
-            dump(root, xml, 0);
+            if (args.length == 1 && args[0].equals("windows")) {
+                for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                    AccessibilityNodeInfo windowRoot = window.getRoot();
+                    if (windowRoot != null) dump(windowRoot, xml, 0);
+                }
+            } else dump(root, xml, 0);
             xml.endTag("", "hierarchy");
             xml.endDocument();
             System.out.println(output);

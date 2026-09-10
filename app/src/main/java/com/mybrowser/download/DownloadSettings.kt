@@ -26,6 +26,7 @@ data class DownloadSettings(
     val customTreeUri: String? = null,
     val customDirectoryLabel: String? = null,
     val threadCount: Int = DEFAULT_DOWNLOAD_THREADS,
+    val unmeteredOnly: Boolean = false,
 ) {
     val destinationLabel: String
         get() = if (destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY) {
@@ -69,6 +70,7 @@ class DownloadSettingsRepository(context: Context) {
         }
 
         return DownloadSettings(
+            unmeteredOnly = prefs.getBoolean("unmetered_only", false),
             destinationMode = effectiveMode,
             customTreeUri = treeUri,
             customDirectoryLabel = prefs.getString(KEY_CUSTOM_DIRECTORY_LABEL, null),
@@ -97,6 +99,11 @@ class DownloadSettingsRepository(context: Context) {
 
     fun setThreadCount(value: Int): DownloadSettings {
         prefs.edit { putInt(KEY_THREAD_COUNT, normalizeThreadCount(value)) }
+        return load()
+    }
+
+    fun setUnmeteredOnly(value: Boolean): DownloadSettings {
+        prefs.edit { putBoolean("unmetered_only", value) }
         return load()
     }
 

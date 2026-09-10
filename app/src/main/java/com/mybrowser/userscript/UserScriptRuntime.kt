@@ -21,6 +21,7 @@ class UserScriptRuntime(
     private val store: UserScriptStore,
     private val scope: CoroutineScope,
     private val isAllowed: () -> Boolean,
+    private val isCurrent: () -> Boolean = { true },
 ) {
     private val bridgeName = "__pureScript_" + UUID.randomUUID().toString().replace("-", "")
     private val tokens = mutableMapOf<String, String>()
@@ -41,7 +42,7 @@ class UserScriptRuntime(
         if (documentStartSupported && messageSupported) {
             WebViewCompat.addWebMessageListener(view, bridgeName, setOf("*")) { _, message, origin, mainFrame, reply ->
                 val raw = message.data ?: return@addWebMessageListener
-                if (closed || !isAllowed() || raw.length > 96 * 1024 || inFlight >= 32) return@addWebMessageListener
+                if (closed || !isAllowed() || !isCurrent() || raw.length > 96 * 1024 || inFlight >= 32) return@addWebMessageListener
                 val data = runCatching { JSONObject(raw) }.getOrNull() ?: return@addWebMessageListener
                 val id = data.optString("id")
                 val token = tokens[id] ?: return@addWebMessageListener
@@ -109,7 +110,7 @@ class UserScriptRuntime(
 
     /** Old WebViews get DOM-only main-frame scripts at page finish; no late privileged bridge. */
     fun onPageFinished(url: String) {
-        if (closed || !isAllowed() || documentStartSupported) return
+        if (closed || !isAllowed() || !isCurrent() || documentStartSupported) return
         store.scripts.value.filter { it.enabled && it.metadata.supported && !it.metadata.needsStorage && it.metadata.matchesUrl(url) }
             .forEach { view.evaluateJavascript(program(it), null) }
     }

@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -61,6 +62,7 @@ class DownloadHandler(context: Context) : Closeable {
         DownloadSettingsRepository(appContext)
     }
     private val engine = HttpDownloadEngine()
+    private val tasks = ConcurrencyBudget(total = 3, perHost = 2)
     private val destinationWriter = DownloadDestinationWriter(appContext)
     private val metadata = ConcurrentHashMap<Long, DownloadMetadata>()
     private val jobs = ConcurrentHashMap<Long, Job>()
@@ -158,7 +160,8 @@ class DownloadHandler(context: Context) : Closeable {
             filename = filename,
             referer = safeReferer,
             timestamp = System.currentTimeMillis(),
-            status = DownloadStatus.DOWNLOADING,
+            status = DownloadStatus.QUEUED,
+            unmeteredOnly = settings.unmeteredOnly,
             autoResumeAllowed = !isPrivate,
             configuredThreadCount = settings.threadCount,
             actualThreadCount = settings.threadCount,
@@ -236,7 +239,7 @@ class DownloadHandler(context: Context) : Closeable {
             if (closed) return
             var paused = false
             metadata.computeIfPresent(id) { _, current ->
-                if (current.backend == DownloadBackend.LOCAL && current.status == DownloadStatus.DOWNLOADING) {
+                if (current.backend == DownloadBackend.LOCAL && current.status.active) {
                     paused = true
                     current.copy(status = DownloadStatus.PAUSED)
                 } else current
@@ -269,7 +272,7 @@ class DownloadHandler(context: Context) : Closeable {
             runCatching { CookieManager.getInstance().getCookie(old.url) }.getOrNull(), MAX_COOKIE_LENGTH,
         ) else old.cookie
         synchronized(taskLock) {
-            if (!metadata.replace(id, old, old.copy(status = DownloadStatus.DOWNLOADING, cookie = cookie))) return null
+            if (!metadata.replace(id, old, old.copy(status = DownloadStatus.QUEUED, cookie = cookie, bytesPerSecond = 0))) return null
             val previous = jobs[id]
             previous?.cancel()
             launchTransfer(id)
@@ -284,7 +287,13 @@ class DownloadHandler(context: Context) : Closeable {
         val job = transferScope.launch(start = CoroutineStart.LAZY) {
             try {
                 writerLock.withLock {
-                    if (metadata[id]?.status == DownloadStatus.DOWNLOADING) performDownload(id)
+                    val entry = metadata[id]
+                    if (entry?.status?.active == true) {
+                        awaitNetwork(id, entry.unmeteredOnly)
+                        tasks.acquire(entry.url.toUri().host.orEmpty()).use {
+                            if (metadata[id]?.status?.active == true) performDownload(id)
+                        }
+                    }
                 }
             } finally { jobs.remove(id, requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])) }
         }
@@ -348,7 +357,7 @@ class DownloadHandler(context: Context) : Closeable {
 
     /** Called when Android's foreground-service time budget expires. */
     fun pauseActiveTransfers() {
-        metadata.values.filter { it.backend == DownloadBackend.LOCAL && it.status == DownloadStatus.DOWNLOADING }
+        metadata.values.filter { it.backend == DownloadBackend.LOCAL && it.status.active }
             .map { it.id }.forEach(::pause)
     }
 
@@ -380,7 +389,7 @@ class DownloadHandler(context: Context) : Closeable {
         jobs.clear()
         metadata.replaceAll { _, entry ->
             if (entry.backend == DownloadBackend.LOCAL &&
-                entry.status == DownloadStatus.DOWNLOADING
+                entry.status.active
             ) {
                 entry.copy(status = DownloadStatus.PAUSED)
             } else {
@@ -394,24 +403,62 @@ class DownloadHandler(context: Context) : Closeable {
         runCatching { appContext.unregisterReceiver(completionReceiver) }
     }
 
+    private suspend fun awaitNetwork(id: Long, unmeteredOnly: Boolean) {
+        val connectivity = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+        while (true) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val network = connectivity.activeNetwork
+            val available = network != null && connectivity.getNetworkCapabilities(network)
+                ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            if (available && (!unmeteredOnly || !connectivity.isActiveNetworkMetered)) break
+            metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.WAITING_NETWORK) else value }
+            publishSnapshots()
+            delay(1500)
+        }
+        metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.QUEUED) else value }
+    }
+
+    private suspend fun <T> retryTransfer(id: Long, unmeteredOnly: Boolean, action: suspend () -> T): T {
+        var retries = 0
+        while (true) {
+            awaitNetwork(id, unmeteredOnly)
+            metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.DOWNLOADING) else value }
+            publishSnapshots()
+            try { return action() } catch (error: java.io.IOException) {
+                if (error is DownloadHttpException && error.code !in listOf(408, 429, 500, 502, 503, 504)) throw error
+                if (++retries > 2) throw error
+                metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.QUEUED, bytesPerSecond = 0) else value }
+                publishSnapshots()
+                delay(1000L shl (retries - 1))
+            }
+        }
+    }
+
     private suspend fun performDownload(id: Long) {
         val entry = metadata[id] ?: return
         val tempDirectory = temporaryDirectory(id)
         val transferJob = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])
+        var sampleTime = android.os.SystemClock.elapsedRealtime()
+        var sampleBytes = entry.bytesDownloaded
         try {
-            val payload = engine.download(
+            val payload = retryTransfer(id, entry.unmeteredOnly) { engine.download(
                 url = entry.url,
                 headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
                 requestedThreads = entry.configuredThreadCount,
                 tempDirectory = tempDirectory,
                 onProgress = { downloaded, total, actualThreads ->
                     synchronized(taskLock) {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        val duration = now - sampleTime
+                        val rate = if (duration >= 300 && downloaded >= sampleBytes) (downloaded - sampleBytes) * 1000 / duration else null
+                        if (duration >= 300) { sampleTime = now; sampleBytes = downloaded }
                         metadata.computeIfPresent(id) { _, current ->
                             if (jobs[id] !== transferJob || current.status != DownloadStatus.DOWNLOADING) current
                             else current.copy(
                             bytesDownloaded = downloaded.coerceAtLeast(0L),
                             totalBytes = total.coerceAtLeast(0L),
                             actualThreadCount = actualThreads.coerceAtLeast(1),
+                            bytesPerSecond = rate ?: current.bytesPerSecond,
                             )
                         }
                     }
@@ -420,8 +467,13 @@ class DownloadHandler(context: Context) : Closeable {
                     val previous = lastProgressPersist.get()
                     if (now - previous > 2_000 && lastProgressPersist.compareAndSet(previous, now)) persistMetadata()
                 },
-            )
+            ) }
+            metadata.computeIfPresent(id) { _, current ->
+                if (jobs[id] === transferJob && current.status == DownloadStatus.DOWNLOADING) current.copy(status = DownloadStatus.SAVING) else current
+            }
+            publishSnapshots()
             val current = metadata[id] ?: return
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val published = destinationWriter.publish(
                 settings = DownloadSettings(
                     destinationMode = current.destinationMode,
@@ -432,11 +484,17 @@ class DownloadHandler(context: Context) : Closeable {
                 preferredName = current.filename,
                 mimeType = current.mimeType,
                 parts = payload.parts,
+                onProgress = { percent ->
+                    metadata.computeIfPresent(id) { _, latest ->
+                        if (jobs[id] === transferJob && latest.status == DownloadStatus.SAVING) latest.copy(savingProgress = percent) else latest
+                    }
+                    publishSnapshots()
+                },
             )
             var accepted = false
             synchronized(taskLock) {
                 metadata.computeIfPresent(id) { _, latest ->
-                    if (jobs[id] !== transferJob || latest.status != DownloadStatus.DOWNLOADING) latest
+                    if (jobs[id] !== transferJob || latest.status != DownloadStatus.SAVING) latest
                     else {
                         accepted = true
                         latest.copy(
@@ -459,10 +517,10 @@ class DownloadHandler(context: Context) : Closeable {
             // PAUSED, so there is no state to publish from this coroutine.
             throw cancelled
         } catch (error: Exception) {
-            Log.e(TAG, "Download failed: ${entry.url}", error)
+            Log.e(TAG, "Download failed: $id", error)
             synchronized(taskLock) {
                 metadata.computeIfPresent(id) { _, current ->
-                    if (jobs[id] === transferJob && current.status == DownloadStatus.DOWNLOADING)
+                    if (jobs[id] === transferJob && current.status.active)
                         current.copy(status = DownloadStatus.FAILED) else current
                 }
             }
@@ -524,6 +582,8 @@ class DownloadHandler(context: Context) : Closeable {
         threadCount = entry.actualThreadCount,
         destinationLabel = entry.destinationLabel,
         canPause = true,
+        bytesPerSecond = entry.bytesPerSecond,
+        savingProgress = entry.savingProgress,
     )
 
     private fun publishSnapshots() = synchronized(metadataLock) {
@@ -537,7 +597,7 @@ class DownloadHandler(context: Context) : Closeable {
         val all = (local + legacySnapshot.filter { it.id in validLegacyIds })
             .sortedByDescending { it.timestamp }
         _downloads.value = all
-        _activeTransfers.value = local.filter { it.status == DownloadStatus.DOWNLOADING }
+        _activeTransfers.value = local.filter { it.status.active }
     }
 
     private fun deleteStoredFile(entry: DownloadMetadata): Boolean = when (entry.backend) {
@@ -601,7 +661,7 @@ class DownloadHandler(context: Context) : Closeable {
                     DownloadStatus.valueOf(obj.optString("status"))
                 }.getOrDefault(DownloadStatus.FAILED)
                 val status = if (
-                    backend == DownloadBackend.LOCAL && restoredStatus == DownloadStatus.DOWNLOADING
+                    backend == DownloadBackend.LOCAL && restoredStatus.active
                 ) {
                     changed = true
                     if (obj.optBoolean("autoResumeAllowed", true)) interrupted.add(id)
@@ -626,6 +686,7 @@ class DownloadHandler(context: Context) : Closeable {
                     referer = referer,
                     timestamp = timestamp,
                     status = status,
+                    unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
                     autoResumeAllowed = obj.optBoolean("autoResumeAllowed", true),
                     bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
                     totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
@@ -667,6 +728,7 @@ class DownloadHandler(context: Context) : Closeable {
                     .put("timestamp", entry.timestamp)
                     .put("status", entry.status.name)
                     .put("autoResumeAllowed", entry.autoResumeAllowed)
+                    .put("unmeteredOnly", entry.unmeteredOnly)
                     .put("bytesDownloaded", entry.bytesDownloaded)
                     .put("totalBytes", entry.totalBytes)
                     .put("configuredThreadCount", entry.configuredThreadCount)
@@ -684,7 +746,7 @@ class DownloadHandler(context: Context) : Closeable {
     private fun trimMetadata() {
         synchronized(metadataLock) {
             val stale = metadata.values
-                .filter { it.status != DownloadStatus.DOWNLOADING }
+                .filter { !it.status.active }
                 .sortedByDescending { it.timestamp }
                 .drop(MAX_METADATA_ENTRIES)
                 .map { it.id }
@@ -787,6 +849,9 @@ class DownloadHandler(context: Context) : Closeable {
         val timestamp: Long,
         val status: DownloadStatus,
         val autoResumeAllowed: Boolean = true,
+        val unmeteredOnly: Boolean = false,
+        val bytesPerSecond: Long = 0,
+        val savingProgress: Int = 0,
         val bytesDownloaded: Long = 0L,
         val totalBytes: Long = 0L,
         val configuredThreadCount: Int = 1,

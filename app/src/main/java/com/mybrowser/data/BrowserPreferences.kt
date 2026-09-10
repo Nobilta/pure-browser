@@ -24,6 +24,9 @@ data class BrowserPreferences(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val video: VideoPreferences = VideoPreferences(),
     val readingTextZoom: Int = 100,
+    val protectPrivateScreens: Boolean = true,
+    val bottomAddressBar: Boolean = false,
+    val swipeTabs: Boolean = false,
 )
 
 /** UI preferences only; URLs, cookies and temporary playback state never enter this store. */
@@ -31,6 +34,9 @@ class BrowserPreferencesRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("browser_preferences", Context.MODE_PRIVATE)
 
     fun load(): BrowserPreferences = BrowserPreferences(
+        bottomAddressBar = prefs.getBoolean("bottom_address_bar", false),
+        swipeTabs = prefs.getBoolean("swipe_tabs", false),
+        protectPrivateScreens = prefs.getBoolean("protect_private_screens", true),
         readingTextZoom = prefs.getInt("reading_text_zoom", 100).coerceIn(75, 175),
         theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM").orEmpty()) }
             .getOrDefault(ThemeMode.SYSTEM),
@@ -52,6 +58,9 @@ class BrowserPreferencesRepository(context: Context) {
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
         )
         prefs.edit {
+            putBoolean("bottom_address_bar", value.bottomAddressBar)
+            putBoolean("swipe_tabs", value.swipeTabs)
+            putBoolean("protect_private_screens", value.protectPrivateScreens)
             putInt("reading_text_zoom", value.readingTextZoom.coerceIn(75, 175))
             putString("theme", value.theme.name)
             .putBoolean("video_controls", video.enhancedControls)

@@ -15,6 +15,9 @@ import java.io.Closeable
  * engine is immutable once loaded.
  */
 class NativeFilter private constructor(private var handle: Long) : Closeable {
+    private val documents = object : LinkedHashMap<String, Long>(32, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 32
+    }
 
     /**
      * Resource kinds the engine understands. Ordinals cross the JNI boundary as ints, so the
@@ -41,6 +44,8 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
 
     val cosmeticRuleCount: Int
         get() = if (handle == 0L) 0 else runCatching { nativeCosmeticRuleCount(handle) }.getOrDefault(0)
+    val unsupportedRuleCount: Int
+        get() = if (handle == 0L) 0 else runCatching { nativeUnsupportedCount(handle) }.getOrDefault(0)
 
     fun cosmeticCss(url: String): String = if (handle == 0L) "" else
         runCatching { nativeCosmeticCss(handle, url).orEmpty() }.getOrDefault("")
@@ -59,20 +64,39 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
     /**
      * Whether [requestUrl] should be blocked for a page at [documentUrl].
      *
-     * Returns false whenever the answer is not a confident yes — closed engine, malformed
-     * input, a panic on the native side. A filter list must never be able to take a page
-     * down, so every failure mode degrades to allowing the request.
+     * Returns false for a closed engine or a Java/JNI call failure. Native aborts cannot be
+     * caught by Kotlin; bounded inputs and native regression/sanitizer checks cover that boundary.
      */
     fun shouldBlock(requestUrl: String, documentUrl: String, type: ResourceType): Boolean {
-        if (handle == 0L) return false
-        return runCatching { nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal) }
-            .getOrDefault(false)
+        if (handle == 0L || requestUrl.length > 8192 || documentUrl.length > 8192) return false
+        return runCatching {
+            val id = synchronized(documents) {
+                documents[documentUrl] ?: nativePrepareDocument(handle, documentUrl).also { documents[documentUrl] = it }
+            }
+            val result = nativeCheckDocument(handle, requestUrl, id, type.ordinal)
+            if (result >= 0) result == 1
+            else {
+                // Another concurrent document can evict an ID between lookup and use.
+                // An Arc protects in-flight native readers; this request keeps its exact URL fallback.
+                synchronized(documents) { documents.remove(documentUrl) }
+                nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
+            }
+        }.getOrDefault(false)
+    }
+
+    internal fun shouldBlockUncached(requestUrl: String, documentUrl: String, type: ResourceType): Boolean =
+        handle != 0L && requestUrl.length <= 8192 && documentUrl.length <= 8192 && nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
+
+    fun explainList(text: String, requestUrl: String, documentUrl: String, type: ResourceType): Pair<String?, String?> {
+        val lines = nativeExplainList(text, requestUrl, documentUrl, type.ordinal).orEmpty().split('\n', limit = 2)
+        return lines.getOrNull(0)?.takeIf { it.isNotBlank() } to lines.getOrNull(1)?.takeIf { it.isNotBlank() }
     }
 
     /** Frees the native engine. Subsequent calls are no-ops that allow every request. */
     override fun close() {
         val h = handle
         handle = 0L
+        synchronized(documents) { documents.clear() }
         if (h != 0L) runCatching { nativeFree(h) }
     }
 
@@ -111,6 +135,10 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
             resourceType: Int,
         ): Boolean
         @JvmStatic private external fun nativeRuleCount(handle: Long): Int
+        @JvmStatic private external fun nativeUnsupportedCount(handle: Long): Int
+        @JvmStatic private external fun nativePrepareDocument(handle: Long, url: String): Long
+        @JvmStatic private external fun nativeCheckDocument(handle: Long, url: String, document: Long, type: Int): Int
+        @JvmStatic private external fun nativeExplainList(text: String, url: String, document: String, type: Int): String?
         @JvmStatic private external fun nativeCosmeticRuleCount(handle: Long): Int
         @JvmStatic private external fun nativeCosmeticCss(handle: Long, url: String): String?
     }

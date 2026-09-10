@@ -117,6 +117,7 @@ class BrowserChromeClient(
 
     override fun onHideCustomView() {
         customViewCallback = null
+        if (!listener.isCurrentWebView(sourceView)) return
         listener.onExitFullscreen()
     }
 

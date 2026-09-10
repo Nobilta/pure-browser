@@ -19,6 +19,9 @@ import kotlinx.coroutines.launch
 
 class App : Application() {
 
+    var restoreBlocked = false
+        private set
+
     val certificateWarnings = com.mybrowser.security.CertificateWarnings()
 
     lateinit var webViewPool: WebViewPool
@@ -50,9 +53,29 @@ class App : Application() {
     /** Outlives every Activity; only used for work that must not be cancelled by rotation. */
     private val appScope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
+    fun saveReadingPosition(url: String, position: com.mybrowser.reading.ReadingPosition) {
+        appScope.launch {
+            runCatching { readingList.recordPosition(url, position.index, position.offset) }
+                .onFailure { Log.w(TAG, "Unable to save reading position") }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        if (getProcessName().endsWith(":restore")) return
+        restoreBlocked = runCatching {
+            com.mybrowser.backup.BackupStorage.locked(this) {
+                val storage = com.mybrowser.backup.BackupStorage(this)
+                if (storage.recoverIfNeeded()) {
+                    storage.discardPending()
+                    storage.writeResult("recovered")
+                }
+            }
+        }.isFailure
+        if (restoreBlocked) return
+        // Captures from a process that died have no surviving WebView consumer.
+        java.io.File(cacheDir, "web-capture").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
 
         if (BuildFlags.DEBUG_STRICT_MODE) {
             enableStrictMode()
@@ -102,7 +125,7 @@ class App : Application() {
         // Consequence for the pool: there is no foreground memory-pressure signal to
         // react to any more, so staying inside a memory budget has to come from bounding
         // the pool up front (WebViewPool.maxSize) rather than from trimming on demand.
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+        if (::webViewPool.isInitialized && level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             Log.d(TAG, "onTrimMemory($level): backgrounded, releasing idle WebViews")
             webViewPool.trim()
         }

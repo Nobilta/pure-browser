@@ -8,6 +8,7 @@
 //! but `addList` must finish before any `shouldBlock` calls happen.
 
 pub mod cosmetic;
+mod documents;
 pub mod engine;
 pub mod matcher;
 pub mod rule;
@@ -22,6 +23,8 @@ use rule::ResourceType;
 struct FilterEngine {
     network: Matcher,
     cosmetic: cosmetic::CosmeticMatcher,
+    documents: std::sync::Mutex<documents::Documents>,
+    unsupported: usize,
 }
 
 /// Create a new empty engine. Returns an opaque handle (Matcher pointer as jlong).
@@ -67,7 +70,7 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeAddList(
     };
 
     let engine = unsafe { &mut *(handle as *mut FilterEngine) };
-    engine.network.load(&text);
+    engine.unsupported += engine.network.load(&text).skipped_unsupported;
     engine.cosmetic.load(&text);
     engine.network.rule_count().min(jint::MAX as usize) as jint
 }
@@ -95,7 +98,18 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeShouldBlock(
         Err(_) => return 0,
     };
 
-    let resource_type = match resource_type_ordinal {
+    let resource_type = resource_from_ordinal(resource_type_ordinal);
+
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    u8::from(
+        engine
+            .network
+            .should_block(&request_url, &document_url, resource_type),
+    )
+}
+
+fn resource_from_ordinal(value: jint) -> ResourceType {
+    match value {
         0 => ResourceType::Document,
         1 => ResourceType::Subdocument,
         2 => ResourceType::Script,
@@ -107,17 +121,113 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeShouldBlock(
         8 => ResourceType::Ping,
         9 => ResourceType::WebSocket,
         _ => ResourceType::Other,
-    };
-
-    let engine = unsafe { &*(handle as *const FilterEngine) };
-    if engine
-        .network
-        .should_block(&request_url, &document_url, resource_type)
-    {
-        1
-    } else {
-        0
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativePrepareDocument(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    url: JString,
+) -> jlong {
+    if handle == 0 {
+        return 0;
+    }
+    let url: String = match env.get_string(&url) {
+        Ok(value) => value.into(),
+        Err(_) => return 0,
+    };
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    engine
+        .documents
+        .lock()
+        .map(|mut cache| cache.prepare(&url))
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCheckDocument(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    request_url: JString,
+    document_id: jlong,
+    resource: jint,
+) -> jint {
+    if handle == 0 {
+        return -1;
+    }
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    let document = engine
+        .documents
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(document_id));
+    let Some(document) = document else {
+        return -1;
+    };
+    let url: String = match env.get_string(&request_url) {
+        Ok(value) => value.into(),
+        Err(_) => return 0,
+    };
+    if url.len() > 32 * 1024 {
+        return 0;
+    }
+    i32::from(
+        engine
+            .network
+            .should_block_context(&url, &document, resource_from_ordinal(resource)),
+    )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeUnsupportedCount(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    engine.unsupported.min(jint::MAX as usize) as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeExplainList(
+    mut env: JNIEnv,
+    _class: JClass,
+    text: JString,
+    request: JString,
+    document: JString,
+    resource: jint,
+) -> jstring {
+    let text: String = match env.get_string(&text) {
+        Ok(v) => v.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let request: String = match env.get_string(&request) {
+        Ok(v) => v.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let document: String = match env.get_string(&document) {
+        Ok(v) => v.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    if text.len() > 8 * 1024 * 1024 || request.len() > 32 * 1024 || document.len() > 32 * 1024 {
+        return std::ptr::null_mut();
+    }
+    let (blocking, exception) =
+        Matcher::explain(&text, &request, &document, resource_from_ordinal(resource));
+    let result = format!(
+        "{}\n{}",
+        blocking.unwrap_or_default(),
+        exception.unwrap_or_default()
+    );
+    env.new_string(result)
+        .map(|value| value.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Return the number of network rules currently loaded.

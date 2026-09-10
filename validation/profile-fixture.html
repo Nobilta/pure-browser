@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profile cleanup fixture</title><style>body{font:18px system-ui;padding:16px}button{display:block;min-height:48px;margin:10px 0}p{overflow-wrap:anywhere}</style>
+<h1>Profile cleanup fixture</h1>
+<button onclick="writeStorage('normal')">Write normal storage</button>
+<button onclick="writeStorage('private')">Write private storage</button>
+<button onclick="read()">Read storage</button>
+<p id="cookie"></p><p id="local"></p><p id="indexed"></p><p id="cache"></p><p id="done"></p>
+<script>
+const name='pure-cleanup-test-v1';
+function database(){return new Promise((resolve,reject)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>r.result.createObjectStore('data');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+async function indexed(value){const db=await database();try{return await new Promise((resolve,reject)=>{const tx=db.transaction('data',value===undefined?'readonly':'readwrite');const store=tx.objectStore('data');const r=value===undefined?store.get('mode'):store.put(value,'mode');tx.oncomplete=()=>resolve(value===undefined?r.result:value);tx.onerror=()=>reject(tx.error)})}finally{db.close()}}
+async function writeStorage(value){document.getElementById('done').textContent='Writing';document.cookie='pure_profile_test='+value+';path=/;SameSite=Lax';localStorage.setItem(name,value);await indexed(value);if('caches' in window)await(await caches.open(name)).put('/pure-cleanup-entry',new Response(value));await read()}
+async function read(){document.getElementById('done').textContent='Reading';document.getElementById('cookie').textContent='cookie: '+(document.cookie.match(/(?:^|;\s*)pure_profile_test=([^;]*)/)?.[1]||'empty');document.getElementById('local').textContent='local: '+(localStorage.getItem(name)||'empty');document.getElementById('indexed').textContent='indexed: '+(await indexed()||'empty');const response='caches' in window?await(await caches.open(name)).match('/pure-cleanup-entry'):null;document.getElementById('cache').textContent='cache: '+(response?await response.text():'empty');document.getElementById('done').textContent='Storage read complete'}
+read().catch(e=>document.getElementById('done').textContent='Fixture error: '+e.message);
+</script></html>

@@ -43,6 +43,14 @@ class DownloadHandlerTest {
         server.executor = java.util.concurrent.Executors.newCachedThreadPool { task -> Thread(task).apply { isDaemon = true } }
         server.start()
         val context = RuntimeEnvironment.getApplication()
+        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val connectivityShadow = org.robolectric.Shadows.shadowOf(connectivity)
+        connectivityShadow.setActiveNetworkInfo(org.robolectric.shadows.ShadowNetworkInfo.newInstance(
+            android.net.NetworkInfo.DetailedState.CONNECTED, android.net.ConnectivityManager.TYPE_WIFI, 0, true, true))
+        connectivityShadow.setNetworkCapabilities(connectivity.activeNetwork,
+            org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().also {
+                org.robolectric.Shadows.shadowOf(it).addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            })
         val handler = DownloadHandler(context)
         try {
             val id = requireNotNull(handler.enqueue("http://127.0.0.1:${server.address.port}/file", null, null, null))

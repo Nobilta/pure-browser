@@ -40,6 +40,7 @@ class FilterController(private val appContext: Context) {
     private val _enabled = MutableStateFlow(prefs.getBoolean("enabled", true))
     private val _ruleCount = MutableStateFlow(0)
     private val _cosmeticCount = MutableStateFlow(0)
+    private val _unsupportedCount = MutableStateFlow(0)
     private val firstBuild = CompletableDeferred<Unit>()
     val isReady: Boolean get() = firstBuild.isCompleted
     suspend fun awaitReady() = firstBuild.await()
@@ -47,9 +48,12 @@ class FilterController(private val appContext: Context) {
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
     val ruleCount: StateFlow<Int> = _ruleCount.asStateFlow()
     val cosmeticCount: StateFlow<Int> = _cosmeticCount.asStateFlow()
+    val unsupportedCount: StateFlow<Int> = _unsupportedCount.asStateFlow()
     val blockedCount: Int get() = blocked.get()
 
     @Volatile private var payloads: List<String> = emptyList()
+    @Volatile private var sourceNames: List<String> = emptyList()
+    private var activeSources: List<Pair<String, String>> = emptyList()
     private var filter: NativeFilter? = null
 
     fun resetPageCount() = blocked.set(0)
@@ -60,12 +64,31 @@ class FilterController(private val appContext: Context) {
     }
 
     /** Every enabled subscription participates in the same atomic engine snapshot. */
-    fun replaceLists(rules: List<String>): Job? {
+    fun replaceLists(rules: List<String>, names: List<String> = emptyList()): Job? {
         if (closed.get()) return null
         if (rules.size > 35 || rules.any { it.length > FilterListFormat.MAX_BYTES } ||
             rules.sumOf { it.length.toLong() } > FilterListFormat.MAX_TOTAL_BYTES) return null
         payloads = rules.toList()
+        sourceNames = names.toList()
         return scheduleRebuild()
+    }
+
+    data class Explanation(val blocking: Pair<String, String>?, val exception: Pair<String, String>?)
+
+    /** Re-evaluate with the current loaded lists. Called only when a user asks for details. */
+    fun explain(url: String, document: String, type: NativeFilter.ResourceType): Explanation {
+        val sources = lock.read { activeSources }
+        val engine = checkNotNull(NativeFilter.createOrNull()) { "Filter engine unavailable" }
+        var blocking: Pair<String, String>? = null
+        var exception: Pair<String, String>? = null
+        try {
+            for ((name, text) in sources) {
+                val (hit, allow) = engine.explainList(text, url, document, type)
+                if (blocking == null && hit != null) blocking = name to hit
+                if (exception == null && allow != null) exception = name to allow
+            }
+        } finally { engine.close() }
+        return Explanation(blocking, exception)
     }
 
     fun reload() = scheduleRebuild()
@@ -73,12 +96,13 @@ class FilterController(private val appContext: Context) {
     fun cosmeticCss(url: String, siteEnabled: Boolean = true): String =
         if (_enabled.value && siteEnabled) lock.read { filter?.cosmeticCss(url).orEmpty() } else ""
 
-    fun shouldBlock(request: WebResourceRequest, documentUrl: String, siteEnabled: Boolean = true): Boolean {
+    fun shouldBlock(request: WebResourceRequest, documentUrl: String, siteEnabled: Boolean = true,
+        type: NativeFilter.ResourceType = classify(request)): Boolean {
         if (!_enabled.value || !siteEnabled || request.isForMainFrame) return false
         val requestUrl = request.url.toString()
         if (requestUrl.length > MAX_URL_LENGTH || documentUrl.length > MAX_URL_LENGTH) return false
         val hit = lock.read {
-            filter?.shouldBlock(requestUrl, documentUrl, classify(request)) ?: false
+            filter?.shouldBlock(requestUrl, documentUrl, type) ?: false
         }
         if (hit) blocked.incrementAndGet()
         return hit
@@ -88,12 +112,16 @@ class FilterController(private val appContext: Context) {
         if (!closed.compareAndSet(false, true)) return
         rebuildGeneration.incrementAndGet()
         rebuildScope.cancel()
-        lock.write {
-            filter?.close()
+        val old = lock.write {
+            val previous = filter
             filter = null
             _ruleCount.value = 0
             _cosmeticCount.value = 0
+            _unsupportedCount.value = 0
+            activeSources = emptyList()
+            previous
         }
+        old?.close()
     }
 
     /** Schedules a snapshot rebuild; only the newest snapshot may replace the live engine. */
@@ -104,6 +132,7 @@ class FilterController(private val appContext: Context) {
             delay(80) // Coalesce rapid subscription changes before parsing large lists.
             if (generation != rebuildGeneration.get()) return@launch
             val snapshot = payloads
+            val names = sourceNames
             val next = buildEngine(snapshot)
 
             if (closed.get() || generation != rebuildGeneration.get()) {
@@ -111,18 +140,22 @@ class FilterController(private val appContext: Context) {
                 return@launch
             }
 
-            lock.write {
+            val discarded = lock.write {
                 if (closed.get() || generation != rebuildGeneration.get()) {
-                    next?.first?.close()
-                    return@write
+                    return@write next?.first
                 }
                 val old = filter
                 filter = next?.first
                 _ruleCount.value = next?.second ?: 0
                 _cosmeticCount.value = next?.first?.cosmeticRuleCount ?: 0
-                old?.close()
+                _unsupportedCount.value = next?.first?.unsupportedRuleCount ?: 0
+                activeSources = snapshot.mapIndexed { index, text -> (names.getOrNull(index) ?: "List ${index + 1}") to text }
                 firstBuild.complete(Unit)
+                old
             }
+            // Acquiring the write lock waited for every old reader. No future reader can
+            // see the detached handle, so destruction need not stall new requests.
+            discarded?.close()
         }
     }
 
@@ -141,7 +174,7 @@ class FilterController(private val appContext: Context) {
         return next to count
     }
 
-    private companion object {
+    companion object {
         const val MAX_URL_LENGTH = 8_192
 
         fun classify(request: WebResourceRequest): NativeFilter.ResourceType {

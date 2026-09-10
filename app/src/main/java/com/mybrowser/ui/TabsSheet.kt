@@ -3,6 +3,9 @@ package com.mybrowser.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,12 +43,20 @@ fun TabsSheet(
     onClearRecent: () -> Unit,
     onDismiss: () -> Unit,
     snackbarHostState: SnackbarHostState? = null,
+    residentIds: Set<String> = emptySet(),
+    onMoveTab: (String, Int) -> Unit = { _, _ -> },
+    onGroupTab: (String, String) -> Unit = { _, _ -> },
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var showRecent by rememberSaveable { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
-    val filtered = tabs.filter { it.title.contains(query, true) || it.url.contains(query, true) }
+    var groupFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var groupTarget by remember { mutableStateOf<TabState?>(null) }
+    var groupName by remember { mutableStateOf("") }
+    val groups = tabs.map { it.group }.filter { it.isNotEmpty() }.distinct()
+    val filtered = tabs.filter { (groupFilter == null || it.group == groupFilter) &&
+        (it.title.contains(query, true) || it.url.contains(query, true)) }
     val currentId = tabs.getOrNull(currentIndex)?.id
     val filteredRecent = recentlyClosed.filter { it.title.contains(query, true) || it.url.contains(query, true) }
     ModalBottomSheet(onDismissRequest = onDismiss,
@@ -82,6 +93,11 @@ fun TabsSheet(
                 FilterChip(selected = showRecent, onClick = { showRecent = true }, label = { Text(stringResource(R.string.tabs_recent, recentlyClosed.size)) })
             }
             LibrarySearchField(query, stringResource(R.string.tabs_search)) { query = it }
+            if (!showRecent && groups.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(groupFilter == null, { groupFilter = null }, label = { Text(stringResource(R.string.tabs_all_groups)) })
+                groups.forEach { group -> FilterChip(groupFilter == group, { groupFilter = group }, label = { Text(group) }) }
+            }
             if (showRecent && !isIncognito) {
                 if (filteredRecent.isEmpty()) Text(stringResource(R.string.tabs_recent_empty), Modifier.padding(vertical = 24.dp))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -98,6 +114,7 @@ fun TabsSheet(
             } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(filtered, key = { it.id }) { tab ->
+                    var itemMenu by remember { mutableStateOf(false) }
                     Surface(shape = MaterialTheme.shapes.medium, color = if (tab.id == currentId)
                         MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
                         modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }) {
@@ -116,8 +133,24 @@ fun TabsSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 if (tab.id == currentId) Text(stringResource(R.string.tabs_current),
                                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                else Text(stringResource(if (tab.id in residentIds) R.string.tabs_resident else R.string.tabs_sleeping),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (tab.group.isNotEmpty()) Text(tab.group, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                             }
-                            BrowserIconAction(R.drawable.ic_close, stringResource(R.string.cd_close_tab)) { onCloseTab(tab.id) }
+                            Column {
+                                BrowserIconAction(R.drawable.ic_close, stringResource(R.string.cd_close_tab)) { onCloseTab(tab.id) }
+                                Box {
+                                    BrowserIconAction(R.drawable.ic_more, stringResource(R.string.library_item_actions)) { itemMenu = true }
+                                    DropdownMenu(itemMenu, { itemMenu = false }) {
+                                        DropdownMenuItem(text = { Text(stringResource(R.string.tabs_move_previous)) },
+                                            enabled = tabs.firstOrNull()?.id != tab.id, onClick = { itemMenu = false; onMoveTab(tab.id, -1) })
+                                        DropdownMenuItem(text = { Text(stringResource(R.string.tabs_move_next)) },
+                                            enabled = tabs.lastOrNull()?.id != tab.id, onClick = { itemMenu = false; onMoveTab(tab.id, 1) })
+                                        DropdownMenuItem(text = { Text(stringResource(R.string.tabs_group)) },
+                                            onClick = { itemMenu = false; groupTarget = tab; groupName = tab.group })
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -125,6 +158,18 @@ fun TabsSheet(
             snackbarHostState?.let { SnackbarHost(it, modifier = Modifier.padding(bottom = 12.dp)) }
         }
     }
+    groupTarget?.let { target -> AlertDialog(onDismissRequest = { groupTarget = null },
+        title = { Text(stringResource(R.string.tabs_group)) },
+        text = { Column {
+            OutlinedTextField(groupName, { groupName = it.take(40) }, singleLine = true,
+                label = { Text(stringResource(R.string.tabs_group_name)) })
+            Text(stringResource(R.string.tabs_group_hint), Modifier.padding(vertical = 8.dp))
+            Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                groups.forEach { name -> TextButton(onClick = { groupName = name }) { Text(name) } }
+            }
+        } },
+        confirmButton = { TextButton(onClick = { onGroupTab(target.id, groupName); groupTarget = null }) { Text(stringResource(R.string.action_confirm)) } },
+        dismissButton = { TextButton(onClick = { groupTarget = null }) { Text(stringResource(R.string.action_cancel)) } }) }
     if (confirm != null) AlertDialog(onDismissRequest = { confirm = null },
         title = { Text(stringResource(when (confirm) { "all" -> R.string.tabs_close_all; "recent" -> R.string.tabs_clear_recent; else -> R.string.tabs_close_others })) },
         text = {

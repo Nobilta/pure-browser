@@ -30,8 +30,14 @@ internal class DownloadDestinationWriter(context: Context) {
         preferredName: String,
         mimeType: String,
         parts: List<File>,
+        onProgress: (Int) -> Unit = {},
     ): PublishedDownload = withContext(Dispatchers.IO) {
         require(parts.isNotEmpty()) { "A completed download must contain at least one part" }
+        val total = parts.sumOf { it.length() }
+        if (settings.destinationMode == DownloadDestinationMode.SYSTEM_DOWNLOADS) {
+            val available = Environment.getExternalStorageDirectory().usableSpace
+            if (available > 0 && total > available) throw IOException("Not enough space to save the completed download")
+        }
         val published = when (settings.destinationMode) {
             DownloadDestinationMode.SYSTEM_DOWNLOADS -> createInSystemDownloads(
                 preferredName,
@@ -49,6 +55,8 @@ internal class DownloadDestinationWriter(context: Context) {
                 ?: throw IOException("Selected destination cannot be opened for writing")
             output.buffered().use { stream ->
                 val buffer = ByteArray(COPY_BUFFER_SIZE)
+                var copied = 0L
+                var lastProgress = -1
                 parts.forEach { part ->
                     part.inputStream().buffered().use { input ->
                         while (true) {
@@ -57,6 +65,9 @@ internal class DownloadDestinationWriter(context: Context) {
                             if (count < 0) break
                             if (count == 0) continue
                             stream.write(buffer, 0, count)
+                            copied += count
+                            val percent = if (total > 0) (copied.toDouble() / total * 100).toInt().coerceIn(0, 100) else 0
+                            if (percent != lastProgress) { lastProgress = percent; onProgress(percent) }
                         }
                     }
                 }

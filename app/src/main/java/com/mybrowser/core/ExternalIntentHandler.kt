@@ -57,6 +57,10 @@ object ExternalIntentHandler {
 
         sanitize(intent)
 
+        if (intent.resolveActivity(context.packageManager)?.packageName == context.packageName) {
+            return fallback?.let(Result::Fallback) ?: Result.Rejected
+        }
+
         return try {
             context.startActivity(intent)
             Result.Launched
@@ -100,6 +104,7 @@ object ExternalIntentHandler {
      * resolve would confirm the attacker's target rather than the system's choice.
      */
     private fun sanitize(intent: Intent) {
+        intent.action = Intent.ACTION_VIEW
         // The two hijacking vectors.
         intent.component = null
         intent.selector = null

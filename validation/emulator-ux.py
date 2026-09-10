@@ -75,6 +75,9 @@ def nodes():
                 return ET.fromstring(raw), raw
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError, ValueError):
                 time.sleep(.15)
+        # A new ART/WebView build can reject this optional helper. Use the system
+        # dumper for the rest of this run instead of repeatedly starting a killed VM.
+        _probe_available[device] = False
     for _ in range(3):
         adb("shell", "rm", "-f", "/sdcard/pure-ux.xml")
         adb("shell", "uiautomator", "dump", "/sdcard/pure-ux.xml")
@@ -97,6 +100,8 @@ def visible(node):
 
 def tap_now(label):
     """Resolve a current visible node and inject a real tap in one helper session."""
+    if _probe_available.get(tuple(ADB)) is False:
+        return False
     variants = labels(label) | {value.upper() for value in labels(label)}
     encoded = base64.b64encode(json.dumps(sorted(variants)).encode()).decode()
     command = ["env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",

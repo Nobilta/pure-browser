@@ -1,19 +1,23 @@
 //! Linear parsing of Netscape bookmark HTML. No DOM, scripts, filesystem or network.
-//! Folders are flattened because the Android bookmark model is a flat collection.
+//! Folder paths and empty folders survive round trips, within a bounded tree.
 use std::collections::HashSet;
 
 const MAX_INPUT: usize = 8 * 1024 * 1024;
 const MAX_BOOKMARKS: usize = 5_000;
+const MAX_FOLDERS: usize = 256;
+const MAX_DEPTH: usize = 16;
 
 #[derive(Debug, PartialEq)]
 pub struct Bookmark {
     pub title: String,
     pub url: String,
+    pub folder_path: Vec<String>,
 }
 
 pub struct Import {
     pub entries: Vec<Bookmark>,
     pub skipped: usize,
+    pub folders: Vec<Vec<String>>,
 }
 
 pub fn parse(input: &str) -> Result<Import, &'static str> {
@@ -26,6 +30,12 @@ pub fn parse(input: &str) -> Result<Import, &'static str> {
     let mut position = 0;
     let mut anchor: Option<(String, String)> = None;
     let mut hidden = None;
+    let mut folder_title: Option<String> = None;
+    let mut pending_folder: Option<String> = None;
+    let mut path: Vec<String> = Vec::new();
+    let mut dl_frames = Vec::new();
+    let mut folders = Vec::new();
+    let mut seen_folders = HashSet::new();
     while position < input.len() {
         let Some(relative) = input[position..].find('<') else {
             break;
@@ -34,6 +44,11 @@ pub fn parse(input: &str) -> Result<Import, &'static str> {
         if hidden.is_none() {
             if let Some((_, title)) = anchor.as_mut() {
                 if title.len() < 16 * 1024 {
+                    title.push_str(&input[position..start]);
+                }
+            }
+            if let Some(title) = folder_title.as_mut() {
+                if title.len() < 4096 {
                     title.push_str(&input[position..start]);
                 }
             }
@@ -65,6 +80,52 @@ pub fn parse(input: &str) -> Result<Import, &'static str> {
         }
         if !closing && (name == "script" || name == "style") {
             hidden = Some(if name == "script" { "script" } else { "style" });
+            continue;
+        }
+        if name == "h3" {
+            if closing {
+                pending_folder = folder_title
+                    .take()
+                    .map(|title| {
+                        decode_entities(&title)
+                            .chars()
+                            .filter(|c| !c.is_control())
+                            .take(128)
+                            .collect::<String>()
+                            .trim()
+                            .to_owned()
+                    })
+                    .filter(|name| !name.is_empty());
+            } else {
+                folder_title = Some(String::new());
+            }
+            continue;
+        }
+        if name == "dl" {
+            if closing {
+                if dl_frames.pop().unwrap_or(false) {
+                    path.pop();
+                }
+                pending_folder = None;
+            } else {
+                if dl_frames.len() >= 32 {
+                    return Err("Too much HTML nesting");
+                }
+                let has_folder = pending_folder.is_some();
+                if let Some(title) = pending_folder.take() {
+                    if path.len() >= MAX_DEPTH {
+                        return Err("Too many folder levels");
+                    }
+                    path.push(title);
+                    if seen_folders.insert(path.clone()) {
+                        if folders.len() == MAX_FOLDERS {
+                            return Err("Too many folders");
+                        }
+                        folders.push(path.clone());
+                    }
+                }
+                dl_frames.push(has_folder);
+            }
             continue;
         }
         if name != "a" {
@@ -102,10 +163,15 @@ pub fn parse(input: &str) -> Result<Import, &'static str> {
                     title.trim().to_owned()
                 },
                 url: url.to_owned(),
+                folder_path: path.clone(),
             });
         }
     }
-    Ok(Import { entries, skipped })
+    Ok(Import {
+        entries,
+        skipped,
+        folders,
+    })
 }
 
 fn tag_end(input: &str, start: usize) -> Option<usize> {
@@ -217,14 +283,36 @@ impl Import {
         let entries: Vec<String> = self
             .entries
             .iter()
-            .map(|b| format!("[{},{}]", json_string(&b.title), json_string(&b.url)))
+            .map(|b| {
+                format!(
+                    "[{},{},{}]",
+                    json_string(&b.title),
+                    json_string(&b.url),
+                    json_path(&b.folder_path)
+                )
+            })
             .collect();
         format!(
-            "{{\"entries\":[{}],\"skipped\":{}}}",
+            "{{\"entries\":[{}],\"skipped\":{},\"folders\":[{}]}}",
             entries.join(","),
-            self.skipped
+            self.skipped,
+            self.folders
+                .iter()
+                .map(|path| json_path(path))
+                .collect::<Vec<_>>()
+                .join(",")
         )
     }
+}
+
+fn json_path(path: &[String]) -> String {
+    format!(
+        "[{}]",
+        path.iter()
+            .map(|part| json_string(part))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 #[cfg(test)]
@@ -240,6 +328,7 @@ mod tests {
         assert_eq!(result.entries[0].url, "https://example.com/?x=1&y=2");
         assert_eq!(result.entries[0].title, "A \"title\" 中文");
         assert_eq!(result.entries[1].title, "Nested text 😀");
+        assert_eq!(result.entries[0].folder_path, vec!["Folder"]);
         assert!(result.json().contains("\\\"title\\\""));
     }
     #[test]
@@ -250,7 +339,8 @@ mod tests {
             result.entries,
             vec![Bookmark {
                 title: "First".into(),
-                url: "https://site.test".into()
+                url: "https://site.test".into(),
+                folder_path: vec![],
             }]
         );
         assert_eq!(result.skipped, 4);
@@ -269,5 +359,15 @@ mod tests {
             .map(|i| format!("<a href=https://site.test/{i}>Page</a>"))
             .collect();
         assert!(parse(&html).is_err());
+    }
+
+    #[test]
+    fn sibling_nested_and_empty_folders_preserve_paths() {
+        let result = parse("<DL><DT><H3>中文</H3><DL><H3>Nested</H3><DL><a href=https://one.test>One</a></DL></DL><H3>Empty</H3><DL></DL><a href=https://root.test>Root</a></DL>").unwrap();
+        assert_eq!(result.entries[0].folder_path, vec!["中文", "Nested"]);
+        assert!(result.entries[1].folder_path.is_empty());
+        assert_eq!(result.folders.len(), 3);
+        assert_eq!(result.folders[2], vec!["Empty"]);
+        assert!(parse(&"<h3>Deep</h3><dl>".repeat(17)).is_err());
     }
 }

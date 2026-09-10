@@ -19,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,6 +29,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import com.mybrowser.R
 
 /**
@@ -36,7 +40,7 @@ import com.mybrowser.R
  * browsers settle on.
  *
  * The buttons are a local composable rather than MD3 `IconButton` for one reason: back
- * needs a long-press (clearing SPA history), and `IconButton` takes no long-click. Using
+ * needs a long-press (choosing earlier history), and `IconButton` takes no long-click. Using
  * the same custom button for all keeps the ripple and disabled treatment uniform
  * instead of mixing two button implementations in one row.
  */
@@ -51,12 +55,24 @@ fun BrowserToolbar(
     onTabs: () -> Unit,
     tabCount: Int,
     onMenu: () -> Unit,
+    onNewTab: () -> Unit = onTabs,
+    swipeTabs: Boolean = false,
+    onSwitchTab: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val switchTab by rememberUpdatedState(onSwitchTab)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp),
+            .height(64.dp)
+            .pointerInput(swipeTabs) {
+                if (swipeTabs) {
+                    var distance = 0f
+                    detectHorizontalDragGestures(onDragStart = { distance = 0f }, onDragCancel = { distance = 0f },
+                        onDragEnd = { if (kotlin.math.abs(distance) >= 72.dp.toPx()) switchTab(if (distance < 0) 1 else -1) },
+                        onHorizontalDrag = { change, delta -> change.consume(); distance += delta })
+                }
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ToolbarButton(
@@ -80,6 +96,7 @@ fun BrowserToolbar(
         TabsButton(
             count = tabCount,
             onClick = onTabs,
+            onLongClick = onNewTab,
         )
         ToolbarButton(
             icon = R.drawable.ic_menu,
@@ -135,6 +152,7 @@ private fun RowScope.ToolbarButton(
 private fun RowScope.TabsButton(
     count: Int,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val label = stringResource(R.string.tabs_count, count)
@@ -148,6 +166,8 @@ private fun RowScope.TabsButton(
                 interactionSource = interaction,
                 indication = ripple(),
                 onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = stringResource(R.string.new_tab_shortcut),
             ),
         contentAlignment = Alignment.Center,
     ) {

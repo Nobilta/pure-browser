@@ -23,6 +23,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +45,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.PopupPositionProvider
 import com.mybrowser.core.UrlUtils
 import com.mybrowser.R
 import com.mybrowser.data.BookmarkManager
@@ -73,12 +91,34 @@ fun Omnibar(
     onSecurityClick: () -> Unit = {},
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
+    suggestionsAbove: Boolean = false,
 ) {
     val textResources = localizedResources()
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     val barHeight = 48.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val density = LocalDensity.current
+    val rootView = LocalView.current.rootView
+    var windowHeight by remember { mutableStateOf(rootView.height) }
+    val topInset = WindowInsets.safeDrawing.getTop(density)
+    val bottomInset = maxOf(WindowInsets.safeDrawing.getBottom(density), WindowInsets.ime.getBottom(density))
+    var anchor by remember { mutableStateOf(Rect.Zero) }
+    val gap = with(density) { 4.dp.roundToPx() }
+    val availableHeight = with(density) {
+        (if (suggestionsAbove) anchor.top - topInset - gap
+        else windowHeight - bottomInset - anchor.bottom - gap).coerceAtLeast(0f).toDp().coerceAtMost(400.dp)
+    }
+    val suggestionPosition = remember(suggestionsAbove, gap) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
+                layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                val y = if (suggestionsAbove) anchorBounds.top - popupContentSize.height - gap else anchorBounds.bottom + gap
+                return IntOffset(anchorBounds.left.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0)),
+                    y.coerceIn(0, (windowSize.height - popupContentSize.height).coerceAtLeast(0)))
+            }
+        }
+    }
     LaunchedEffect(isFocused) {
         if (isFocused) {
             focusRequester.requestFocus()
@@ -101,7 +141,10 @@ fun Omnibar(
         keyboard?.hide()
     }
 
-    Box(modifier = modifier) {
+    Box(modifier = modifier.onGloballyPositioned {
+        anchor = it.boundsInWindow()
+        windowHeight = rootView.height
+    }) {
         // The rounded surface is the editable field itself.  The search/visit action is a
         // sibling of this surface (rather than content inside it), so it never squeezes the
         // text or looks like part of the URL.  It is intentionally absent until the field
@@ -243,21 +286,25 @@ fun Omnibar(
 
         // Smart suggestions dropdown
         if (isFocused && value.text.isNotEmpty() &&
-            bookmarkManager != null && historyManager != null
+            bookmarkManager != null && availableHeight >= 48.dp
         ) {
+            Popup(popupPositionProvider = suggestionPosition,
+                properties = PopupProperties(focusable = false, dismissOnBackPress = false),
+                onDismissRequest = { focusManager.clearFocus(); keyboard?.hide() }) {
             SmartSuggestions(
                 query = value.text,
                 bookmarkManager = bookmarkManager,
                 historyManager = historyManager,
+                onFillSuggestion = { text -> onValueChange(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(text.length))) },
                 onSuggestionClick = { url ->
                     onNavigate(url)
                     focusManager.clearFocus()
                     keyboard?.hide()
                 },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(top = barHeight + 4.dp)
+                maxHeight = availableHeight,
+                modifier = Modifier.width(with(density) { anchor.width.toDp() }),
             )
+            }
         }
     }
 }

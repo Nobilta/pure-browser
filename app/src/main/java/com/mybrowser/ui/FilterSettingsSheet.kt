@@ -25,6 +25,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     val lists by controller.subscriptions.collectAsState()
     val ruleCount by filterController.ruleCount.collectAsState()
     val cosmeticCount by filterController.cosmeticCount.collectAsState()
+    val unsupportedCount by filterController.unsupportedCount.collectAsState()
     val enabled by filterController.enabled.collectAsState()
     val busy by controller.busy.collectAsState()
     val autoUpdate by controller.autoUpdate.collectAsState()
@@ -49,6 +50,8 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
             Text(res.getString(R.string.filter_loaded_counts, ruleCount, cosmeticCount),
                 Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
             Text(res.getString(R.string.filter_reload_hint), Modifier.padding(horizontal = 20.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(res.getString(R.string.filter_unsupported_count, unsupportedCount), Modifier.padding(horizontal = 20.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { scope.launch { controller.update() } }, enabled = !busy && lists.any { it.enabled }) {

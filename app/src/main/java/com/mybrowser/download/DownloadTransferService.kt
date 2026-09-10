@@ -37,6 +37,7 @@ class DownloadTransferService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         updateNotificationChannel()
+        if ((application as App).restoreBlocked) return
         val active = (application as App).downloadHandler.activeTransfers.value
         if (active.isNotEmpty()) notificationManager.notify(NOTIFICATION_ID, createNotification(active))
     }
@@ -55,12 +56,16 @@ class DownloadTransferService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if ((application as App).restoreBlocked) { stopSelf(startId); return START_NOT_STICKY }
         val handler = (application as App).downloadHandler
         startForeground(
             NOTIFICATION_ID,
             createNotification(handler.activeTransfers.value),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
+        intent?.getLongExtra(EXTRA_DOWNLOAD_ID, 0L)?.takeIf { it != 0L }?.let { id ->
+            when (intent.action) { ACTION_PAUSE -> handler.pause(id); ACTION_CANCEL -> handler.cancel(id) }
+        }
         if (monitorJob == null) {
             monitorJob = serviceScope.launch {
                 handler.activeTransfers.collectLatest { active ->
@@ -87,7 +92,7 @@ class DownloadTransferService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        (application as App).downloadHandler.pauseActiveTransfers()
+        if (!(application as App).restoreBlocked) (application as App).downloadHandler.pauseActiveTransfers()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
@@ -102,6 +107,8 @@ class DownloadTransferService : Service() {
         val primary = active.firstOrNull()
         val launchIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            action = ACTION_SHOW_DOWNLOAD
+            putExtra(EXTRA_DOWNLOAD_ID, primary?.id ?: 0L)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -114,11 +121,16 @@ class DownloadTransferService : Service() {
             1 -> primary?.filename.orEmpty()
             else -> getString(R.string.download_notification_multiple, active.size)
         }
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)
             .setContentText(
                 primary?.let {
+                    if (it.status != DownloadStatus.DOWNLOADING) getString(when (it.status) {
+                        DownloadStatus.SAVING -> R.string.download_saving
+                        DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
+                        else -> R.string.download_queued
+                    }) else
                     getString(
                         R.string.download_notification_progress,
                         it.progress,
@@ -130,11 +142,25 @@ class DownloadTransferService : Service() {
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_PROGRESS)
-            .setProgress(100, primary?.progress ?: 0, primary?.totalBytes?.let { it <= 0L } ?: true)
-            .build()
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setProgress(100, if (primary?.status == DownloadStatus.SAVING) primary.savingProgress else primary?.progress ?: 0,
+                primary == null || primary.status == DownloadStatus.QUEUED || primary.status == DownloadStatus.WAITING_NETWORK ||
+                    (primary.status == DownloadStatus.DOWNLOADING && primary.totalBytes <= 0L))
+        if (primary != null) {
+            fun actionIntent(action: String): PendingIntent = PendingIntent.getService(this, (primary.id xor action.hashCode().toLong()).toInt(),
+                Intent(this, DownloadTransferService::class.java).setAction(action).putExtra(EXTRA_DOWNLOAD_ID, primary.id),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(Notification.Action.Builder(null, getString(R.string.download_pause), actionIntent(ACTION_PAUSE)).build())
+            builder.addAction(Notification.Action.Builder(null, getString(R.string.ui_cancel_download), actionIntent(ACTION_CANCEL)).build())
+        }
+        return builder.build()
     }
 
-    private companion object {
+    companion object {
+        const val ACTION_SHOW_DOWNLOAD = "com.mybrowser.SHOW_DOWNLOAD"
+        const val EXTRA_DOWNLOAD_ID = "download_id"
+        private const val ACTION_PAUSE = "com.mybrowser.PAUSE_DOWNLOAD"
+        private const val ACTION_CANCEL = "com.mybrowser.CANCEL_DOWNLOAD"
         const val CHANNEL_ID = "browser_downloads"
         const val NOTIFICATION_ID = 0xD011
         const val STOP_GRACE_PERIOD_MS = 400L

@@ -31,6 +31,7 @@
 /validation/results/
 __pycache__/
 *.pyc
+/validation/node_modules/
 
 # Signing material never belongs in the repo
 *.jks
