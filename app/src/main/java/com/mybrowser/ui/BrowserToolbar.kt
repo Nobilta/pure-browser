@@ -56,7 +56,7 @@ fun BrowserToolbar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp),
+            .height(64.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ToolbarButton(

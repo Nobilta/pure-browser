@@ -294,3 +294,61 @@ fn oversized_rule_is_skipped_without_being_retained() {
     assert_eq!(e.rule_count(), 0);
     assert_eq!(e.stats().unsupported_skipped, 1);
 }
+
+#[test]
+fn domain_rules_preserve_ports_and_hostname_boundaries() {
+    let e = engine(&[
+        "||127.0.0.1:8875/filter-marker.js",
+        "||media*.example.com^",
+        "||[::1]:8875/tracker",
+    ]);
+    assert!(e.should_block(
+        "http://127.0.0.1:8875/filter-marker.js",
+        DOC,
+        ResourceType::Script
+    ));
+    assert!(!e.should_block(
+        "http://127.0.0.1:8876/filter-marker.js",
+        DOC,
+        ResourceType::Script
+    ));
+    assert!(!e.should_block(
+        "http://127.0.0.1.evil.test:8875/filter-marker.js",
+        DOC,
+        ResourceType::Script
+    ));
+    assert!(e.should_block("https://media2.example.com/file", DOC, ResourceType::Other));
+    assert!(!e.should_block(
+        "https://media2.example.com.evil.test/file",
+        DOC,
+        ResourceType::Other
+    ));
+    assert!(e.should_block("http://[::1]:8875/tracker", DOC, ResourceType::Other));
+    assert!(!e.should_block("http://[::1]:8876/tracker", DOC, ResourceType::Other));
+}
+
+#[test]
+fn packaged_lists_and_local_subscription_work_together() {
+    let mut e = Engine::new();
+    e.add_list(include_str!(
+        "../../../app/src/main/assets/filters/easylist.txt"
+    ));
+    e.add_list(include_str!(
+        "../../../app/src/main/assets/filters/easyprivacy.txt"
+    ));
+    e.add_list(include_str!(
+        "../../../app/src/main/assets/filters/easylist-china.txt"
+    ));
+    e.add_list("||127.0.0.1:8875/filter-marker.js");
+    let page = "http://127.0.0.1:8875/feature-fixture.html";
+    assert!(e.should_block(
+        "http://127.0.0.1:8875/filter-marker.js",
+        page,
+        ResourceType::Script
+    ));
+    assert!(!e.should_block(
+        "http://127.0.0.1:8875/feature-dependency.js",
+        page,
+        ResourceType::Script
+    ));
+}

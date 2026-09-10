@@ -1,7 +1,8 @@
 package com.mybrowser.ui
 
 import com.mybrowser.download.localizeDownloadDirectory
-import com.mybrowser.download.SYSTEM_DIRECTORY_LABEL
+import com.mybrowser.download.DownloadItem
+import com.mybrowser.download.DownloadStatus
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,30 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import java.text.DecimalFormat
-
-data class DownloadItem(
-    val id: Long,
-    val filename: String,
-    val url: String,
-    val status: DownloadStatus,
-    val progress: Int = 0,
-    val bytesDownloaded: Long = 0,
-    val totalBytes: Long = 0,
-    val timestamp: Long = System.currentTimeMillis(),
-    val threadCount: Int = 1,
-    val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
-)
-
-enum class DownloadStatus {
-    DOWNLOADING,
-    COMPLETED,
-    FAILED,
-    PAUSED
-}
 
 /**
  * Downloads management sheet showing active and completed downloads.
@@ -44,6 +26,7 @@ fun DownloadsSheet(
     downloads: List<DownloadItem>,
     onDismiss: () -> Unit,
     onCancelDownload: (Long) -> Unit = {},
+    onPauseDownload: (Long) -> Unit = {},
     onRetryDownload: (Long) -> Unit = {},
     onOpenFile: (Long) -> Unit = {},
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
@@ -58,6 +41,7 @@ fun DownloadsSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
+        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -143,6 +127,7 @@ fun DownloadsSheet(
                         DownloadItemRow(
                             download = download,
                             onCancel = { onCancelDownload(download.id) },
+                            onPause = { onPauseDownload(download.id) },
                             onRetry = { onRetryDownload(download.id) },
                             onOpen = { onOpenFile(download.id) },
                             onDelete = { pendingDelete = download },
@@ -183,6 +168,7 @@ fun DownloadsSheet(
 private fun DownloadItemRow(
     download: DownloadItem,
     onCancel: () -> Unit,
+    onPause: () -> Unit,
     onRetry: () -> Unit,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
@@ -202,10 +188,10 @@ private fun DownloadItemRow(
         Icon(
             painter = painterResource(
                 when (download.status) {
-                    DownloadStatus.DOWNLOADING -> R.drawable.ic_history
-                    DownloadStatus.COMPLETED -> R.drawable.ic_bookmark
+                    DownloadStatus.DOWNLOADING -> R.drawable.ic_download
+                    DownloadStatus.COMPLETED -> R.drawable.ic_file
                     DownloadStatus.FAILED -> R.drawable.ic_close
-                    DownloadStatus.PAUSED -> R.drawable.ic_incognito
+                    DownloadStatus.PAUSED -> R.drawable.ic_pause
                 }
             ),
             contentDescription = null,
@@ -274,30 +260,15 @@ private fun DownloadItemRow(
         // Action button
         when (download.status) {
             DownloadStatus.DOWNLOADING -> {
-                IconButton(onClick = onCancel) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_close),
-                        contentDescription = textResources.getString(R.string.ui_cancel_download)
-                    )
+                Column {
+                    if (download.canPause) BrowserIconAction(R.drawable.ic_pause, stringResource(R.string.download_pause), onClick = onPause)
+                    BrowserIconAction(R.drawable.ic_close, textResources.getString(R.string.ui_cancel_download), onClick = onCancel)
                 }
             }
-            DownloadStatus.FAILED -> {
+            DownloadStatus.FAILED, DownloadStatus.PAUSED -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onRetry) {
-                        Text(textResources.getString(R.string.ui_retry))
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_delete),
-                            contentDescription = textResources.getString(R.string.ui_delete_download),
-                        )
-                    }
-                }
-            }
-            DownloadStatus.PAUSED -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onRetry) {
-                        Text(textResources.getString(R.string.ui_retry))
+                        Text(textResources.getString(if (download.status == DownloadStatus.PAUSED) R.string.download_resume else R.string.ui_retry))
                     }
                     IconButton(onClick = onDelete) {
                         Icon(

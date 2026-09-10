@@ -15,8 +15,8 @@ core = "1.19.0"
 webkit = "1.17.0"
 coroutines = "1.11.0"
 
-# Compose. The BOM pins every androidx.compose.* artifact to one tested set.
-# Keep this comment tied to the actual value below; update it when the BOM changes.
+# Compose baseline constraints. Transitive Activity/navigationevent dependencies
+# can raise resolved UI/runtime versions; inspect releaseRuntimeClasspath when debugging.
 composeBom = "2024.09.03"
 # activity-compose is NOT in the BOM's dependencyManagement, so it carries its own
 # version. Kept in step with `activity` above, which it supersedes.

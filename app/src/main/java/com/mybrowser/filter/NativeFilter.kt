@@ -39,6 +39,12 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
     val ruleCount: Int
         get() = if (handle == 0L) 0 else runCatching { nativeRuleCount(handle) }.getOrDefault(0)
 
+    val cosmeticRuleCount: Int
+        get() = if (handle == 0L) 0 else runCatching { nativeCosmeticRuleCount(handle) }.getOrDefault(0)
+
+    fun cosmeticCss(url: String): String = if (handle == 0L) "" else
+        runCatching { nativeCosmeticCss(handle, url).orEmpty() }.getOrDefault("")
+
     /**
      * Parses [text] as an EasyList-syntax filter list and adds its network rules.
      *
@@ -105,5 +111,7 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
             resourceType: Int,
         ): Boolean
         @JvmStatic private external fun nativeRuleCount(handle: Long): Int
+        @JvmStatic private external fun nativeCosmeticRuleCount(handle: Long): Int
+        @JvmStatic private external fun nativeCosmeticCss(handle: Long, url: String): String?
     }
 }

@@ -98,7 +98,7 @@ class DownloadTransferService : Service() {
         super.onDestroy()
     }
 
-    private fun createNotification(active: List<com.mybrowser.ui.DownloadItem>): Notification {
+    private fun createNotification(active: List<DownloadItem>): Notification {
         val primary = active.firstOrNull()
         val launchIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP

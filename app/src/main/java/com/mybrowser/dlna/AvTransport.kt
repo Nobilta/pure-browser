@@ -1,6 +1,7 @@
 package com.mybrowser.dlna
 
 import android.util.Log
+import com.mybrowser.media.MediaSniffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -18,8 +19,6 @@ import java.net.URL
 object AvTransport {
 
     private const val TAG = "AvTransport"
-    private const val SERVICE = "urn:schemas-upnp-org:service:AVTransport:1"
-    private const val RENDERING = "urn:schemas-upnp-org:service:RenderingControl:1"
     private const val CONNECT_TIMEOUT_MILLIS = 5_000
     private const val READ_TIMEOUT_MILLIS = 8_000
 
@@ -35,13 +34,13 @@ object AvTransport {
         device: DlnaDevice,
         url: String,
         title: String,
-        isStream: Boolean,
+        kind: MediaSniffer.Kind,
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val cleanUrl = url.trim()
         if (!isHttpEndpoint(cleanUrl)) {
             return@withContext Result.failure(IllegalArgumentException("media URL must be HTTP(S)"))
         }
-        val metadata = didlLite(cleanUrl, title, isStream)
+        val metadata = didlLite(cleanUrl, title, kind)
         setAvTransportUri(device, cleanUrl, metadata).fold(
             onSuccess = { play(device) },
             onFailure = { Result.failure(it) },
@@ -54,7 +53,7 @@ object AvTransport {
         metadata: String,
     ): Result<Unit> = invoke(
         device.controlUrl,
-        SERVICE,
+        device.avTransportServiceType,
         "SetAVTransportURI",
         // CurrentURIMetaData must be XML-escaped inside the envelope: it is itself a
         // document, and an unescaped one silently breaks the whole SOAP body.
@@ -65,43 +64,46 @@ object AvTransport {
 
     suspend fun play(device: DlnaDevice): Result<Unit> = invoke(
         device.controlUrl,
-        SERVICE,
+        device.avTransportServiceType,
         "Play",
         "<InstanceID>0</InstanceID><Speed>1</Speed>",
     )
 
     suspend fun pause(device: DlnaDevice): Result<Unit> = invoke(
         device.controlUrl,
-        SERVICE,
+        device.avTransportServiceType,
         "Pause",
         "<InstanceID>0</InstanceID>",
     )
 
     suspend fun stop(device: DlnaDevice): Result<Unit> = invoke(
         device.controlUrl,
-        SERVICE,
+        device.avTransportServiceType,
         "Stop",
         "<InstanceID>0</InstanceID>",
     )
 
-    /** No-ops on renderers without RenderingControl rather than failing. */
+    /** A missing service is an unsupported action, never a successful volume change. */
     suspend fun setVolume(device: DlnaDevice, volume: Int): Result<Unit> {
-        val control = device.renderingControlUrl ?: return Result.success(Unit)
+        val control = device.renderingControlUrl ?: return Result.failure(UnsupportedOperationException("Volume control unavailable"))
         return invoke(
             control,
-            RENDERING,
+            device.renderingServiceType,
             "SetVolume",
             "<InstanceID>0</InstanceID><Channel>Master</Channel>" +
                 "<DesiredVolume>${volume.coerceIn(0, 100)}</DesiredVolume>",
         )
     }
 
-    private suspend fun invoke(
+    private suspend fun invoke(controlUrl: String, serviceType: String, action: String, arguments: String): Result<Unit> =
+        request(controlUrl, serviceType, action, arguments).map { Unit }
+
+    private suspend fun request(
         controlUrl: String,
         serviceType: String,
         action: String,
         arguments: String,
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<String> = withContext(Dispatchers.IO) {
         if (!isHttpEndpoint(controlUrl)) {
             return@withContext Result.failure(IllegalArgumentException("control URL must be HTTP(S)"))
         }
@@ -115,6 +117,7 @@ object AvTransport {
                 connectTimeout = CONNECT_TIMEOUT_MILLIS
                 readTimeout = READ_TIMEOUT_MILLIS
                 requestMethod = "POST"
+                instanceFollowRedirects = false
                 doOutput = true
                 setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"")
                 // The quotes around SOAPACTION are required by the spec and enforced by
@@ -131,16 +134,79 @@ object AvTransport {
                     }.getOrNull()
                     error("$action failed: HTTP $code ${faultOf(detail)}")
                 }
-                // SOAP success bodies are not needed after the status code. Drain only a
-                // bounded amount so a faulty LAN device cannot force an unbounded
-                // allocation while the connection is being closed.
-                connection.inputStream.use { it.drainBounded(MAX_RESPONSE_BYTES) }
+                // Some receivers send SOAP Fault with HTTP 200. Inspect a bounded
+                // body before acknowledging the request or issuing Play.
+                val body = connection.inputStream.use { it.readBoundedText(MAX_RESPONSE_BYTES) }
+                if (Regex("<(?:[A-Za-z_][\\w.-]*:)?Fault\\b").containsMatchIn(body)) {
+                    error("SOAP fault: " + faultOf(body))
+                }
                 Log.i(TAG, "$action ok")
-                Unit
+                body
             } finally {
                 connection.disconnect()
             }
         }
+    }
+
+    data class PlaybackStatus(
+        val transportState: String,
+        val positionSeconds: Long? = null,
+        val durationSeconds: Long? = null,
+        val volume: Int? = null,
+    )
+
+    suspend fun status(device: DlnaDevice): Result<PlaybackStatus> {
+        val transport = request(device.controlUrl, device.avTransportServiceType,
+            "GetTransportInfo", "<InstanceID>0</InstanceID>")
+        if (transport.isFailure) return Result.failure(requireNotNull(transport.exceptionOrNull()))
+        return try {
+            val state = fields(transport.getOrThrow())["CurrentTransportState"]
+                ?.takeIf { it in setOf("PLAYING", "PAUSED_PLAYBACK", "STOPPED", "TRANSITIONING", "NO_MEDIA_PRESENT") }
+                ?: error("Missing transport state")
+            val position = request(device.controlUrl, device.avTransportServiceType,
+                "GetPositionInfo", "<InstanceID>0</InstanceID>").getOrNull()?.let { runCatching { fields(it) }.getOrNull() }
+            val volume = device.renderingControlUrl?.let { control ->
+                request(control, device.renderingServiceType, "GetVolume",
+                    "<InstanceID>0</InstanceID><Channel>Master</Channel>").getOrNull()
+                    ?.let { runCatching { fields(it)["CurrentVolume"]?.toIntOrNull()?.takeIf { value -> value in 0..100 } }.getOrNull() }
+            }
+            Result.success(PlaybackStatus(state, parseTime(position?.get("RelTime")), parseTime(position?.get("TrackDuration")), volume))
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { Result.failure(error) }
+    }
+
+    suspend fun seek(device: DlnaDevice, seconds: Long): Result<Unit> = invoke(
+        device.controlUrl, device.avTransportServiceType, "Seek",
+        "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>${formatTime(seconds)}</Target>")
+
+    internal fun parseTime(value: String?): Long? {
+        val parts = value?.substringBefore('.')?.split(':') ?: return null
+        if (parts.size != 3) return null
+        val hours = parts[0].toLongOrNull()?.takeIf { it in 0..9999 } ?: return null
+        val minutes = parts[1].toLongOrNull()?.takeIf { it in 0..59 } ?: return null
+        val seconds = parts[2].toLongOrNull()?.takeIf { it in 0..59 } ?: return null
+        return hours * 3600 + minutes * 60 + seconds
+    }
+
+    internal fun formatTime(seconds: Long): String {
+        val value = seconds.coerceIn(0, 35_999_999)
+        return String.format(java.util.Locale.ROOT, "%02d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+    }
+
+    private fun fields(xml: String): Map<String, String> {
+        require(!xml.contains("<!DOCTYPE", ignoreCase = true))
+        val parser = android.util.Xml.newPullParser().apply {
+            setFeature(org.xmlpull.v1.XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            setInput(xml.reader())
+        }
+        val names = setOf("CurrentTransportState", "RelTime", "TrackDuration", "CurrentVolume")
+        val result = mutableMapOf<String, String>()
+        var event = parser.eventType
+        while (event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+            if (event == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name in names) result[parser.name] = parser.nextText().trim()
+            event = parser.next()
+        }
+        return result
     }
 
     /** Pulls the UPnP error out of a SOAP fault so the toast says something useful. */
@@ -150,16 +216,6 @@ object AvTransport {
         val description = Regex("<errorDescription>([^<]*)</errorDescription>")
             .find(body)?.groupValues?.get(1)
         return listOfNotNull(code, description).joinToString(" ").trim()
-    }
-
-    private fun InputStream.drainBounded(maxBytes: Int) {
-        val buffer = ByteArray(8 * 1024)
-        var remaining = maxBytes
-        while (remaining > 0) {
-            val read = read(buffer, 0, minOf(buffer.size, remaining))
-            if (read <= 0) break
-            remaining -= read
-        }
     }
 
     private fun InputStream.readBoundedText(maxBytes: Int): String {
@@ -172,23 +228,49 @@ object AvTransport {
             output.write(buffer, 0, read)
             total += read
         }
-        val suffix = if (total == maxBytes) "…" else ""
-        return output.toString(Charsets.UTF_8.name()) + suffix
+        check(total < maxBytes || read() < 0) { "SOAP response is too large" }
+        return output.toString(Charsets.UTF_8.name())
     }
 
     /**
      * Minimal DIDL-Lite. Renderers vary from ignoring this entirely to refusing to play
      * without it, so it is always sent.
      */
-    internal fun didlLite(url: String, title: String, isStream: Boolean): String {
-        // The protocolInfo DLNA.ORG_OP flag differs by kind: streams are not seekable by
-        // byte range, and claiming otherwise makes some renderers fail the request.
-        val protocolInfo = if (isStream) {
-            "http-get:*:application/x-mpegURL:DLNA.ORG_OP=00;DLNA.ORG_FLAGS=01700000000000000000000000000000"
-        } else {
-            "http-get:*:video/mp4:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+    internal fun didlLite(url: String, title: String, kind: MediaSniffer.Kind): String {
+        val mime = mediaType(url, kind)
+        val stream = kind == MediaSniffer.Kind.HLS || kind == MediaSniffer.Kind.DASH
+        val protocol = "http-get:*:" + mime + ":DLNA.ORG_OP=" + (if (stream) "00" else "01") +
+            ";DLNA.ORG_FLAGS=01700000000000000000000000000000"
+        val itemClass = if (kind == MediaSniffer.Kind.AUDIO) "object.item.audioItem" else "object.item.videoItem"
+        return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+            "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
+            "<item id=\"0\" parentID=\"-1\" restricted=\"1\"><dc:title>" + escape(title) +
+            "</dc:title><upnp:class>" + itemClass + "</upnp:class><res protocolInfo=\"" + protocol +
+            "\">" + escape(url) + "</res></item></DIDL-Lite>"
+    }
+
+    internal fun mediaType(url: String, kind: MediaSniffer.Kind): String {
+        if (kind == MediaSniffer.Kind.HLS) return "application/x-mpegURL"
+        if (kind == MediaSniffer.Kind.DASH) return "application/dash+xml"
+        val ext = runCatching { URI(url).path.orEmpty().substringAfterLast('.').lowercase() }.getOrDefault("")
+        return when (ext) {
+            "mp4", "m4v" -> "video/mp4"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            "mov" -> "video/quicktime"
+            "avi" -> "video/x-msvideo"
+            "flv" -> "video/x-flv"
+            "3gp" -> "video/3gpp"
+            "mpg", "mpeg" -> "video/mpeg"
+            "wmv" -> "video/x-ms-wmv"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
+            "flac" -> "audio/flac"
+            "ogg", "opus" -> "audio/ogg"
+            "wav" -> "audio/wav"
+            else -> "*"
         }
-        return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="0" parentID="-1" restricted="1"><dc:title>${escape(title)}</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="$protocolInfo">${escape(url)}</res></item></DIDL-Lite>"""
     }
 
     internal fun escape(value: String): String = value

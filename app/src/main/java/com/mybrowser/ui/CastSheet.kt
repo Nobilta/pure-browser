@@ -20,6 +20,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +58,20 @@ fun CastSheet(
     onDismiss: () -> Unit,
     preferredCandidate: MediaSniffer.Candidate? = null,
     playingCandidateUrls: Set<String> = emptySet(),
+    isCasting: Boolean = false,
+    pendingDevice: DlnaDevice? = null,
+    connectedDevice: DlnaDevice? = null,
+    playback: com.mybrowser.dlna.AvTransport.PlaybackStatus? = null,
+    statusUnavailable: Boolean = false,
+    isControlling: Boolean = false,
+    onPause: () -> Unit = {},
+    onResume: () -> Unit = {},
+    onStop: () -> Unit = {},
+    onVolume: (Int) -> Unit = {},
+    onSeek: (Long) -> Unit = {},
+    onRefreshStatus: () -> Unit = {},
+    onDisconnect: () -> Unit = {},
+    lastError: String? = null,
 ) {
     val textResources = localizedResources()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -78,6 +95,7 @@ fun CastSheet(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        ApplySheetSystemBars()
         // Keep both sections in one lazy list. Two sibling LazyColumns inside a sheet
         // compete for the same bounded height: the first can consume the entire viewport,
         // making renderer devices unreachable. A single list gives every item one scroll
@@ -87,6 +105,21 @@ fun CastSheet(
                 .fillMaxWidth()
                 .padding(bottom = 24.dp),
         ) {
+            item {
+                if (connectedDevice != null) RemotePlaybackControls(connectedDevice, playback, statusUnavailable,
+                    isCasting || isControlling, onPause, onResume, onStop, onVolume, onSeek, onRefreshStatus, onDisconnect)
+                if (isCasting) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(textResources.getString(R.string.cast_sending, pendingDevice?.displayName(textResources).orEmpty()),
+                        Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                } else if (connectedDevice != null && playback == null && !statusUnavailable) {
+                    Text(textResources.getString(R.string.cast_request_accepted, connectedDevice.displayName(textResources)),
+                        Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+                lastError?.let { Text(it, Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+            }
             item { SectionHeader(stringResource(R.string.cast_pick_media)) }
 
             items(candidates, key = { it.url }) { candidate ->
@@ -94,10 +127,13 @@ fun CastSheet(
                     candidate = candidate,
                     displayLabel = displayLabels[candidate.url] ?: candidate.displayLabel(textResources),
                     isSelected = candidate.url == selected?.url,
+                    enabled = !isCasting && !isControlling,
                     isPlaying = candidate.url in playingCandidateUrls,
                     onClick = {
-                        selected = candidate
-                        userSelected = true
+                        if (!isCasting) {
+                            selected = candidate
+                            userSelected = true
+                        }
                     },
                     onCopy = { onCopyUrl(candidate) },
                 )
@@ -143,7 +179,7 @@ fun CastSheet(
                     device = device,
                     // A stream with no selection cannot be cast; the row stays visible
                     // but inert rather than vanishing.
-                    enabled = selected != null,
+                    enabled = selected != null && !isCasting && !isControlling,
                     onClick = { selected?.let { onCast(it, device) } },
                 )
             }
@@ -166,6 +202,7 @@ private fun MediaRow(
     candidate: MediaSniffer.Candidate,
     displayLabel: String,
     isSelected: Boolean,
+    enabled: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
     onCopy: () -> Unit,
@@ -173,7 +210,7 @@ private fun MediaRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = isSelected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(start = 24.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

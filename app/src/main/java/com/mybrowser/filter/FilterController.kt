@@ -1,8 +1,8 @@
 package com.mybrowser.filter
 
 import android.content.Context
-import android.util.Log
 import android.webkit.WebResourceRequest
+import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -10,7 +10,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -29,66 +32,49 @@ import kotlin.concurrent.write
 class FilterController(private val appContext: Context) {
 
     private val blocked = AtomicInteger(0)
-    private val loading = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val rebuildGeneration = AtomicLong(0)
     private val lock = ReentrantReadWriteLock()
     private val rebuildScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _enabled = MutableStateFlow(true)
+    private val prefs = appContext.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+    private val _enabled = MutableStateFlow(prefs.getBoolean("enabled", true))
     private val _ruleCount = MutableStateFlow(0)
+    private val _cosmeticCount = MutableStateFlow(0)
+    private val firstBuild = CompletableDeferred<Unit>()
+    val isReady: Boolean get() = firstBuild.isCompleted
+    suspend fun awaitReady() = firstBuild.await()
 
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
     val ruleCount: StateFlow<Int> = _ruleCount.asStateFlow()
+    val cosmeticCount: StateFlow<Int> = _cosmeticCount.asStateFlow()
     val blockedCount: Int get() = blocked.get()
 
-    @Volatile private var builtInRules: String = ""
-    @Volatile private var customRules: List<String> = emptyList()
+    @Volatile private var payloads: List<String> = emptyList()
     private var filter: NativeFilter? = null
 
     fun resetPageCount() = blocked.set(0)
 
     fun setEnabled(value: Boolean) {
+        prefs.edit { putBoolean("enabled", value) }
         _enabled.value = value
     }
 
-    /** Loads the bundled list once per process. */
-    fun load(scope: CoroutineScope) {
-        if (!loading.compareAndSet(false, true)) return
-        scope.launch(Dispatchers.IO) {
-            val text = runCatching {
-                appContext.assets.open(ASSET_LIST).bufferedReader().use { it.readText() }
-            }.getOrElse {
-                Log.w(TAG, "could not read $ASSET_LIST", it)
-                ""
-            }
-            builtInRules = text
-            scheduleRebuild()
-        }
-    }
-
-    /** Replaces the custom list payloads and rebuilds the native matcher. */
-    fun setCustomRules(rules: List<String>) {
-        if (closed.get()) return
-        // A downloaded list is user-controlled input. Bound both an individual payload and
-        // the aggregate snapshot before it reaches the native parser, otherwise a large or
-        // repeated list can retain tens of megabytes until the next rebuild completes.
-        var total = 0
-        customRules = rules.asSequence()
-            .map { it.take(MAX_RULE_BYTES) }
-            .take(MAX_CUSTOM_LISTS)
-            .mapNotNull { value ->
-                if (total + value.length > MAX_TOTAL_RULE_BYTES) return@mapNotNull null
-                total += value.length
-                value
-            }
-            .toList()
-        scheduleRebuild()
+    /** Every enabled subscription participates in the same atomic engine snapshot. */
+    fun replaceLists(rules: List<String>): Job? {
+        if (closed.get()) return null
+        if (rules.size > 35 || rules.any { it.length > FilterListFormat.MAX_BYTES } ||
+            rules.sumOf { it.length.toLong() } > FilterListFormat.MAX_TOTAL_BYTES) return null
+        payloads = rules.toList()
+        return scheduleRebuild()
     }
 
     fun reload() = scheduleRebuild()
 
-    fun shouldBlock(request: WebResourceRequest, documentUrl: String): Boolean {
-        if (!_enabled.value || request.isForMainFrame) return false
+    fun cosmeticCss(url: String, siteEnabled: Boolean = true): String =
+        if (_enabled.value && siteEnabled) lock.read { filter?.cosmeticCss(url).orEmpty() } else ""
+
+    fun shouldBlock(request: WebResourceRequest, documentUrl: String, siteEnabled: Boolean = true): Boolean {
+        if (!_enabled.value || !siteEnabled || request.isForMainFrame) return false
         val requestUrl = request.url.toString()
         if (requestUrl.length > MAX_URL_LENGTH || documentUrl.length > MAX_URL_LENGTH) return false
         val hit = lock.read {
@@ -106,17 +92,19 @@ class FilterController(private val appContext: Context) {
             filter?.close()
             filter = null
             _ruleCount.value = 0
+            _cosmeticCount.value = 0
         }
     }
 
     /** Schedules a snapshot rebuild; only the newest snapshot may replace the live engine. */
-    private fun scheduleRebuild() {
-        if (closed.get()) return
+    private fun scheduleRebuild(): Job? {
+        if (closed.get()) return null
         val generation = rebuildGeneration.incrementAndGet()
-        rebuildScope.launch {
-            val builtIn = builtInRules
-            val custom = customRules
-            val next = buildEngine(builtIn, custom)
+        return rebuildScope.launch {
+            delay(80) // Coalesce rapid subscription changes before parsing large lists.
+            if (generation != rebuildGeneration.get()) return@launch
+            val snapshot = payloads
+            val next = buildEngine(snapshot)
 
             if (closed.get() || generation != rebuildGeneration.get()) {
                 next?.first?.close()
@@ -131,22 +119,22 @@ class FilterController(private val appContext: Context) {
                 val old = filter
                 filter = next?.first
                 _ruleCount.value = next?.second ?: 0
+                _cosmeticCount.value = next?.first?.cosmeticRuleCount ?: 0
                 old?.close()
+                firstBuild.complete(Unit)
             }
         }
     }
 
     private fun buildEngine(
-        builtIn: String,
-        custom: List<String>,
+        lists: List<String>,
     ): Pair<NativeFilter, Int>? {
         if (!NativeFilter.isAvailable) {
             return null
         }
         val next = NativeFilter.createOrNull() ?: return null
         var count = 0
-        if (builtIn.isNotBlank()) count = next.addList(builtIn).coerceAtLeast(0)
-        custom.forEach { rules ->
+        lists.forEach { rules ->
             if (rules.isNotBlank()) count = next.addList(rules).coerceAtLeast(count)
         }
 
@@ -154,11 +142,6 @@ class FilterController(private val appContext: Context) {
     }
 
     private companion object {
-        const val TAG = "FilterController"
-        const val ASSET_LIST = "filters/easylist-min.txt"
-        const val MAX_RULE_BYTES = 8 * 1024 * 1024
-        const val MAX_TOTAL_RULE_BYTES = 16 * 1024 * 1024
-        const val MAX_CUSTOM_LISTS = 32
         const val MAX_URL_LENGTH = 8_192
 
         fun classify(request: WebResourceRequest): NativeFilter.ResourceType {

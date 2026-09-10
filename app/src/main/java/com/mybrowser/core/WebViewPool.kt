@@ -74,7 +74,8 @@ class WebViewPool(
      * WebView profiles are attached before the first navigation and cannot be changed
      * after an instance has been used. Incognito transitions therefore need this stricter
      * acquire path; reusing a pooled normal-profile WebView would silently downgrade the
-     * session to shared storage.
+     * session to shared storage. Popup transports also require an instance that has
+     * never navigated; even the about:blank reset of an idle view is too late.
      */
     fun acquireFresh(activity: Activity): WebView {
         val webView = create()

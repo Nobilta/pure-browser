@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pure Video Lab</title>
-<style>body{font:16px system-ui;margin:16px;background:#111820;color:#e4edf8}video{width:100%;max-height:60vh;background:#000}button,a{display:inline-block;padding:16px;margin:8px 6px 8px 0;border:0;border-radius:12px;background:#bbd9ff;color:#09233f}pre{white-space:pre-wrap;font-size:13px}h2{font-weight:600}</style></head>
+<style>body{font:16px system-ui;margin:16px;background:#111820;color:#e4edf8}video{width:100%;max-height:60vh;background:#000}button,a{display:inline-block;padding:16px;margin:8px 6px 8px 0;border:0;border-radius:12px;background:#bbd9ff;color:#09233f}[hidden]{display:none!important}pre{white-space:pre-wrap;font-size:13px}h2{font-weight:600}</style></head>
 <body><h2>Pure Video Lab</h2><div id="player-shell"><video id="player" controls playsinline preload="auto" loop></video><button id="web-play" hidden>Web play/pause</button></div>
 <button id="start">Play fullscreen</button><button id="play">Play inline</button><button id="rate">Set 1.5x</button>
 <a href="sample.mp4" download="pure-video-test.mp4">Download sample</a><pre id="status">Loading</pre>
@@ -9,11 +9,22 @@ if(params.has('custom')){player.controls=false;document.getElementById('web-play
 document.getElementById('web-play').onclick=()=>player.paused?player.play():player.pause();
 const caseId=params.get('case')||'default';let frameTop=0;
 addEventListener('message',event=>{if(event.source===parent&&event.data&&event.data.type==='fixture-offset')frameTop=Number(event.data.top)||0;});
-function state(event){return {event,caseId,paused:player.paused,rate:player.playbackRate,defaultRate:player.defaultPlaybackRate,
+function state(event){return {event,caseId,capturedAt:performance.timeOrigin+performance.now(),paused:player.paused,rate:player.playbackRate,defaultRate:player.defaultPlaybackRate,
  currentTime:player.currentTime,duration:Number.isFinite(player.duration)?player.duration:0,controls:player.controls,
- fullscreen:!!document.fullscreenElement,width:player.videoWidth,height:player.videoHeight,source:player.currentSrc,frameTop,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},startRect:document.getElementById('start').getBoundingClientRect().toJSON(),webPlayRect:document.getElementById('web-play').getBoundingClientRect().toJSON(),
+ fullscreen:!!document.fullscreenElement,width:player.videoWidth,height:player.videoHeight,source:player.currentSrc,frameTop,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},startRect:document.getElementById('start').getBoundingClientRect().toJSON(),inlinePlayRect:document.getElementById('play').getBoundingClientRect().toJSON(),webPlayRect:document.getElementById('web-play').getBoundingClientRect().toJSON(),
  probe:window.__pureBrowserVideoV2?window.__pureBrowserVideoV2.snapshot():null};}
-function report(event){const value=state(event);if(event!=='tick')log.textContent=(player.paused?'Paused':'Playing')+' · '+player.playbackRate+'x';fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(value),headers:{'Content-Type':'application/json'}}).catch(()=>{});}
+function report(event){const value=state(event);if(event!=='tick')log.textContent=(player.paused?'Paused':'Playing')+' · '+player.playbackRate+'x';fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(value),headers:{'Content-Type':'application/json'}}).catch(()=>{});
+ const api=window.__pureBrowserVideoV2;
+ if(params.has('trace')&&api&&!api.fixtureTrace){
+  api.fixtureTrace=true;const command=api.command;
+  api.command=function(message,complete){const before=state('before-command'),result=command(message,complete);
+   if(message.type==='nativeControls'||message.type==='restoreControls'){
+    const after=state('control-command');after.command={type:message.type,id:message.id,result,beforeFullscreen:before.fullscreen,beforeControls:before.controls,beforeAvailable:before.probe.nativeControlsAvailable};
+    fetch('/__state?case='+encodeURIComponent(caseId+'-commands'),{method:'POST',body:JSON.stringify(after),headers:{'Content-Type':'application/json'}}).catch(()=>{});
+   }return result;
+  };
+ }
+}
 ['play','pause','ratechange','seeked','loadedmetadata','ended','error'].forEach(name=>player.addEventListener(name,()=>report(name)));
 document.addEventListener('fullscreenchange',()=>report('fullscreenchange'));
 document.getElementById('start').onclick=()=>{player.play();(params.has('custom')?document.getElementById('player-shell'):player).requestFullscreen().catch(()=>report('fullscreen-failed'));};

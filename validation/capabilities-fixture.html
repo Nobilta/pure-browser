@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pure capability article</title>
+<style>body{font:18px/1.65 system-ui;margin:20px auto;max-width:680px;padding:0 18px}button,a{display:block;margin:12px 0;padding:12px}nav{border-bottom:1px solid #888}article{padding-bottom:24px}</style>
+<nav><strong>Browser capability fixture</strong>
+<p id="script-status">JavaScript disabled</p><p id="agent-status"></p>
+<button id="camera">Request camera</button><button id="location">Request location</button>
+<button id="inspect-filter">Inspect element hiding</button><p id="filter-result"></p>
+<div id="pure-filter-unit" class="ad_banner">Filter test advertisement</div>
+<a id="download" href="/download-resume.bin">Start resumable download</a>
+</nav>
+<article><h1>Pure capability article</h1>
+<h2>A page worth keeping</h2>
+<p>This article is an offline reading fixture. Its paragraphs remain readable after closing the original web page and disconnecting the fixture server. A saved article contains plain text rather than executable page scripts, advertisements, forms or videos.</p>
+<p>Browsers should make common actions predictable. Closing a page should offer a way to reopen it, a website should ask before accessing a camera or location, and a download should retain validated bytes when it is paused. Every action should describe the state that actually occurred.</p>
+<blockquote>Offline reading sentence: calm pages stay available without a network connection.</blockquote>
+<h2>Portable bookmarks</h2><p>Bookmark files make a collection portable between browsers. Importing a duplicate address must preserve the existing bookmark title and identity. Exporting must escape special characters and stay within the same documented size limits that importing accepts.</p>
+<p>Site preferences belong to the complete origin, including protocol and port. A camera grant for one origin does not automatically apply to a subdomain or a different port. Private sessions keep their decisions separate and start previously allowed permissions in an asking state.</p></article>
+<script>
+const report=(kind, result)=>fetch('/__state?case=capability-permissions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,result})});
+document.getElementById('script-status').textContent='JavaScript active';
+document.getElementById('agent-status').textContent=/Android|Mobile/.test(navigator.userAgent)?'Mobile agent active':'Desktop agent active';
+document.getElementById('camera').onclick=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:true});stream.getTracks().forEach(t=>t.stop());report('camera','allowed')}catch(e){report('camera',e.name)}};
+document.getElementById('location').onclick=()=>navigator.geolocation.getCurrentPosition(()=>report('location','allowed'),e=>report('location','denied:'+e.code),{timeout:3000});
+document.getElementById('inspect-filter').onclick=()=>{document.getElementById('filter-result').textContent=getComputedStyle(document.getElementById('pure-filter-unit')).display==='none'?'Filter hidden':'Filter visible'};
+let samples=0;const probe=setInterval(()=>{if(++samples>240){clearInterval(probe);return}if(document.hidden)return;
+const buttons={};for(const id of ['camera','location','inspect-filter','download']){const r=document.getElementById(id).getBoundingClientRect();buttons[id]={x:r.x,y:r.y,width:r.width,height:r.height}}
+fetch('/__state?case=capability-page',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:location.href,width:innerWidth,buttons,desktop:!/Android|Mobile/.test(navigator.userAgent),hidden:getComputedStyle(document.getElementById('pure-filter-unit')).display==='none'})}).catch(()=>{});
+},400);
+</script></html>

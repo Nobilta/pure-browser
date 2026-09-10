@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pure feature fixture</title>
+<style>body{font:18px system-ui;padding:16px;background:#fafafa;color:#172027}button,a{display:block;padding:14px;margin:8px 0}#pure-filter-unit{padding:16px;background:#ffe0aa}</style>
+</head><body>
+<h1>Pure feature fixture</h1>
+<p id="script-status">Scripts not running</p>
+<div id="pure-filter-unit">Filter cosmetic marker</div>
+<a href="feature-storage.user.js">Install storage fixture</a>
+<a href="feature-dom.user.js">Install DOM fixture</a>
+<a href="feature-unsupported.user.js">Install unsupported fixture</a>
+<button onclick="alert('MD3 alert fixture');document.querySelector('#dialog-result').textContent='Alert completed'">Show alert</button>
+<button onclick="document.querySelector('#dialog-result').textContent='Confirm '+confirm('MD3 confirm fixture')">Show confirm</button>
+<button onclick="document.querySelector('#dialog-result').textContent='Prompt '+prompt('MD3 prompt fixture','example')">Show prompt</button>
+<a href="/__auth">HTTP authentication fixture</a><p id="dialog-result">Dialog not answered</p>
+<script src="/filter-marker.js"></script>
+<script>
+const caseId=new URLSearchParams(location.search).get('case')||'feature';
+function report(){
+ const r=document.documentElement.dataset;
+ fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+  ready:document.readyState,popup:new URLSearchParams(location.search).has('popup'),storageCount:Number(r.storageCount||0),dependency:r.dependency||'',domReady:window.__pureStartReady||'',pasted:r.pasted||'',
+  styleApplied:getComputedStyle(document.querySelector('#script-status')).color==='rgb(20, 100, 60)',
+  markerLoaded:window.__pureFilterMarker===true,cosmeticHidden:getComputedStyle(document.querySelector('#pure-filter-unit')).display==='none',
+  dialogResult:document.querySelector('#dialog-result').textContent
+ })}).catch(()=>{});
+}
+setInterval(report,600);addEventListener('load',report);
+</script></body></html>

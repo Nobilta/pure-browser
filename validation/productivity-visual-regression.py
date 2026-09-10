@@ -46,6 +46,7 @@ try:
         ux.adb('shell', 'cmd', 'locale', 'set-app-locales', ux.PACKAGE, '--user', '0', '--locales', locale)
         time.sleep(1)
         ux.launch('http://127.0.0.1:8875/productivity-fixture.html')
+        ux.expect('Selectable browser text remains selectable after installing the page context menu.')
         expected = ux.resource_strings(folder)
         if locale == 'en':
             root, _ = ux.nodes()

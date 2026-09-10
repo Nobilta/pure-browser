@@ -1,0 +1,9 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pure video popup list</title>
+<h1>Pure video popup list</h1>
+<a id="video" target="_blank" href="player-fixture.html">Open video in new tab</a>
+<script>
+document.getElementById('video').href =
+  (new URLSearchParams(location.search).has('cross') ? 'player-cross-frame.html' : 'player-fixture.html') + location.search;
+</script>

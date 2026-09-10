@@ -1,0 +1,1 @@
+const pureFixtureDependency = 'dependency-ok';

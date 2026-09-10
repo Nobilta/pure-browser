@@ -3,7 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APK="${1:-$SCRIPT_DIR/PureBrowser-v0.3.1-release.apk}"
+release_version="$(awk -F '\"' '/^[[:space:]]*versionName[[:space:]]*=/ { print $2; exit }' "$SCRIPT_DIR/app/build.gradle.kts")"
+APK="${1:-$SCRIPT_DIR/PureBrowser-v${release_version}-release.apk}"
 PACKAGE="${PACKAGE:-com.mybrowser}"
 ACTIVITY="${ACTIVITY:-$PACKAGE/com.mybrowser.MainActivity}"
 

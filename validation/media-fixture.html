@@ -14,6 +14,8 @@
   <h1>媒体检测测试页</h1>
   <p>页面故意暴露多个候选，并让第一个循环播放。</p>
   <p id="rate" aria-live="polite">当前倍速：1.00×</p>
+  <button onclick="secondary.pause();primary.play()">Play primary</button>
+  <button onclick="primary.pause();secondary.src='/player-sample.mp4?token=secondary-play';secondary.muted=true;secondary.loop=true;secondary.play()">Play secondary</button>
   <video id="primary" controls autoplay muted loop playsinline
          src="/sample-default.mp4?token=primary"></video>
   <video id="secondary" controls playsinline

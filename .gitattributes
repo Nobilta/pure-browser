@@ -16,3 +16,8 @@
 *.keystore binary
 *.mp4 binary
 *.png binary
+
+# Preserve upstream rule comments verbatim; their published hashes include trailing spaces.
+app/src/main/assets/filters/easylist.txt whitespace=-blank-at-eol
+app/src/main/assets/filters/easylist-china.txt whitespace=-blank-at-eol
+app/src/main/assets/filters/easyprivacy.txt whitespace=-blank-at-eol

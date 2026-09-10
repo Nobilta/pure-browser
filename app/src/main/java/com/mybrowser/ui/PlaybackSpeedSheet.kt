@@ -1,6 +1,11 @@
 package com.mybrowser.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,9 +38,12 @@ fun PlaybackSpeedSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
+        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .selectableGroup()
                 .padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
         ) {
             Text(
@@ -48,13 +56,13 @@ fun PlaybackSpeedSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelect(speed) }
+                        .selectable(selected = selected, role = Role.RadioButton, onClick = { onSelect(speed) })
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     RadioButton(
                         selected = selected,
-                        onClick = { onSelect(speed) },
+                        onClick = null,
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(

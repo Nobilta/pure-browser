@@ -1,5 +1,6 @@
 package com.mybrowser.download
 
+import com.mybrowser.core.boundedJsonArray
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.ClipData
@@ -12,8 +13,6 @@ import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import com.mybrowser.ui.DownloadItem
-import com.mybrowser.ui.DownloadStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -27,6 +26,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -63,6 +64,11 @@ class DownloadHandler(context: Context) : Closeable {
     private val destinationWriter = DownloadDestinationWriter(appContext)
     private val metadata = ConcurrentHashMap<Long, DownloadMetadata>()
     private val jobs = ConcurrentHashMap<Long, Job>()
+    private val taskLock = Any()
+    /** Survives replacement of a cancelled job that was itself waiting for an older job. */
+    private val transferLocks = ConcurrentHashMap<Long, Mutex>()
+    private val interrupted = ConcurrentHashMap.newKeySet<Long>()
+    private val lastProgressPersist = AtomicLong(0L)
     /** Serialises JSON snapshots so completion and deletion cannot overwrite one another. */
     private val metadataLock = Any()
 
@@ -122,6 +128,8 @@ class DownloadHandler(context: Context) : Closeable {
         contentDisposition: String?,
         mimeType: String?,
         referer: String? = null,
+        isPrivate: Boolean = false,
+        cookieHeader: String? = if (isPrivate) null else runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull(),
     ): Long? {
         if (closed) return null
         val cleanUrl = validHttpUrl(url) ?: return null
@@ -131,7 +139,7 @@ class DownloadHandler(context: Context) : Closeable {
         val safeDisposition = sanitizeHeader(contentDisposition, MAX_CONTENT_DISPOSITION_LENGTH)
         val safeReferer = referer?.let(::validHttpUrl)
         val safeCookie = sanitizeHeader(
-            runCatching { CookieManager.getInstance().getCookie(cleanUrl) }.getOrNull(),
+            cookieHeader,
             MAX_COOKIE_LENGTH,
         )
         val filename = uniqueFilename(
@@ -151,6 +159,7 @@ class DownloadHandler(context: Context) : Closeable {
             referer = safeReferer,
             timestamp = System.currentTimeMillis(),
             status = DownloadStatus.DOWNLOADING,
+            autoResumeAllowed = !isPrivate,
             configuredThreadCount = settings.threadCount,
             actualThreadCount = settings.threadCount,
             destinationMode = settings.destinationMode,
@@ -164,10 +173,7 @@ class DownloadHandler(context: Context) : Closeable {
 
         // LAZY closes the race where a tiny local response finishes before its Job is placed
         // in the cancellation map.
-        val job = transferScope.launch(start = CoroutineStart.LAZY) { performDownload(id) }
-        jobs[id] = job
-        startTransferService()
-        job.start()
+        launchTransfer(id)
         return id
     }
 
@@ -175,12 +181,13 @@ class DownloadHandler(context: Context) : Closeable {
     fun cancel(id: Long) {
         if (closed) return
         val entry = metadata.remove(id) ?: return
-        jobs.remove(id)?.cancel()
+        interrupted.remove(id)
+        synchronized(taskLock) { jobs.remove(id)?.cancel() }
         if (entry.backend == DownloadBackend.LEGACY_SYSTEM) {
             transferScope.launch { legacyManager.remove(id) }
         } else {
             transferScope.launch {
-                cleanupTemporaryFiles(id)
+                cleanupRemovedTask(id)
                 entry.destinationUri?.let(destinationWriter::delete)
             }
         }
@@ -207,6 +214,7 @@ class DownloadHandler(context: Context) : Closeable {
             val fileDeleted = !deleteFile || deleteStoredFile(entry)
             val removed = if (fileDeleted && metadata.remove(id, entry)) 1 else 0
             if (removed > 0) {
+                cleanupRemovedTask(id)
                 persistMetadata()
                 publishSnapshots()
                 refresh()
@@ -222,26 +230,66 @@ class DownloadHandler(context: Context) : Closeable {
         }
     }
 
-    /** Re-enqueues a failed or interrupted task using its original request metadata. */
-    fun retry(id: Long): Long? {
-        val old = metadata[id] ?: return null
-        if (old.status != DownloadStatus.FAILED && old.status != DownloadStatus.PAUSED) return null
-        jobs.remove(id)?.cancel()
-        if (old.backend == DownloadBackend.LEGACY_SYSTEM) {
-            runCatching { legacyManager.remove(id) }
-        } else {
-            old.destinationUri?.let(destinationWriter::delete)
+    /** Pausing keeps validated partial bytes; cancellation removes the whole task. */
+    fun pause(id: Long) {
+        synchronized(taskLock) {
+            if (closed) return
+            var paused = false
+            metadata.computeIfPresent(id) { _, current ->
+                if (current.backend == DownloadBackend.LOCAL && current.status == DownloadStatus.DOWNLOADING) {
+                    paused = true
+                    current.copy(status = DownloadStatus.PAUSED)
+                } else current
+            }
+            if (!paused) return
+            interrupted.remove(id)
+            jobs[id]?.cancel()
         }
-        metadata.remove(id)
         persistMetadata()
         publishSnapshots()
-        return enqueue(
-            url = old.url,
-            userAgent = old.userAgent,
-            contentDisposition = old.contentDisposition,
-            mimeType = old.mimeType,
-            referer = old.referer,
-        )
+    }
+
+    /** Only tasks interrupted while running are resumed automatically, once foregrounded. */
+    fun resumeInterrupted() {
+        interrupted.toList().forEach { id -> if (interrupted.remove(id)) retry(id) }
+    }
+
+    fun retry(id: Long): Long? {
+        val old = metadata[id] ?: return null
+        if (closed || old.status !in listOf(DownloadStatus.FAILED, DownloadStatus.PAUSED)) return null
+        if (old.backend == DownloadBackend.LEGACY_SYSTEM) {
+            val replacement = enqueue(old.url, old.userAgent, old.contentDisposition, old.mimeType, old.referer)
+                ?: return null
+            cancel(id)
+            return replacement
+        }
+        // A private task keeps only the cookie captured by its own profile in this process.
+        // It must never acquire credentials from the normal profile when manually resumed.
+        val cookie = if (old.autoResumeAllowed) sanitizeHeader(
+            runCatching { CookieManager.getInstance().getCookie(old.url) }.getOrNull(), MAX_COOKIE_LENGTH,
+        ) else old.cookie
+        synchronized(taskLock) {
+            if (!metadata.replace(id, old, old.copy(status = DownloadStatus.DOWNLOADING, cookie = cookie))) return null
+            val previous = jobs[id]
+            previous?.cancel()
+            launchTransfer(id)
+        }
+        persistMetadata()
+        publishSnapshots()
+        return id
+    }
+
+    private fun launchTransfer(id: Long) = synchronized(taskLock) {
+        val writerLock = transferLocks.computeIfAbsent(id) { Mutex() }
+        val job = transferScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                writerLock.withLock {
+                    if (metadata[id]?.status == DownloadStatus.DOWNLOADING) performDownload(id)
+                }
+            } finally { jobs.remove(id, requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])) }
+        }
+        jobs[id] = job
+        if (startTransferService()) job.start() else pause(id)
     }
 
     fun openFile(id: Long): Boolean {
@@ -282,7 +330,7 @@ class DownloadHandler(context: Context) : Closeable {
             entries.forEach { entry ->
                 val fileDeleted = !deleteFiles || deleteStoredFile(entry)
                 if (fileDeleted) {
-                    if (metadata.remove(entry.id, entry)) removed++
+                    if (metadata.remove(entry.id, entry)) { removed++; cleanupRemovedTask(entry.id) }
                 } else {
                     failed++
                 }
@@ -300,18 +348,8 @@ class DownloadHandler(context: Context) : Closeable {
 
     /** Called when Android's foreground-service time budget expires. */
     fun pauseActiveTransfers() {
-        val activeIds = metadata.values
-            .filter {
-                it.backend == DownloadBackend.LOCAL && it.status == DownloadStatus.DOWNLOADING
-            }
-            .map { it.id }
-        if (activeIds.isEmpty()) return
-        activeIds.forEach { id ->
-            metadata.computeIfPresent(id) { _, entry -> entry.copy(status = DownloadStatus.PAUSED) }
-            jobs.remove(id)?.cancel()
-        }
-        persistMetadata()
-        publishSnapshots()
+        metadata.values.filter { it.backend == DownloadBackend.LOCAL && it.status == DownloadStatus.DOWNLOADING }
+            .map { it.id }.forEach(::pause)
     }
 
     /** Refreshes only legacy DownloadManager records; local tasks publish their own state. */
@@ -359,6 +397,7 @@ class DownloadHandler(context: Context) : Closeable {
     private suspend fun performDownload(id: Long) {
         val entry = metadata[id] ?: return
         val tempDirectory = temporaryDirectory(id)
+        val transferJob = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])
         try {
             val payload = engine.download(
                 url = entry.url,
@@ -366,14 +405,20 @@ class DownloadHandler(context: Context) : Closeable {
                 requestedThreads = entry.configuredThreadCount,
                 tempDirectory = tempDirectory,
                 onProgress = { downloaded, total, actualThreads ->
-                    metadata.computeIfPresent(id) { _, current ->
-                        current.copy(
+                    synchronized(taskLock) {
+                        metadata.computeIfPresent(id) { _, current ->
+                            if (jobs[id] !== transferJob || current.status != DownloadStatus.DOWNLOADING) current
+                            else current.copy(
                             bytesDownloaded = downloaded.coerceAtLeast(0L),
                             totalBytes = total.coerceAtLeast(0L),
                             actualThreadCount = actualThreads.coerceAtLeast(1),
-                        )
+                            )
+                        }
                     }
                     publishSnapshots()
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val previous = lastProgressPersist.get()
+                    if (now - previous > 2_000 && lastProgressPersist.compareAndSet(previous, now)) persistMetadata()
                 },
             )
             val current = metadata[id] ?: return
@@ -388,31 +433,46 @@ class DownloadHandler(context: Context) : Closeable {
                 mimeType = current.mimeType,
                 parts = payload.parts,
             )
-            val completed = metadata.computeIfPresent(id) { _, latest ->
-                latest.copy(
+            var accepted = false
+            synchronized(taskLock) {
+                metadata.computeIfPresent(id) { _, latest ->
+                    if (jobs[id] !== transferJob || latest.status != DownloadStatus.DOWNLOADING) latest
+                    else {
+                        accepted = true
+                        latest.copy(
                     filename = published.displayName,
                     destinationUri = published.uri.toString(),
                     status = DownloadStatus.COMPLETED,
+                    cookie = null,
                     bytesDownloaded = payload.totalBytes,
                     totalBytes = payload.totalBytes,
                     actualThreadCount = payload.actualThreadCount,
-                )
+                        )
+                    }
+                }
             }
             // Cancellation can remove metadata between publishing and the atomic update.
             // Never leave an untracked file behind in that race.
-            if (completed == null) destinationWriter.delete(published.uri.toString())
+            if (!accepted) destinationWriter.delete(published.uri.toString())
         } catch (cancelled: CancellationException) {
             // An explicit cancel removes metadata first. close() changes surviving entries to
             // PAUSED, so there is no state to publish from this coroutine.
             throw cancelled
         } catch (error: Exception) {
             Log.e(TAG, "Download failed: ${entry.url}", error)
-            metadata.computeIfPresent(id) { _, current ->
-                current.copy(status = DownloadStatus.FAILED)
+            synchronized(taskLock) {
+                metadata.computeIfPresent(id) { _, current ->
+                    if (jobs[id] === transferJob && current.status == DownloadStatus.DOWNLOADING)
+                        current.copy(status = DownloadStatus.FAILED) else current
+                }
             }
         } finally {
-            cleanupTemporaryFiles(id)
-            jobs.remove(id)
+            val latest = metadata[id]
+            if (latest == null || latest.status == DownloadStatus.COMPLETED) {
+                cleanupTemporaryFiles(id)
+                transferLocks.remove(id)
+            }
+            jobs.remove(id, transferJob)
             persistMetadata()
             publishSnapshots()
         }
@@ -463,10 +523,11 @@ class DownloadHandler(context: Context) : Closeable {
         timestamp = entry.timestamp,
         threadCount = entry.actualThreadCount,
         destinationLabel = entry.destinationLabel,
+        canPause = true,
     )
 
-    private fun publishSnapshots() {
-        if (closed) return
+    private fun publishSnapshots() = synchronized(metadataLock) {
+        if (closed) return@synchronized
         val local = metadata.values
             .filter { it.backend == DownloadBackend.LOCAL }
             .map(::localItem)
@@ -543,6 +604,7 @@ class DownloadHandler(context: Context) : Closeable {
                     backend == DownloadBackend.LOCAL && restoredStatus == DownloadStatus.DOWNLOADING
                 ) {
                     changed = true
+                    if (obj.optBoolean("autoResumeAllowed", true)) interrupted.add(id)
                     DownloadStatus.PAUSED
                 } else {
                     restoredStatus
@@ -564,6 +626,7 @@ class DownloadHandler(context: Context) : Closeable {
                     referer = referer,
                     timestamp = timestamp,
                     status = status,
+                    autoResumeAllowed = obj.optBoolean("autoResumeAllowed", true),
                     bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
                     totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
                     configuredThreadCount = DownloadSettingsRepository.normalizeThreadCount(
@@ -588,37 +651,32 @@ class DownloadHandler(context: Context) : Closeable {
     private fun persistMetadata() {
         synchronized(metadataLock) {
             trimMetadata()
-            val array = JSONArray()
-            metadata.values.sortedByDescending { it.timestamp }
-                .take(MAX_METADATA_ENTRIES)
-                .forEach { entry ->
-                    array.put(
-                        JSONObject()
-                            .put("id", entry.id)
-                            .put("backend", entry.backend.name)
-                            .put("url", entry.url)
-                            .put("userAgent", entry.userAgent)
-                            .put("contentDisposition", entry.contentDisposition)
-                            .put("mimeType", entry.mimeType)
-                            .put("filename", entry.filename)
-                            .put("referer", entry.referer)
-                            .put("timestamp", entry.timestamp)
-                            .put("status", entry.status.name)
-                            .put("bytesDownloaded", entry.bytesDownloaded)
-                            .put("totalBytes", entry.totalBytes)
-                            .put("configuredThreadCount", entry.configuredThreadCount)
-                            .put("actualThreadCount", entry.actualThreadCount)
-                            .put("destinationMode", entry.destinationMode.name)
-                            .put("customTreeUri", entry.customTreeUri)
-                            .put("destinationLabel", entry.destinationLabel)
-                            .put("destinationUri", entry.destinationUri),
-                    )
-                    if (array.toString().length > MAX_PERSISTED_JSON_LENGTH) {
-                        array.remove(array.length() - 1)
-                        return@forEach
-                    }
-                }
-            prefs.edit { putString(KEY_ENTRIES, array.toString()) }
+            val json = boundedJsonArray(
+                metadata.values.sortedByDescending { it.timestamp }.asSequence().take(MAX_METADATA_ENTRIES),
+                MAX_PERSISTED_JSON_LENGTH,
+            ) { entry ->
+                JSONObject()
+                    .put("id", entry.id)
+                    .put("backend", entry.backend.name)
+                    .put("url", entry.url)
+                    .put("userAgent", entry.userAgent)
+                    .put("contentDisposition", entry.contentDisposition)
+                    .put("mimeType", entry.mimeType)
+                    .put("filename", entry.filename)
+                    .put("referer", entry.referer)
+                    .put("timestamp", entry.timestamp)
+                    .put("status", entry.status.name)
+                    .put("autoResumeAllowed", entry.autoResumeAllowed)
+                    .put("bytesDownloaded", entry.bytesDownloaded)
+                    .put("totalBytes", entry.totalBytes)
+                    .put("configuredThreadCount", entry.configuredThreadCount)
+                    .put("actualThreadCount", entry.actualThreadCount)
+                    .put("destinationMode", entry.destinationMode.name)
+                    .put("customTreeUri", entry.customTreeUri)
+                    .put("destinationLabel", entry.destinationLabel)
+                    .put("destinationUri", entry.destinationUri).toString()
+            }
+            prefs.edit { putString(KEY_ENTRIES, json) }
         }
     }
 
@@ -630,18 +688,13 @@ class DownloadHandler(context: Context) : Closeable {
                 .sortedByDescending { it.timestamp }
                 .drop(MAX_METADATA_ENTRIES)
                 .map { it.id }
-            stale.forEach(metadata::remove)
+            stale.forEach { id -> metadata.remove(id); transferScope.launch { cleanupRemovedTask(id) } }
         }
     }
 
-    private fun startTransferService() {
-        runCatching {
-            ContextCompat.startForegroundService(
-                appContext,
-                Intent(appContext, DownloadTransferService::class.java),
-            )
-        }.onFailure { Log.w(TAG, "Unable to start download foreground service", it) }
-    }
+    private fun startTransferService(): Boolean = runCatching {
+        ContextCompat.startForegroundService(appContext, Intent(appContext, DownloadTransferService::class.java))
+    }.onFailure { Log.w(TAG, "Unable to start download foreground service", it) }.isSuccess
 
     private fun createLocalId(): Long {
         while (true) {
@@ -651,7 +704,7 @@ class DownloadHandler(context: Context) : Closeable {
     }
 
     private fun temporaryRoot(): File = File(
-        appContext.externalCacheDir ?: appContext.cacheDir,
+        appContext.noBackupFilesDir,
         TEMP_DIRECTORY_NAME,
     )
 
@@ -661,12 +714,22 @@ class DownloadHandler(context: Context) : Closeable {
         temporaryDirectory(id).deleteRecursively()
     }
 
+    private suspend fun cleanupRemovedTask(id: Long) {
+        val writerLock = transferLocks[id]
+        if (writerLock != null) writerLock.withLock { cleanupTemporaryFiles(id) }
+        else cleanupTemporaryFiles(id)
+        if (writerLock != null) transferLocks.remove(id, writerLock)
+    }
+
     private fun cleanupOrphanedTemporaryFiles() {
+        // Releases before 0.5.0 treated partial bytes as disposable external cache.
+        appContext.externalCacheDir?.let { File(it, TEMP_DIRECTORY_NAME).deleteRecursively() }
+        File(appContext.cacheDir, TEMP_DIRECTORY_NAME).deleteRecursively()
         temporaryRoot().listFiles().orEmpty().forEach { directory ->
             val id = directory.name.toLongOrNull()
-            val isNewTransfer = id != null &&
-                metadata[id]?.status == DownloadStatus.DOWNLOADING
-            if (!isNewTransfer) directory.deleteRecursively()
+            val entry = id?.let(metadata::get)
+            val keep = entry?.backend == DownloadBackend.LOCAL && entry.status != DownloadStatus.COMPLETED
+            if (!keep) directory.deleteRecursively()
         }
     }
 
@@ -704,7 +767,7 @@ class DownloadHandler(context: Context) : Closeable {
     }
 
     private fun progress(downloaded: Long, total: Long): Int = if (total > 0L) {
-        (downloaded * 100L / total).toInt().coerceIn(0, 100)
+        (downloaded.toDouble() / total * 100).toInt().coerceIn(0, 100)
     } else {
         0
     }
@@ -723,6 +786,7 @@ class DownloadHandler(context: Context) : Closeable {
         val referer: String?,
         val timestamp: Long,
         val status: DownloadStatus,
+        val autoResumeAllowed: Boolean = true,
         val bytesDownloaded: Long = 0L,
         val totalBytes: Long = 0L,
         val configuredThreadCount: Int = 1,

@@ -23,6 +23,7 @@ data class VideoPreferences(
 data class BrowserPreferences(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val video: VideoPreferences = VideoPreferences(),
+    val readingTextZoom: Int = 100,
 )
 
 /** UI preferences only; URLs, cookies and temporary playback state never enter this store. */
@@ -30,6 +31,7 @@ class BrowserPreferencesRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("browser_preferences", Context.MODE_PRIVATE)
 
     fun load(): BrowserPreferences = BrowserPreferences(
+        readingTextZoom = prefs.getInt("reading_text_zoom", 100).coerceIn(75, 175),
         theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM").orEmpty()) }
             .getOrDefault(ThemeMode.SYSTEM),
         video = VideoPreferences(
@@ -50,6 +52,7 @@ class BrowserPreferencesRepository(context: Context) {
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
         )
         prefs.edit {
+            putInt("reading_text_zoom", value.readingTextZoom.coerceIn(75, 175))
             putString("theme", value.theme.name)
             .putBoolean("video_controls", video.enhancedControls)
             .putBoolean("video_vertical", video.verticalGestures)
@@ -60,6 +63,6 @@ class BrowserPreferencesRepository(context: Context) {
             .putBoolean("video_remember_speed", video.rememberSpeed)
             .putFloat("video_speed", video.preferredSpeed)
         }
-        return value.copy(video = video)
+        return value.copy(video = video, readingTextZoom = value.readingTextZoom.coerceIn(75, 175))
     }
 }

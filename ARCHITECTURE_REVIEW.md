@@ -1,132 +1,107 @@
-# Pure 浏览器：架构审查与重构决策
+# 架构与维护边界
 
-更新时间：2026-09-07
+2026-09-10，0.5.1。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
+[回归报告](EMULATOR_TEST_REPORT.md)。本文件集中记录代码职责、复用方式和语言选择。
 
-这份文档记录当前源码的真实边界、已经落地的整理，以及没有采用“为了 Rust 而 Rust”方案的原因。它和构建产物一起作为后续维护的基线。
+## 代码职责
 
-## 1. 当前分层
+| 范围 | 职责与状态所有者 |
+|---|---|
+| `MainActivity`、`core` | WebView、ActivityResult、外部 Intent、导航及平台生命周期；池归还时解除监听，恢复历史使用尚未导航的新 WebView |
+| `ui` | Compose 界面、主题、输入及反馈；`BrowserSheetNavigation` 保存菜单来路，只挂载栈顶，父级只保存 UI 状态 |
+| `data`、`home`、`tabs` | Android SQLite 书签/历史、快捷入口、标签元数据与最近关闭；后台标签延迟加载，缩略图只保留小尺寸 Bitmap |
+| `download` | HTTP Range 引擎、实体校验、分段恢复、SAF/MediaStore、前台服务和记录管理；兼容读取已存在的系统下载记录 |
+| `filter`、`userscript` | 过滤订阅更新与引擎切换、用户脚本元数据/存储及逐 frame 注入；共享有界读取和原子 UTF-8 写入 |
+| `site`、`reading` | 网站偏好、站点/系统权限状态机，有界文章提取与离线保存；仓库由 Application 单实例持有 |
+| `privacy`、`security` | WebView Profile 或退出清理、证书错误状态、外部协议限制 |
+| `media`、`dlna` | 媒体候选、播放元素追踪、全屏控件、SSDP 与 AVTransport；投屏会话由进程级控制器管理 |
+| `rust/adblock` | 网络规则解析/匹配、元素隐藏域名索引及有界 CSS 缓存 |
+| `rust/url_utils` | URL/搜索分类和有界 Netscape HTML 书签解析 |
 
-```text
-app/src/main/java/com/mybrowser/
-├── MainActivity.kt       生命周期编排：把 WebView、状态、系统回调接到一起
-├── core/                 WebView 客户端、导航策略、URL 安全、日志、池化
-├── data/                 Android SQLite 书签/历史，以及可选的 Rust 缓存门面
-├── download/             分段 HTTP 引擎、目标写入、前台服务、记录管理和 legacy 兼容
-├── filter/               广告规则加载、开关、统计、自定义列表
-├── privacy/              无痕模式、WebView profile 与清理策略
-├── search/               搜索引擎、模板校验、URL/搜索统一决策
-├── tabs/                 轻量标签元数据、缩略图和 WebView 状态保存
-├── media/                网络媒体嗅探、实际播放元素追踪、候选排序
-├── dlna/                 SSDP 发现和 UPnP AVTransport 投屏
-├── security/             页面安全信息
-└── ui/                   Compose 浏览器界面和各类 sheet/dialog
+`MainActivity` 仍承担较多 Android 回调编排。存储、计算与独立状态机已下沉；后续多窗口应按
+生命周期分离所有者，避免按行数拆出需要互相回调的容器。
 
-rust/
-├── adblock/              规则解析和匹配（默认打包）
-├── cache/                有界 LRU 字节缓存（legacy，显式 opt-in）
-├── url_utils/            URL/搜索纯逻辑 JNI 快速路径（默认打包）
-├── downloader/           私有目标下载原语（legacy，显式 opt-in）
-├── filename_parser/      文件名解析 JNI 原语（legacy，显式 opt-in）
-└── database/              早期实验实现，未加入 workspace、未打包（quarantined）
-```
+## 菜单、输入和异步结果
 
-`MainActivity` 仍然较大，但它现在是一个明确的生命周期 orchestrator，而不是把业务算法散落在 UI 回调中。导航已经抽成 `core/NavigationPolicy.kt`；数据库、媒体、下载和过滤器各自拥有独立边界。继续把 Activity 拆成多个 ViewModel 只有在引入持久的多窗口/后台任务需求时才有明显收益，当前强行拆分会增加 WebView 回调与 ActivityResult 生命周期的竞态。
+- 菜单进入设置、书签、历史、下载、离线文章、网站设置、开发工具或媒体选择时保存来路。
+  返回只弹出一级；打开网页、分享、打印、应用倍速等操作关闭整个菜单路径。
+- 路由 key 用于恢复滚动位置/分类，每次显示的 `Presentation` 用于校验回调身份。
+  旧动画的完成回调和重复点击不能关闭后来显示的页面；返回父级也会换新回调身份。
+- `BrowserSheetHost` 保存父级 UI 状态并释放父级窗口。菜单滚动状态置于 Dialog 外；安全边距
+  从主窗口读取，避免拖动手柄落在状态栏内。设置管理弹层打开时禁用父级返回处理。
+- 同进程 Activity 重建保存来路；外部 VIEW/SEND 导航清空临时面板，MAIN 切回保留当前界面。
+  退出确认仅接受浏览器本身连续两次返回，菜单操作清除之前的确认时间。
+- WebView 回调校验实例和页面代次；导航取消旧权限、SSL、查找与媒体结果。弹窗使用新 WebView，
+  完成交接后重新注册探针/脚本，再释放旧实例。
+- 隐藏的开发工具、下载和投屏面板停止对应动态订阅；开发工具源码按需读取并设长度上限。
+  投屏轮询仅前台可见时运行，命令串行且丢弃迟到结果。
 
-## 2. 已实施的工程优化
+完整菜单回归与根因见 [菜单导航设计](design/menu-navigation-20260910.md)。
 
-- WebView 使用 `MutableContextWrapper` 池化，限制同时存活实例，renderer 崩溃时丢弃尸体并重建；脱离 Activity 的实例切换到 `DetachedWebViewClient`。
-- 地址栏、键盘 Go、可见“访问/搜索”按钮共用 `NavigationPolicy`；HTTP(S) 校验、外部 scheme allow-list 和未知 opaque scheme 的搜索回退在 Kotlin/Rust 两侧一致。
-- 媒体候选使用 `StateFlow`，文档开始脚本在主文档和 iframe 中追踪真正播放的 `<video>`，
-  投屏列表用“正在播放”标记首选流，候选数量有上限；同一条逐帧 WebMessage 通道可将有界
-  倍速指令准确回送到当前播放帧，并在媒体源重载时维持本页选择。
-- SQLite helper 采用进程内引用计数共享；书签是显式 upsert（保留 id/createdAt），历史访问合并计数，LIKE 搜索转义 `%`、`_`、`!` 并限制输入/结果长度。
-- WebView 控件回调都检查当前实例；弹窗先验证 `WebViewTransport`，favicon 重复回调不会回收仍在使用的 Bitmap；文件、权限、JS 对话框、SSL 和安全浏览回调均有释放路径。
-- 自定义搜索引擎现在限制名称、模板、数量，只接受带一个占位符的 HTTP(S) 模板；设置页提供添加/删除入口，坏的偏好 JSON 会被忽略。
-- Rust 构建由共享的 `rust/resolve-android-ndk.sh` 解析 NDK。Gradle 默认只生成并打包 `adblock`、`url_utils`；每次 staging 会先清掉旧 ABI 目录。
-- 标签缩略图只保留小尺寸 Bitmap，移除主线程编码与 NativeCache 的重复存储；后台标签只有元数据。
-- 书签/历史通过 `LibraryPager` 在 IO dispatcher 分页查询，查询代次避免旧结果覆盖新搜索，失败重试保留对应偏移量。
-- 旧的 checked-in `app/src/main/jniLibs` 二进制和重复 Cargo 配置不再作为源码输入，避免 stale JNI 库混入 APK。
-- Release 删除了覆盖整个 Compose/数据层/标签页层的过宽 R8 keep 规则，改由 Android 默认
-  规则和依赖 consumer rules 精确保留；DEX 与 native 库采用可安装的 ZIP 压缩。相同功能
-  APK 从 9,984,278 bytes 降至 1,898,669 bytes（约减少 81.0%）。
-- 下载设置由独立 repository 持久化：目标可为 MediaStore 的系统 Download 目录或用户经
-  SAF 授权的目录，线程数统一限制为 1–16。传输引擎会验证 Range/Content-Range/长度并在
-  服务端不支持分段时安全回退单线程；发布文件、重名处理和删除由目标写入层负责。
-- `DownloadTransferService` 使用 `dataSync` 前台服务承接进程级任务，Activity 重建不会
-  取消下载；任务记录区分新引擎与旧 Android DownloadManager 条目，旧记录仍可查询、打开
-  和删除。失败或系统超时暂停的任务可重试，删除本地文件失败时保留记录供用户再次处理。
+## 数据、并发与复用
 
-## 3. Rust 取舍
+- 书签/历史共享 SQLite helper。书签 upsert 保留 ID/创建时间，历史合并重复访问；分页查询
+  对 `%`、`_`、`!` 转义并限制输入和结果。写入完成后才报告成功；旧查询不能覆盖新搜索。
+- 文件内容、JSON、HTML、XML、下载 header、规则和脚本均设边界。过滤/脚本复用
+  `AtomicFile.writeUtf8`；条目只序列化一次，下载进度快照按顺序发布。
+- 网站设置和离线文章的写锁跨 Activity 重建共享。权限按完整 origin 管理，网站同意与 Android
+  系统授权分开；请求身份使导航取消和迟到回执不会授权新页面。
+- 下载记录保存 validator、总长度、最终实体 URL 与分段边界。暂停/继续共用每任务 Mutex；
+  取消/删除等待旧 writer 结束。实体变化或无法验证时完整重下，拒绝异常 206 和错误范围。
+- Cookie 仅驻留内存，重定向仅向原 origin 发送；普通重试读取当前 Cookie，无痕任务不跨进程恢复。
+  MediaStore/SAF 发布成功后才显示完成，删除本地文件失败时保留记录。
+- 用户脚本 ID 只计算一次，GM 值变化只重注册对应脚本；媒体 hints 未变化就复用快照，单次
+  更新每个 URL 只解析一次，并保留编码路径和签名查询的资源身份。
 
-### 保留在 Rust
+## Rust 选择
 
-| 模块 | 决策 | 理由 |
+| 模块 | 当前选择 | 理由 |
 |---|---|---|
-| `adblock` | 保留并默认打包 | 规则解析/匹配是高频、纯计算路径；共享不可变索引和有界匹配适合 Rust。 |
-| `cache` | 保留为可选 legacy | 标签已有显示位图，重复编码/缓存没有实际收益；当前产品不再调用。 |
-| `url_utils` | 保留快速路径并有 Kotlin 回退 | 逻辑纯、容易测试；性能收益有限，但可作为统一实现，失败时不影响浏览。 |
+| 网络过滤、元素隐藏 | Rust | 批量纯计算，共享索引与缓存；已有参考算法对照和主机测量 |
+| URL 与书签 HTML | 现有 `url_utils` JNI 库 | 输入/输出边界清晰，有界线性解析；书签保留 Android SAF、预览与 SQLite 单事务 |
+| UI、WebView、权限和生命周期 | Kotlin/Android | 平台负责渲染和生命周期；增加 JNI 不能替代平台语义 |
+| 数据库、下载、文件名和存储 | Kotlin/Android | 主要依赖 SQLite、HTTP、SAF、MediaStore、通知和 Cookie；没有另引 Rust 数据库/HTTP/TLS 的端到端收益证据 |
+| 网页探针、脚本运行时、文章提取 | JavaScript | 直接访问 DOM 与网站播放器，不将整页跨语言复制 |
+| DLNA/SSDP/SOAP | Kotlin | 有界网络/XML 和低频命令；收益来自状态一致性及设备兼容 |
 
-### 维持 Kotlin/Android 原生
+0.5.1 删除了没有产品或测试调用的旧 `NativeCache`、`NativeDownloader`、
+`com.mybrowser.rust.FilenameParser`、`DatabaseManager` 及四个对应 Rust 实验目录。
+实际下载使用的 `download/FilenameParser.kt` 及其测试保留。旧可选构建开关一并删除，
+Cargo.lock 从 184 个 package 缩为 32 个，保留依赖的版本不变。
 
-| 模块 | 决策 | 理由 |
-|---|---|---|
-| 书签/历史数据库 | 不迁移到 Rust | Android SQLite 已负责连接、迁移、生命周期和事务；Rust 版会维护第二套 schema，并复制 Cursor/字符串，收益不足。 |
-| 下载引擎与存储 | 保留 Kotlin/Android | Range 网络传输需要和 SAF、MediaStore、前台服务、通知、WebView Cookie/UA/Referer 及生命周期协作；Rust HTTP/TLS 会增加约 3 MB 和 JNI 复制，不能改善这些平台边界。 |
-| WebView/Compose/UI | 不迁移 | 生命周期、ActivityResult、权限和渲染器必须使用 Android API；Rust 只能增加 JNI 胶水。 |
-| 页面内搜索 | 不迁移 | WebView `findAllAsync` 已在渲染器内完成，不应复制整页 HTML 到 native。 |
+## 计算性能与测量边界
 
-`cache`、`downloader` 和 `filename_parser` 仍保留源码以兼容早期调用者，但默认构建不会编译/打包；需要旧 JNI 集成时使用 `-Pmybrowser.includeLegacyRust=true` 或 `INCLUDE_LEGACY_RUST=1`。`rust/database` 明确隔离，不应重新接回 APK。
+0.4.1 网络匹配优化共用阻止/例外索引，借用域名后缀，无星号直接匹配；非锚定通配符只执行
+一次 DP，复杂度为 O(模式长度 × URL 长度)。参考匹配穷举和索引/线性扫描等价性测试覆盖正确性。
 
-## 4. 构建与验证基线
+历史主机对照使用 118,828 条网络规则、12 类请求各 10 轮，包含约 2 KiB 的签名 URL：
+
+| 指标 | 优化前 | 优化后 |
+|---|---:|---:|
+| 匹配中位数 | 34.398 ms | 0.0189 ms |
+| 匹配 P95 | 31,278.816 ms | 0.619 ms |
+| 引擎加载 | 75.128 ms | 76.437 ms |
+
+旧 P95 由长 URL 重复构造 DP 主导；这组固定样本不代表整页或真机提速。
+0.5.0 元素隐藏迁移的原 Kotlin/Rust 对照及 80 个 host 的输出一致性记录见
+[能力复查](design/browser-capabilities-20260910.md)。
+
+当前基准不依赖已删除的备份分支，只测量当前源码；生成文件临时保存，最终保留结果 JSON：
 
 ```bash
-cd rust
-cargo fmt --all
-cargo test --all
-
-cd ..
-./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
-./gradlew clean :app:assembleRelease --console=plain
-unzip -l app/build/outputs/apk/release/app-release.apk | rg 'lib/|META-INF'
-apksigner verify --verbose app/build/outputs/apk/release/app-release.apk
+cargo run --locked --release --manifest-path rust/Cargo.toml -p adblock --example benchmark -- 10
+python3 validation/cosmetic-benchmark.py
 ```
 
-Release 当前目标为 `arm64-v8a`、minSdk 29；安装前确认默认只有两个产品 native 库及 AndroidX 库。
-完整测试清单见测试指南，实际设备覆盖以当前回归报告为准。
+以上均不包含 JNI、DOM 注入、网络、解码或手机功耗。旧原始构建与对照产物已按要求清理，
+历史数值仅作为实现决策记录；最新性能需重新测量，不能将历史结果算作当前设备覆盖。
 
-## 5. 本轮系统审查落地
+## 构建和源码管理
 
-- 下载 SharedPreferences 恢复和写入都有 JSON、条目、URL、文件名、MIME、UA、Referer
-  与 Content-Disposition 上限；只接受带主机的 HTTP(S) URL，并清理文件名和 header 控制字符。
-- 下载设置、分段传输、MediaStore/SAF 发布和后台服务已按职责拆分；Cookie 只保存在进程
-  内存中。文件删除按 URI 类型分别调用 MediaStore 或 DocumentsProvider API，不会用
-  “删记录成功”掩盖本地文件删除失败。
-- `PrivacyMode` 的 Cookie 清理改为 completion callback；清理完成后才提示用户。无 profile
-  的无痕退出会先清理共享存储，再加载普通标签，避免旧 Cookie 在窗口期被读取。
-- `NativeCache` 的所有 JNI 句柄访问与 `close()` 共用同一生命周期锁；Kotlin 与 Rust 两侧
-  都限制 key/entry 大小，Rust LRU 增加了单元测试。
-- DLNA SOAP、SSDP 设备描述和错误详情均采用有界读取；搜索任务在锁内保存 Job，取消不会
-  错过刚创建的协程。设备描述文本、URL 和搜索超时也有边界。
-- 标签元数据恢复只接受受限 ID/文本和 HTTP(S)/about:blank，避免偏好数据直接变成
-  `javascript:` 或本地文件导航；SQLite repository 的查询/关闭通过同步方法避免生命周期竞态。
-- 构建脚本全部基于脚本目录，旧的等待脚本只是兼容包装器；不再读取其他任务的临时文件、
-  不再覆盖 `.zshrc` 或全局 Cargo 配置。项目 `.cargo/config.toml` 不含开发者绝对路径。
-- 修正了 WebView 池归还时的容量计算，避免无痕切换的 `acquireFresh()` 留下额外实例。
-- 清除浏览数据现在先确认且只清除历史、Cookie、WebStorage、认证、定位授权与 WebView
-  缓存，不再误删书签或系统下载文件；异步 Cookie 删除完成后才刷新页面和提示。
-- 自定义过滤列表、书签草稿和 Bitmap 缓存入口增加了持久化/数量/长度/像素边界；损坏
-  偏好不会再触发无界解析或重复提交。
-- 删除了未调用的旧 `TabSheet`、SSL 包装器、自定义规则 Rust 残留代码和无用 JNI 导出；
-  早期同时清理 69 个未使用资源并迁移 adaptive icon 目录；当前 lint 为 0 errors，
-  提示数量及原因见 README。
-- 安装脚本明确启动 `MainActivity`，并用花括号包住 shell 变量，已在模拟器上完整执行。
+Gradle 与独立构建共用 `rust/build.sh`；NDK 统一由 `rust/resolve-android-ndk.sh` 解析。
+Gradle 声明脚本、Cargo 配置、源码和 minSdk/ABI 为输入，避免脚本更新漏编。
+Rust 使用 API 29 链接器及独立目标目录；每次 staging 清理当前 ABI，APK 仅含两个产品 JNI 库及 AndroidX 库。
+R8 全模式与资源裁剪保留实际可达代码，DEX/native 使用可安装的 ZIP 压缩。
 
-## 6. 后续边界
-
-真正值得下一步投入的工作是 UI 测试（Compose semantics）、下载跨进程死亡后的自动续传、
-多窗口状态持久化，以及真实 DLNA 设备矩阵测试。它们属于产品/平台验证，不是把剩余 Kotlin
-代码机械翻译成 Rust；在没有基准数据和明确 JNI 契约前，不建议继续扩大 native 面积。
-
-最终审查仍不建议为了缩短 `MainActivity.kt` 而强拆 ViewModel：它的大部分代码是 WebView、
-ActivityResult 和权限回调的同生命周期编排，计算与持久化已经下沉。若以后加入多窗口或
-跨进程可恢复工作流，再按这些真实生命周期边界拆分，而不是按文件行数拆分。
+源码以 `master` 正常提交维护，不保留备份/回滚分支、重复图标、兼容等待脚本和多份交付摘要。
+APK、生成验证证据、SDK 路径与签名材料留在 Git 外；本地仅保留最新 APK 及必要验证记录。

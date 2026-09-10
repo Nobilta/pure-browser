@@ -1,6 +1,7 @@
 package com.mybrowser.ui
 
 import android.content.res.Resources
+import android.content.res.Configuration
 import com.mybrowser.R
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Arrangement
@@ -8,11 +9,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,18 +28,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import com.mybrowser.ui.theme.BrowserColors
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,22 +54,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import com.mybrowser.core.ConsoleLogEntry
 import com.mybrowser.core.ConsoleLogLevel
 import com.mybrowser.core.NetworkRequestLog
 import org.json.JSONObject
 import org.json.JSONTokener
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * Lightweight, in-app diagnostics inspired by the useful part of X/Via's page tools.
@@ -78,8 +96,15 @@ fun DeveloperTools(
     pageUrl: String? = null,
 ) {
     val textResources = localizedResources()
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var pageSource by remember(webView) { mutableStateOf(textResources.getString(R.string.ui_loading)) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var command by rememberSaveable { mutableStateOf("") }
+    var evaluations by remember(webView) { mutableStateOf<List<ConsoleLine>>(emptyList()) }
+    var pageSource by remember(webView, pageUrl) { mutableStateOf(textResources.getString(R.string.ui_loading)) }
+    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    // A landscape keyboard can leave less room than the normal toolbars need. Keep the
+    // editor and its action visible; dismissing the keyboard restores the full toolbar.
+    val compactInput = selectedTab == 0 && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+        WindowInsets.ime.getBottom(LocalDensity.current) > 0
     // Developer tools contains a console input row as well as a potentially long output
     // list. Starting partially expanded hides that row behind the viewport on phones;
     // opening expanded makes the command surface immediately usable and the inner lists
@@ -89,33 +114,45 @@ fun DeveloperTools(
     // Source is deliberately capped. A large application can have a multi-megabyte DOM;
     // putting all of it in a Compose Text would otherwise stall the UI and retain a second
     // copy of the document while the sheet is open.
-    LaunchedEffect(webView, pageUrl) {
+    LaunchedEffect(webView, pageUrl, selectedTab) {
+        if (selectedTab != 2) return@LaunchedEffect
         val view = webView ?: run {
             pageSource = textResources.getString(R.string.ui_unable_to_read_page_source)
             return@LaunchedEffect
         }
         pageSource = textResources.getString(R.string.ui_loading)
-        runCatching {
-            view.evaluateJavascript("document.documentElement?.outerHTML || ''") { raw ->
-                pageSource = decodeJavascriptString(raw)
-                    .ifBlank { textResources.getString(R.string.ui_this_page_has_no_source_to_display) }
-                    .take(MAX_SOURCE_CHARS)
-                    .let { source ->
-                        if (source.length == MAX_SOURCE_CHARS) textResources.getString(R.string.ui_source_truncated, source) else source
-                    }
+        try {
+            // Bound the WebView bridge payload, and cancel stale results after navigation.
+            val raw = suspendCancellableCoroutine<String?> { continuation ->
+                view.evaluateJavascript("(document.documentElement?.outerHTML || '').slice(0, ${MAX_SOURCE_CHARS + 1})") {
+                    if (continuation.isActive) continuation.resume(it)
+                }
             }
-        }.onFailure { pageSource = textResources.getString(R.string.ui_unable_to_read_page_source_e0f027, it.message.orEmpty()) }
+            val source = decodeJavascriptString(raw)
+                .ifBlank { textResources.getString(R.string.ui_this_page_has_no_source_to_display) }
+            pageSource = if (source.length > MAX_SOURCE_CHARS) {
+                textResources.getString(R.string.ui_source_truncated, source.take(MAX_SOURCE_CHARS))
+            } else source
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            pageSource = textResources.getString(R.string.ui_unable_to_read_page_source_e0f027, error.message.orEmpty())
+        }
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        modifier = androidx.compose.ui.Modifier
+        containerColor = containerColor,
+        dragHandle = if (compactInput) null else ({ BottomSheetDefaults.DragHandle() }),
+        modifier = Modifier
+            .statusBarsPadding()
             // Apply the IME inset to the sheet itself. Material3 consumes the inset
             // before passing constraints to some sheet content, so padding only the
             // inner column is not sufficient on edge-to-edge Android 15+ windows.
             .imePadding(),
     ) {
+        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -124,35 +161,34 @@ fun DeveloperTools(
                 // execute button cannot end up underneath the software keyboard.
                 .imePadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = textResources.getString(R.string.menu_developer_tools),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+            if (!compactInput) {
+                TopAppBar(
+                    windowInsets = WindowInsets(0, 0, 0, 0),
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = containerColor),
+                    title = {
+                        Text(
+                            text = textResources.getString(R.string.menu_developer_tools),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = textResources.getString(R.string.ui_close))
+                        }
+                    },
                 )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = textResources.getString(R.string.ui_close))
-                }
-            }
 
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
-                    Text(textResources.getString(R.string.ui_console))
-                }
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
-                    Text(textResources.getString(R.string.ui_network))
-                }
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }) {
-                    Text(textResources.getString(R.string.ui_source))
-                }
-                Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }) {
-                    Text(textResources.getString(R.string.ui_info))
+                PrimaryTabRow(selectedTabIndex = selectedTab, containerColor = containerColor) {
+                    listOf(R.string.ui_console, R.string.ui_network, R.string.ui_source, R.string.ui_info)
+                        .forEachIndexed { index, label ->
+                            Tab(
+                                selected = selectedTab == index,
+                                onClick = { selectedTab = index },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = { Text(textResources.getString(label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
                 }
             }
 
@@ -160,7 +196,12 @@ fun DeveloperTools(
                 0 -> ConsoleTab(
                     entries = consoleEntries,
                     webView = webView,
-                    onClear = onClearConsole,
+                    onClear = { evaluations = emptyList(); onClearConsole() },
+                    command = command,
+                    onCommandChange = { command = it },
+                    evaluations = evaluations,
+                    onEvaluation = { evaluations = appendEvaluation(evaluations, it) },
+                    showHeader = !compactInput,
                 )
                 1 -> NetworkTab(
                     entries = networkEntries,
@@ -178,10 +219,20 @@ private fun ConsoleTab(
     entries: List<ConsoleLogEntry>,
     webView: WebView?,
     onClear: () -> Unit,
+    command: String,
+    onCommandChange: (String) -> Unit,
+    evaluations: List<ConsoleLine>,
+    onEvaluation: (String) -> Unit,
+    showHeader: Boolean,
 ) {
     val textResources = localizedResources()
-    var command by remember { mutableStateOf("") }
-    var evaluations by remember { mutableStateOf<List<ConsoleLine>>(emptyList()) }
+    val outputScroll = rememberScrollState()
+    LaunchedEffect(evaluations) {
+        if (evaluations.isNotEmpty()) {
+            withFrameNanos { }
+            outputScroll.scrollTo(outputScroll.maxValue)
+        }
+    }
 
     // The same action is exposed through both the visible button and the keyboard's
     // Done key. A modal sheet can sit behind the IME on edge-to-edge devices, so the
@@ -189,64 +240,56 @@ private fun ConsoleTab(
     val executeCommand: () -> Unit = {
         val expression = command.trim()
         if (expression.isNotEmpty()) {
-            command = ""
+            onCommandChange("")
             val view = webView
             if (view == null) {
-                evaluations = appendEvaluation(evaluations, textResources.getString(R.string.ui_webview_is_unavailable, expression))
+                onEvaluation(textResources.getString(R.string.ui_webview_is_unavailable, expression))
             } else {
                 runCatching {
                     view.evaluateJavascript(expression) { raw ->
-                        appendEvaluation(
-                            evaluations,
-                            "> $expression\n${decodeJavascriptString(raw)}",
-                        ).also { evaluations = it }
+                        onEvaluation("> $expression\n${decodeJavascriptString(raw)}")
                     }
                 }.onFailure {
-                    evaluations = appendEvaluation(
-                        evaluations,
-                        textResources.getString(R.string.ui_execution_failed, expression, it.message.orEmpty()),
-                    )
+                    onEvaluation(textResources.getString(R.string.ui_execution_failed, expression, it.message.orEmpty()))
                 }
             }
         }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        DiagnosticsHeader(
+        if (showHeader) DiagnosticsHeader(
             title = textResources.getString(R.string.ui_console_5633ea, entries.size + evaluations.size),
-            onClear = {
-                evaluations = emptyList()
-                onClear()
-            },
+            onClear = onClear,
         )
 
         Surface(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            color = Color(0xFF1E1E1E),
-            tonalElevation = 2.dp,
+                .padding(horizontal = 12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = MaterialTheme.shapes.medium,
+            tonalElevation = 1.dp,
         ) {
             if (entries.isEmpty() && evaluations.isEmpty()) {
                 Text(
                     text = textResources.getString(R.string.ui_no_console_output),
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(16.dp),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = Color(0xFF9E9E9E),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Column(
                     modifier = Modifier
                         .padding(8.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(outputScroll),
                 ) {
                     entries.forEach { entry ->
                         Text(
                             text = formatConsoleEntry(entry, textResources),
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = consoleColor(entry.level),
                             modifier = Modifier.padding(vertical = 2.dp),
                         )
@@ -255,8 +298,8 @@ private fun ConsoleTab(
                         Text(
                             text = line.text,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = Color(0xFFD4D4D4),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(vertical = 2.dp),
                         )
                     }
@@ -272,7 +315,7 @@ private fun ConsoleTab(
         ) {
             OutlinedTextField(
                 value = command,
-                onValueChange = { command = it },
+                onValueChange = onCommandChange,
                 modifier = Modifier.weight(1f),
                 placeholder = { Text(textResources.getString(R.string.ui_enter_a_javascript_command)) },
                 singleLine = true,
@@ -280,10 +323,12 @@ private fun ConsoleTab(
                 keyboardActions = KeyboardActions(onDone = { executeCommand() }),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Button(
+            FilledTonalButton(
                 enabled = command.isNotBlank() && webView != null,
                 onClick = executeCommand,
             ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
                 Text(textResources.getString(R.string.ui_run))
             }
         }
@@ -326,11 +371,11 @@ private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(text = title, fontWeight = FontWeight.Bold)
+        Text(text = title, style = MaterialTheme.typography.titleMedium)
         TextButton(onClick = onClear) {
             Icon(
                 Icons.Default.Delete,
-                contentDescription = textResources.getString(R.string.ui_clear),
+                contentDescription = null,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(4.dp))
@@ -343,15 +388,18 @@ private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
 private fun NetworkRequestItem(request: NetworkRequestLog) {
     val textResources = localizedResources()
     val statusColor = when {
-        request.blocked -> Color(0xFFFF9800)
-        request.statusCode != null && request.statusCode in 200..399 -> Color(0xFF4CAF50)
-        request.statusCode != null || request.errorCode != null -> Color(0xFFF44336)
-        else -> Color(0xFF90CAF9)
+        request.blocked -> BrowserColors.warning
+        request.statusCode != null && request.statusCode in 200..399 -> BrowserColors.secure
+        request.statusCode != null || request.errorCode != null -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
     }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = MaterialTheme.shapes.medium,
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(
@@ -362,18 +410,18 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
                 Text(
                     text = request.method,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                 )
                 Text(
                     text = request.statusText(textResources),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
                 )
             }
             Text(
                 text = request.url,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -388,16 +436,16 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
                         if (request.isForMainFrame) append(textResources.getString(R.string.ui_main_document))
                         if (request.blocked) append(textResources.getString(R.string.ui_filter))
                     },
-                    fontSize = 11.sp,
-                    color = Color.Gray,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(text = request.durationText(textResources), fontSize = 11.sp, color = Color.Gray)
+                Text(text = request.durationText(textResources), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             request.errorDescription?.let { description ->
                 Text(
                     text = description,
-                    fontSize = 11.sp,
-                    color = Color(0xFFE57373),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 3.dp),
@@ -412,9 +460,10 @@ private fun SourceCodeTab(source: String) {
     Surface(
         modifier = Modifier
             .fillMaxSize()
-            .padding(8.dp),
-        color = Color(0xFF1E1E1E),
-        tonalElevation = 2.dp,
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp,
     ) {
         Text(
             text = source,
@@ -422,8 +471,8 @@ private fun SourceCodeTab(source: String) {
                 .padding(8.dp)
                 .verticalScroll(rememberScrollState()),
             fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            color = Color(0xFFD4D4D4),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -510,13 +559,12 @@ private fun InfoItem(label: String, value: String) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Text(
             text = label,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.Gray,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text = value.ifBlank { "—" },
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.padding(top = 4.dp),
         )
         HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
@@ -554,12 +602,13 @@ private fun formatConsoleEntry(entry: ConsoleLogEntry, textResources: Resources)
     return "$prefix$location ${entry.message.ifBlank { textResources.getString(R.string.ui_empty_message) }}"
 }
 
+@Composable
 private fun consoleColor(level: ConsoleLogLevel): Color = when (level) {
-    ConsoleLogLevel.ERROR -> Color(0xFFFF8A80)
-    ConsoleLogLevel.WARNING -> Color(0xFFFFD180)
-    ConsoleLogLevel.DEBUG -> Color(0xFF80CBC4)
-    ConsoleLogLevel.TIP, ConsoleLogLevel.INFO -> Color(0xFF9CCC65)
-    ConsoleLogLevel.LOG -> Color(0xFFD4D4D4)
+    ConsoleLogLevel.ERROR -> MaterialTheme.colorScheme.error
+    ConsoleLogLevel.WARNING -> BrowserColors.warning
+    ConsoleLogLevel.DEBUG -> MaterialTheme.colorScheme.tertiary
+    ConsoleLogLevel.TIP, ConsoleLogLevel.INFO -> BrowserColors.secure
+    ConsoleLogLevel.LOG -> MaterialTheme.colorScheme.onSurface
 }
 
 /** evaluateJavascript returns a JSON string literal, including escaped newlines/quotes. */

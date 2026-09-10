@@ -27,8 +27,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 8
+        versionName = "0.5.1"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
         // Older devices with a 32-bit Android installation are not included. Overridable via
@@ -149,42 +149,21 @@ kotlin {
         jvmTarget.set(JvmTarget.JVM_17)
         // Warnings stay warnings; a browser has unavoidable deprecated API use.
         allWarningsAsErrors.set(false)
-        // ModalBottomSheet is still @ExperimentalMaterial3Api in 1.4.x. The whole
+        // ModalBottomSheet is @ExperimentalMaterial3Api with the pinned BOM. The whole
         // menu/cast UI is built on it, so opt in once here instead of per-file.
         optIn.add("androidx.compose.material3.ExperimentalMaterial3Api")
     }
 }
 
-// ---------------------------------------------------------------------------------------
-// Rust native libraries
-//
-// Builds the application Rust modules for each ABI and stages the .so files into
-// build/rustJniLibs/<abi>/. Legacy crates are opt-in (see includeLegacyRust below).
-// ---------------------------------------------------------------------------------------
+// Rust builds share the same entry point with standalone builds.
 val rustDir = rootProject.file("rust")
-// The application uses adblock and url_utils. The cache, downloader and filename parser
-// remain optional integrations, enabled with -Pmybrowser.includeLegacyRust=true.
-val includeLegacyRust = providers.gradleProperty("mybrowser.includeLegacyRust")
-    .map { it.equals("true", ignoreCase = true) }
-    .orElse(false)
-
-// Rust ABI name per Android ABI
-val rustTargets = mapOf(
-    "arm64-v8a" to "aarch64-linux-android",
-    "x86_64" to "x86_64-linux-android",
-)
-
 val cargoBuild = tasks.register<Exec>("cargoBuild") {
     group = "build"
     description = "Cross-compiles application Rust modules for each configured ABI."
 
     val abiProp = providers.gradleProperty("mybrowser.abi").orElse("arm64-v8a")
-    val abis = abiProp.map { it.split(',').map { s -> s.trim() }.filter { s -> s.isNotEmpty() } }
+    val abis = abiProp.map { it.split(',').map { s -> s.trim() }.filter { it.isNotEmpty() } }
     val outDir = layout.buildDirectory.dir("rustJniLibs")
-    val androidApi = libs.versions.minSdk.get()
-    // API-specific Cargo output prevents a lower-minSdk APK reusing higher-API binaries.
-    val cargoOutput = rustDir.resolve("target/android-api-$androidApi")
-
     val rustupHome = System.getProperty("user.home") + "/.rustup"
     val cargoHome = System.getProperty("user.home") + "/.cargo"
     val toolchainPath = "$rustupHome/toolchains/stable-aarch64-apple-darwin/bin"
@@ -192,106 +171,53 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.dir(rustDir.resolve("adblock/src"))
     inputs.dir(rustDir.resolve("url_utils/src"))
     inputs.files(
-        rustDir.resolve("adblock/Cargo.toml"),
-        rustDir.resolve("url_utils/Cargo.toml"),
+        rustDir.resolve("adblock/Cargo.toml"), rustDir.resolve("url_utils/Cargo.toml"),
+        rustDir.resolve("Cargo.toml"), rustDir.resolve("Cargo.lock"),
+        rustDir.resolve("build.sh"), rustDir.resolve("resolve-android-ndk.sh"),
     )
-    inputs.property("includeLegacyRust", includeLegacyRust)
-    if (includeLegacyRust.get()) {
-        inputs.dir(rustDir.resolve("cache/src"))
-        inputs.dir(rustDir.resolve("downloader/src"))
-        inputs.dir(rustDir.resolve("filename_parser/src"))
-        inputs.files(
-            rustDir.resolve("cache/Cargo.toml"),
-            rustDir.resolve("downloader/Cargo.toml"),
-            rustDir.resolve("filename_parser/Cargo.toml"),
-        )
-    }
-    inputs.file(rustDir.resolve("Cargo.toml"))
-    inputs.file(rustDir.resolve("Cargo.lock"))
     inputs.property("abis", abis)
-    inputs.property("androidApi", androidApi)
+    inputs.property("androidApi", libs.versions.minSdk.get())
     outputs.dir(outDir)
 
-    // Build via shell with full Rust environment
     workingDir(rustDir)
     environment("PATH", "$toolchainPath:${System.getenv("PATH")}")
     environment("RUSTUP_HOME", rustupHome)
     environment("CARGO_HOME", cargoHome)
-    environment("CARGO_TARGET_DIR", cargoOutput.absolutePath)
-
-    commandLine("bash", "-c", """
-        set -e
-
-        # Resolve the NDK at execution time through the shared resolver. Keeping this
-        # logic in one script avoids hard-coded developer paths and keeps standalone
-        # rust/build.sh and Gradle builds on the same toolchain.
-        if [ -z "${'$'}{ANDROID_NDK_HOME:-}" ]; then
-            ANDROID_NDK_HOME="${'$'}(bash "${rustDir.absolutePath}/resolve-android-ndk.sh" "${rootProject.projectDir.absolutePath}")"
-            export ANDROID_NDK_HOME
-        fi
-        if [ -z "${'$'}{ANDROID_NDK_HOME:-}" ] || [ ! -d "${'$'}ANDROID_NDK_HOME" ]; then
-            echo "ANDROID_NDK_HOME could not be resolved" >&2
-            exit 1
-        fi
-        toolchain="${'$'}ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64"
-        if [ ! -x "${'$'}toolchain/bin/aarch64-linux-android${androidApi}-clang" ]; then
-            # Some NDK distributions use the arm64 host directory name.
-            toolchain="${'$'}ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-aarch64"
-        fi
-        if [ ! -x "${'$'}toolchain/bin/aarch64-linux-android${androidApi}-clang" ]; then
-            echo "No Android clang toolchain found under ${'$'}ANDROID_NDK_HOME" >&2
-            exit 1
-        fi
-        export PATH="${'$'}toolchain/bin:${'$'}PATH"
-        export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${'$'}toolchain/bin/aarch64-linux-android${androidApi}-clang"
-        export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${'$'}toolchain/bin/x86_64-linux-android${androidApi}-clang"
-        export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${'$'}toolchain/bin/llvm-ar"
-        export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="${'$'}toolchain/bin/llvm-ar"
-
-        for abi in ${abis.get().joinToString(" ")}; do
+    commandLine(listOf("bash", "-c", """
+        set -euo pipefail
+        for abi in "${'$'}@"; do
             case ${'$'}abi in
                 arm64-v8a) target=aarch64-linux-android ;;
                 x86_64) target=x86_64-linux-android ;;
-                *) echo "Unmapped ABI: ${'$'}abi"; exit 1 ;;
+                *) echo "Unmapped ABI: ${'$'}abi" >&2; exit 1 ;;
             esac
-
-            echo "Building Rust modules for ${'$'}target..."
-
-            # Never let a removed/renamed crate survive in the staged directory.  Gradle
-            # treats this directory as the complete jniLibs source set, so stale files
-            # would otherwise be packaged into a later APK even though the current
-            # workspace no longer builds them.
-            out="${outDir.get().asFile.absolutePath}/${'$'}abi"
-            rm -rf "${'$'}out"
-
-            # Build only crates used by the Android application. Legacy JNI crates can be
-            # opted in with -Pmybrowser.includeLegacyRust=true; keeping them out of the
-            # default APK avoids shipping dead code and its transitive TLS/encoding stack.
-            cargo build --release --target ${'$'}target -p adblock -p url_utils
-
-            # Create output directory
-            mkdir -p "${'$'}out"
-
-            # Copy all .so files with the names used by System.loadLibrary().
-            cp "${cargoOutput.absolutePath}/${'$'}target/release/libadblock.so" "${'$'}out/libmybrowser_adblock.so"
-            cp "${cargoOutput.absolutePath}/${'$'}target/release/liburl_utils.so" "${'$'}out/libmybrowser_url_utils.so"
-
-            if [ "${includeLegacyRust.get()}" = "true" ]; then
-                cargo build --release --target ${'$'}target -p cache -p downloader -p filename_parser
-                cp "${cargoOutput.absolutePath}/${'$'}target/release/libcache.so" "${'$'}out/libmybrowser_cache.so"
-                cp "${cargoOutput.absolutePath}/${'$'}target/release/libdownloader.so" "${'$'}out/libmybrowser_downloader.so"
-                cp "${cargoOutput.absolutePath}/${'$'}target/release/libfilename_parser.so" "${'$'}out/libmybrowser_filename_parser.so"
-            fi
-
-            echo "✅ Built ${'$'}abi successfully"
+            TARGET="${'$'}target" ABI="${'$'}abi" bash ./build.sh
         done
-    """.trimIndent())
+    """.trimIndent(), "cargoBuild") + abis.get())
 }
 
 // mergeJniLibFolders is the first task that reads the staged .so, so hooking every
 // variant's copy of it covers debug and release without naming them.
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
     .configureEach { dependsOn(cargoBuild) }
+
+// Exercise the real JNI integration on the development host as well as in emulator runs.
+val hostTestJni = layout.buildDirectory.dir("hostTestJni")
+val cargoBuildHostTests = tasks.register<Exec>("cargoBuildHostTests") {
+    inputs.dir(rustDir.resolve("adblock/src"))
+    inputs.dir(rustDir.resolve("url_utils/src"))
+    inputs.files(rustDir.resolve("Cargo.toml"), rustDir.resolve("Cargo.lock"),
+        rustDir.resolve("adblock/Cargo.toml"), rustDir.resolve("url_utils/Cargo.toml"),
+        rustDir.resolve("build-host-tests.sh"))
+    outputs.dir(hostTestJni)
+    workingDir(rustDir)
+    commandLine("bash", rustDir.resolve("build-host-tests.sh").absolutePath, hostTestJni.get().asFile.absolutePath)
+}
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    dependsOn(cargoBuildHostTests)
+    inputs.dir(hostTestJni)
+    systemProperty("java.library.path", hostTestJni.get().asFile.absolutePath)
+}
 
 dependencies {
     implementation(libs.androidx.activity)
