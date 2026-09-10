@@ -1,235 +1,135 @@
 package com.mybrowser.ui
 
-import com.mybrowser.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.mybrowser.filter.CustomFilterController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.mybrowser.R
 import com.mybrowser.filter.FilterController
+import com.mybrowser.filter.FilterSubscriptions
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
-/**
- * Settings sheet for custom filter lists.
- */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilterSettingsSheet(
-    controller: CustomFilterController,
-    filterController: FilterController,
-    onDismiss: () -> Unit
-) {
-    val textResources = localizedResources()
-    val customLists by controller.customLists.collectAsState()
-    // FilterController owns the live engine and therefore includes both the bundled
-    // EasyList rules and every custom list.  CustomFilterController.ruleCount only counts
-    // user-added lists, which made a healthy built-in engine look like "0 rules" here.
+fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: FilterController, onDismiss: () -> Unit) {
+    val res = localizedResources()
+    val lists by controller.subscriptions.collectAsState()
     val ruleCount by filterController.ruleCount.collectAsState()
-    val lastError by controller.lastError.collectAsState()
-    var showAddDialog by remember { mutableStateOf(false) }
-    var adding by remember { mutableStateOf(false) }
+    val cosmeticCount by filterController.cosmeticCount.collectAsState()
+    val enabled by filterController.enabled.collectAsState()
+    val busy by controller.busy.collectAsState()
+    val autoUpdate by controller.autoUpdate.collectAsState()
+    val error by controller.lastError.collectAsState()
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<FilterSubscriptions.Subscription?>(null) }
     val scope = rememberCoroutineScope()
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.fillMaxHeight(0.9f)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Bound the list explicitly. Without a height cap a LazyColumn nested
-                // below the header can claim the whole sheet and leave the add/remove
-                // controls unreachable on small displays.
-                .heightIn(max = 720.dp)
-                .padding(16.dp)
-        ) {
-            Text(
-                text = textResources.getString(R.string.ui_ad_filter_settings),
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-
-            Text(
-                text = textResources.getString(R.string.ui_rules_loaded, ruleCount),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            lastError?.let { message ->
-                Text(
-                    text = message,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
-
-            // Built-in list
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-            ) {
-                ListItem(
-                    headlineContent = { Text(textResources.getString(R.string.ui_easylist_built_in)) },
-                    supportingContent = { Text(textResources.getString(R.string.ui_default_ad_filter_rules)) },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                )
-            }
-
-            // Custom lists header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = textResources.getString(R.string.ui_custom_filter_lists),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                TextButton(
-                    onClick = { showAddDialog = true },
-                    enabled = !adding,
-                ) {
-                    Text(if (adding) textResources.getString(R.string.ui_working) else textResources.getString(R.string.ui_add))
-                }
-            }
-
-            // Custom lists
-            if (customLists.isEmpty()) {
-                Text(
-                    text = textResources.getString(R.string.ui_no_custom_filter_lists),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp)
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp),
-                ) {
-                    items(customLists) { list ->
-                        CustomListItem(
-                            list = list,
-                            onRemove = { controller.removeCustomList(list.id) }
-                        )
-                    }
-                }
-            }
-        }
+    val dateFormat = remember(res.configuration.locales.toLanguageTags()) {
+        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, res.configuration.locales[0])
     }
-
-    if (showAddDialog) {
-        AddFilterListDialog(
-            onDismiss = { showAddDialog = false },
-            onAdd = { name, url ->
-                adding = true
-                scope.launch {
-                    try {
-                        val success = controller.addCustomList(name, url)
-                        if (success) showAddDialog = false
-                    } finally {
-                        // Keep the sheet usable even if a provider throws outside the
-                        // controller's normal Result path.
-                        adding = false
-                    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ApplySheetSystemBars()
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
+            Row(Modifier.fillMaxWidth().padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDismiss) {
+                    Icon(painterResource(R.drawable.ic_back), contentDescription = res.getString(R.string.cd_back))
                 }
+                Text(res.getString(R.string.ui_ad_filter_settings), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Switch(enabled, onCheckedChange = filterController::setEnabled,
+                    modifier = Modifier.semantics { contentDescription = res.getString(R.string.ui_ad_filter_settings) })
             }
-        )
-    }
-}
-
-@Composable
-private fun CustomListItem(
-    list: CustomFilterController.CustomList,
-    onRemove: () -> Unit
-) {
-    val textResources = localizedResources()
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        ListItem(
-            headlineContent = { Text(list.name) },
-            supportingContent = {
-                Column {
-                    Text(list.url, maxLines = 1)
-                    Text(textResources.getString(R.string.ui_rules, list.ruleCount), style = MaterialTheme.typography.labelSmall)
+            Text(res.getString(R.string.filter_loaded_counts, ruleCount, cosmeticCount),
+                Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
+            Text(res.getString(R.string.filter_reload_hint), Modifier.padding(horizontal = 20.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { scope.launch { controller.update() } }, enabled = !busy && lists.any { it.enabled }) {
+                    Text(res.getString(if (busy) R.string.ui_working else R.string.filter_update_all))
                 }
-            },
-            trailingContent = {
-                IconButton(onClick = onRemove) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = textResources.getString(R.string.cd_delete)
+                TextButton(onClick = { adding = true }, enabled = !busy) { Text(res.getString(R.string.ui_add_filter_list)) }
+            }
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+                item {
+                    ListItem(
+                        headlineContent = { Text(res.getString(R.string.filter_auto_update)) },
+                        supportingContent = { Text(res.getString(R.string.filter_auto_update_summary)) },
+                        trailingContent = { Switch(autoUpdate, onCheckedChange = controller::setAutoUpdate,
+                            modifier = Modifier.semantics { contentDescription = res.getString(R.string.filter_auto_update) }) },
                     )
                 }
-            }
-        )
-    }
-}
-
-@Composable
-private fun AddFilterListDialog(
-    onDismiss: () -> Unit,
-    onAdd: (name: String, url: String) -> Unit
-) {
-    val textResources = localizedResources()
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(textResources.getString(R.string.ui_add_filter_list)) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(textResources.getString(R.string.search_engine_name)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                )
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("URL") },
-                    placeholder = { Text("https://example.com/filters.txt") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onAdd(name, url) },
-                enabled = name.isNotBlank() && url.isNotBlank()
-            ) {
-                Text(textResources.getString(R.string.ui_add))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(textResources.getString(R.string.action_cancel))
+                items(lists, key = { it.id }) { list ->
+                    Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Column(Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(list.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(res.getString(if (list.builtIn) R.string.filter_built_in else R.string.ui_custom_filter_lists),
+                                        style = MaterialTheme.typography.labelSmall)
+                                }
+                                Switch(list.enabled, modifier = Modifier.semantics { contentDescription = list.name }, onCheckedChange = { value ->
+                                    scope.launch { controller.setEnabled(list.id, value) }
+                                }, enabled = !busy)
+                            }
+                            Text(list.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(res.getString(R.string.filter_source_rule_count, list.ruleCount), style = MaterialTheme.typography.bodySmall)
+                            Text(if (list.updatedAt == 0L) res.getString(R.string.filter_packaged_snapshot)
+                                else res.getString(R.string.filter_updated_at, dateFormat.format(Date(list.updatedAt))),
+                                style = MaterialTheme.typography.bodySmall)
+                            if (list.checkedAt != 0L) Text(res.getString(R.string.filter_checked_at, dateFormat.format(Date(list.checkedAt))),
+                                style = MaterialTheme.typography.bodySmall)
+                            list.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                if (!list.builtIn) TextButton(onClick = { deleting = list }, enabled = !busy) {
+                                    Text(res.getString(R.string.cd_delete))
+                                }
+                                TextButton(onClick = { scope.launch { controller.update(list.id) } }, enabled = !busy) {
+                                    Text(res.getString(R.string.filter_update))
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-    )
+    }
+    if (adding) {
+        var name by rememberSaveable { mutableStateOf("") }
+        var url by rememberSaveable { mutableStateOf("") }
+        AlertDialog(onDismissRequest = { if (!busy) adding = false },
+            title = { Text(res.getString(R.string.ui_add_filter_list)) },
+            text = {
+                Column {
+                    OutlinedTextField(name, { name = it }, label = { Text(res.getString(R.string.search_engine_name)) },
+                        singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(url, { url = it }, label = { Text("URL") }, singleLine = true,
+                        enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy && name.isNotBlank() && url.isNotBlank(), onClick = {
+                    scope.launch { if (controller.add(name, url)) adding = false }
+                }) { Text(res.getString(if (busy) R.string.ui_working else R.string.ui_add)) }
+            },
+            dismissButton = { TextButton(onClick = { adding = false }, enabled = !busy) { Text(res.getString(R.string.action_cancel)) } })
+    }
+    deleting?.let { list ->
+        AlertDialog(onDismissRequest = { deleting = null },
+            title = { Text(res.getString(R.string.cd_delete)) }, text = { Text(list.name) },
+            confirmButton = { TextButton(onClick = {
+                scope.launch { controller.remove(list.id) }
+                deleting = null
+            }) { Text(res.getString(R.string.cd_delete)) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(res.getString(R.string.action_cancel)) } })
+    }
 }

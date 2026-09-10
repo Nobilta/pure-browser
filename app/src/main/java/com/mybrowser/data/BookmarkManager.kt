@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
+import androidx.core.database.sqlite.transaction
 
 /**
  * Repository for bookmarks.
@@ -148,6 +149,38 @@ class BookmarkManager(context: Context) {
     @Synchronized
     fun clearAll() {
         if (!closed) db.writableDatabase.delete("bookmarks", null, null)
+    }
+
+    /** Import is one transaction; duplicates keep the user's existing title and identity. */
+    @Synchronized
+    fun importBookmarks(entries: List<ImportedBookmark>): Int {
+        check(!closed)
+        require(entries.size <= BookmarkHtml.MAX_BOOKMARKS)
+        val database = db.writableDatabase
+        return database.transaction {
+            var inserted = 0
+            entries.forEach { entry ->
+                require(entry.url.length <= SqlLike.MAX_URL_LENGTH && com.mybrowser.core.UrlUtils.isHttpUrl(entry.url))
+                val values = ContentValues().apply {
+                    put("title", entry.title.take(SqlLike.MAX_TITLE_LENGTH).ifBlank { entry.url })
+                    put("url", entry.url)
+                    put("created_at", System.currentTimeMillis())
+                }
+                if (database.insertWithOnConflict("bookmarks", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) inserted++
+            }
+            inserted
+        }
+    }
+
+    @Synchronized
+    fun bookmarksForExport(): List<Bookmark> {
+        check(!closed)
+        val entries = db.readableDatabase.query("bookmarks", COLUMNS, null, null, null, null,
+            "created_at DESC, id DESC", (BookmarkHtml.MAX_BOOKMARKS + 1).toString()).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) }
+        }
+        check(entries.size <= BookmarkHtml.MAX_BOOKMARKS) { "Too many bookmarks to export" }
+        return entries
     }
 
     /** Editing preserves row identity and fails atomically when another bookmark owns the URL. */

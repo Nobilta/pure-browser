@@ -25,6 +25,7 @@ fun PageContextSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ApplySheetSystemBars()
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             val url = target.linkUrl ?: target.imageUrl.orEmpty()
             Text(target.title.ifBlank { UrlUtils.hostOf(url).orEmpty() },

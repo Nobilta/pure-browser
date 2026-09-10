@@ -1,13 +1,11 @@
 package com.mybrowser.ui
 
 import androidx.compose.ui.platform.LocalContext
-import android.app.AlertDialog
 import android.content.Context
-import android.text.InputType
-import android.view.ViewGroup
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,181 +36,80 @@ import com.mybrowser.R
 import com.mybrowser.core.UrlUtils
 
 /**
- * Platform AlertDialog helpers.
- *
- * Uses android.app.AlertDialog rather than the AppCompat or Material one, because
- * neither of those dependencies is present. The tradeoff is that styling follows the
- * platform theme instead of ours; acceptable for dialogs, which are rare and modal.
+ * Activity-owned imperative WebView callbacks rendered by the same Material 3 composition
+ * as the browser. Every dismissal, replacement attempt and teardown answers exactly once.
  */
-object Dialogs {
+class Dialogs {
+    private enum class Kind { CONFIRM, ALERT, PROMPT, CREDENTIALS }
+    private class Request(
+        val kind: Kind, val title: String, val message: String,
+        val positive: String, val negative: String, val defaultValue: String = "",
+        val result: (Boolean, String, String) -> Unit,
+    )
+    private var active by mutableStateOf<Request?>(null)
 
-    /**
-     * Confirmation with a fixed title. [onResult] is invoked exactly once, including on
-     * dismiss, which matters for WebView callbacks that leak or hang the page if they
-     * are never answered.
-     */
-    fun confirm(
-        context: Context,
-        title: String,
-        message: String,
+    private fun show(request: Request) {
+        if (active != null) request.result(false, "", "") else active = request
+    }
+
+    private fun answer(request: Request, accepted: Boolean, text: String = "", password: String = "") {
+        if (active !== request) return
+        active = null
+        runCatching { request.result(accepted, text, password) }
+    }
+
+    fun dismiss() { active?.let { answer(it, false) } }
+
+    fun confirm(context: Context, title: String, message: String,
         positiveText: String = context.getString(R.string.ui_ok),
         negativeText: String = context.getString(R.string.action_cancel),
         onResult: (Boolean) -> Unit,
-    ) {
-        var answered = false
-        fun answer(value: Boolean) {
-            if (!answered) {
-                answered = true
-                onResult(value)
-            }
-        }
+    ) = show(Request(Kind.CONFIRM, title, message, positiveText, negativeText) { accepted, _, _ -> onResult(accepted) })
 
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton(positiveText) { _, _ -> answer(true) }
-            .setNegativeButton(negativeText) { _, _ -> answer(false) }
-            // Covers back-press and outside-tap, both of which otherwise leave the
-            // WebView's handler dangling forever.
-            .setOnDismissListener { answer(false) }
-            .show()
-    }
+    fun alert(context: Context, title: String, message: String, onDismiss: () -> Unit = {}) =
+        show(Request(Kind.ALERT, title, message, context.getString(R.string.ui_ok), "") { _, _, _ -> onDismiss() })
 
-    fun alert(
-        context: Context,
-        title: String,
-        message: String,
-        onDismiss: () -> Unit = {},
-    ) {
-        var done = false
-        fun finish() {
-            if (!done) {
-                done = true
-                onDismiss()
-            }
-        }
+    fun prompt(context: Context, title: String, message: String, defaultValue: String?, onResult: (String?) -> Unit) =
+        show(Request(Kind.PROMPT, title, message, context.getString(R.string.ui_ok),
+            context.getString(R.string.action_cancel), defaultValue.orEmpty()) { accepted, value, _ ->
+            onResult(if (accepted) value else null)
+        })
 
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton(context.getString(R.string.ui_ok)) { _, _ -> finish() }
-            .setOnDismissListener { finish() }
-            .show()
-    }
+    fun credentials(context: Context, host: String, realm: String,
+        onResult: (username: String, password: String) -> Unit, onCancel: () -> Unit,
+    ) = show(Request(Kind.CREDENTIALS, context.getString(R.string.ui_authentication_required),
+        context.getString(R.string.ui_requires_a_login, host, if (realm.isNotBlank()) " (" + realm + ")" else ""),
+        context.getString(R.string.ui_sign_in), context.getString(R.string.action_cancel)) { accepted, user, pass ->
+        if (accepted) onResult(user, pass) else onCancel()
+    })
 
-    /** Single-field prompt. Passes null on cancel. */
-    fun prompt(
-        context: Context,
-        title: String,
-        message: String,
-        defaultValue: String?,
-        onResult: (String?) -> Unit,
-    ) {
-        var answered = false
-        fun answer(value: String?) {
-            if (!answered) {
-                answered = true
-                onResult(value)
-            }
-        }
-
-        val input = EditText(context).apply {
-            setText(defaultValue.orEmpty())
-            setSelection(text.length)
-            inputType = InputType.TYPE_CLASS_TEXT
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle(title)
-            .setMessage(message)
-            .setView(wrap(context, input))
-            .setPositiveButton(context.getString(R.string.ui_ok)) { _, _ -> answer(input.text.toString()) }
-            .setNegativeButton(context.getString(R.string.action_cancel)) { _, _ -> answer(null) }
-            .setOnDismissListener { answer(null) }
-            .show()
-    }
-
-    /** Two-field credential prompt for HTTP Basic auth. */
-    fun credentials(
-        context: Context,
-        host: String,
-        realm: String,
-        onResult: (username: String, password: String) -> Unit,
-        onCancel: () -> Unit,
-    ) {
-        var answered = false
-
-        val user = EditText(context).apply {
-            hint = context.getString(R.string.ui_username)
-            inputType = InputType.TYPE_CLASS_TEXT
-        }
-        val pass = EditText(context).apply {
-            hint = context.getString(R.string.ui_password)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-
-        val container = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (16 * context.resources.displayMetrics.density).toInt()
-            setPadding(pad, pad / 2, pad, 0)
-            addView(user)
-            addView(pass)
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle(context.getString(R.string.ui_authentication_required))
-            .setMessage(context.getString(R.string.ui_requires_a_login, host, if (realm.isNotEmpty()) " ($realm)" else ""))
-            .setView(container)
-            .setPositiveButton(context.getString(R.string.ui_sign_in)) { _, _ ->
-                if (!answered) {
-                    answered = true
-                    onResult(user.text.toString(), pass.text.toString())
+    @Composable
+    fun Render() {
+        val request = active ?: return
+        val res = localizedResources()
+        var value by remember(request) { mutableStateOf(request.defaultValue) }
+        var password by remember(request) { mutableStateOf("") }
+        AlertDialog(onDismissRequest = { answer(request, false) },
+            title = { Text(request.title.take(512)) },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(request.message.take(16000))
+                    if (request.kind == Kind.PROMPT) OutlinedTextField(value, { value = it },
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (request.kind == Kind.CREDENTIALS) {
+                        OutlinedTextField(value, { value = it }, label = { Text(res.getString(R.string.ui_username)) },
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(password, { password = it }, label = { Text(res.getString(R.string.ui_password)) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                    }
                 }
-            }
-            .setNegativeButton(context.getString(R.string.action_cancel)) { _, _ ->
-                if (!answered) {
-                    answered = true
-                    onCancel()
-                }
-            }
-            .setOnDismissListener {
-                if (!answered) {
-                    answered = true
-                    onCancel()
-                }
-            }
-            .show()
+            },
+            confirmButton = { TextButton(onClick = { answer(request, true, value, password) }) { Text(request.positive) } },
+            dismissButton = { if (request.kind != Kind.ALERT) TextButton(onClick = { answer(request, false) }) { Text(request.negative) } })
     }
-
-    /** Simple list chooser, for the menu and similar. */
-    fun list(
-        context: Context,
-        title: String?,
-        items: List<String>,
-        onSelected: (Int) -> Unit,
-    ) {
-        AlertDialog.Builder(context)
-            .apply { if (title != null) setTitle(title) }
-            .setItems(items.toTypedArray()) { _, which -> onSelected(which) }
-            .show()
-    }
-
-    private fun wrap(context: Context, child: android.view.View): ViewGroup =
-        LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (16 * context.resources.displayMetrics.density).toInt()
-            setPadding(pad, pad / 2, pad, 0)
-            addView(child)
-        }
-
-    /** Multi-line body for the SSL detail sheet. */
-    fun detailText(context: Context, text: String): TextView =
-        TextView(context).apply {
-            this.text = text
-            val pad = (16 * context.resources.displayMetrics.density).toInt()
-            setPadding(pad, pad / 2, pad, 0)
-            textSize = 13f
-        }
 }
 
 /**

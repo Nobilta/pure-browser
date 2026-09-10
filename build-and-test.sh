@@ -32,8 +32,8 @@ require_command python3
 echo "检查中英文提示资源..."
 python3 validation/check-localization.py
 
-echo "运行网页视频控制协议测试..."
-node --test validation/playback-probe.test.cjs
+echo "运行网页视频控制及用户脚本协议测试..."
+node --test validation/playback-probe.test.cjs validation/userscript-runtime.test.cjs
 
 java_version="$(java -version 2>&1 | sed -n '1s/.*version \"\([^\"]*\)\".*/\1/p')"
 echo "Java: ${java_version:-unknown}"
@@ -48,7 +48,10 @@ if [[ "${SKIP_RUST_TARGET_CHECK:-0}" != "1" ]]; then
 fi
 
 echo "运行 Rust 格式/测试/clippy..."
-cargo fmt --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --all -- --check
+(
+    cd "$SCRIPT_DIR/rust"
+    cargo fmt --all -- --check
+)
 cargo test --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --all
 cargo clippy --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --workspace --all-targets -- -D warnings
 
@@ -61,7 +64,8 @@ if [[ ! -f "$apk" ]]; then
     exit 1
 fi
 
-delivery="$SCRIPT_DIR/PureBrowser-v0.3.1-release.apk"
+version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["elements"][0]["versionName"])' "$SCRIPT_DIR/app/build/outputs/apk/release/output-metadata.json")"
+delivery="$SCRIPT_DIR/PureBrowser-v${version}-release.apk"
 cp "$apk" "$delivery"
 size="$(wc -c < "$delivery" | tr -d ' ')"
 hash="$(shasum -a 256 "$delivery" | awk '{print $1}')"
@@ -89,7 +93,8 @@ else
     if [[ -n "$signer" ]]; then
         "$signer" verify --verbose "$delivery"
     else
-        echo "提示：未找到 apksigner，跳过签名检查。"
+        echo "未找到 apksigner，无法验证可安装的 Release 签名。" >&2
+        exit 1
     fi
 fi
 

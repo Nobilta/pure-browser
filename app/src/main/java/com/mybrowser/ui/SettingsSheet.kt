@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ModalBottomSheet
@@ -12,6 +11,9 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import com.mybrowser.data.BrowserPreferences
 import com.mybrowser.data.ThemeMode
 import com.mybrowser.data.VideoPreferences
@@ -54,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,8 +77,10 @@ import com.mybrowser.search.SearchEngine
 import kotlin.math.roundToInt
 
 /** Category navigation stays mounted while pickers and filter lists are open. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SettingsSheet(
+    childOpen: Boolean = false,
     restoreLastSession: Boolean,
     onRestoreLastSessionChange: (Boolean) -> Unit,
     isDefaultBrowser: Boolean,
@@ -90,6 +95,8 @@ fun SettingsSheet(
     onHomepageModeChange: (HomepageMode) -> Unit,
     onHomepageChange: (String) -> Boolean,
     onManageCustomFilters: () -> Unit,
+    onManageUserScripts: () -> Unit,
+    onManageSites: () -> Unit,
     downloadSettings: DownloadSettings,
     onUseSystemDownloadDirectory: () -> Unit,
     onChooseDownloadDirectory: () -> Unit,
@@ -105,12 +112,15 @@ fun SettingsSheet(
     val textResources = localizedResources()
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
-    val selected = sectionName?.let(SettingsCategory::valueOf)
-    val back = { if (selected != null) sectionName = null else onDismiss() }
-    BackHandler(enabled = picker == null, onBack = back)
+    var pickerGeneration by rememberSaveable { mutableLongStateOf(0L) }
+    val openPicker: (String) -> Unit = { pickerGeneration++; picker = it }
+    val selected = SettingsCategory.entries.firstOrNull { it.name == sectionName }
+    val back = { if (!childOpen) { if (selected != null) sectionName = null else onDismiss() } }
+    BackHandler(enabled = !childOpen && picker == null, onBack = back)
     val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
 
-    Surface(Modifier.fillMaxSize()) {
+    Surface(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
+        .testTag(if (selected == null) "settings_root" else "settings_detail")) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val twoPane = maxWidth >= 720.dp && selected != null
             Row(Modifier.fillMaxSize()) {
@@ -132,7 +142,7 @@ fun SettingsSheet(
                                     colors = CardDefaults.cardColors(containerColor =
                                         if (twoPane && category == selected) MaterialTheme.colorScheme.secondaryContainer
                                         else MaterialTheme.colorScheme.surfaceContainerLow),
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = MaterialTheme.shapes.medium,
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                                 ) {
                                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -165,23 +175,25 @@ fun SettingsSheet(
                                         SettingsCategory.BROWSING -> {
                                             SettingsGroup(textResources.getString(R.string.ui_startup))
                                             SettingsItem(textResources.getString(R.string.cd_home), if (currentHomepageMode == HomepageMode.NAVIGATION) textResources.getString(R.string.ui_shortcuts_homepage) else currentHomepage,
-                                                { picker = "home" }, R.drawable.ic_home)
+                                                { openPicker("home") }, R.drawable.ic_home)
                                             SettingsToggle(textResources.getString(R.string.ui_restore_pages_on_startup),
                                                 if (restoreLastSession) textResources.getString(R.string.ui_next_launch_restore_regular_tabs) else textResources.getString(R.string.ui_next_launch_homepage),
                                                 restoreLastSession, onRestoreLastSessionChange)
                                             SettingsGroup(textResources.getString(R.string.ui_search_and_system))
-                                            SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { picker = "search" }, R.drawable.ic_search)
+                                            SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_search)
                                             SettingsItem(textResources.getString(R.string.ui_default_browser), if (isDefaultBrowser) textResources.getString(R.string.ui_set_as_default) else textResources.getString(R.string.ui_not_set_as_default),
                                                 onSetDefaultBrowser, R.drawable.ic_desktop)
                                         }
                                         SettingsCategory.APPEARANCE -> {
-                                            SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { picker = "theme" }, R.drawable.ic_settings)
+                                            SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_settings)
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
                                             SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
+                                            SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
+                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_settings)
                                             SettingsGroup(textResources.getString(R.string.menu_section_data))
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
@@ -200,12 +212,12 @@ fun SettingsSheet(
                                                 { updateVideo(video.copy(horizontalSeek = it)) }, video.enhancedControls)
                                             SettingsToggle(textResources.getString(R.string.ui_hold_for_temporary_speed_boost), textResources.getString(R.string.ui_release_to_restore_the_previous_playback_speed), video.holdToBoost,
                                                 { updateVideo(video.copy(holdToBoost = it)) }, video.enhancedControls)
-                                            SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { picker = "boost" }, R.drawable.ic_speed)
+                                            SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_speed)
                                             SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
                                             SettingsGroup(textResources.getString(R.string.menu_playback_speed))
                                             SettingsToggle(textResources.getString(R.string.ui_remember_playback_speed), textResources.getString(R.string.ui_use_the_selected_speed_for_future_videos_temporary), video.rememberSpeed,
                                                 { updateVideo(video.copy(rememberSpeed = it)) })
-                                            SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { picker = "speed" }, R.drawable.ic_speed)
+                                            SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { openPicker("speed") }, R.drawable.ic_speed)
                                             SettingsNote(textResources.getString(R.string.ui_videos_keep_playing_through_the_webpage_preserving_sign))
                                         }
                                         SettingsCategory.ABOUT -> {
@@ -226,31 +238,37 @@ fun SettingsSheet(
         }
     }
     if (picker != null) {
-        ModalBottomSheet(onDismissRequest = { picker = null }) {
-            Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
-                when (picker) {
-                    "search" -> SearchEngineSettings(currentSearchEngine, availableSearchEngines,
-                        onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine, { picker = null })
-                    "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
-                        onHomepageModeChange, onHomepageChange, { picker = null })
-                    else -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-                        val title = when (picker) { "theme" -> textResources.getString(R.string.ui_app_theme); "boost" -> textResources.getString(R.string.ui_hold_speed); else -> textResources.getString(R.string.ui_default_playback_speed) }
-                        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
-                        if (picker == "theme") {
-                            ThemeMode.entries.forEach { mode ->
-                                HomepageModeItem(textResources.getString(mode.labelRes), "", preferences.theme == mode) {
-                                    onPreferencesChange(preferences.copy(theme = mode)); picker = null
+        val owner = pickerGeneration
+        val dismissPicker = { if (pickerGeneration == owner) picker = null }
+        key(owner) {
+            ModalBottomSheet(onDismissRequest = dismissPicker,
+                sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+                ApplySheetSystemBars()
+                Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
+                    when (picker) {
+                        "search" -> SearchEngineSettings(currentSearchEngine, availableSearchEngines,
+                            onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine, dismissPicker)
+                        "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
+                            onHomepageModeChange, onHomepageChange, dismissPicker)
+                        else -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                            val title = when (picker) { "theme" -> textResources.getString(R.string.ui_app_theme); "boost" -> textResources.getString(R.string.ui_hold_speed); else -> textResources.getString(R.string.ui_default_playback_speed) }
+                            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
+                            if (picker == "theme") {
+                                ThemeMode.entries.forEach { mode ->
+                                    HomepageModeItem(textResources.getString(mode.labelRes), "", preferences.theme == mode) {
+                                        onPreferencesChange(preferences.copy(theme = mode)); dismissPicker()
+                                    }
                                 }
-                            }
-                        } else {
-                            val boost = picker == "boost"
-                            val choices = if (boost) listOf(2f, 3f) else PlaybackSpeed.OPTIONS
-                            choices.forEach { speed ->
-                                HomepageModeItem(PlaybackSpeed.label(speed), "",
-                                    speed == if (boost) preferences.video.boostRate else preferences.video.preferredSpeed) {
-                                    updateVideo(if (boost) preferences.video.copy(boostRate = speed)
-                                        else preferences.video.copy(preferredSpeed = speed, rememberSpeed = true))
-                                    picker = null
+                            } else {
+                                val boost = picker == "boost"
+                                val choices = if (boost) listOf(2f, 3f) else PlaybackSpeed.OPTIONS
+                                choices.forEach { speed ->
+                                    HomepageModeItem(PlaybackSpeed.label(speed), "",
+                                        speed == if (boost) preferences.video.boostRate else preferences.video.preferredSpeed) {
+                                        updateVideo(if (boost) preferences.video.copy(boostRate = speed)
+                                            else preferences.video.copy(preferredSpeed = speed, rememberSpeed = true))
+                                        dismissPicker()
+                                    }
                                 }
                             }
                         }

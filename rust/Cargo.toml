@@ -1,5 +1,5 @@
 [workspace]
-members = ["adblock", "downloader", "url_utils", "cache", "filename_parser"]
+members = ["adblock", "url_utils"]
 resolver = "2"
 
 [profile.release]

@@ -57,7 +57,7 @@ object SecurityChecker {
         )
     }
 
-    fun getSecurityInfo(url: String?): SecurityInfo {
+    fun getSecurityInfo(url: String?, certificateError: Boolean = false): SecurityInfo {
         if (url.isNullOrEmpty()) {
             return SecurityInfo(
                 isSecure = false,
@@ -72,9 +72,10 @@ object SecurityChecker {
 
         return when (scheme) {
             "https" -> SecurityInfo(
-                isSecure = true,
+                isSecure = !certificateError,
                 protocol = "HTTPS",
-                hasWarnings = false
+                hasWarnings = certificateError,
+                warningRes = if (certificateError) R.string.ui_ssl_certificate_verification_failed else null,
             )
             "http" -> SecurityInfo(
                 isSecure = false,
@@ -104,8 +105,8 @@ object SecurityChecker {
         }
     }
 
-    fun getSecurityLevel(url: String?): SecurityLevel {
-        val info = getSecurityInfo(url)
+    fun getSecurityLevel(url: String?, certificateError: Boolean = false): SecurityLevel {
+        val info = getSecurityInfo(url, certificateError)
         return when {
             info.isSecure && !info.hasWarnings -> SecurityLevel.SECURE
             info.isSecure && info.hasWarnings -> SecurityLevel.WARNING

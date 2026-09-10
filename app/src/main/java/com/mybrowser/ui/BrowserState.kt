@@ -113,16 +113,10 @@ class BrowserState {
     val isProgressVisible: Boolean
         get() = isLoading && progress in 1..99
 
-    val securityLevel: SecurityLevel
-        get() = when {
-            currentUrl == ABOUT_BLANK -> SecurityLevel.NONE
-            UrlUtils.isHttps(currentUrl) -> SecurityLevel.SECURE
-            else -> SecurityLevel.INSECURE
-        }
-
     // --- WebView callbacks push in here ---
 
     fun onPageStarted(url: String) {
+        hideFindBar()
         revealToolbar()
         currentUrl = url
         isLoading = true
@@ -225,8 +219,6 @@ class BrowserState {
         if (isOmnibarFocused) return
         omnibarValue = TextFieldValue(UrlUtils.forDisplay(currentUrl))
     }
-
-    enum class SecurityLevel { NONE, SECURE, INSECURE }
 
     private companion object {
         const val ABOUT_BLANK = "about:blank"

@@ -49,9 +49,9 @@ fun FindBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         // Search input
         BasicTextField(
@@ -92,7 +92,7 @@ fun FindBar(
         IconButton(
             onClick = onPrevious,
             enabled = matchCount > 0,
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_arrow_up),
@@ -105,7 +105,7 @@ fun FindBar(
         IconButton(
             onClick = onNext,
             enabled = matchCount > 0,
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_arrow_down),
@@ -117,7 +117,7 @@ fun FindBar(
         // Close button
         IconButton(
             onClick = onClose,
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_close),

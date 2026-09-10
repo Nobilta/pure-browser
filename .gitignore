@@ -20,11 +20,6 @@
 # Compiled JNI output, produced by cargo-ndk into the jniLibs tree
 /app/src/main/jniLibs/
 
-# Historical native binaries are quarantined for reference only and must never become an
-# Android source-set input again.
-/legacy/native-libs/
-/legacy/artifacts/
-
 # Local delivery artifacts are reproducible and should not bloat Git history.
 /PureBrowser-*.apk
 
@@ -34,6 +29,8 @@
 /validation/**/*.xml
 /validation/**/*.txt
 /validation/results/
+__pycache__/
+*.pyc
 
 # Signing material never belongs in the repo
 *.jks

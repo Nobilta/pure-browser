@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -106,7 +105,7 @@ fun SmartSuggestions(
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
@@ -119,7 +118,7 @@ fun SmartSuggestions(
                         onClick = { onSuggestionClick(suggestion.url) }
                     )
                     if (suggestion != suggestions.last()) {
-                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
             }
@@ -146,9 +145,9 @@ private fun SuggestionItem(
                 .clip(CircleShape)
                 .background(
                     when (suggestion.type) {
-                        SuggestionType.BOOKMARK -> Color(0xFF4CAF50).copy(alpha = 0.1f)
-                        SuggestionType.HISTORY -> Color(0xFF2196F3).copy(alpha = 0.1f)
-                        SuggestionType.SEARCH -> Color(0xFFFF9800).copy(alpha = 0.1f)
+                        SuggestionType.BOOKMARK -> MaterialTheme.colorScheme.primaryContainer
+                        SuggestionType.HISTORY -> MaterialTheme.colorScheme.secondaryContainer
+                        SuggestionType.SEARCH -> MaterialTheme.colorScheme.tertiaryContainer
                     }
                 ),
             contentAlignment = Alignment.Center
@@ -161,9 +160,9 @@ private fun SuggestionItem(
                 },
                 contentDescription = null,
                 tint = when (suggestion.type) {
-                    SuggestionType.BOOKMARK -> Color(0xFF4CAF50)
-                    SuggestionType.HISTORY -> Color(0xFF2196F3)
-                    SuggestionType.SEARCH -> Color(0xFFFF9800)
+                    SuggestionType.BOOKMARK -> MaterialTheme.colorScheme.onPrimaryContainer
+                    SuggestionType.HISTORY -> MaterialTheme.colorScheme.onSecondaryContainer
+                    SuggestionType.SEARCH -> MaterialTheme.colorScheme.onTertiaryContainer
                 },
                 modifier = Modifier.size(18.dp)
             )
@@ -175,7 +174,7 @@ private fun SuggestionItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = suggestion.title,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1
@@ -183,7 +182,7 @@ private fun SuggestionItem(
             if (suggestion.type != SuggestionType.SEARCH) {
                 Text(
                     text = suggestion.url,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
@@ -193,13 +192,13 @@ private fun SuggestionItem(
         // Visit count badge for history
         if (suggestion.type == SuggestionType.HISTORY && suggestion.visitCount > 1) {
             Surface(
-                color = Color(0xFF2196F3).copy(alpha = 0.1f),
+                color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = CircleShape
             ) {
                 Text(
                     text = "${suggestion.visitCount}",
-                    fontSize = 10.sp,
-                    color = Color(0xFF2196F3),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }

@@ -284,7 +284,7 @@ def library_checks():
     back()
     ux.expect('Archive Needle')
     ux.tap('Clear history')
-    ux.expect('Delete all browsing history? This cannot be undone.')
+    ux.expect(ux._translations[0]['history_clear_confirm'])
     ux.tap('Cancel')
     screenshot('history-search')
     record('history is grouped by date, searches old records, and confirms clear-all')

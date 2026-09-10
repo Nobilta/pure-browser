@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -24,22 +26,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.media.PlaybackSpeed
 
 /** Browser actions grouped into predictable Material 3 sections. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun MenuSheet(
     isIncognito: Boolean,
     isFilterEnabled: Boolean,
     blockedCount: Int,
     mediaCount: Int,
+    hasCastSession: Boolean,
     hasVideo: Boolean,
     playbackSpeed: Float,
     isDesktopMode: Boolean,
     isCurrentPageBookmarked: Boolean,
     canUsePageActions: Boolean,
+    onOpenSiteSettings: () -> Unit,
+    onOpenReader: () -> Unit,
+    onPrintPage: () -> Unit,
+    onOpenReadingList: () -> Unit,
     onSharePage: () -> Unit,
     onCopyPage: () -> Unit,
     onToggleIncognito: () -> Unit,
@@ -60,14 +71,24 @@ fun MenuSheet(
 ) {
     val textResources = localizedResources()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // The dialog has a separate saved-state registry. Keep scroll state in the
+    // route's composition so returning from Settings restores the actual menu row.
+    val scrollState = rememberScrollState()
+    // Capture host insets before entering the dialog (Android 10 can report zero
+    // inside it). A tall menu must not put its drag handle under the status bar.
+    val contentInsets = WindowInsets.safeDrawing
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        contentWindowInsets = { contentInsets },
     ) {
+        ApplySheetSystemBars()
         Column(
             modifier = Modifier
-                .verticalScroll(rememberScrollState())
+                .semantics { testTagsAsResourceId = true }
+                .testTag("browser_menu")
+                .verticalScroll(scrollState)
                 .padding(start = 12.dp, end = 12.dp, bottom = 28.dp),
         ) {
             Text(
@@ -86,9 +107,16 @@ fun MenuSheet(
             }
 
             MenuSection(title = stringResource(R.string.menu_section_page)) {
+                MenuRow(iconRes = R.drawable.ic_settings, title = stringResource(R.string.site_settings),
+                    subtitle = "", enabled = canUsePageActions, onClick = onOpenSiteSettings)
+                MenuRow(iconRes = R.drawable.ic_file, title = stringResource(R.string.reading_mode),
+                    subtitle = "", enabled = canUsePageActions, onClick = onOpenReader)
+                MenuRow(iconRes = R.drawable.ic_print, title = stringResource(R.string.page_print),
+                    subtitle = "", enabled = canUsePageActions, onClick = onPrintPage)
                 MenuRow(
                     iconRes = R.drawable.ic_desktop,
                     title = stringResource(R.string.menu_desktop_site),
+                    enabled = canUsePageActions,
                     subtitle = stringResource(
                         if (isDesktopMode) R.string.menu_desktop_on
                         else R.string.menu_desktop_off,
@@ -119,16 +147,19 @@ fun MenuSheet(
                     iconRes = R.drawable.ic_cast,
                     title = stringResource(R.string.menu_cast),
                     subtitle = when {
+                        hasCastSession -> stringResource(R.string.cast_manage_session)
                         mediaCount > 0 -> stringResource(R.string.menu_cast_found, mediaCount)
                         hasVideo -> stringResource(R.string.menu_cast_no_direct_source)
                         else -> stringResource(R.string.menu_cast_none)
                     },
-                    enabled = mediaCount > 0,
+                    enabled = mediaCount > 0 || hasCastSession,
                     onClick = onOpenMedia,
                 )
             }
 
             MenuSection(title = stringResource(R.string.menu_section_data)) {
+                MenuRow(iconRes = R.drawable.ic_file, title = stringResource(R.string.reading_list),
+                    subtitle = "", onClick = onOpenReadingList)
                 MenuRow(
                     iconRes = R.drawable.ic_bookmark,
                     title = stringResource(R.string.menu_bookmarks),

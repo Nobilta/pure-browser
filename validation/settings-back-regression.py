@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -71,6 +72,15 @@ def settings_root():
     assert any(ux.match(root, name) is not None for name in categories), "Category list is missing"
     assert len(toolbar_buttons(root)) == 1, "A detail pane remained open"
     assert ux.match(root, "增强全屏控件") is None, "Detail page remained open"
+
+
+def browser_root():
+    root, _ = ux.nodes()
+    assert not ux.menu_open(root), "Menu window remained open"
+    assert ux.match(root, "编辑网址") is not None, "Browser toolbar is not visible"
+    activity = ux.adb("shell", "dumpsys", "activity", "activities")
+    assert re.search(r"(?:mResumedActivity|topResumedActivity)[^\n]*com\.mybrowser/", activity), \
+        "Back from the menu exited the browser"
 
 
 def category(name):
@@ -173,10 +183,12 @@ try:
         gesture_back(right=True)
         settings_root()
         gesture_back()
-        ux.expect("菜单")
+        ux.expect_menu()
+        gesture_back(right=True)
+        browser_root()
         ux.open_settings()
         settings_root()
-        record("left and right edge gestures traverse picker, category, root and browser")
+        record("left and right edge gestures traverse picker, category, settings, menu and browser")
     else:
         result["skipped"].append("edge gestures: device does not use gesture navigation")
 
@@ -201,13 +213,17 @@ try:
     back()
     settings_root()
     back()
-    ux.expect("菜单")
+    ux.expect_menu()
     ux.expect("增强全屏控件", present=False)
+    back()
+    browser_root()
     ux.open_settings()
     settings_root()
     toolbar_back()
-    ux.expect("菜单")
-    record("rotation retains navigation and only root Back closes settings")
+    ux.expect_menu()
+    back()
+    browser_root()
+    record("rotation retains the complete settings → menu → browser return path")
 except Exception as error:
     result["error"] = str(error)
     screenshot("failure")

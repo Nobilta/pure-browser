@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.tabs.ClosedTab
 import com.mybrowser.tabs.TabState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,15 +35,22 @@ fun TabsSheet(
     onNewTab: () -> Unit,
     onCloseAll: () -> Unit,
     onCloseOthers: () -> Unit,
+    recentlyClosed: List<ClosedTab>,
+    onReopen: (String) -> Unit,
+    onClearRecent: () -> Unit,
     onDismiss: () -> Unit,
+    snackbarHostState: SnackbarHostState? = null,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var showRecent by rememberSaveable { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     val filtered = tabs.filter { it.title.contains(query, true) || it.url.contains(query, true) }
     val currentId = tabs.getOrNull(currentIndex)?.id
+    val filteredRecent = recentlyClosed.filter { it.title.contains(query, true) || it.url.contains(query, true) }
     ModalBottomSheet(onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ApplySheetSystemBars()
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -54,6 +62,14 @@ fun TabsSheet(
                 Box {
                     BrowserIconAction(R.drawable.ic_more, stringResource(R.string.tabs_actions)) { menuOpen = true }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (!isIncognito) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.tabs_reopen)) },
+                                enabled = recentlyClosed.isNotEmpty() && canCreateTab,
+                                onClick = { menuOpen = false; recentlyClosed.firstOrNull()?.let { onReopen(it.id) } })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.tabs_clear_recent)) },
+                                enabled = recentlyClosed.isNotEmpty(), onClick = { menuOpen = false; confirm = "recent" })
+                        }
+
                         DropdownMenuItem(text = { Text(stringResource(R.string.tabs_close_others)) },
                             enabled = tabs.size > 1, onClick = { menuOpen = false; confirm = "others" })
                         DropdownMenuItem(text = { Text(stringResource(R.string.tabs_close_all)) },
@@ -61,13 +77,28 @@ fun TabsSheet(
                     }
                 }
             }
+            if (!isIncognito) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !showRecent, onClick = { showRecent = false }, label = { Text(stringResource(R.string.tabs_open)) })
+                FilterChip(selected = showRecent, onClick = { showRecent = true }, label = { Text(stringResource(R.string.tabs_recent, recentlyClosed.size)) })
+            }
             LibrarySearchField(query, stringResource(R.string.tabs_search)) { query = it }
+            if (showRecent && !isIncognito) {
+                if (filteredRecent.isEmpty()) Text(stringResource(R.string.tabs_recent_empty), Modifier.padding(vertical = 24.dp))
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(filteredRecent, key = { it.id }) { entry ->
+                        ListItem(headlineContent = { Text(entry.title.ifBlank { entry.url }, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text(entry.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            trailingContent = { TextButton(onClick = { onReopen(entry.id) }, enabled = canCreateTab) { Text(stringResource(R.string.tabs_restore)) } })
+                        HorizontalDivider()
+                    }
+                }
+            } else
             if (filtered.isEmpty()) Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.library_no_results), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(filtered, key = { it.id }) { tab ->
-                    Surface(shape = RoundedCornerShape(8.dp), color = if (tab.id == currentId)
+                    Surface(shape = MaterialTheme.shapes.medium, color = if (tab.id == currentId)
                         MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
                         modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -91,18 +122,20 @@ fun TabsSheet(
                     }
                 }
             }
+            snackbarHostState?.let { SnackbarHost(it, modifier = Modifier.padding(bottom = 12.dp)) }
         }
     }
     if (confirm != null) AlertDialog(onDismissRequest = { confirm = null },
-        title = { Text(stringResource(if (confirm == "all") R.string.tabs_close_all else R.string.tabs_close_others)) },
+        title = { Text(stringResource(when (confirm) { "all" -> R.string.tabs_close_all; "recent" -> R.string.tabs_clear_recent; else -> R.string.tabs_close_others })) },
         text = {
             val count = if (confirm == "all") tabs.size else (tabs.size - 1).coerceAtLeast(0)
-            Text(pluralStringResource(R.plurals.tabs_close_confirm, count, count))
+            if (confirm == "recent") Text(stringResource(R.string.tabs_clear_recent_confirm))
+            else Text(pluralStringResource(R.plurals.tabs_close_confirm, count, count))
         },
         confirmButton = { TextButton(onClick = {
-            val closeAll = confirm == "all"
+            val action = confirm
             confirm = null
-            if (closeAll) onCloseAll() else onCloseOthers()
+            when (action) { "all" -> onCloseAll(); "recent" -> onClearRecent(); else -> onCloseOthers() }
         }) { Text(stringResource(R.string.action_confirm)) } },
         dismissButton = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.action_cancel)) } })
 }

@@ -26,6 +26,7 @@ import java.util.UUID
  */
 class TabManager(
     private val maxTabs: Int = MAX_TABS,
+    private val rememberClosedTabs: Boolean = true,
 ) {
 
     init {
@@ -33,6 +34,8 @@ class TabManager(
     }
 
     private val _tabs = mutableStateListOf<TabState>()
+    private val _recentlyClosed = mutableStateListOf<ClosedTab>()
+    val recentlyClosed: List<ClosedTab> get() = _recentlyClosed
 
     var currentIndex by mutableIntStateOf(-1)
         private set
@@ -81,6 +84,7 @@ class TabManager(
     fun closeTab(index: Int): TabState? {
         if (index !in _tabs.indices) return currentTab
         val removed = _tabs.removeAt(index)
+        rememberClosed(removed, index)
         releaseBitmaps(removed)
 
         when {
@@ -101,8 +105,9 @@ class TabManager(
     /** Closes every tab except the selected one. */
     fun closeOtherTabs() {
         val current = currentTab ?: return
-        _tabs.forEach { tab ->
+        _tabs.forEachIndexed { index, tab ->
             if (tab.id != current.id) {
+                rememberClosed(tab, index)
                 releaseBitmaps(tab)
             }
         }
@@ -113,12 +118,71 @@ class TabManager(
     }
 
     /** Clears this stack and creates one fresh tab. Used when leaving incognito mode. */
-    fun clearAllTabs() {
+    fun clearAllTabs(remember: Boolean = false) {
+        if (remember) _tabs.forEachIndexed { index, tab -> rememberClosed(tab, index) }
         _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
         currentIndex = -1
         createTab()
         changed()
+    }
+
+    private fun rememberClosed(tab: TabState, index: Int) {
+        if (!rememberClosedTabs || !UrlUtils.isHttpUrl(tab.url)) return
+        _recentlyClosed.add(0, ClosedTab(UUID.randomUUID().toString(), safeTabUrl(tab.url),
+            sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH), index))
+        while (_recentlyClosed.size > MAX_RECENTLY_CLOSED) _recentlyClosed.removeAt(_recentlyClosed.lastIndex)
+    }
+
+    fun reopenClosed(id: String): TabState? {
+        val entry = _recentlyClosed.firstOrNull { it.id == id } ?: return null
+        val replaceBlank = _tabs.size == 1 && _tabs[0].url.let { it.isBlank() || it == ABOUT_BLANK }
+        if (!canCreateTab && !replaceBlank) return null
+        if (replaceBlank) { releaseBitmaps(_tabs[0]); _tabs.clear() }
+        val index = entry.index.coerceIn(0, _tabs.size)
+        val tab = TabState(UUID.randomUUID().toString(), entry.url, entry.title)
+        _tabs.add(index, tab)
+        currentIndex = index
+        _recentlyClosed.remove(entry)
+        changed()
+        return tab
+    }
+
+    fun clearRecentlyClosed() { _recentlyClosed.clear(); changed() }
+
+    fun saveRecentlyClosed(context: Context) {
+        if (!rememberClosedTabs) return
+        context.getSharedPreferences(RECENT_PREFS, Context.MODE_PRIVATE).edit {
+            putString(KEY_RECENT, recentJson())
+        }
+    }
+
+    fun restoreRecentlyClosed(context: Context) {
+        if (!rememberClosedTabs) return
+        restoreRecentJson(context.getSharedPreferences(RECENT_PREFS, Context.MODE_PRIVATE).getString(KEY_RECENT, null))
+    }
+
+    private fun recentJson(): String = JSONArray().apply {
+        _recentlyClosed.forEach { entry -> put(JSONObject().put("id", entry.id).put("url", entry.url)
+            .put("title", entry.title).put("index", entry.index)) }
+    }.toString()
+
+    private fun restoreRecentJson(raw: String?) {
+        if (!rememberClosedTabs || raw == null || raw.length > MAX_PERSISTED_JSON_LENGTH) return
+        val restored = runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until minOf(array.length(), MAX_RECENTLY_CLOSED)) {
+                    val entry = array.optJSONObject(index) ?: continue
+                    val url = safeTabUrl(entry.optString("url"))
+                    if (!UrlUtils.isHttpUrl(url)) continue
+                    add(ClosedTab(UUID.randomUUID().toString(), url,
+                        sanitizePersistedText(entry.optString("title"), MAX_TAB_TITLE_LENGTH),
+                        entry.optInt("index").coerceIn(0, MAX_TABS - 1)))
+                }
+            }
+        }.getOrDefault(emptyList())
+        _recentlyClosed.clear(); _recentlyClosed.addAll(restored); changed()
     }
 
     fun saveCurrentState(webView: WebView) {
@@ -189,6 +253,7 @@ class TabManager(
         return Bundle().apply {
             putString(KEY_TABS, array.toString())
             putInt(KEY_CURRENT, currentIndex)
+            if (rememberClosedTabs) putString(KEY_RECENT, recentJson())
         }
     }
 
@@ -232,6 +297,7 @@ class TabManager(
         _tabs.clear()
         _tabs += restored.take(maxTabs)
         currentIndex = snapshot.getInt(KEY_CURRENT, 0).coerceIn(_tabs.indices)
+        restoreRecentJson(snapshot.getString(KEY_RECENT))
         changed()
         return true
     }
@@ -239,6 +305,7 @@ class TabManager(
     fun cleanup() {
         _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
+        _recentlyClosed.clear()
         currentIndex = -1
     }
 
@@ -275,6 +342,9 @@ class TabManager(
 
     private companion object {
         const val MAX_TABS = 32
+        const val MAX_RECENTLY_CLOSED = 20
+        const val RECENT_PREFS = "recently_closed_tabs"
+        const val KEY_RECENT = "recent"
         const val MAX_TAB_ID_LENGTH = 64
         const val MAX_TAB_URL_LENGTH = 8_192
         const val MAX_TAB_TITLE_LENGTH = 512

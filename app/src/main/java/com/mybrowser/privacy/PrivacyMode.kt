@@ -34,6 +34,13 @@ class PrivacyMode(private val appContext: android.content.Context) {
     var hasRealIsolation: Boolean by mutableStateOf(false)
         private set
 
+    /** Credentials always come from the profile that owns the requesting page. */
+    fun cookiesFor(url: String): String? = runCatching {
+        val manager = if (isIncognito && hasRealIsolation) IncognitoProfile.cookieManager()
+            else CookieManager.getInstance()
+        manager?.getCookie(url)
+    }.getOrNull()
+
     /**
      * Configures [view] for the current mode. Call before the WebView loads anything.
      *

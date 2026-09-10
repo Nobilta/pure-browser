@@ -1,0 +1,31 @@
+The bundled EasyList, EasyPrivacy and EasyList China text files are unmodified
+snapshots retrieved from their official subscription URLs on 2026-09-09.
+Copyright: The EasyList authors (https://easylist.to/), including the EasyList
+China maintainers (https://github.com/easylist/easylistchina/).
+
+These rule data files are redistributed under Creative Commons
+Attribution-ShareAlike 3.0 Unported. The full text is in LICENSE.txt.
+Upstream also offers GPL-3.0-or-later as an alternative:
+https://easylist.to/pages/licence.html
+
+EasyList:
+https://easylist.to/easylist/easylist.txt
+Version 202609090137
+SHA-256 de9267c444f9fa12ca7c2a2f642dccae98b34830f5dd064d8d1234e3269a542f
+
+EasyPrivacy:
+https://easylist.to/easylist/easyprivacy.txt
+Version 202609090137
+SHA-256 5314f07303dd6bda2799fe6d9fe7adc26e2b4313d5637a3281fceb31a04cfbeb
+
+EasyList China:
+https://easylist-downloads.adblockplus.org/easylistchina.txt
+Version 202609090141
+SHA-256 d140f959127e9837e2f9ac042ad089a1bb408ce350e574a97d954254e5c0046c
+
+Source repositories:
+https://github.com/easylist/easylist
+https://github.com/easylist/easylistchina
+
+Only the filtering syntax supported by Pure Browser is applied at runtime.
+The original list contents and attribution headers are retained.

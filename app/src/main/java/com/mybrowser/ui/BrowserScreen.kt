@@ -24,9 +24,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +64,8 @@ fun BrowserScreen(
     onMenu: () -> Unit,
     onTabs: () -> Unit,
     tabCount: Int,
+    mediaCount: Int = 0,
+    onCast: () -> Unit = {},
     showHomeDashboard: Boolean = false,
     homeShortcuts: List<HomeShortcut> = emptyList(),
     onOpenHomeShortcut: (HomeShortcut) -> Unit = {},
@@ -76,6 +83,8 @@ fun BrowserScreen(
     // makes title/favicon mutations recompose this screen even though TabState fields are
     // intentionally lightweight mutable records.
     tabRevision: Int = 0,
+    certificateError: Boolean = false,
+    snackbarHostState: SnackbarHostState? = null,
 ) {
     @Suppress("UNUSED_VARIABLE")
     val observedTabRevision = tabRevision
@@ -150,7 +159,7 @@ fun BrowserScreen(
                     onRefresh = onReloadOrStop,
                     isFocused = state.isOmnibarFocused,
                     isLoading = state.isLoading,
-                    securityLevel = state.securityLevel,
+                    certificateError = certificateError,
                     currentUrl = state.currentUrl,
                     displayTitle = state.displayTitle,
                     onSecurityClick = onSecurityClick,
@@ -220,6 +229,31 @@ fun BrowserScreen(
                 )
             }
 
+            // Inline playback remains owned by the website. This action opens cast
+            // selection without adding a second set of playback controls.
+            if (mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused) {
+                FloatingActionButton(
+                    onClick = onCast,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .padding(16.dp),
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ) {
+                    BadgedBox(badge = { if (mediaCount > 1) Badge { Text(mediaCount.toString()) } }) {
+                        Icon(
+                            painterResource(R.drawable.ic_cast),
+                            contentDescription = stringResource(R.string.cast_detected_sources, mediaCount),
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                }
+            }
+
+            snackbarHostState?.let {
+                SnackbarHost(it, modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
+            }
         }
 
         // --- bottom bar ---

@@ -51,6 +51,19 @@ class BrowserStateTest {
     }
 
     @Test
+    fun navigationClearsFindResultsFromThePreviousDocument() {
+        val state = loadedState()
+        state.showFindBar()
+        state.onFindQueryChange("old phrase")
+        state.onFindResultUpdate(3, 10)
+        state.onPageStarted("https://other.example/new")
+        assertFalse(state.isFindBarVisible)
+        assertEquals("", state.findQuery)
+        assertEquals(0, state.findMatchCount)
+        assertEquals(0, state.findCurrentMatch)
+    }
+
+    @Test
     fun scrollDirectionUsesDensityAndHysteresis() {
         val state = loadedState()
         state.onPageScroll(60, 0, 2f)

@@ -31,6 +31,7 @@ class BrowserWebViewClient(
         fun isCurrentWebView(view: WebView): Boolean = true
 
         fun onPageStarted(url: String)
+        fun onMainFrameNavigation(url: String) {}
         fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean)
         fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {}
         fun onPageError(url: String, code: Int, description: String)
@@ -52,6 +53,7 @@ class BrowserWebViewClient(
 
         /** Navigation the WebView cannot perform; caller opens it elsewhere. */
         fun onExternalUrl(url: String): Boolean
+        fun onUserScriptUrl(url: String): Boolean = false
 
         /**
          * Certificate problem. Implementations MUST NOT call proceed() without asking
@@ -85,9 +87,13 @@ class BrowserWebViewClient(
     ): Boolean {
         if (!listener.isCurrentWebView(view)) return true
         val url = request.url.toString()
+        if (request.isForMainFrame && request.hasGesture() && listener.onUserScriptUrl(url)) return true
 
         // Let the WebView handle anything it can render itself.
-        if (UrlUtils.isInternalScheme(url)) return false
+        if (UrlUtils.isInternalScheme(url)) {
+            if (request.isForMainFrame) listener.onMainFrameNavigation(url)
+            return false
+        }
 
         // Everything else is a handoff to another app. request.hasGesture() is the
         // signal that distinguishes a user tap from a page trying to launch an app on

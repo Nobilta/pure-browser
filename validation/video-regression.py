@@ -22,8 +22,9 @@ spec.loader.exec_module(ux)
 
 
 class Regression:
-    def __init__(self, serial, variant):
+    def __init__(self, serial, variant, expect_enhanced=False):
         self.serial, self.variant = serial, variant
+        self.expect_enhanced = expect_enhanced
         ux.ADB = ["adb", "-s", serial]
         self.sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
         self.case = "api" + self.sdk + "-" + variant + "-" + str(int(time.time()))
@@ -40,7 +41,10 @@ class Regression:
 
     def events(self):
         url = "http://127.0.0.1:8875/__state?case=" + urllib.parse.quote(self.case)
-        return json.load(urllib.request.urlopen(url, timeout=5))
+        events = json.load(urllib.request.urlopen(url, timeout=5))
+        # Concurrent WebView requests can arrive out of order on a busy emulator.
+        # Assertions must use the order in which playback was actually observed.
+        return sorted(events, key=lambda s: s.get("capturedAt", s["receivedAt"] * 1000))
 
     def wait(self, predicate, timeout=8):
         deadline = time.monotonic() + timeout
@@ -77,9 +81,7 @@ class Regression:
         raise AssertionError("A single tap did not reveal fullscreen controls")
 
     def button(self, label, reveal=True):
-        root = self.controls() if reveal else ux.nodes()[0]
-        node = ux.match(root, label)
-        if node is None and label == "Web play/pause" and self.variant == "custom":
+        if label == "Web play/pause" and self.variant == "custom" and ux.match(ux.nodes()[0], label) is None:
             # Older providers can omit the custom fullscreen DOM from accessibility.
             state = self.wait(lambda s: s["fullscreen"] and s.get("webPlayRect", {}).get("width", 0) > 0)
             rect, scale = state["webPlayRect"], state["viewport"]["dpr"]
@@ -87,15 +89,26 @@ class Regression:
                    str(int((rect["y"] + rect["height"] / 2) * scale)))
             time.sleep(.4)
             return
-        if node is None:
-            raise AssertionError("Control missing: " + label)
-        x1, y1, x2, y2 = ux.bounds(node)
-        ux.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-        time.sleep(.4)
+        for _ in range(3):
+            # Controls can auto-hide between a hierarchy dump and a separate shell
+            # input process. Resolve visibility and inject this tap together.
+            if ux.tap_now(label):
+                time.sleep(.4)
+                return
+            if reveal:
+                self.touch()
+            time.sleep(.3)
+        raise AssertionError("Control missing: " + label)
 
     def double_tap(self, x=.5):
-        ux.adb("shell", "env", "CLASSPATH=" + ux.UI_PROBE, "app_process", "/system/bin",
-               "com.mybrowser.validation.FastUiDump", "doubleTap", str(int(self.width * x)), str(self.height // 2))
+        try:
+            ux.adb("shell", "env", "CLASSPATH=" + ux.UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
+                   "com.mybrowser.validation.FastUiDump", "doubleTap", str(int(self.width * x)), str(self.height // 2))
+        except subprocess.CalledProcessError as error:
+            # ART can kill the shell helper during disconnect. Accept only an explicit
+            # completed-injection receipt; every caller still asserts real playback state.
+            if error.returncode != 137 or "Double tapped" not in (error.output or ""):
+                raise
         time.sleep(.5)
 
     def app_window(self):
@@ -115,21 +128,28 @@ class Regression:
             raise AssertionError(output)
         return int(match[1])
 
-    def enter_fullscreen(self):
-        inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
+    def inline_button(self, label, rect_key):
+        inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"]
+                           and s.get(rect_key, {}).get("width", 0) > 0)
         root, _ = ux.nodes()
-        play = ux.match(root, "Play fullscreen")
+        play = ux.match(root, label)
         if play is not None:
             x1, y1, x2, y2 = ux.bounds(play)
             x, y = (x1 + x2) // 2, (y1 + y2) // 2
         else:
             web = next(n for n in root.iter("node") if n.get("class") == "android.webkit.WebView")
-            left, top, _, _ = ux.bounds(web)
-            rect, scale = inline["startRect"], inline["viewport"]["dpr"]
+            left, top, right, bottom = ux.bounds(web)
+            # Popup frames can be painted and playable while an old provider omits
+            # their DOM from accessibility. Use reported geometry for a real touch.
+            rect, scale = inline[rect_key], inline["viewport"]["dpr"]
             frame_top = inline.get("frameTop", 0)
             x = int(left + (rect["x"] + rect["width"] / 2) * scale)
             y = int(top + (frame_top + rect["y"] + rect["height"] / 2) * scale)
+            assert left <= x < right and top <= y < bottom, "Fixture button is outside the visible WebView"
         ux.adb("shell", "input", "tap", str(x), str(y))
+
+    def enter_fullscreen(self):
+        self.inline_button("Play fullscreen", "startRect")
         self.wait(lambda s: s["fullscreen"] and not s["paused"])
         time.sleep(1)
 
@@ -143,16 +163,50 @@ class Regression:
         for port in (8875, 8876):
             ux.adb("reverse", "tcp:" + str(port), "tcp:" + str(port))
         ux.adb("shell", "am", "force-stop", "com.mybrowser")
-        page = "player-cross-frame.html" if self.variant == "cross" else "player-fixture.html"
+        popup = self.variant in ("popup", "popup-cross")
+        cross = self.variant in ("cross", "popup-cross")
+        page = ("player-popup-fixture.html" if popup else
+                "player-cross-frame.html" if cross else "player-fixture.html")
         query = "?case=" + self.case + ("&" + self.variant + "=1" if self.variant in ("blob", "square", "custom") else "")
+        if self.variant == "popup-cross":
+            query += "&cross=1"
+        launch_started = time.monotonic()
         ux.launch("http://127.0.0.1:8875/" + page + query)
-        inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
+        if popup:
+            ux.tap("Open video in new tab", timeout=25)
+        # A cold emulator must build the bundled filter engine and start the media
+        # process. Measure that separately; interaction assertions still use 8 seconds.
+        inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"], timeout=25)
+        self.record("cold page reaches playable metadata", seconds=round(time.monotonic() - launch_started, 2))
+        if popup:
+            for attempt in range(2):
+                after = int(ux.adb("shell", "date", "+%s%3N"))
+                ux.launch("http://127.0.0.1:8875/" + page + query + "&repeat=" + str(attempt))
+                ux.tap("Open video in new tab", timeout=25)
+                inline = self.wait(lambda s: s["capturedAt"] >= after and s["duration"] > 0 and not s["fullscreen"], timeout=25)
+            self.record("three consecutive popup tabs load without reusing a navigated WebView")
+        if self.expect_enhanced:
+            assert inline.get("probe"), "Document-start media probe missing from the popup frame"
         original_brightness = self.brightness()
         original_size = self.snapshot("inline")
         root, _ = ux.nodes()
         assert ux.match(root, "播放速度，当前 1×") is None
-        assert ux.match(root, "投屏") is None
-        self.record("inline page has no floating speed or cast buttons")
+        cast_patterns = [re.escape(strings['cast_detected_sources']).replace(re.escape('%1$d'), r'\d+')
+                         for strings in ux._translations]
+        cast_buttons = [n for n in root.iter('node') if ux.visible(n) and
+                        any(re.fullmatch(p, n.get('content-desc', '')) for p in cast_patterns)]
+        assert len(cast_buttons) == 1, 'Expected one floating cast action for the loaded fixture source'
+        self.record("inline page has one cast action and no duplicate playback controls")
+        if popup and (not cross or inline.get("probe")):
+            self.inline_button("Play inline", "inlinePlayRect")
+            self.wait(lambda s: not s["paused"])
+            ux.tap(cast_buttons[0].get("content-desc"))
+            ux.expect("选择要投送的内容")
+            ux.expect("正在播放")
+            self.snapshot("popup-playing-cast")
+            ux.adb("shell", "input", "keyevent", "4")
+            ux.expect("选择要投送的内容", present=False)
+            self.record("new popup tab retains its playing-media marker after the previous WebView is released")
         self.enter_fullscreen()
         root, _ = ux.nodes()
         if ux.match(root, "Got it") is not None:
@@ -179,7 +233,7 @@ class Regression:
             assert self.snapshot("exited") == original_size
             return
 
-        if self.variant == "cross" and not inline.get("probe"):
+        if cross and not inline.get("probe"):
             assert ux.match(root, "退出全屏") is None
             ux.adb("shell", "input", "keyevent", "4")
             self.wait(lambda s: not s["fullscreen"])
@@ -211,7 +265,7 @@ class Regression:
             self.record("manual rotation and exit restore the original orientation")
             return
         if not enhanced:
-            assert self.variant == "cross", "Main-frame enhanced controls failed"
+            assert cross and not self.expect_enhanced, "Expected enhanced controls failed"
             self.button("退出全屏")
             self.wait(lambda s: not s["fullscreen"])
             self.record("unsupported cross-origin provider preserves webpage playback")
@@ -220,8 +274,7 @@ class Regression:
         self.record("landscape video rotates automatically")
 
         self.button("投屏")
-        root, _ = ux.nodes()
-        assert ux.match(root, "选择要投送的内容") is not None
+        ux.expect("选择要投送的内容")
         self.wait(lambda s: s["fullscreen"])
         self.snapshot("cast-sheet")
         dismiss_started = time.time()
@@ -240,11 +293,18 @@ class Regression:
         self.button("播放速度 1×")
         self.button("1.5×", reveal=False)
         self.wait(lambda s: s["rate"] == 1.5)
+        ux.expect("1.5×", present=False)
         started = time.time()
         self.swipe((.5, .5), (.5, .5), 1500)
-        state = self.wait(lambda s: s["receivedAt"] > started + 1 and s["rate"] == 1.5)
-        during = [s for s in self.events() if s["receivedAt"] >= started]
-        assert any(s["rate"] == 2 for s in during), "Long press did not boost playback"
+        deadline = time.monotonic() + 8
+        while True:
+            during = [s for s in self.events() if s["receivedAt"] >= started]
+            boosted = next((s for s in during if s["rate"] == 2), None)
+            if boosted is not None:
+                break
+            assert time.monotonic() < deadline, "Long press did not boost playback"
+            time.sleep(.2)
+        state = self.wait(lambda s: s["capturedAt"] > boosted["capturedAt"] and s["rate"] == 1.5)
         assert state["defaultRate"] == 1.5
         self.record("long press boosts to 2x and release restores 1.5x")
 
@@ -254,9 +314,12 @@ class Regression:
         self.wait(lambda s: s["rate"] == 2)
         ux.adb("shell", "input", "keyevent", "3")
         hold.wait(timeout=10)
-        resume_started = time.time()
         ux.launch()
-        resumed = self.wait(lambda s: s["receivedAt"] >= resume_started and s["rate"] == 1.5)
+        # Receiving a queued background event is not evidence of the resumed page.
+        # Use the emulator clock so host/device skew cannot admit an older snapshot.
+        resumed_after = int(ux.adb("shell", "date", "+%s%3N"))
+        resumed = self.wait(lambda s: s["capturedAt"] >= resumed_after and s["rate"] == 1.5)
+        self.snapshot("resumed")
         self.record("backgrounding cancels temporary speed before returning", fullscreen=resumed["fullscreen"])
         if not resumed["fullscreen"]:
             assert resumed["controls"] and self.brightness() == original_brightness
@@ -270,6 +333,15 @@ class Regression:
             self.wait(lambda s: not s["controls"] and not s["paused"])
             self.snapshot("reentered")
         self.record("fullscreen handoff works again after backgrounding")
+
+        if self.variant == "blob":
+            for _ in range(3):
+                self.button("退出全屏")
+                self.wait(lambda s: not s["fullscreen"] and s["controls"])
+                self.enter_fullscreen()
+                self.wait(lambda s: not s["controls"] and not s["paused"])
+                self.snapshot("reentered-repeated")
+            self.record("three immediate Blob fullscreen reentries preserve confirmed control handoff")
 
         self.double_tap()
         self.wait(lambda s: s["paused"])
@@ -334,9 +406,10 @@ class Regression:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
-    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square", "custom"], default="standard")
+    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square", "custom", "popup", "popup-cross"], default="standard")
+    parser.add_argument("--expect-enhanced", action="store_true", help="Require the known provider to inject the media probe; do not accept cross-frame fallback")
     args = parser.parse_args()
-    test = Regression(args.serial, args.variant)
+    test = Regression(args.serial, args.variant, args.expect_enhanced)
     try:
         test.run()
     except Exception as error:

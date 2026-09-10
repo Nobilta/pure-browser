@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # Build and stage the Rust JNI libraries used by the Android app.
-#
-# The application currently links adblock and url_utils. cache, downloader and
-# filename_parser are retained as source-compatible legacy integrations and can be included
-# explicitly with INCLUDE_LEGACY_RUST=1.
+# Used by Gradle and standalone builds so target/API resolution and staging stay identical.
 
 set -euo pipefail
 
@@ -71,13 +68,6 @@ mkdir -p "$out_dir"
 
 cp "$CARGO_TARGET_DIR/$TARGET/release/libadblock.so" "$out_dir/libmybrowser_adblock.so"
 cp "$CARGO_TARGET_DIR/$TARGET/release/liburl_utils.so" "$out_dir/libmybrowser_url_utils.so"
-
-if [[ "${INCLUDE_LEGACY_RUST:-0}" == "1" ]]; then
-    cargo build --release --target "$TARGET" -p cache -p downloader -p filename_parser
-    cp "$CARGO_TARGET_DIR/$TARGET/release/libcache.so" "$out_dir/libmybrowser_cache.so"
-    cp "$CARGO_TARGET_DIR/$TARGET/release/libdownloader.so" "$out_dir/libmybrowser_downloader.so"
-    cp "$CARGO_TARGET_DIR/$TARGET/release/libfilename_parser.so" "$out_dir/libmybrowser_filename_parser.so"
-fi
 
 echo "All Rust libraries built successfully:"
 ls -lh "$out_dir"
