@@ -111,4 +111,14 @@ class DesktopSiteTest {
         assertEquals(nested, DesktopSite.of(nested))
         listOf("file:///tmp/page", "javascript:alert(1)", "https://").forEach { assertNull(DesktopSite.of(it)) }
     }
+
+    @Test fun presentationAliasesNeverStripATenantOrPublicSuffixLabel() {
+        listOf("https://m.github.io", "https://www.github.io", "https://m.co.uk",
+            "https://www.co.uk", "https://m.ck", "https://m.kawasaki.jp").forEach {
+            assertEquals(it, DesktopSite.of(it))
+        }
+        assertEquals("https://m.github.io", DesktopSite.of("https://www.m.github.io"))
+        assertEquals("https://example.co.uk", DesktopSite.of("https://m.example.co.uk"))
+        assertEquals("https://www.ck", DesktopSite.of("https://m.www.ck"))
+    }
 }

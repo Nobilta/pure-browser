@@ -2,7 +2,7 @@
 //! Only candidates whose host or three-byte literal occurs in the request reach the
 //! wildcard matcher. Unanchored wildcards use one bounded dynamic-programming pass.
 
-use crate::rule::{domain_matches, Anchor, ResourceType, Rule, SkipReason};
+use crate::rule::{Anchor, ResourceType, Rule, SkipReason};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -193,8 +193,7 @@ impl Matcher {
             first_party_host,
             resource_type,
             is_third_party: !first_party_host.is_empty()
-                && !domain_matches(host, first_party_host)
-                && !domain_matches(first_party_host, host),
+                && !site_identity::same_site(host, first_party_host),
         };
         self.blocking.matches(&request) && !self.exceptions.matches(&request)
     }
@@ -507,9 +506,8 @@ mod tests {
                     for page in ["https://page.test/", "https://other.test/", ""] {
                         let first_party = extract_host(page).unwrap_or("");
                         let host = extract_host(&lower).unwrap_or("");
-                        let third = !first_party.is_empty()
-                            && !domain_matches(host, first_party)
-                            && !domain_matches(first_party, host);
+                        let third =
+                            !first_party.is_empty() && !site_identity::same_site(host, first_party);
                         let matches = |rule: &&Rule| {
                             rule.options_apply(resource, first_party, third)
                                 && pattern_matches(
