@@ -74,6 +74,7 @@
   清晰度、弹幕、网站 DOM 字幕等专属操作可切回网页控件。没有可访问视频元素或无法隔离的播放器仍使用网页原控件。
 - 支持逐 frame 消息和文档开始脚本的 WebView 可以控制跨域视频；旧 Provider 仅支持主文档及可访问同源 frame，
   无法控制的跨域播放器保留原状。能力由 WebView 特性决定，不只看 Android 版本。
+  仅缺文档开始注入、仍支持消息桥的 Provider 在页面加载后注入并保留实时播放状态回传，避免快速切后台时因轮询延迟误暂停。
 - 普通全屏视频支持 Android 画中画；系统媒体按钮可播放、暂停、停止、跳转。后台播放默认关闭，
   开启后当前普通页通过媒体前台服务继续播放；无痕隐藏时暂停且不发布系统媒体标题。
 - 网络请求及已加载 `currentSrc` 提供有界媒体候选，保留完整签名参数，并标记实际匹配的当前播放来源。
@@ -163,7 +164,7 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 
 完整构建执行三语言资源校验、Node 协议测试、Rust fmt/test/clippy、真实 host JNI 的 Android/Robolectric 测试、
 lint、R8 和签名验证。当前自动检查通过 **321 项 Android、58 项 Rust、51 项 Node 测试及 619 项三语言资源校验**。
-构建记录：`validation/results/release-0.7.0/build6.json` 与同名日志。
+构建记录：`validation/results/release-0.7.0/build7.json` 与同名日志。
 
 ```bash
 python3 validation/qa-server.py
@@ -181,8 +182,8 @@ QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、�
 
 ### 交付包
 
-- `PureBrowser-v0.7.0-release.apk`：Android 10+、arm64-v8a，4,683,015 bytes（约 4.47 MiB）。
-- SHA-256：`6941e47a3a1b5177bc0cf1e1033b8ee99d941b5ab81fd0701dccf05120e8f072`。
+- `PureBrowser-v0.7.0-release.apk`：Android 10+、arm64-v8a，4,682,919 bytes（约 4.47 MiB）。
+- SHA-256：`bb878a3cb0cb6ef728e2dd6518f340bba58cf3f1186a748213f74aa048e6945e`。
 - APK Signature Scheme v2 通过，与上一版证书相同；versionCode 10 → 11。
 - 证书 SHA-256：`7d468e8b3a9be385a2386b27ef548e83cb55206e67911d81b721b5adbe1e8236`。
 
