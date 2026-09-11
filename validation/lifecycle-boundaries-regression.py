@@ -29,6 +29,8 @@ def main():
     base = 'http://127.0.0.1:8875/'
     checks = []
     old_night = ux.adb('shell', 'cmd', 'uimode', 'night').split(':')[-1].strip()
+    old_font = ux.adb('shell', 'settings', 'get', 'system', 'font_scale')
+    sdk = int(ux.adb('shell', 'getprop', 'ro.build.version.sdk'))
     installed = ux.adb('shell', 'pm', 'path', a.package).partition(':')[2].strip()
     result = {'passed': False, 'section': a.section, 'checks': checks,
               'apkSha256': ux.adb('shell', 'sha256sum', installed).split()[0]}
@@ -84,7 +86,7 @@ def main():
             assert has_service(), 'Explicit background media did not retain its service'
             ux.launch()
             record('Enabled background playback survives Home and return', before=first['currentTime'], after=after['currentTime'])
-            ux.adb('shell', 'cmd', 'media_session', 'dispatch', 'pause')
+            ux.media_dispatch('pause')
             wait(lambda s: s['paused'])
             ux.menu_item('Enter incognito mode')
             player()
@@ -99,7 +101,7 @@ def main():
             assert 'mode=pinned' not in activity, 'Private video entered PiP'
             time.sleep(1)
             assert not has_service(), 'Private page retained a media foreground service'
-            ux.adb('shell', 'cmd', 'media_session', 'dispatch', 'play')
+            ux.media_dispatch('play')
             time.sleep(1)
             rows = json.load(urllib.request.urlopen(base + '__state?case=' + key, timeout=4))
             assert rows[-1]['paused'], rows[-1]
@@ -118,7 +120,14 @@ def main():
             ux.tap('Store private marker')
             before = wait(lambda s: s['cookie'] == key and s['local'] == key)
             pid = ux.adb('shell', 'pidof', a.package)
-            ux.adb('shell', 'cmd', 'uimode', 'night', 'no' if old_night == 'yes' else 'yes')
+            if sdk < 30:
+                # Android 10 can defer applying a shell night-mode change while
+                # the screen stays on. Font scale triggers a real configuration
+                # recreation; the new document token and unchanged PID prove it.
+                ux.adb('shell', 'settings', 'put', 'system', 'font_scale',
+                       '1.05' if old_font != '1.05' else '1.0')
+            else:
+                ux.adb('shell', 'cmd', 'uimode', 'night', 'no' if old_night == 'yes' else 'yes')
             after = wait(lambda s: s['token'] != before['token'] and s['ready'] == 'complete')
             assert ux.adb('shell', 'pidof', a.package) == pid
             assert after['cookie'] == key and after['local'] == key, after
@@ -131,7 +140,8 @@ def main():
             assert any('Incognito' in n.get('text', '') or '无痕' in n.get('text', '')
                        or '無痕' in n.get('text', '') for n in root.iter('node'))
             record('Activity recreation retains the private session and its storage; removed window entry stays absent',
-                   oldDocument=before['token'], newDocument=after['token'])
+                   oldDocument=before['token'], newDocument=after['token'],
+                   configuration='font scale' if sdk < 30 else 'night mode')
             ux.menu_item('Exit incognito mode')
             private_page()
             normal = wait(lambda s: s['token'] != after['token'] and s['ready'] == 'complete')
@@ -155,6 +165,11 @@ def main():
         (a.output / 'last-screen.xml').write_text(ux.nodes()[1])
         (a.output / 'last-screen.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
         ux.adb('shell', 'cmd', 'uimode', 'night', old_night)
+        if sdk < 30:
+            if old_font == 'null':
+                ux.adb('shell', 'settings', 'delete', 'system', 'font_scale')
+            else:
+                ux.adb('shell', 'settings', 'put', 'system', 'font_scale', old_font)
 
 
 if __name__ == '__main__':

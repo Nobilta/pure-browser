@@ -57,11 +57,29 @@ class Regression:
             time.sleep(.2)
         raise AssertionError("Playback condition not met: " + json.dumps(latest))
 
-    def snapshot(self, suffix):
-        png = subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"], timeout=20)
-        self.width, self.height = struct.unpack(">II", png[16:24])
+    def snapshot(self, suffix, expected_size=None):
+        deadline = time.monotonic() + 10
+        stable = 0
+        while True:
+            png = subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"], timeout=20)
+            self.width, self.height = struct.unpack(">II", png[16:24])
+            if expected_size is None:
+                break
+            stable = stable + 1 if (self.width, self.height) == expected_size else 0
+            if stable >= 2:
+                break
+            assert time.monotonic() < deadline, "Display did not settle at " + str(expected_size)
+            time.sleep(.3)
         (self.output / (self.case + "-" + suffix + ".png")).write_bytes(png)
         return self.width, self.height
+
+    @staticmethod
+    def restored_inline(state):
+        # Exiting fullscreen may hand the same video back to the inline enhanced
+        # layer. Exactly one of it and HTML controls must own the visible player.
+        return (not state["fullscreen"] and state["sameElement"]
+                and state["transientMarkers"] == 0
+                and bool(state["controls"]) != bool(state.get("inlineEnhanced", False)))
 
     def touch(self, x=.5, y=.5):
         ux.adb("shell", "input", "tap", str(int(self.width * x)), str(int(self.height * y)))
@@ -282,7 +300,7 @@ class Regression:
         root, _ = ux.nodes()
         if ux.match(root, "Got it") is not None:
             self.button("Got it", reveal=False)
-        self.snapshot("entered")
+        fullscreen_size = self.snapshot("entered")
         self.record("fullscreen opened", width=self.width, height=self.height)
 
         if custom and (not cross or inline.get("probe")):
@@ -315,7 +333,7 @@ class Regression:
             self.snapshot("rotated")
             assert self.width > self.height
             self.button("退出全屏")
-            self.wait(lambda s: not s["fullscreen"] and s["controls"])
+            self.wait(self.restored_inline)
             time.sleep(1)
             assert self.snapshot("exited") == original_size
             self.record("manual rotation and exit restore the original orientation")
@@ -374,21 +392,46 @@ class Regression:
         self.wait(lambda s: s["rate"] == 2)
         ux.adb("shell", "input", "keyevent", "3")
         hold.wait(timeout=10)
+        # Home can still be transitioning into PiP after the held gesture ends.
+        # Launching during that transition may leave the Activity pinned underneath
+        # a successful am-start receipt, where fullscreen buttons are unavailable.
+        deadline = time.monotonic() + 15
+        while True:
+            activity = ux.adb("shell", "dumpsys", "activity", "activities")
+            pinned = "mode=pinned" in activity or "windowingMode=2" in activity or "mWindowingMode=2" in activity
+            foreground = re.search(r'(?:topResumedActivity|mResumedActivity)[^\n]*com\.mybrowser/[^\n]*MainActivity', activity)
+            if (pinned and "mLastReportedPictureInPictureMode=true" in activity) or (not pinned and not foreground):
+                break
+            assert time.monotonic() < deadline, "Home did not finish leaving the fullscreen Activity"
+            time.sleep(.3)
         ux.launch()
+        deadline = time.monotonic() + 15
+        while True:
+            activity = ux.adb("shell", "dumpsys", "activity", "activities")
+            pinned = "mode=pinned" in activity or "windowingMode=2" in activity or "mWindowingMode=2" in activity
+            foreground = re.search(r'(?:topResumedActivity|mResumedActivity)[^\n]*com\.mybrowser/[^\n]*MainActivity', activity)
+            if foreground and not pinned:
+                break
+            assert time.monotonic() < deadline, "Browser did not expand out of PiP on resume"
+            time.sleep(.3)
         # Receiving a queued background event is not evidence of the resumed page.
         # Use the emulator clock so host/device skew cannot admit an older snapshot.
         resumed_after = int(ux.adb("shell", "date", "+%s%3N"))
         resumed = self.wait(lambda s: s["capturedAt"] >= resumed_after and s["rate"] == 1.5)
-        self.snapshot("resumed")
+        # PiP expansion can report a resumed Activity while the screenshot/input
+        # display is still rotating. A cached portrait height makes later reveal
+        # taps land outside the landscape screen, even though playback is healthy.
+        self.snapshot("resumed", expected_size=fullscreen_size if resumed["fullscreen"] else original_size)
         self.record("backgrounding cancels temporary speed before returning", fullscreen=resumed["fullscreen"])
         if not resumed["fullscreen"]:
-            assert resumed["controls"] and self.brightness() == original_brightness
+            self.wait(self.restored_inline)
+            assert self.brightness() == original_brightness
             self.enter_fullscreen()
             self.wait(lambda s: not s["controls"])
             self.snapshot("reentered")
         else:
             self.button("退出全屏")
-            self.wait(lambda s: not s["fullscreen"] and s["controls"])
+            self.wait(self.restored_inline)
             self.enter_fullscreen()
             self.wait(lambda s: not s["controls"] and not s["paused"])
             self.snapshot("reentered")
@@ -397,7 +440,7 @@ class Regression:
         if self.variant == "blob":
             for _ in range(3):
                 self.button("退出全屏")
-                self.wait(lambda s: not s["fullscreen"] and s["controls"])
+                self.wait(self.restored_inline)
                 self.enter_fullscreen()
                 self.wait(lambda s: not s["controls"] and not s["paused"])
                 self.snapshot("reentered-repeated")
@@ -449,12 +492,13 @@ class Regression:
             for _ in range(2):
                 self.swipe((.999, .5), (.7, .5), 500)
                 time.sleep(.2)
-                gesture_root, _ = ux.nodes()
-                if ux.match(gesture_root, "锁定屏幕") is not None:
+                # A full WebView hierarchy can outlast Android's transient system
+                # bars. Check the native lock first so a second edge swipe arrives
+                # while Back is enabled, instead of only revealing the bars again.
+                if not ux.visible_now("解锁屏幕"):
                     break
-                assert ux.match(gesture_root, "解锁屏幕") is not None, "Edge gesture unexpectedly exited fullscreen"
             self.wait(lambda s: s["fullscreen"])
-            assert ux.match(gesture_root, "锁定屏幕") is not None, "System Back did not unlock the player"
+            assert ux.match(self.controls(), "锁定屏幕") is not None, "System Back did not unlock the player"
             self.record("system edge Back gesture unlocks without exiting the fullscreen video")
 
         self.button("切换到网页控件")
@@ -463,12 +507,12 @@ class Regression:
         self.wait(lambda s: not s["controls"])
         self.record("webpage and enhanced controls can be switched")
         self.button("退出全屏")
-        self.wait(lambda s: not s["fullscreen"] and s["controls"])
+        self.wait(self.restored_inline)
         time.sleep(1)
         size = self.snapshot("exited")
         assert size == original_size, (size, original_size)
         assert self.brightness() == original_brightness
-        self.record("exit restores orientation, brightness and webpage controls")
+        self.record("exit restores orientation, brightness and one working inline control layer")
 
     def save(self, error=None):
         value = {"serial": self.serial, "sdk": self.sdk, "case": self.case,

@@ -88,7 +88,8 @@ class Regression:
         ux.expect('Pure capability article')
 
     def scroll_to(self, label):
-        for _ in range(8):
+        # Landscape at large font sizes exposes only a few rows per swipe.
+        for _ in range(24):
             root, _ = ux.nodes()
             node = ux.match(root, label)
             if node is not None:

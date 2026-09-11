@@ -60,6 +60,12 @@ def adb(*args):
     return subprocess.check_output(ADB + command, text=True, timeout=30).strip()
 
 
+def media_dispatch(action):
+    sdk = int(adb("shell", "getprop", "ro.build.version.sdk"))
+    command = ["media"] if sdk < 30 else ["cmd", "media_session"]
+    return adb("shell", *command, "dispatch", action)
+
+
 def nodes():
     device = tuple(ADB)
     if device not in _probe_available:
@@ -98,18 +104,27 @@ def visible(node):
     return node.get("visible-to-user") != "false" and len(rect) == 4 and rect[2] > rect[0] and rect[3] > rect[1]
 
 
-def tap_now(label):
-    """Resolve a current visible node and inject a real tap in one helper session."""
+def _probe_action(label, action, receipt):
     if _probe_available.get(tuple(ADB)) is False:
         return False
     variants = labels(label) | {value.upper() for value in labels(label)}
     encoded = base64.b64encode(json.dumps(sorted(variants)).encode()).decode()
     command = ["env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
-               "com.mybrowser.validation.FastUiDump", "tap", encoded]
+               "com.mybrowser.validation.FastUiDump", action, encoded]
     result = subprocess.run(ADB + ["shell", shlex.join(command)], text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
     # Some old ART versions can fail during helper shutdown after a successful tap.
-    return "Tapped" in result.stdout
+    return receipt in result.stdout
+
+
+def tap_now(label):
+    """Resolve a current visible node and inject a real tap in one helper session."""
+    return _probe_action(label, "tap", "Tapped")
+
+
+def visible_now(label):
+    """Look up a native control without traversing unrelated WebView descendants."""
+    return _probe_action(label, "visible", "Target visible")
 
 
 def match(root, label):
@@ -120,6 +135,9 @@ def match(root, label):
 
 
 def tap(label, timeout=4):
+    if tap_now(label):
+        time.sleep(0.5)
+        return
     deadline = time.monotonic() + timeout
     while True:
         root, _ = nodes()
