@@ -11,7 +11,6 @@
 }
 
 # Remove logging in release
--keep class com.mybrowser.cast.GoogleCastOptions { public <init>(); }
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);

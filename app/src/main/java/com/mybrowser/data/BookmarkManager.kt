@@ -212,40 +212,6 @@ class BookmarkManager(context: Context) {
         return entries
     }
 
-    @Synchronized
-    fun backupSnapshot(): org.json.JSONObject = db.readableDatabase.transaction { org.json.JSONObject()
-        .put("bookmarks", org.json.JSONArray().apply { bookmarksForExport().forEach { row ->
-            put(org.json.JSONObject().put("id", row.id).put("title", row.title).put("url", row.url)
-                .put("faviconUrl", row.faviconUrl).put("createdAt", row.createdAt).put("folderId", row.folderId).put("position", row.position))
-        } }).put("folders", org.json.JSONArray().apply { getFolders().forEach { folder ->
-            put(org.json.JSONObject().put("id", folder.id).put("parentId", folder.parentId).put("title", folder.title).put("position", folder.position))
-        } }) }
-
-    /** The backup coordinator validates first; this transaction also protects journal recovery. */
-    @Synchronized
-    fun restoreSnapshot(snapshot: org.json.JSONObject) {
-        check(!closed)
-        val folders = com.mybrowser.backup.BackupFormat.bookmarkFolders(snapshot)
-        val rows = snapshot.getJSONArray("bookmarks")
-        require(rows.length() <= BookmarkHtml.MAX_BOOKMARKS)
-        db.writableDatabase.transaction {
-            delete("bookmarks", null, null); delete("bookmark_folders", null, null)
-            folders.forEach { folder -> insertOrThrow("bookmark_folders", null, ContentValues().apply {
-                put("id", folder.id); put("parent_id", folder.parentId); put("title", folder.title); put("position", folder.position)
-            }) }
-            repeat(rows.length()) { i ->
-                val row = rows.getJSONObject(i)
-                val url = row.getString("url")
-                insertOrThrow("bookmarks", null, ContentValues().apply {
-                    put("id", row.getLong("id")); put("title", row.getString("title")); put("url", url)
-                    put("host", SearchKey.host(url)); put("created_at", row.getLong("createdAt"))
-                    put("folder_id", row.optLong("folderId")); put("position", row.optLong("position"))
-                    if (!row.isNull("faviconUrl")) put("favicon_url", row.getString("faviconUrl"))
-                })
-            }
-        }
-    }
-
     /** Editing preserves row identity and fails atomically when another bookmark owns the URL. */
     @Synchronized
     fun updateBookmark(id: Long, title: String, url: String): Boolean {

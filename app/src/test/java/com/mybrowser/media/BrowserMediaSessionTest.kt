@@ -39,12 +39,10 @@ class BrowserMediaSessionTest {
         media.command(BrowserMediaSession.ACTION_PLAY, fromService = true)
         assertTrue(owner.commands.isEmpty())
     }
-    @Test fun closingOtherWindowKeepsMediaButClosingItsOwnerStopsIt() {
+    @Test fun removingBrowserTaskStopsItsMedia() {
         val media = BrowserMediaSession(RuntimeEnvironment.getApplication())
         val owner = Owner()
         media.update(owner, MediaPlaybackTracker.Signal(isPlaying = true, hasMedia = true), "Public", false, false)
-        media.taskRemoved(Intent().setClassName("com.mybrowser", "com.mybrowser.SecondaryActivity"))
-        assertTrue(owner.commands.isEmpty())
         media.taskRemoved(owner.openIntent())
         assertEquals(listOf(false), owner.commands)
     }

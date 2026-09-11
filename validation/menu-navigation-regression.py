@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
+import urllib.request
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('ux', ROOT / 'emulator-ux.py')
@@ -160,7 +161,7 @@ try:
     browser()
     record('a prior exit attempt is disarmed by opening and closing the menu')
 
-    for label in ('书签', '历史记录', '下载', '离线文章', '网站设置', '开发者工具'):
+    for label in ('书签', '历史记录', '下载', '网站设置', '开发者工具'):
         ux.menu_item(label)
         time.sleep(.35)
         foreground()
@@ -203,10 +204,10 @@ try:
     ux.open_settings('视频播放')
     ux.adb('shell', 'input', 'keyevent', '3')
     ux.launch()
-    ux.expect('增强全屏控件')
+    ux.expect('增强视频控件')
     ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '1.15')
     time.sleep(1.2)
-    ux.expect('增强全屏控件')
+    ux.expect('增强视频控件')
     back()
     settings()
     back()
@@ -275,13 +276,45 @@ try:
 
     ux.open_settings('浏览与启动')
     ux.tap('搜索引擎')
-    ux.launch('http://127.0.0.1:8875/browser-ux.html?from=menu')
+    page_probe = prefix + '-page'
+    ux.launch('http://127.0.0.1:8875/browser-ux.html?from=menu&touchProbe=' + page_probe)
     browser()
     # Older WebViews can publish a stale accessibility tree after a dialog closes.
     # Reload through the actual toolbar after attaching the probe, as in browser regressions.
     ux.tap('刷新')
     ux.expect('Pure UX First Page')
-    ux.tap('SPA route')
+    # Some Providers still expose only the WebView root after closing a dialog.
+    # Locate through current fixture geometry, then touch; never invoke JS click().
+    root, _ = ux.nodes()
+    if ux.match(root, 'SPA route') is not None:
+        ux.tap('SPA route')
+    else:
+        deadline = time.monotonic() + 10
+        while True:
+            root, _ = ux.nodes()
+            rows = json.load(urllib.request.urlopen('http://127.0.0.1:8875/__state?case=' + page_probe, timeout=4))
+            state = rows[-1] if rows else None
+            web = next((n for n in root.iter('node') if n.get('class') == 'android.webkit.WebView' and ux.visible(n)), None)
+            if state and web is not None and state['route']['width'] > 0:
+                x1, y1, x2, y2 = ux.bounds(web)
+                scale = (x2 - x1) / state['viewportWidth']
+                rect = state['route']
+                x = x1 + (rect['left'] + rect['width'] / 2) * scale
+                y = y1 + (rect['top'] + rect['height'] / 2) * scale
+                assert x1 < x < x2 and y1 < y < y2, 'SPA button is outside the visible WebView'
+                result['pageTouchGeometry'] = {'x': x, 'y': y, 'page': state}
+                ux.adb('shell', 'input', 'tap', str(round(x)), str(round(y)))
+                break
+            assert time.monotonic() < deadline, 'No current geometry for the visible SPA button'
+            time.sleep(.2)
+    deadline = time.monotonic() + 10
+    while True:
+        rows = json.load(urllib.request.urlopen('http://127.0.0.1:8875/__state?case=' + page_probe, timeout=4))
+        if rows and rows[-1]['title'] == 'Pure UX SPA Updated':
+            result['pageTouchResult'] = rows[-1]
+            break
+        assert time.monotonic() < deadline, 'The real touch did not update the SPA page'
+        time.sleep(.2)
     ux.expect('Pure UX SPA Updated')
     browser()
     snapshot('final-browser-interactive')

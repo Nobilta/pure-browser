@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Install the previous release, create a bookmark in its UI, then update in place."""
-import argparse, importlib.util, json, subprocess, time, hashlib
+import argparse, importlib.util, json, subprocess, time, hashlib, re
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('ux', ROOT / 'emulator-ux.py')
@@ -22,16 +22,17 @@ ux.adb('shell', 'input', 'text', title.replace(' ', '%s')); ux.adb('shell', 'inp
 ux.menu_item('Bookmarks'); ux.expect(title)
 (a.output / 'before.xml').write_text(ux.nodes()[1])
 before = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'before-package.txt').write_text(before)
-assert 'versionCode=9 ' in before
+before_code = int(re.search(r'versionCode=(\d+)', before)[1])
 subprocess.run(ux.ADB + ['install', '-r', str(a.apk)], check=True)
 ux.launch(); ux.menu_item('Bookmarks'); ux.expect(title)
 (a.output / 'after.xml').write_text(ux.nodes()[1])
 (a.output / 'after.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 after = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'after-package.txt').write_text(after)
-assert 'versionCode=10 ' in after
+after_code = int(re.search(r'versionCode=(\d+)', after)[1])
+assert after_code > before_code
 installed = ux.adb('shell', 'pm', 'path', 'com.mybrowser').partition(':')[2].strip()
 expected = hashlib.sha256(a.apk.read_bytes()).hexdigest()
 assert ux.adb('shell', 'sha256sum', installed).split()[0] == expected
 (a.output / 'result.json').write_text(json.dumps({'passed': True, 'apkSha256': expected,
-    'checks': ['Same-package 0.5.2 to 0.6.0 in-place installation accepted', 'Bookmark created by the old release remains visible after database migration']}, indent=2))
+    'checks': [f'Same-package in-place installation accepted: versionCode {before_code} to {after_code}', 'Bookmark created by the old release remains visible after database migration']}, indent=2))
 print('PASS upgrade retained bookmark and installed APK identity', flush=True)

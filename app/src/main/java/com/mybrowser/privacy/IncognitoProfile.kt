@@ -31,12 +31,12 @@ object IncognitoProfile {
 
     private const val TAG = "IncognitoProfile"
 
-    /**
-     * Profile name. Fixed rather than random: a crash mid-session would otherwise orphan a
-     * profile on disk with no name left to delete it by. A fixed name means the next launch
-     * can always clean up. See [deleteStaleProfile].
-     */
-    private const val PROFILE_NAME = "incognito"
+    // Loaded profiles cannot be deleted in this process, even after their WebViews die.
+    // A reserved prefix allows the next process to discover and delete crashed sessions.
+    private val sessions = IncognitoSessionRegistry(
+        profileNames = { ProfileStore.getInstance().allProfileNames },
+        deleteProfile = { ProfileStore.getInstance().deleteProfile(it) },
+    )
 
     /** True when the platform gives us real per-profile isolation. */
     val isSupported: Boolean
@@ -50,9 +50,9 @@ object IncognitoProfile {
      */
     fun attach(webView: WebView): Boolean {
         if (!isSupported) return false
+        val name = sessions.activeName ?: return false
         return try {
-            ProfileStore.getInstance().getOrCreateProfile(PROFILE_NAME)
-            WebViewCompat.setProfile(webView, PROFILE_NAME)
+            WebViewCompat.setProfile(webView, name)
             true
         } catch (e: IllegalStateException) {
             // Thrown if the WebView has already been used, or the profile is still attached
@@ -64,29 +64,18 @@ object IncognitoProfile {
 
     /** Removes a previous crashed session before a new incognito profile is attached. */
     fun prepare() {
-        if (isSupported) deleteStaleProfile()
+        if (isSupported) sessions.begin()
     }
 
     /**
-     * Deletes the incognito profile and everything it stored.
+     * Retires this session and requests deletion after its WebViews have been destroyed.
      *
-     * Call only after every WebView using it has been destroyed — WebView refuses to delete
-     * a profile that is still attached, and that refusal is how a session's data survives a
-     * sloppy teardown.
+     * A loaded profile can remain undeletable until process restart. PrivacyMode clears its
+     * browsing data first, and future sessions always use a different name.
      */
     fun destroy(): Boolean {
         if (!isSupported) return true
-        return try {
-            ProfileStore.getInstance().deleteProfile(PROFILE_NAME)
-            true
-        } catch (e: IllegalStateException) {
-            // Still in use. The next launch's deleteStaleProfile catches it.
-            Log.w(TAG, "incognito profile still in use, deferring deletion", e)
-            false
-        } catch (e: IllegalArgumentException) {
-            // Already gone, or never created. Nothing to do.
-            true
-        }
+        return sessions.end()
     }
 
     /**
@@ -94,22 +83,15 @@ object IncognitoProfile {
      */
     fun deleteStaleProfile() {
         if (!isSupported) return
-        try {
-            if (PROFILE_NAME in ProfileStore.getInstance().allProfileNames) {
-                ProfileStore.getInstance().deleteProfile(PROFILE_NAME)
-            }
-        } catch (e: IllegalStateException) {
-            Log.w(TAG, "stale incognito profile in use", e)
-        } catch (e: IllegalArgumentException) {
-            // Not present.
-        }
+        if (!sessions.cleanupStale()) Log.w(TAG, "Some private profiles await a later process cleanup")
     }
 
     /** The incognito profile's cookie manager, or null when unsupported. */
     fun cookieManager(): android.webkit.CookieManager? {
         if (!isSupported) return null
+        val name = sessions.activeName ?: return null
         return try {
-            ProfileStore.getInstance().getProfile(PROFILE_NAME)?.cookieManager
+            ProfileStore.getInstance().getProfile(name)?.cookieManager
         } catch (e: IllegalStateException) {
             null
         }
@@ -118,8 +100,9 @@ object IncognitoProfile {
     /** The live profile, for callers needing its web storage. Null when unsupported. */
     fun profileOrNull(): Profile? {
         if (!isSupported) return null
+        val name = sessions.activeName ?: return null
         return try {
-            ProfileStore.getInstance().getProfile(PROFILE_NAME)
+            ProfileStore.getInstance().getProfile(name)
         } catch (e: IllegalStateException) {
             null
         }
