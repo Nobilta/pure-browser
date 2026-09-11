@@ -32,6 +32,7 @@ object BackupFormat {
     val preferenceKeys = mapOf(
         "browser_preferences" to mapOf("theme" to "string", "reading_text_zoom" to "int", "protect_private_screens" to "boolean",
             "bottom_address_bar" to "boolean", "swipe_tabs" to "boolean", "video_controls" to "boolean", "video_vertical" to "boolean",
+            "video_auto_pip" to "boolean", "video_background" to "boolean",
             "video_seek" to "boolean", "video_hold" to "boolean", "video_boost" to "float", "video_landscape" to "boolean",
             "video_remember_speed" to "boolean", "video_speed" to "float"),
         "search_engines" to mapOf("current_engine_id" to "string", "custom_engines" to "string"),
@@ -175,6 +176,10 @@ object BackupFormat {
             require(ids.add(metadata.id))
             total += source.toByteArray().size
             val dependencies = script.optJSONArray("requires") ?: JSONArray()
+            val resources = com.mybrowser.userscript.ScriptResource.readMap(script.optJSONObject("resources") ?: JSONObject())
+            require(metadata.resources.keys.containsAll(resources.keys))
+            if (script.optBoolean("enabled")) require(resources.keys == metadata.resources.keys)
+            total += resources.values.sumOf { it.bytes().size.toLong() }
             require(dependencies.length() <= 8)
             if (script.optBoolean("enabled")) require(metadata.supported && dependencies.length() == metadata.requires.size)
             repeat(dependencies.length()) { n ->

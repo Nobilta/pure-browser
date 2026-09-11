@@ -9,10 +9,35 @@ import java.io.File
 
 /** No runner dependency enters the app; run with adb am instrument -w. */
 class NativeFilterInstrumentation : Instrumentation() {
-    override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
+    private var suite: String? = null
+    override fun onCreate(arguments: Bundle?) { suite = arguments?.getString("suite"); super.onCreate(arguments); start() }
     override fun onStart() {
         val result = Bundle()
         try {
+            if (suite == "login") {
+                val report = JSONObject()
+                runOnMainSync {
+                    (targetContext.applicationContext as com.mybrowser.App).prepareWebEngine()
+                    val view = android.webkit.WebView(targetContext)
+                    try {
+                        com.mybrowser.core.SystemLoginSupport.configure(view, false)
+                        check(view.importantForAutofill == android.view.View.IMPORTANT_FOR_AUTOFILL_AUTO)
+                        val supported = com.mybrowser.core.SystemLoginSupport.supportsWebAuthn
+                        val originGranted = com.mybrowser.core.SystemLoginSupport.hasOriginPermission(targetContext)
+                        check(originGranted) { "Browser WebAuthn requires the declared origin permission" }
+                        if (supported) check(androidx.webkit.WebSettingsCompat.getWebAuthenticationSupport(view.settings) ==
+                            androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER)
+                        com.mybrowser.core.SystemLoginSupport.configure(view, true)
+                        check(view.importantForAutofill == android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS)
+                        if (supported) check(androidx.webkit.WebSettingsCompat.getWebAuthenticationSupport(view.settings) ==
+                            androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE)
+                        report.put("passed", true).put("webAuthnSupported", supported).put("originPermissionGranted", originGranted)
+                            .put("normalAutofill", true).put("privateAutofillDisabled", true).put("privateWebAuthnDisabled", supported)
+                            .put("webView", android.webkit.WebView.getCurrentWebViewPackage()?.versionName)
+                    } finally { view.destroy() }
+                }
+                result.putString("report", report.toString()); finish(-1, result); return
+            }
             val rows = JSONArray()
             checkNotNull(NativeFilter.createOrNull()).use { engine ->
                 val started = System.nanoTime()

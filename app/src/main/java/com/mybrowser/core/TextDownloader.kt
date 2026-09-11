@@ -30,7 +30,7 @@ class TextDownloader {
                     connection.connectTimeout = 15_000
                     connection.readTimeout = 20_000
                     connection.instanceFollowRedirects = false
-                    connection.setRequestProperty("User-Agent", "PureBrowser/0.4.1")
+                    connection.setRequestProperty("User-Agent", "PureBrowser")
                     connection.setRequestProperty("Accept", "text/plain, application/javascript, */*;q=0.1")
                     connection.setRequestProperty("Accept-Encoding", "gzip")
                     etag?.takeIf { it.length <= 1024 && !it.contains('\n') && !it.contains('\r') }

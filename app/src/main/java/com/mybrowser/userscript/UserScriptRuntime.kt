@@ -120,14 +120,16 @@ class UserScriptRuntime(
         val config = JSONObject()
             .put("id", metadata.id).put("name", metadata.name).put("namespace", metadata.namespace)
             .put("version", metadata.version).put("description", metadata.description)
+            .put("browserVersion", runCatching { view.context.packageManager.getPackageInfo(view.context.packageName, 0).versionName }.getOrNull().orEmpty())
             .put("matches", JSONArray(metadata.matches)).put("includes", JSONArray(metadata.includes))
             .put("excludes", JSONArray(metadata.excludes)).put("excludeMatches", JSONArray(metadata.excludeMatches))
             .put("grants", JSONArray(metadata.grants)).put("noframes", metadata.noframes)
             .put("runAt", metadata.runAt).put("needsStorage", metadata.needsStorage)
             .put("values", script.values).put("token", tokens[metadata.id])
+            .put("resources", JSONObject().also { obj -> script.resources.forEach { (name, resource) -> obj.put(name, resource.runtimeJson()) } })
             .put("bridge", if (bridgeInstalled) bridgeName else "")
             .put("meta", script.source.substringBefore("// ==/UserScript==") + "// ==/UserScript==")
-        val args = "GM, GM_info, GM_addStyle, GM_getValue, GM_setValue, GM_deleteValue, GM_listValues, GM_log, GM_openInTab, unsafeWindow"
+        val args = "GM, GM_info, GM_addStyle, GM_getValue, GM_setValue, GM_deleteValue, GM_listValues, GM_log, GM_openInTab, GM_getResourceText, GM_getResourceURL, unsafeWindow"
         return source + "(" + config.toString() + ", function(api) {\nconst {" + args + "} = api;\n" +
             script.requiredCode.joinToString("\n;\n") + "\n;\n" + script.source +
             "\n});\n//# sourceURL=pure-userscript-" + metadata.id + ".js"

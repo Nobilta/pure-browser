@@ -54,8 +54,8 @@ echo "运行 Rust 格式/测试/clippy..."
     cd "$SCRIPT_DIR/rust"
     cargo fmt --all -- --check
 )
-cargo test --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --all
-cargo clippy --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --workspace --all-targets -- -D warnings
+cargo test --locked --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --all
+cargo clippy --locked --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --workspace --all-targets -- -D warnings
 
 echo "运行 Android 单元测试、Lint 并构建 Release APK..."
 ./gradlew "${BUILD_TASKS[@]}" --console=plain
@@ -68,15 +68,8 @@ fi
 
 version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["elements"][0]["versionName"])' "$SCRIPT_DIR/app/build/outputs/apk/release/output-metadata.json")"
 delivery="$SCRIPT_DIR/PureBrowser-v${version}-release.apk"
-cp "$apk" "$delivery"
-size="$(wc -c < "$delivery" | tr -d ' ')"
-hash="$(shasum -a 256 "$delivery" | awk '{print $1}')"
-echo "Release APK: $delivery"
-echo "大小: ${size} bytes"
-echo "SHA-256: $hash"
-
 if command -v apksigner >/dev/null 2>&1; then
-    apksigner verify --verbose "$delivery"
+    apksigner verify --verbose "$apk"
 else
     # Android command-line installations often keep apksigner outside PATH. Resolve it
     # from the same SDK selected by local.properties/environment so the default local
@@ -93,12 +86,21 @@ else
         signer="$(find "$sdk_dir/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner -perm -111 -print 2>/dev/null | sort -V | tail -n 1)"
     fi
     if [[ -n "$signer" ]]; then
-        "$signer" verify --verbose "$delivery"
+        "$signer" verify --verbose "$apk"
     else
         echo "未找到 apksigner，无法验证可安装的 Release 签名。" >&2
         exit 1
     fi
 fi
+
+# Publish only after verification, so an unsigned build cannot replace a usable delivery.
+cp "$apk" "$delivery.tmp"
+mv -f "$delivery.tmp" "$delivery"
+size="$(wc -c < "$delivery" | tr -d ' ')"
+hash="$(shasum -a 256 "$delivery" | awk '{print $1}')"
+echo "Release APK: $delivery"
+echo "大小: ${size} bytes"
+echo "SHA-256: $hash"
 
 if [[ "${INSTALL:-0}" == "1" ]]; then
     require_command adb

@@ -14,10 +14,12 @@ activity = "1.13.0"
 core = "1.19.0"
 webkit = "1.17.0"
 coroutines = "1.11.0"
+cast = "22.3.1"
+appcompat = "1.7.1"
 
-# Compose baseline constraints. Transitive Activity/navigationevent dependencies
-# can raise resolved UI/runtime versions; inspect releaseRuntimeClasspath when debugging.
-composeBom = "2024.09.03"
+# Align compile/runtime UI, Foundation and Runtime at 1.9.4; Material 3 at 1.4.0.
+# The resolved graph is committed in app/gradle.lockfile.
+composeBom = "2025.10.01"
 # activity-compose is NOT in the BOM's dependencyManagement, so it carries its own
 # version. Kept in step with `activity` above, which it supersedes.
 activityCompose = "1.13.0"
@@ -44,6 +46,8 @@ androidx-core = { group = "androidx.core", name = "core", version.ref = "core" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+google-cast = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "cast" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 # --- Compose ---
 # The entries without a version get it from the BOM below.
@@ -51,6 +55,7 @@ compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = 
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
 compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+compose-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 # setContent, BackHandler, rememberLauncherForActivityResult.
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }

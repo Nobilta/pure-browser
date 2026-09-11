@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System login fixture</title>
+<style>body{font:18px system-ui;padding:16px}input,button{display:block;padding:12px;margin:12px 0;max-width:85vw}</style>
+<h1>System login fixture</h1>
+<form onsubmit="event.preventDefault();report('form-submitted')">
+<label>Username<input name="username" autocomplete="username"></label>
+<label>Password<input name="password" type="password" autocomplete="current-password"></label>
+<button type="submit">Submit local form</button></form>
+<button id="start">Start passkey request</button><button id="cancel">Cancel passkey request</button>
+<p id="result">Ready</p>
+<script>
+let controller, outcome='ready';
+const caseId=new URLSearchParams(location.search).get('case')||'login';
+function report(value){if(value)outcome=value;document.querySelector('#result').textContent=outcome;
+fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+ ready:document.readyState,secure:isSecureContext,publicKey:typeof PublicKeyCredential==='function',outcome
+})}).catch(()=>{});}
+document.querySelector('#start').onclick=async()=>{
+ controller=new AbortController();report('requesting');
+ // Fixed synthetic challenge: no account, token or real credential is used or stored.
+ const timer=setTimeout(()=>controller.abort(),3000);
+ try{await navigator.credentials.get({publicKey:{challenge:new Uint8Array(32),timeout:5000,userVerification:'discouraged'},signal:controller.signal});report('unexpected-credential');}
+ catch(error){report(error.name);}
+ finally{clearTimeout(timer);}
+};
+document.querySelector('#cancel').onclick=()=>controller?.abort();
+addEventListener('pagehide',()=>controller?.abort());addEventListener('load',()=>report());setInterval(()=>report(),600);
+</script></html>

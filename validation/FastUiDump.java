@@ -42,7 +42,12 @@ public final class FastUiDump {
         UiAutomation automation = UiAutomation.class.getConstructor(Looper.class, connectionInterface)
                 .newInstance(thread.getLooper(), connection);
         try {
-            UiAutomation.class.getMethod("connect").invoke(automation);
+            if (args.length > 0 && args[0].startsWith("a11y")) {
+                // Keep the real screen reader active while observing focus or injecting
+                // a TalkBack double tap. Ordinary automation still uses its normal mode.
+                UiAutomation.class.getMethod("connect", int.class).invoke(automation,
+                        UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
+            } else UiAutomation.class.getMethod("connect").invoke(automation);
             if (args.length == 2 && args[0].equals("sequence")) {
                 JSONArray events = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
                 if (events.length() > 256) throw new IllegalArgumentException("Too many input events");
@@ -71,7 +76,7 @@ public final class FastUiDump {
                     }
                 }
                 System.out.println("Sequence completed in " + (SystemClock.uptimeMillis() - started) + " ms");
-            } else if (args.length == 3 && args[0].equals("doubleTap")) {
+            } else if (args.length == 3 && (args[0].equals("doubleTap") || args[0].equals("a11yDoubleTap"))) {
                 doubleTap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
                 System.out.println("Double tapped");
             } else if (args.length == 1 && args[0].equals("selectAll")) {
@@ -215,6 +220,8 @@ public final class FastUiDump {
         attribute(xml, "selected", node.isSelected());
         attribute(xml, "clickable", node.isClickable());
         attribute(xml, "enabled", node.isEnabled());
+        attribute(xml, "accessibility-focused", node.isAccessibilityFocused());
+        attribute(xml, "reported-child-count", node.getChildCount());
         attribute(xml, "scrollable", node.isScrollable());
         attribute(xml, "visible-to-user", node.isVisibleToUser());
         Rect bounds = new Rect();

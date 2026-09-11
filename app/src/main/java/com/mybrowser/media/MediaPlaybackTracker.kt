@@ -29,6 +29,8 @@ class MediaPlaybackTracker(
         val score: Int = 0,
         val playbackRate: Float? = null,
         val hasVideo: Boolean = false,
+        val hasMedia: Boolean = hasVideo,
+        val muted: Boolean = false,
         val frameId: String = "",
         val videoId: String = "",
         val position: Double = 0.0,
@@ -42,7 +44,7 @@ class MediaPlaybackTracker(
         val nativeControlsAvailable: Boolean = false,
         val sourceUrl: String? = null,
     ) {
-        val canSeek: Boolean get() = hasVideo && duration > 0 && seekEnd > seekStart
+        val canSeek: Boolean get() = hasMedia && duration > 0 && seekEnd > seekStart
         val identity: String get() = "$frameId/$videoId"
         val canUseEnhancedControls: Boolean get() = hasVideo && isFullscreen && nativeControlsAvailable
     }
@@ -147,6 +149,15 @@ class MediaPlaybackTracker(
     }
 
     fun togglePlayback(onResult: (Boolean) -> Unit = {}) = send(target(), "togglePlayback", onResult = onResult)
+    fun setPlaying(value: Boolean) = send(target(), if (value) "play" else "pause")
+
+    /** System Pause/noisy/ownership changes silence the whole document, across frames. */
+    fun pauseAll() {
+        frames.values.toList().forEach { frame ->
+            send(Target(frame.signal.frameId, frame.signal.videoId, frame.proxy), "pauseAll")
+        }
+        runCatching { webView.evaluateJavascript(walkScript("api.pauseAll();", "true"), null) }
+    }
 
     /** Pause every known frame and prevent autoplay while the tab is parked. */
     fun setSuspended(value: Boolean) {
@@ -187,7 +198,7 @@ class MediaPlaybackTracker(
         }
     }
 
-    private fun activeTarget(): Target? = frames[current.frameId]?.takeIf { it.signal.hasVideo }?.let {
+    private fun activeTarget(): Target? = frames[current.frameId]?.takeIf { it.signal.hasMedia }?.let {
         Target(it.signal.frameId, it.signal.videoId, it.proxy)
     }
     private fun target(): Target? = fullscreenTarget ?: activeTarget()
@@ -232,7 +243,7 @@ class MediaPlaybackTracker(
         frames.entries.removeAll { now - it.value.time > 4_000L }
         while (frames.size > 32) frames.remove(frames.keys.first())
         val pinned = fullscreenTarget
-        val best = frames.values.filter { it.signal.hasVideo }.maxWithOrNull(
+        val best = frames.values.filter { it.signal.hasMedia }.maxWithOrNull(
             compareBy<Frame> { it.signal.isFullscreen }
                 .thenBy { it.signal.frameId == pinned?.frameId && it.signal.videoId == pinned?.videoId }
                 .thenBy { it.signal.isPlaying }.thenBy { it.signal.score },
@@ -293,6 +304,7 @@ class MediaPlaybackTracker(
             val frame = json.optString("frameId").takeIf { it.isNotBlank() && it.length <= 128 } ?: return null
             val video = json.optString("videoId").takeIf { it != "null" && it.length <= 64 }.orEmpty()
             val hasVideo = video.isNotEmpty() && json.optBoolean("hasVideo")
+            val hasMedia = video.isNotEmpty() && json.optBoolean("hasMedia", hasVideo)
             fun seconds(key: String): Double = json.optDouble(key, 0.0).takeIf { it.isFinite() }
                 ?.coerceIn(0.0, 31_536_000.0) ?: 0.0
             val urls = buildList {
@@ -303,11 +315,11 @@ class MediaPlaybackTracker(
                 }
             }.distinct()
             return Signal(
-                isPlaying = hasVideo && json.optBoolean("playing"), urls = urls,
+                isPlaying = hasMedia && json.optBoolean("playing"), urls = urls,
                 frameUrl = json.optString("frameUrl").take(8192),
                 score = json.optInt("score").coerceIn(0, 20_000),
                 playbackRate = PlaybackSpeed.sanitizeObserved(json.optDouble("playbackRate", Double.NaN).toFloat()),
-                hasVideo = hasVideo, frameId = frame, videoId = video,
+                hasVideo = hasVideo, hasMedia = hasMedia, muted = json.optBoolean("muted"), frameId = frame, videoId = video,
                 position = seconds("position"), duration = seconds("duration"),
                 seekStart = seconds("seekStart"), seekEnd = seconds("seekEnd"),
                 width = json.optInt("width").coerceIn(0, 16384), height = json.optInt("height").coerceIn(0, 16384),
@@ -315,7 +327,7 @@ class MediaPlaybackTracker(
                 isBoosting = hasVideo && json.optBoolean("boosting"),
                 nativeControlsAvailable = hasVideo && json.optBoolean("nativeControlsAvailable"),
                 sourceUrl = json.optString("sourceUrl").takeIf {
-                    hasVideo && it.length <= 8192 && it.toUri().scheme in listOf("http", "https", "blob")
+                    hasMedia && it.length <= 8192 && it.toUri().scheme in listOf("http", "https", "blob")
                 },
             )
         }

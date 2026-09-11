@@ -33,11 +33,18 @@ class UserScriptMetadataTest {
         assertFalse(value.matchesUrl("about:blank"))
     }
 
-    @Test fun unsupportedGrantsAndResourcesCannotSilentlyEnable() {
+    @Test fun unsupportedCrossOriginGrantCannotBeEnabledAlongsideResources() {
         val value = script("// @match https://example.com/*\n// @grant GM_xmlhttpRequest\n// @resource icon https://site.test/i.png")
         assertFalse(value.supported)
         assertTrue(value.unsupported.contains("@grant GM_xmlhttpRequest"))
-        assertTrue(value.unsupported.contains("@resource"))
+        assertEquals("https://site.test/i.png", value.resources["icon"])
+    }
+
+    @Test fun resourceNamesAndGrantsAreBoundedAndValidated() {
+        assertTrue(script("// @match *://*/*\n// @resource theme https://site.test/a.css\n// @grant GM_getResourceText\n// @grant GM.getResourceUrl").supported)
+        assertFalse(script("// @match *://*/*\n// @resource ../theme https://site.test/a.css").supported)
+        assertFalse(script("// @match *://*/*\n// @resource icon file:///etc/private").supported)
+        assertFalse(script("// @match *://*/*\n// @resource icon https://site.test/a\n// @resource icon https://site.test/b").supported)
     }
 
     @Test fun missingMatchesRegexIncludesAndMalformedPatternsAreExplicit() {

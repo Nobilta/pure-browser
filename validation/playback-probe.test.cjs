@@ -14,7 +14,7 @@ function fixture(count = 1) {
     createElement() { return { textContent: '', sheet: { cssRules: [{}] }, remove() { const i = styles.indexOf(this); if (i >= 0) styles.splice(i, 1); } }; },
     addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); },
     removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
-    querySelectorAll(name) { return name === 'video' ? videos : []; },
+    querySelectorAll(name) { return name === 'video' || name === 'video,audio' ? videos : []; },
   };
   function event(type, target) { for (const fn of listeners.get(type) || []) fn({ type, target }); }
   const videos = Array.from({ length: count }, (_, i) => {
@@ -293,4 +293,29 @@ test('hiding the document restores a held speed immediately', () => {
   f.command('beginBoost', { rate: 2 });
   f.doc.hidden = true; f.event('visibilitychange', f.doc);
   assert.equal(f.videos[0].playbackRate, 1.25);
+});
+
+test('parking pauses media and prevents a page or remote command from restarting it', () => {
+  const f = fixture(), v = f.videos[0];
+  f.api.suspend(true); assert.equal(v.paused, true);
+  v.play(); assert.equal(v.paused, true);
+  f.command('play'); assert.equal(v.paused, true);
+  f.api.suspend(false); f.command('play'); assert.equal(v.paused, false);
+  f.command('pause'); assert.equal(v.paused, true);
+});
+test('audio elements report media without claiming fullscreen video controls', () => {
+  const f = fixture(), v = f.videos[0]; v.tagName = 'AUDIO';
+  const state = f.api.snapshot();
+  assert.equal(state.hasMedia, true); assert.equal(state.hasVideo, false);
+  assert.equal(state.nativeControlsAvailable, false); assert.equal(state.playing, true);
+});
+
+test('system pause silences all audio/video elements while allowing explicit resume', () => {
+  const f = fixture(3); f.videos[1].tagName = 'AUDIO';
+  f.command('beginBoost', { rate: 2 });
+  assert.equal(f.command('pauseAll'), true);
+  assert.ok(f.videos.every(v => v.paused));
+  assert.equal(f.videos[0].playbackRate, 1);
+  f.command('play');
+  assert.equal(f.api.snapshot().playing, true);
 });
