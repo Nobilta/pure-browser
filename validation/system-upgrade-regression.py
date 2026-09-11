@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-touch organization, address bar, search and reading regression on a dedicated AVD."""
+"""Real-touch organization, address bar, search and large-font regression on a dedicated AVD."""
 import argparse
 import base64
 import importlib.util
@@ -106,17 +106,17 @@ def main():
         ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '2.0')
         time.sleep(1)
         ux.launch('http://127.0.0.1:8875/capabilities-fixture.html')
-        ux.menu_item('阅读模式')
-        ux.expect('Pure capability article')
+        ux.menu_item('网站设置')
+        ux.expect('保存并刷新')
         root, _ = ux.nodes()
         safe = ux.stable_display_bounds(root)
-        for key in ('cd_back', 'reading_text_size', 'reading_copy'):
-            node = ux.match(root, labels[key])
+        for label in ('取消', '保存并刷新'):
+            node = ux.match(root, label)
             assert node is not None
             x1, y1, x2, y2 = ux.bounds(node)
-            assert y1 >= safe[1] and y2 <= safe[3], (key, ux.bounds(node), safe)
-        record('Reader controls remain reachable at 200 percent system font scale')
-        back()
+            assert y1 >= safe[1] and y2 <= safe[3], (label, ux.bounds(node), safe)
+        record('Website settings actions remain reachable at 200 percent system font scale')
+        ux.tap('取消')
         (args.output / 'result.json').write_text(json.dumps({'checks': checks, 'passed': True}, indent=2))
     finally:
         ux.adb('shell', 'settings', 'put', 'system', 'font_scale', font)

@@ -72,7 +72,6 @@ fun CastSheet(
     onRefreshStatus: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     lastError: String? = null,
-    onGoogleCast: ((MediaSniffer.Candidate) -> Unit)? = null,
 ) {
     val textResources = localizedResources()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -122,10 +121,6 @@ fun CastSheet(
                     color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
             item { SectionHeader(stringResource(R.string.cast_pick_media)) }
-            if (onGoogleCast != null) item {
-                TextButton(onClick = { selected?.let(onGoogleCast) }, enabled = selected != null,
-                    modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.google_cast)) }
-            }
 
             items(candidates, key = { it.url }) { candidate ->
                 MediaRow(

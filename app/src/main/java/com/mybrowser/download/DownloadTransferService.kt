@@ -37,7 +37,6 @@ class DownloadTransferService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         updateNotificationChannel()
-        if ((application as App).restoreBlocked) return
         val active = (application as App).downloadHandler.activeTransfers.value
         if (active.isNotEmpty()) notificationManager.notify(NOTIFICATION_ID, createNotification(active))
     }
@@ -56,7 +55,6 @@ class DownloadTransferService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if ((application as App).restoreBlocked) { stopSelf(startId); return START_NOT_STICKY }
         val handler = (application as App).downloadHandler
         startForeground(
             NOTIFICATION_ID,
@@ -92,7 +90,7 @@ class DownloadTransferService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        if (!(application as App).restoreBlocked) (application as App).downloadHandler.pauseActiveTransfers()
+        (application as App).downloadHandler.pauseActiveTransfers()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
@@ -130,7 +128,11 @@ class DownloadTransferService : Service() {
                         DownloadStatus.SAVING -> R.string.download_saving
                         DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
                         else -> R.string.download_queued
-                    }) else
+                    }) else if (it.totalBytes <= 0L) getString(
+                        R.string.download_progress_unknown,
+                        android.text.format.Formatter.formatShortFileSize(this, it.bytesDownloaded),
+                        it.threadCount,
+                    ) else
                     getString(
                         R.string.download_notification_progress,
                         it.progress,

@@ -1,72 +1,65 @@
 # 增强播放器接管与验证
 
-日期：2026-09-11；版本：0.6.0（versionCode 10）。
+版本：0.7.0。安装包、测试数量和实际模拟器结果分别以 [README](../README.md)
+和 [模拟器报告](../EMULATOR_TEST_REPORT.md) 为准。本文件说明播放器的验收方法与覆盖边界。
 
-本次在续接任务已有的 0.6.0 代码上扩大增强全屏覆盖：视频进入全屏后，网站自带控件或自定义容器不再阻止接管。
-控制的是网页已经加载的视频元素，保留来源、播放进度、倍速和音量；网页内播放仍由网站入口触发。
+## 接管原则
+
+网页内小播放器和全屏视频均默认尝试使用增强控件，网站已有自定义播放器不再直接排除。
+控制的是已加载的原始 `<video>`，不复制节点、不改写来源、不另开解码器；直链和 Blob 使用同一控制路径。
+
+内嵌控件包含播放/暂停、进度、倍速、静音、全屏和恢复网页控件，随画面滚动、缩放与布局变化定位。
+最小视频尺寸为 160×90 CSS px，可见区域至少 100×64；每个文档最多扫描 64 个视频、同时接管 8 个。
+紧凑布局保留播放、倍速、全屏、恢复和进度，隐藏时间文字及静音按钮，避免按钮挤出小画面。
+
+浏览器只隔离贴近视频的播放器容器，并检查原画面尺寸、控件隐藏效果、样式和遮挡。
+无法隔离、CSP 限制样式、控件样式被删、目标失效或命令失败时撤下增强层，恢复原来的控件属性。
+主动选择恢复网页控件后，同一节点和来源不会被反复抢回；更换节点或媒体来源后可重新尝试。
+进入全屏先撤下内嵌层，退出后再恢复单个内嵌层，避免两套浏览器控件同时争用视频。
+
+全屏继续提供手势、锁定、旋转、临时倍速和原有网页控件切换。网站的清晰度、弹幕、DOM 字幕等
+专属操作通过恢复网页控件使用。设置中的“增强视频控件”开关即时更新当前文档，也适用于后续导航和 frame。
 实现细节见 [播放器方案](video-playback-and-casting.md)。
 
-## 安装包与自动检查
+## 自动回归内容
 
-- 安装包：`PureBrowser-v0.6.0-release.apk`，6,321,255 bytes，arm64-v8a，Android 10+。
-- SHA-256：`9452efe254164ccdf7ad40151e40513ad150ed1d0f1984fad1a6b14e15031743`。
-- v2 签名通过，与 0.5.2 证书一致；三个模拟器均实际使用 `adb install -r` 安装此包。
-- APK 中的 `assets/playback-probe.js` 与当前源文件逐字节一致。
-- 完整 `build-and-test.sh` 通过：329 项 Android 单元测试、58 项 Rust 测试、54 项 Node 测试、661 项三语言资源检查，以及 Rust fmt/clippy、Android lint、R8 和签名检查。
-- 本次没有增加播放器或解码依赖。
+`inline-video-regression.py` 使用真实触摸和网页遥测交叉检查，不能只看到按钮就判定成功：
 
-本地证据：[构建结果](../validation/results/enhanced-player/build.json)、[完整日志](../validation/results/enhanced-player/build.log)、
-[交付清单](../validation/results/enhanced-player/delivery.json)。生成证据和 APK 留在 Git 外。
+- 标准视频、自定义控制容器、Blob、160×90 小视频、同源与跨域 frame。
+- 播放/暂停、倍速、跳转与静音生效；同一个视频节点、来源和播放进度保持连续。
+- 页面点击事件不会和增强按钮一起触发，原网站控件及后来插入的控件隐藏。
+- 滚动离屏及返回、尺寸变化、弹窗遮挡、样式丢失、视频替换后的控制权变化。
+- 主动恢复网页控件后的保持、全屏进出、设置关闭/开启后的即时效果和新文档效果。
+- CSP 或旧 WebView 无法跨域控制时恢复网页，仍可操作原播放器。
 
-## 模拟器实测
+`video-regression.py` 检查标准、自定义容器、Blob、跨域及 CSP 全屏路径，
+核对原视频目标、进度、倍速、画面比例和临时属性清理。标准视频另检查双击、亮度/音量/进度手势、
+长按加速、锁定返回、旋转、控件自动隐藏以及弹层关闭。
 
-所有阶段均绑定上方 APK SHA-256；通过真实触摸操作与网页上报的播放状态交叉验证。
-
-| Android / API | WebView | 结果 |
-|---|---|---|
-| Android 10 / 29 | 91.0.4472.114 | 5 阶段通过：标准、自定义容器、容器 Blob、CSP 回退、旧跨域 Provider 回退 |
-| Android 14 / 34 | 113.0.5672.136 | 5 阶段通过：标准、自定义容器、容器 Blob、跨域容器增强、CSP 回退 |
-| Android 17 / 37 | 145.0.7632.218 | 9 阶段通过：系统媒体、标准、Blob、容器 Blob、跨域容器、CSP、跨域视频、方形视频、跨域弹窗；另有直接来源自定义容器专项通过 |
-
-套件原始记录：[API 29](../validation/results/api29-enhanced-player-suite.json)、
-[API 34](../validation/results/api34-enhanced-player-suite.json)、
-[API 37](../validation/results/api37-enhanced-player-suite.json)、
-[API 37 自定义容器](../validation/results/enhanced-player/custom-api37.json)。
-
-具体检查包括：
-
-- 没有 `controls` 的网站视频自动进入增强模式；存在嵌套、transform、裁剪和最大尺寸限制时，画面仍按比例铺满全屏。
-- 原节点和播放地址保持不变，已播放进度不归零；暂停后仍控制相同视频，快进和倍速生效。
-- 网站原有按钮、伪元素及之后动态添加的控制层隐藏；切回“网页控件”后恢复可点击，原始 `controls=false` 不被改成 true。
-- 反复进入、退出和模式切换，临时属性完整清除，方向恢复；标准视频还验证亮度、音量、双击、长按加速、锁定和系统返回。
-- 样式被 CSP 阻止时回到网页播放器；旧 WebView 无法访问的跨域视频保持网页播放与正常退出。
-- 现代 WebView 的跨域容器和连续新开跨域弹窗能使用增强控件。
-- Android 17 的 PiP、系统媒体暂停及显式后台播放策略继续生效。
-
-协议测试还覆盖无扩展名签名来源、多个视频的目标固定、动态布局失效、样式删除、原有属性恢复和过期命令隔离。
-
-## 重跑记录与边界
-
-套件保留全部 `priorAttempts`，最终完成状态没有抹去早期失败。失败后修正的是以下夹具/输入假设，安装 APK 没有变化：
-
-1. 沉浸全屏的第一次边缘滑动可能只显示系统栏。测试最多执行两次滑动，观察到解锁即停止，验证实际返回回调。
-2. Blob 可控并不意味着存在可投送的 HTTP 地址。标准直链仍要求投屏入口；Blob 允许没有候选，同时继续验证增强控制。
-3. WebView 91 的全屏可访问性节点可能陈旧。网站按钮改用夹具实时 DOM 几何进行真实触摸，并验证实际播放/暂停回执。
-
-本次范围是播放器与相关媒体生命周期。未重跑此前系统集成的完整功能矩阵；历史阶段记录仍保留。
-本轮没有使用真实账号、实体投屏设备或低端真机，也没有逐站验证 YouTube/JRS 的生产播放器、DRM、直播 HLS/DASH 和 CDN 鉴权策略。
-Blob 夹具验证控制交接与原节点保留，不等同于覆盖所有 MSE 流媒体加载实现。
-封闭 Shadow DOM、Canvas 播放器、无法访问的 iframe 及无法隔离的布局仍可能使用网站控件；清晰度、弹幕和 DOM 字幕可切回网页操作。
+`system-media-regression.py` 检查 PiP、系统媒体暂停、显式后台播放和无痕隐藏暂停。
+Node 协议测试覆盖签名来源、多个视频目标固定、布局失效、样式删除、原始属性恢复及过期命令隔离。
+验证工具不为 Release 打开 WebView 调试接口，也不引入播放器或解码依赖。
 
 ## 复现
 
-启动 `validation/qa-server.py`，安装同一签名 APK 和 UI 辅助程序，将模拟器的 8875/8876 端口 reverse 到本机，然后运行：
+启动 `validation/qa-server.py`，安装签名 APK 和 UI 辅助程序，将 8875/8876 端口 reverse 到本机，然后运行：
 
 ```bash
+python3 validation/setup-ui-probe.py emulator-5554
 python3 validation/run-regressions.py --serial emulator-5554 \
-  --apk PureBrowser-v0.6.0-release.apk --label enhanced-player \
-  --stages video-standard video-custom video-custom-blob video-custom-cross video-custom-csp
+  --apk PureBrowser-v0.7.0-release.apk --label player-070 \
+  --stages inline-video system-media video-standard video-custom video-custom-blob video-custom-cross video-custom-csp
 ```
 
-现代系统的扩展验证可增加 `system-media video-blob video-cross video-square video-popup-cross`。
-每台模拟器串行执行；只有 APK、AVD 与阶段选择完全一致时才使用 `--resume`。
+只在专用模拟器串行执行，构建时停止模拟器。只有 APK、AVD 与阶段选择完全一致时可以 `--resume`。
+结果 JSON 绑定安装包 SHA-256，记录每阶段日志并保留失败尝试；不能把旧版本结果计入新交付包。
+
+## 平台与网站边界
+
+逐 frame 消息和 document-start 注入能力由 WebView Provider 决定，不能仅按 Android 版本判断。
+现代 Provider 可控制可见跨域视频；旧 Provider 只处理主文档和可访问的同源 frame，不可访问的跨域视频使用网页控件。
+视频未加载元数据时先等待网站正常加载；接管不会绕过网站的登录、付费或 DRM 条件。
+
+本机 Blob 夹具验证控制交接和节点保留，不等同于覆盖所有 MSE、HLS/DASH、直播或 CDN 鉴权实现。
+封闭 Shadow DOM、Canvas 播放器、无法访问的 iframe 和无法隔离的布局仍可能无法接管。
+未使用真实账号、实体 DLNA 接收器或低端真机，也未逐站验收所有生产视频服务。

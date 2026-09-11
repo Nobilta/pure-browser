@@ -3,7 +3,6 @@ package com.mybrowser.download
 import com.mybrowser.core.boundedJsonArray
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
-import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -301,23 +300,19 @@ class DownloadHandler(context: Context) : Closeable {
         if (startTransferService()) job.start() else pause(id)
     }
 
-    fun openFile(id: Long): Boolean {
-        if (closed) return false
-        val entry = metadata[id] ?: return false
+    /** Called off the UI thread; only completed, readable content URIs may leave the app. */
+    fun fileToOpen(id: Long): DownloadOpenResult {
+        if (closed) return DownloadOpenResult.Unavailable
+        val entry = metadata[id] ?: return DownloadOpenResult.Unavailable
+        DownloadNotifications.dismiss(appContext, id)
+        val completed = if (entry.backend == DownloadBackend.LEGACY_SYSTEM)
+            queryLegacy(entry)?.status == DownloadStatus.COMPLETED else entry.status == DownloadStatus.COMPLETED
+        if (!completed) return DownloadOpenResult.NotCompleted
         val uri = when (entry.backend) {
-            DownloadBackend.LEGACY_SYSTEM -> runCatching {
-                legacyManager.getUriForDownloadedFile(id)
-            }.getOrNull()
-            DownloadBackend.LOCAL -> entry.destinationUri
-                ?.let { runCatching { it.toUri() }.getOrNull() }
-        } ?: return false
-        val mime = entry.mimeType.ifBlank { "application/octet-stream" }
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mime)
-            clipData = ClipData.newRawUri(entry.filename, uri)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        return runCatching { appContext.startActivity(intent) }.isSuccess
+            DownloadBackend.LEGACY_SYSTEM -> runCatching { legacyManager.getUriForDownloadedFile(id) }.getOrNull()
+            DownloadBackend.LOCAL -> entry.destinationUri?.let { runCatching { it.toUri() }.getOrNull() }
+        } ?: return DownloadOpenResult.Unavailable
+        return DownloadFiles.inspect(appContext, uri, entry.filename)
     }
 
     /** Clears terminal records in one transaction, optionally deleting every local file. */
@@ -533,6 +528,7 @@ class DownloadHandler(context: Context) : Closeable {
             jobs.remove(id, transferJob)
             persistMetadata()
             publishSnapshots()
+            if (latest?.status == DownloadStatus.COMPLETED && latest.autoResumeAllowed) DownloadNotifications.completed(appContext, localItem(latest))
         }
     }
 
@@ -777,6 +773,7 @@ class DownloadHandler(context: Context) : Closeable {
     }
 
     private suspend fun cleanupRemovedTask(id: Long) {
+        DownloadNotifications.dismiss(appContext, id)
         val writerLock = transferLocks[id]
         if (writerLock != null) writerLock.withLock { cleanupTemporaryFiles(id) }
         else cleanupTemporaryFiles(id)

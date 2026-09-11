@@ -12,7 +12,7 @@ import androidx.compose.runtime.setValue
 internal class BrowserSheetNavigation {
     enum class Destination {
         MENU, CAST, PLAYBACK_SPEED, TABS, BOOKMARKS, HISTORY, DOWNLOADS, SETTINGS,
-        SITE_SETTINGS, READING_LIST, DEVELOPER_TOOLS,
+        SITE_SETTINGS, DEVELOPER_TOOLS,
     }
 
     data class Route(val key: Long, val destination: Destination)

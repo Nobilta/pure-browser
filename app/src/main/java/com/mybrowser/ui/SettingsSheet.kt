@@ -104,7 +104,6 @@ fun SettingsSheet(
     onManageCustomFilters: () -> Unit,
     onManageUserScripts: () -> Unit,
     onManageSites: () -> Unit,
-    onBackup: () -> Unit = {},
     downloadSettings: DownloadSettings,
     onUseSystemDownloadDirectory: () -> Unit,
     onChooseDownloadDirectory: () -> Unit,
@@ -233,7 +232,6 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_settings)
                                             SettingsGroup(textResources.getString(R.string.menu_section_data))
-                                            SettingsItem(textResources.getString(R.string.backup_title), textResources.getString(R.string.backup_summary), onBackup, R.drawable.ic_folder)
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                         }
@@ -244,7 +242,7 @@ fun SettingsSheet(
                                             SettingsToggle(textResources.getString(R.string.background_playback), textResources.getString(R.string.background_playback_summary),
                                                 video.backgroundPlayback, { updateVideo(video.copy(backgroundPlayback = it)) })
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_experience))
-                                            SettingsToggle(textResources.getString(R.string.ui_enhanced_fullscreen_controls), textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to), video.enhancedControls,
+                                            SettingsToggle(textResources.getString(R.string.ui_enhanced_video_controls), textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to), video.enhancedControls,
                                                 { updateVideo(video.copy(enhancedControls = it)) })
                                             SettingsToggle(textResources.getString(R.string.ui_rotate_landscape_videos_automatically), textResources.getString(R.string.ui_portrait_videos_stay_upright_orientation_is_restored_on), video.landscapeFullscreen,
                                                 { updateVideo(video.copy(landscapeFullscreen = it)) })
@@ -762,7 +760,6 @@ private val SETTINGS_SEARCH = listOf(
     R.string.system_login to SettingsCategory.PRIVACY,
     R.string.automatic_pip to SettingsCategory.VIDEO,
     R.string.background_playback to SettingsCategory.VIDEO,
-    R.string.backup_title to SettingsCategory.PRIVACY,
     R.string.cd_home to SettingsCategory.BROWSING,
     R.string.ui_restore_pages_on_startup to SettingsCategory.BROWSING,
     R.string.ui_search_engine to SettingsCategory.BROWSING,

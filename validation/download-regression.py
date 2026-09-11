@@ -60,8 +60,13 @@ ux.adb("shell", "input", "keyevent", "4")
 ux.expect_menu()  # Wait for the download sheet's return animation before selecting Settings.
 ux.open_settings("浏览与启动")
 ux.tap("默认浏览器")
-root, raw = ux.nodes()
-assert "com.android.permissioncontroller" in raw or "com.android.settings" in raw
+deadline = time.monotonic() + 10
+while True:
+    root, raw = ux.nodes()
+    if "com.android.permissioncontroller" in raw or "com.android.settings" in raw:
+        break
+    assert time.monotonic() < deadline, "Android did not show its default-browser role/settings UI"
+    time.sleep(.2)
 ux.inspect("results/api" + sdk + "-default-browser")
 print("PASS: default-browser setting opens the system role/settings UI", flush=True)
 ux.adb("shell", "input", "keyevent", "4")

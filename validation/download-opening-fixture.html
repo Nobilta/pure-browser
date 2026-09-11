@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Open downloaded files</title>
+<style>body{font:18px system-ui;margin:12px}a{display:block;padding:18px;border-bottom:1px solid #888}</style>
+<h1>Open downloaded files</h1>
+<a id="image" href="download-open.png" download>Download image</a>
+<a id="apk" href="download-open.apk" download>Download application</a>
+<a id="unknown" href="download-unknown.bin" download>Download unknown size</a>
+<script>
+const key=new URLSearchParams(location.search).get('case')||'test';
+for(const link of document.querySelectorAll('a'))link.href+='?case='+encodeURIComponent(key+'-'+link.id);
+</script></html>

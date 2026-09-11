@@ -219,7 +219,7 @@ private fun DownloadItemRow(
             Text(
                 text = download.filename,
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 
@@ -228,7 +228,8 @@ private fun DownloadItemRow(
             when (download.status) {
                 DownloadStatus.DOWNLOADING -> {
                     Text(
-                        text = textResources.getString(R.string.ui_connections, download.progress, download.threadCount, formatBytes(download.bytesDownloaded), formatBytes(download.totalBytes)),
+                        text = if (download.totalBytes > 0) textResources.getString(R.string.ui_connections, download.progress, download.threadCount, formatBytes(download.bytesDownloaded), formatBytes(download.totalBytes))
+                        else textResources.getString(R.string.download_progress_unknown, formatBytes(download.bytesDownloaded), download.threadCount),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

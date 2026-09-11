@@ -38,5 +38,17 @@
     section.textContent = 'Section ' + i + ': scroll regression content';
     document.querySelector('#content').append(section);
   }
+  // Optional test telemetry supplies geometry when WebView omits virtual UI nodes.
+  // The runner still injects a real touch and waits for the resulting SPA title.
+  const touchProbe = new URL(location.href).searchParams.get('touchProbe');
+  if (touchProbe) {
+    const reportTouch = () => fetch('/__state?case=' + encodeURIComponent(touchProbe), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title: document.title, viewportWidth: innerWidth,
+        route: document.querySelector('#route').getBoundingClientRect().toJSON()})
+    }).catch(() => {});
+    reportTouch();
+    setInterval(reportTouch, 300);
+  }
 </script>
 </html>

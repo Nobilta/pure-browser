@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Signed-APK checks for window-owned media and private Activity recreation."""
+"""Signed-APK checks for single-window media and private Activity recreation."""
 import argparse
 import importlib.util
 import json
@@ -32,6 +32,7 @@ def main():
     installed = ux.adb('shell', 'pm', 'path', a.package).partition(':')[2].strip()
     result = {'passed': False, 'section': a.section, 'checks': checks,
               'apkSha256': ux.adb('shell', 'sha256sum', installed).split()[0]}
+    private_visit = None
 
     def record(name, **details):
         checks.append({'check': name, **details})
@@ -44,7 +45,7 @@ def main():
         while time.monotonic() < end:
             rows = json.load(urllib.request.urlopen(base + '__state?case=' + key, timeout=4))
             last = rows[-1] if rows else None
-            if last and last['receivedAt'] > since and condition(last):
+            if last and last['receivedAt'] > since and (a.section != 'private' or last.get('visit') == private_visit) and condition(last):
                 return last
             time.sleep(.3)
         raise AssertionError(last)
@@ -61,7 +62,9 @@ def main():
         ux.launch(base + 'player-fixture.html?case=' + key + '&visit=' + str(time.time_ns()))
 
     def private_page():
-        ux.launch(base + 'window-lifecycle-fixture.html?case=' + key)
+        nonlocal private_visit
+        private_visit = str(time.time_ns())
+        ux.launch(base + 'private-lifecycle-fixture.html?case=' + key + '&visit=' + private_visit)
 
     def has_service():
         services = ux.adb('shell', 'dumpsys', 'activity', 'services', a.package)
@@ -76,14 +79,11 @@ def main():
             player()
             ux.tap('Play inline')
             first = wait(lambda s: not s['paused'] and s['currentTime'] > 0)
-            ux.menu_item('Open other window')
-            ux.menu_item('Exit browser')
-            time.sleep(1)
-            ux.launch()
+            ux.adb('shell', 'input', 'keyevent', '3')
             after = wait(lambda s: not s['paused'] and s['currentTime'] > first['currentTime'] + 1)
-            assert has_service(), 'Closing the other task stopped the owner media service'
-            record('Closing the other window preserves the playing media and its foreground service',
-                   before=first['currentTime'], after=after['currentTime'])
+            assert has_service(), 'Explicit background media did not retain its service'
+            ux.launch()
+            record('Enabled background playback survives Home and return', before=first['currentTime'], after=after['currentTime'])
             ux.adb('shell', 'cmd', 'media_session', 'dispatch', 'pause')
             wait(lambda s: s['paused'])
             ux.menu_item('Enter incognito mode')
@@ -122,16 +122,15 @@ def main():
             after = wait(lambda s: s['token'] != before['token'] and s['ready'] == 'complete')
             assert ux.adb('shell', 'pidof', a.package) == pid
             assert after['cookie'] == key and after['local'] == key, after
-            ux.menu_item('Open other window')
+            ux.tap('Menu')
             root, _ = ux.nodes()
-            assert any(n.get('enabled') == 'false' and ux.match(n, 'Open other window') is not None
-                       for n in root.iter('node')), 'Private other-window entry was enabled'
+            assert ux.match(root, 'Open other window') is None, 'Removed window entry was present'
             ux.adb('shell', 'input', 'keyevent', '4')
             ux.expect('Private lifecycle fixture')
             root, _ = ux.nodes()
             assert any('Incognito' in n.get('text', '') or '无痕' in n.get('text', '')
                        or '無痕' in n.get('text', '') for n in root.iter('node'))
-            record('Activity recreation retains the private session and its storage; opening another window stays blocked',
+            record('Activity recreation retains the private session and its storage; removed window entry stays absent',
                    oldDocument=before['token'], newDocument=after['token'])
             ux.menu_item('Exit incognito mode')
             private_page()
@@ -142,6 +141,9 @@ def main():
             private_page()
             fresh = wait(lambda s: s['token'] != normal['token'] and s['ready'] == 'complete')
             assert fresh['cookie'] != key and fresh['local'] != key, fresh
+            root, _ = ux.nodes()
+            assert any('Incognito' in n.get('text', '') or '无痕' in n.get('text', '')
+                       or '無痕' in n.get('text', '') for n in root.iter('node')), 'New session was not private'
             record('A new private session cannot recover the closed session marker')
             ux.menu_item('Exit incognito mode')
         result['passed'] = True

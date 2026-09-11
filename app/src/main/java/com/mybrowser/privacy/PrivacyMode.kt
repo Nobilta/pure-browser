@@ -1,9 +1,7 @@
 package com.mybrowser.privacy
 
 import android.webkit.CookieManager
-import android.webkit.WebStorage
 import android.webkit.WebView
-import android.webkit.WebViewDatabase
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.getValue
@@ -26,6 +24,8 @@ import kotlinx.coroutines.launch
 class PrivacyMode(private val appContext: android.content.Context) {
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     var lastCleanupSucceeded: Boolean by mutableStateOf(true)
+        private set
+    var isTransitioning: Boolean by mutableStateOf(false)
         private set
 
     /** True while incognito. Compose reads this to switch the theme accent and badge. */
@@ -85,6 +85,7 @@ class PrivacyMode(private val appContext: android.content.Context) {
      * attached to an instance that has already loaded a page.
      */
     fun enter() {
+        if (isIncognito || isTransitioning) return
         IncognitoProfile.prepare()
         isIncognito = true
     }
@@ -97,30 +98,33 @@ class PrivacyMode(private val appContext: android.content.Context) {
      * it is from [hasRealIsolation]; passing that value through is the intended use.
      */
     fun exit(wipeSharedStorage: Boolean, onComplete: () -> Unit = {}) {
+        if (isTransitioning) return
+        val isolated = hasRealIsolation
+        isTransitioning = true
         isIncognito = false
-        lastCleanupSucceeded = IncognitoProfile.destroy()
-        if (wipeSharedStorage) {
-            wipeEverything(onComplete)
-        } else {
-            dispatchCompletion(onComplete)
-        }
         hasRealIsolation = false
-    }
-
-    /**
-     * Clears all browsing storage. This is the fallback path and also what the "clear data"
-     * menu item calls in normal mode.
-     *
-     * Not exhaustive by construction — WebView has no single "clear everything" call, and
-     * anything Chromium adds later will not be covered here.
-     */
-    fun wipeEverything(onComplete: () -> Unit = {}) {
         cleanupScope.launch {
-            lastCleanupSucceeded = runCatching {
-                BrowsingDataCleaner(appContext).clearWebsiteData(DataProfile.NORMAL)
-                android.webkit.GeolocationPermissions.getInstance().clearAll()
+            val cleaner = BrowsingDataCleaner(appContext)
+            val cleared = runCatching {
+                when {
+                    wipeSharedStorage -> {
+                        cleaner.clearWebsiteData(DataProfile.NORMAL)
+                        android.webkit.GeolocationPermissions.getInstance().clearAll()
+                    }
+                    isolated -> {
+                        cleaner.clearWebsiteData(DataProfile.PRIVATE)
+                        cleaner.clearCookies(DataProfile.PRIVATE)
+                    }
+                }
             }.isSuccess
-            dispatchCompletion(onComplete)
+            val deleted = IncognitoProfile.destroy()
+            // Modern deletion erases site data even if an empty loaded profile remains
+            // until the next process. Older providers cannot promise this full erasure.
+            lastCleanupSucceeded = cleared && (!isolated || deleted || cleaner.supportsCompleteDeletion)
+            dispatchCompletion {
+                isTransitioning = false
+                onComplete()
+            }
         }
     }
 

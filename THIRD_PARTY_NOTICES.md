@@ -10,11 +10,8 @@ source and local APK delivery.
 
 AndroidX and other existing dependencies retain their upstream licenses.
 
-The 0.6.0 integration uses AndroidX AppCompat 1.7.1, MediaRouter 1.8.0-beta01,
+The 0.7.0 integration uses AndroidX Activity 1.13.0, WebKit 1.17.0,
 Compose UI/Foundation/Runtime 1.9.4 and Material 3 1.4.0 under Apache License 2.0.
-Google Cast Framework and Play Services Cast 22.3.1 are distributed under the
-[Android Software Development Kit License](https://developer.android.com/studio/terms.html),
-as specified by their upstream Maven POMs. They are not relicensed as Apache-2.0.
 Exact runtime and transitive versions are recorded in `app/gradle.lockfile`;
 artifact checksums are in `gradle/verification-metadata.xml`.
 

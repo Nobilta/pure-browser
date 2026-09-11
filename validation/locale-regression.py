@@ -33,7 +33,7 @@ try:
         while True:
             root, raw = ux.nodes()
             text = {node.get("text") for node in root.iter("node") if ux.visible(node)}
-            if all(expected[key] in text for key in ("ui_video_playback", "ui_enhanced_fullscreen_controls")):
+            if all(expected[key] in text for key in ("ui_video_playback", "ui_enhanced_video_controls")):
                 break
             if time.monotonic() >= deadline:
                 raise AssertionError("Settings category or translated strings missing for " + locale)

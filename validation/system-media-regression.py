@@ -30,10 +30,20 @@ def main():
         wait(lambda r:not r['paused'] and r['currentTime']>0)
         left=time.time();ux.adb('shell','input','keyevent','3');wait(lambda r:r['paused'],left)
         record('Default background policy pauses a playing inline video when Home is pressed')
-        ux.launch();ux.tap('Play fullscreen');wait(lambda r:r['fullscreen'] and not r['paused'])
-        before=time.time();ux.adb('shell','input','keyevent','3');time.sleep(1)
-        activity=ux.adb('shell','dumpsys','activity','activities');(a.output/'pip-activity.txt').write_text(activity)
-        assert 'mode=pinned' in activity or 'windowingMode=2' in activity or 'mWindowingMode=2' in activity, 'Activity did not enter PiP'
+        ux.launch();ux.tap('Play fullscreen')
+        # DOM fullscreen can precede the Activity's landscape/control handoff.
+        ready=wait(lambda r:r['fullscreen'] and r['enhanced'] and not r['paused']
+                   and r['viewport']['width']>r['viewport']['height'])
+        wait(lambda r:r['fullscreen'] and r['enhanced'] and not r['paused']
+             and r['viewport']==ready['viewport'] and r['capturedAt']>ready['capturedAt']+300)
+        before=time.time();ux.adb('shell','input','keyevent','3')
+        deadline=time.monotonic()+15
+        while True:
+            activity=ux.adb('shell','dumpsys','activity','activities')
+            (a.output/'pip-activity.txt').write_text(activity)
+            if 'mode=pinned' in activity or 'windowingMode=2' in activity or 'mWindowingMode=2' in activity:break
+            assert time.monotonic()<deadline, 'Activity did not enter PiP'
+            time.sleep(.3)
         wait(lambda r:not r['paused'],before)
         (a.output/'pip.png').write_bytes(subprocess.check_output(ux.ADB+['exec-out','screencap','-p'],timeout=20))
         record('Home from fullscreen enters Android PiP and keeps the existing video playing')

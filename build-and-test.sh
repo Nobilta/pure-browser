@@ -33,7 +33,7 @@ require_command python3
 echo "检查中英文提示资源..."
 python3 validation/check-localization.py
 
-echo "运行网页视频控制、阅读提取及用户脚本协议测试..."
+echo "运行网页视频控制及用户脚本协议测试..."
 npm --prefix validation ci --ignore-scripts --no-audit --no-fund
 npm --prefix validation test
 

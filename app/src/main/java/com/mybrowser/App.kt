@@ -18,9 +18,6 @@ import kotlinx.coroutines.launch
 
 class App : Application() {
 
-    var restoreBlocked = false
-        private set
-
     val certificateWarnings = com.mybrowser.security.CertificateWarnings()
     val mediaSession by lazy { com.mybrowser.media.BrowserMediaSession(this) }
 
@@ -38,7 +35,6 @@ class App : Application() {
     lateinit var userScripts: UserScriptStore
         private set
 
-    val windows = linkedMapOf<String, com.mybrowser.tabs.BrowserWindowState>()
 
     /** Process-scoped so Activity recreation never cancels an in-flight download. */
     val downloadHandler by lazy { DownloadHandler(applicationContext) }
@@ -46,32 +42,13 @@ class App : Application() {
         private set
     // One writer per persisted store, including during Activity recreation.
     val siteSettings by lazy { com.mybrowser.site.SiteSettingsRepository(this) }
-    val readingList by lazy { com.mybrowser.reading.ReadingList(this) }
 
     /** Outlives every Activity; only used for work that must not be cancelled by rotation. */
     private val appScope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
-    fun saveReadingPosition(url: String, position: com.mybrowser.reading.ReadingPosition) {
-        appScope.launch {
-            runCatching { readingList.recordPosition(url, position.index, position.offset) }
-                .onFailure { Log.w(TAG, "Unable to save reading position") }
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
         instance = this
-        if (getProcessName().endsWith(":restore")) return
-        restoreBlocked = runCatching {
-            com.mybrowser.backup.BackupStorage.locked(this) {
-                val storage = com.mybrowser.backup.BackupStorage(this)
-                if (storage.recoverIfNeeded()) {
-                    storage.discardPending()
-                    storage.writeResult("recovered")
-                }
-            }
-        }.isFailure
-        if (restoreBlocked) return
         // Captures from a process that died have no surviving WebView consumer.
         java.io.File(cacheDir, "web-capture").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
 
