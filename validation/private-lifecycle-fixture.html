@@ -8,7 +8,7 @@ function report(){const cookie=document.cookie.match(/(?:^|;\s*)lifecycle=([^;]*
 const local=localStorage.getItem('lifecycle')||'';
 state.textContent=cookie===key&&local===key?'Private marker present':'Private marker absent';
 fetch('/__state?case='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},
-body:JSON.stringify({ready:document.readyState,token,cookie,local})}).catch(()=>{});}
+body:JSON.stringify({ready:document.readyState,token,cookie,local,visit:new URLSearchParams(location.search).get('visit')})}).catch(()=>{});}
 store.onclick=()=>{document.cookie='lifecycle='+key+';path=/;SameSite=Lax';localStorage.setItem('lifecycle',key);report()};
 addEventListener('load',report);setInterval(report,600);
 </script></html>

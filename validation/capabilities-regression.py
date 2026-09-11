@@ -239,28 +239,6 @@ class Regression:
         self.record('Recently closed page metadata survives process restart and restores the page')
         self.snapshot('restored')
 
-    def reader(self):
-        self.page()
-        ux.menu_item('阅读模式')
-        ux.expect('保存离线文章') if ux.match(ux.nodes()[0], '文章已离线保存') is None else None
-        ux.tap('文章文字大小')
-        self.snapshot('reading')
-        ux.tap('保存离线文章') if ux.match(ux.nodes()[0], '保存离线文章') is not None else ux.tap('文章已离线保存')
-        ux.expect('文章已离线保存')
-        ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
-        ux.adb('reverse', '--remove', 'tcp:8875')
-        try:
-            ux.launch()
-            ux.menu_item('离线文章')
-            ux.tap('Pure capability article')
-            self.click(self.scroll_to('Offline reading sentence: calm pages stay available without a network connection.'))
-            self.snapshot('offline-reopened')
-            self.record('Saved article text reopens after process restart while the fixture server is unreachable')
-        finally:
-            ux.adb('reverse', 'tcp:8875', 'tcp:8875')
-        self.back()
-        self.back()
-
     def printing(self):
         self.page()
         ux.menu_item('打印或保存为 PDF')
@@ -419,38 +397,13 @@ class Regression:
                 ux.adb('shell', 'settings', 'put', 'system', 'user_rotation', rotation)
                 time.sleep(1)
                 self.page()
-                ux.menu_item('阅读模式')
-                ux.expect('复制文章正文')
-                ux.tap('文章文字大小')
-                root, _ = ux.nodes()
-                slider = next(n for n in root.iter('node') if n.get('class') == 'android.widget.SeekBar' and ux.visible(n))
-                assert ux.bounds(slider)[2] - ux.bounds(slider)[0] >= 90, 'Reader text slider collapsed'
-                viewport = ux.stable_display_bounds(root)
-                controls = [slider] + [ux.match(root, ux._translations[0][key])
-                                       for key in ('reading_mode', 'reading_copy', 'reading_save')]
-                reading_regions = [n for n in root.iter('node') if n.get('scrollable') == 'true' and ux.visible(n)]
-                assert reading_regions, 'Reader scroll area missing'
-                controls += reading_regions
-                for control in controls:
-                    assert control is not None, 'Reader control missing'
-                    x1, y1, x2, y2 = ux.bounds(control)
-                    assert viewport[0] <= x1 < x2 <= viewport[2] and viewport[1] <= y1 < y2 <= viewport[3], \
-                        'Reader control overlaps system bars: ' + str(control.attrib)
-                for region in reading_regions:
-                    area = ux.bounds(region)
-                    assert all(abs(area[edge] - viewport[edge]) <= 2 for edge in (0, 2, 3)), \
-                        'Reader applies duplicate insets or leaves unused space: ' + str(area)
-                width, height = self.snapshot('reader-large-font-' + name)
-                assert (width > height) == (rotation == '1'), 'Requested orientation did not take effect'
-                self.back()
                 ux.menu_item('网站设置')
                 ux.expect('保存并刷新')
                 self.scroll_to('重置网站设置')
                 ux.expect('保存并刷新')
                 self.snapshot('site-large-font-' + name)
                 ux.tap('取消')
-                self.record('Reader actions and website settings remain usable at 150% font scale in ' + name,
-                            viewport=viewport, readerBounds=[ux.bounds(control) for control in controls])
+                self.record('Website settings remain usable at 150% font scale in ' + name)
         except Exception:
             self.snapshot('failure-before-restore')
             raise
@@ -473,6 +426,6 @@ class Regression:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
-    parser.add_argument('--section', required=True, choices=['site','permissions','tabs','reader','printing','bookmarks','downloads','layout'])
+    parser.add_argument('--section', required=True, choices=['site','permissions','tabs','printing','bookmarks','downloads','layout'])
     args = parser.parse_args()
     Regression(args.serial, args.section).run()

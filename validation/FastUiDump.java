@@ -157,7 +157,8 @@ public final class FastUiDump {
             for (int i = 0; i < labels.length(); i++) {
                 String label = labels.optString(i);
                 if (label.contentEquals(node.getText() == null ? "" : node.getText())
-                        || label.contentEquals(node.getContentDescription() == null ? "" : node.getContentDescription())) {
+                        || label.contentEquals(node.getContentDescription() == null ? "" : node.getContentDescription())
+                        || label.equals(node.getViewIdResourceName())) {
                     Rect bounds = new Rect();
                     node.getBoundsInScreen(bounds);
                     if (!bounds.isEmpty()) return node;

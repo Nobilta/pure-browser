@@ -21,7 +21,13 @@ def main():
         while time.monotonic()<end:
             root,_=ux.nodes()
             n=next((n for n in root.iter('node') if ux.visible(n) and n.get('resource-id','').endswith('/'+suffix)),None)
-            if n is not None: ux.tap_node(n);return
+            if n is not None:
+                # A permission sheet can still be animating after its nodes appear.
+                # Re-resolve its current bounds in the same helper that injects the tap.
+                time.sleep(.3)
+                if not ux.tap_now(n.get('resource-id')): ux.tap_node(n)
+                time.sleep(.5)
+                return
             time.sleep(.25)
         raise AssertionError('Missing system control: '+suffix)
     def back(): ux.adb('shell','input','keyevent','4');time.sleep(.7)

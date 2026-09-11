@@ -56,23 +56,25 @@ def main():
                         'webView': device('shell', 'dumpsys', 'webviewupdate')}
 
     # Exercise new capabilities and recent lifecycle fixes before the older feature matrix.
-    upgrade = [('system-media', 'system-media-regression.py'), ('windows', 'windows-regression.py'),
+    upgrade = [('system-media', 'system-media-regression.py'),
                ('capture', 'capture-regression.py'), ('resources', 'script-resources-regression.py'),
-               ('organization', 'system-upgrade-regression.py'), ('resident', 'resident-regression.py'),
-               ('backup', 'backup-regression.py')]
+               ('organization', 'system-upgrade-regression.py'), ('resident', 'resident-regression.py')]
     if int(sdk) >= 37:
         upgrade.insert(0, ('profiles', 'profile-cleanup-regression.py'))
-    stages = [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
-              for name, script in upgrade]
+    stages = [('private-lifecycle', ['lifecycle-boundaries-regression.py', '--section', 'private', '--output', str(OUT / (prefix + '-private-lifecycle'))]),
+              ('inline-video', ['inline-video-regression.py', '--output', str(OUT / (prefix + '-inline-video'))]),
+              ('download-opening', ['download-opening-regression.py', '--output', str(OUT / (prefix + '-download-opening'))])]
+    stages += [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
+               for name, script in upgrade]
     stages += [(name, ['system-integration-regression.py', '--section', name, '--package', 'com.mybrowser',
-                       '--output', str(OUT / (prefix + '-' + name))]) for name in ['login', 'cast']]
+                       '--output', str(OUT / (prefix + '-' + name))]) for name in ['login']]
     stages += [('desktop-mode', ['desktop-mode-regression.py']),
               ('menu-navigation', ['menu-navigation-regression.py']),
               ('security', ['security-regression.py']), ('download', ['download-regression.py']),
               ('developer-tools', ['developer-tools-regression.py']), ('browser', ['emulator-ux.py', 'regress']),
               ('video-blob', ['video-regression.py', '--variant', 'blob'])]
     stages += [(part, ['capabilities-regression.py', '--section', part])
-               for part in ['site', 'permissions', 'tabs', 'reader', 'printing', 'bookmarks', 'downloads', 'layout']]
+               for part in ['site', 'permissions', 'tabs', 'printing', 'bookmarks', 'downloads', 'layout']]
     stages += [('features-' + part, ['features-regression.py', '--section', part])
                for part in ['scripts', 'imports', 'filters', 'dialogs', 'media']]
     stages += [('video-' + variant, ['video-regression.py', '--variant', variant] +

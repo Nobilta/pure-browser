@@ -16,7 +16,7 @@ import androidx.core.content.ContextCompat
 import com.mybrowser.R
 import java.lang.ref.WeakReference
 
-/** One system media owner across all windows. Pages and decoders remain in WebView. */
+/** One system media owner for the active page. Pages and decoders remain in WebView. */
 class BrowserMediaSession(private val context: Context) {
     interface Owner {
         fun setPlaying(playing: Boolean)

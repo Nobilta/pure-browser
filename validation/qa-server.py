@@ -101,6 +101,42 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(IMAGE)
             return
+        if parsed.path in ('/download-open.png', '/download-open.apk', '/download-unknown.bin'):
+            # Serve the built artifact directly; never keep another APK fixture copy.
+            query = parse_qs(parsed.query)
+            key = re.sub(r'[^a-zA-Z0-9-]', '', query.get('case', ['test'])[0])[:60]
+            unknown = parsed.path.endswith('.bin')
+            if parsed.path.endswith('.apk'):
+                apk = ROOT.parent / 'app/build/outputs/apk/release/app-release.apk'
+                if not apk.is_file():
+                    self.send_error(404); return
+                payload, mime, extension = apk.read_bytes(), 'application/vnd.android.package-archive', 'apk'
+            elif unknown:
+                payload, mime, extension = bytes(range(256)) * 8192, 'application/octet-stream', 'bin'
+            else:
+                payload, mime, extension = IMAGE, 'image/png', 'png'
+            size = len(payload)
+            match = None if unknown else re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+            start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
+            if start > end or start >= size:
+                self.send_response(416); self.end_headers(); return
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', mime)
+            self.send_header('Content-Disposition', 'attachment; filename="pure-open-' + key + '.' + extension + '"')
+            if not unknown:
+                self.send_header('Content-Length', str(end - start + 1))
+                self.send_header('Accept-Ranges', 'bytes')
+                self.send_header('ETag', '"pure-open-' + str(size) + '"')
+                if match: self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            try:
+                for position in range(start, end + 1, 32768):
+                    self.wfile.write(payload[position:min(position + 32768, end + 1)])
+                    self.wfile.flush()
+                    if unknown: time.sleep(.4)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         if parsed.path in ('/download-test.bin', '/download-resume.bin'):
             slow = parsed.path == '/download-resume.bin'
             size = (48 if slow else 6) * 1024 * 1024

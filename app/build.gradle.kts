@@ -27,8 +27,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 10
-        versionName = "0.6.0"
+        versionCode = 11
+        versionName = "0.7.0"
         testInstrumentationRunner = "com.mybrowser.validation.NativeFilterInstrumentation"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
@@ -230,8 +230,6 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.androidx.webkit)
     implementation(libs.coroutines.android)
-    implementation(libs.google.cast)
-    implementation(libs.androidx.appcompat)
 
     // Compose. Every androidx.compose.* dependency takes its version from the BOM.
     implementation(platform(libs.compose.bom))

@@ -21,7 +21,6 @@ class FilterUpdateJob : JobService() {
     private var update: Job? = null
 
     override fun onStartJob(params: JobParameters): Boolean {
-        if ((application as App).restoreBlocked) return false
         val subscriptions = (application as App).filterSubscriptions
         if (!subscriptions.autoUpdate.value) return false
         update = scope.launch {
@@ -34,7 +33,7 @@ class FilterUpdateJob : JobService() {
     override fun onStopJob(params: JobParameters): Boolean {
         update?.cancel()
         update = null
-        return !(application as App).restoreBlocked && (application as App).filterSubscriptions.autoUpdate.value
+        return (application as App).filterSubscriptions.autoUpdate.value
     }
 
     override fun onDestroy() {

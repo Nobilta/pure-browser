@@ -1,8 +1,8 @@
 # 架构与维护边界
 
-2026-09-10，0.5.2。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
+2026-09-11，0.7.0。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
 [回归报告](EMULATOR_TEST_REPORT.md)。本文件集中记录代码职责、复用方式和语言选择。
-待处理问题及改进顺序见 [系统审查](design/follow-up-priorities.md)。
+当前实施与验证边界见 [实施记录](design/implementation-status.md)。
 
 ## 代码职责
 
@@ -13,18 +13,18 @@
 | `data`、`home`、`tabs` | Android SQLite 书签/历史、快捷入口、标签元数据与最近关闭；后台标签延迟加载，缩略图只保留小尺寸 Bitmap |
 | `download` | HTTP Range 引擎、实体校验、分段恢复、SAF/MediaStore、前台服务和记录管理；兼容读取已存在的系统下载记录 |
 | `filter`、`userscript` | 过滤订阅更新与引擎切换、用户脚本元数据/存储及逐 frame 注入；共享有界读取和原子 UTF-8 写入 |
-| `site`、`reading` | 网站偏好、站点/系统权限状态机，有界文章提取与离线保存；仓库由 Application 单实例持有 |
+| `site` | 网站偏好、站点/系统权限状态机；仓库由 Application 单实例持有 |
 | `privacy`、`security` | WebView Profile 或退出清理、证书错误状态、外部协议限制 |
-| `media`、`dlna` | 媒体候选、播放元素追踪、全屏控件、SSDP 与 AVTransport；投屏会话由进程级控制器管理 |
+| `media`、`dlna` | 媒体候选、播放元素追踪、内嵌和全屏控件、SSDP 与 AVTransport；投屏会话由进程级控制器管理 |
 | `rust/adblock` | 网络规则解析/匹配、元素隐藏域名索引及有界 CSS 缓存 |
 | `rust/url_utils` | URL/搜索分类和有界 Netscape HTML 书签解析 |
 
-`MainActivity` 仍承担较多 Android 回调编排。存储、计算与独立状态机已下沉；后续多窗口应按
-生命周期分离所有者，避免按行数拆出需要互相回调的容器。
+`MainActivity` 承担 Android 回调编排。存储、计算与独立状态机已下沉；`BrowserSessionState`
+保留单浏览会话的标签与私密状态，没有跨窗口注册表。
 
 ## 菜单、输入和异步结果
 
-- 菜单进入设置、书签、历史、下载、离线文章、网站设置、开发工具或媒体选择时保存来路。
+- 菜单进入设置、书签、历史、下载、网站设置、开发工具或媒体选择时保存来路。
   返回只弹出一级；打开网页、分享、打印、应用倍速等操作关闭整个菜单路径。
 - 路由 key 用于恢复滚动位置/分类，每次显示的 `Presentation` 用于校验回调身份。
   旧动画的完成回调和重复点击不能关闭后来显示的页面；返回父级也会换新回调身份。
@@ -45,7 +45,7 @@
   对 `%`、`_`、`!` 转义并限制输入和结果。写入完成后才报告成功；旧查询不能覆盖新搜索。
 - 文件内容、JSON、HTML、XML、下载 header、规则和脚本均设边界。过滤/脚本复用
   `AtomicFile.writeUtf8`；条目只序列化一次，下载进度快照按顺序发布。
-- 网站设置和离线文章的写锁跨 Activity 重建共享。权限按完整 origin 管理，网站同意与 Android
+- 网站设置的写锁跨 Activity 重建共享。权限按完整 origin 管理，网站同意与 Android
   系统授权分开；请求身份使导航取消和迟到回执不会授权新页面。
 - 0.5.2 将桌面显示偏好与权限范围分离：同协议/端口下的裸域、m.、mobile.、www. 展示入口共用桌面偏好，
   其他设置仍按 origin 保存。相同 UA 不重复写入，桌面视口在新文档完成后应用。
@@ -56,6 +56,10 @@
 - 用户脚本 ID 只计算一次，GM 值变化只重注册对应脚本；媒体 hints 未变化就复用快照，单次
   更新每个 URL 只解析一次，并保留编码路径和签名查询的资源身份。
 
+已加载的 WebView Profile 不能在当前进程直接删除。无痕按会话生成专用前缀的唯一名称，退出先清理
+站点数据/Cookie 并退休该名称；下次进程启动枚举并删除遗留 Profile。清理失败也不复用旧会话，
+清理期间阻止再次进入无痕。Activity 重建继续使用当前会话，不能误当成全新无痕。
+
 ## Rust 选择
 
 | 模块 | 当前选择 | 理由 |
@@ -64,7 +68,7 @@
 | URL 与书签 HTML | 现有 `url_utils` JNI 库 | 输入/输出边界清晰，有界线性解析；书签保留 Android SAF、预览与 SQLite 单事务 |
 | UI、WebView、权限和生命周期 | Kotlin/Android | 平台负责渲染和生命周期；增加 JNI 不能替代平台语义 |
 | 数据库、下载、文件名和存储 | Kotlin/Android | 主要依赖 SQLite、HTTP、SAF、MediaStore、通知和 Cookie；没有另引 Rust 数据库/HTTP/TLS 的端到端收益证据 |
-| 网页探针、脚本运行时、文章提取 | JavaScript | 直接访问 DOM 与网站播放器，不将整页跨语言复制 |
+| 网页探针、脚本运行时、视频控件 | JavaScript | 直接访问 DOM 与网站播放器，不将整页跨语言复制 |
 | DLNA/SSDP/SOAP | Kotlin | 有界网络/XML 和低频命令；收益来自状态一致性及设备兼容 |
 
 0.5.1 删除了没有产品或测试调用的旧 `NativeCache`、`NativeDownloader`、
@@ -87,7 +91,7 @@ Cargo.lock 从 184 个 package 缩为 32 个，保留依赖的版本不变。
 
 旧 P95 由长 URL 重复构造 DP 主导；这组固定样本不代表整页或真机提速。
 0.5.0 元素隐藏迁移的原 Kotlin/Rust 对照及 80 个 host 的输出一致性记录见
-[能力复查](design/browser-capabilities-20260910.md)。
+[系统能力说明](design/system-integration.md)。
 
 当前基准不依赖已删除的备份分支，只测量当前源码；生成文件临时保存，最终保留结果 JSON：
 
