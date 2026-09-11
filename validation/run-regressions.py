@@ -76,8 +76,8 @@ def main():
     stages += [('features-' + part, ['features-regression.py', '--section', part])
                for part in ['scripts', 'imports', 'filters', 'dialogs', 'media']]
     stages += [('video-' + variant, ['video-regression.py', '--variant', variant] +
-                (['--expect-enhanced'] if sdk == '34' and variant in ['cross', 'popup-cross'] else []))
-               for variant in ['standard', 'custom', 'cross', 'square', 'popup', 'popup-cross']]
+                (['--expect-enhanced'] if int(sdk) >= 34 and variant in ['cross', 'popup-cross', 'custom-cross'] else []))
+               for variant in ['standard', 'custom', 'custom-blob', 'custom-cross', 'custom-csp', 'cross', 'square', 'popup', 'popup-cross']]
     stages += [('settings-back', ['settings-back-regression.py']), ('settings', ['settings-regression.py']),
                ('productivity', ['productivity-regression.py']), ('home-shortcut', ['home-shortcut-regression.py'])]
     if int(sdk) >= 33:

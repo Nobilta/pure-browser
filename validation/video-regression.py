@@ -81,9 +81,11 @@ class Regression:
         raise AssertionError("A single tap did not reveal fullscreen controls")
 
     def button(self, label, reveal=True):
-        if label == "Web play/pause" and self.variant == "custom" and ux.match(ux.nodes()[0], label) is None:
-            # Older providers can omit the custom fullscreen DOM from accessibility.
-            state = self.wait(lambda s: s["fullscreen"] and s.get("webPlayRect", {}).get("width", 0) > 0)
+        if label == "Web play/pause" and self.variant.startswith("custom"):
+            # Older providers expose stale or incomplete fullscreen accessibility nodes.
+            # Touch the fixture's live DOM geometry; callers verify real playback after it.
+            state = self.wait(lambda s: s["fullscreen"] and s["webControlsVisible"]
+                              and s.get("webPlayRect", {}).get("width", 0) > 0)
             rect, scale = state["webPlayRect"], state["viewport"]["dpr"]
             ux.adb("shell", "input", "tap", str(int((rect["x"] + rect["width"] / 2) * scale)),
                    str(int((rect["y"] + rect["height"] / 2) * scale)))
@@ -153,6 +155,59 @@ class Regression:
         self.wait(lambda s: s["fullscreen"] and not s["paused"])
         time.sleep(1)
 
+    def custom_player(self, original_size, before):
+        if self.variant == "custom-csp":
+            self.wait(lambda s: s["fullscreen"] and not s["enhanced"] and s["webControlsVisible"])
+            self.button("Web play/pause", reveal=False)
+            self.wait(lambda s: s["paused"] and not s["controls"])
+            self.button("Web play/pause", reveal=False)
+            self.wait(lambda s: not s["paused"])
+            self.record("CSP-blocked handoff restores usable website controls")
+        else:
+            state = self.wait(lambda s: s["fullscreen"] and s["enhanced"] and not s["paused"]
+                              and not s["webControlsVisible"] and s["dynamicControlAdded"] and not s["dynamicControlVisible"])
+            assert state["sameElement"] and state["source"] == before["source"]
+            assert state["currentTime"] >= before["currentTime"] and not state["controls"]
+            for key in ("left", "top", "width", "height"):
+                assert abs(state["videoRect"][key] - state["rootRect"][key]) <= 2, state
+            self.record("custom container automatically uses enhanced controls without reloading video")
+            self.record("nested transformed video fills fullscreen and new website controls stay hidden")
+            self.snapshot("custom-enhanced")
+            self.button("暂停视频")
+            paused = self.wait(lambda s: s["paused"])
+            self.button("快进10秒")
+            self.wait(lambda s: s["paused"] and s["currentTime"] >= paused["currentTime"] + 9)
+            self.button("播放速度 1×")
+            self.button("1.5×", reveal=False)
+            self.wait(lambda s: s["paused"] and s["rate"] == 1.5)
+            self.record("native pause, seek and speed control the original custom video")
+
+            self.button("切换到网页控件")
+            self.wait(lambda s: s["fullscreen"] and not s["enhanced"] and not s["controls"]
+                      and s["webControlsVisible"] and s["dynamicControlVisible"] and s["transientMarkers"] == 0)
+            self.button("Web play/pause", reveal=False)
+            self.wait(lambda s: not s["paused"] and s["rate"] == 1.5)
+            self.snapshot("custom-web-controls")
+            self.button("切换到增强控件")
+            self.wait(lambda s: s["enhanced"] and not s["webControlsVisible"] and s["source"] == before["source"])
+            self.record("switching back restores working website controls and preserves playback state")
+            self.button("锁定屏幕")
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda s: s["fullscreen"] and s["enhanced"])
+            assert ux.match(self.controls(), "锁定屏幕") is not None
+            self.record("custom fullscreen Back unlocks before exiting")
+
+        ux.adb("shell", "input", "keyevent", "4")
+        self.wait(lambda s: not s["fullscreen"] and not s["controls"] and s["transientMarkers"] == 0)
+        for _ in range(2):
+            self.enter_fullscreen()
+            self.wait(lambda s: s["enhanced"] == (self.variant != "custom-csp"))
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda s: not s["fullscreen"] and not s["controls"] and s["transientMarkers"] == 0)
+        time.sleep(1)
+        assert self.snapshot("exited") == original_size
+        self.record("repeated custom fullscreen exits restore the original controls and orientation")
+
     def run(self):
         # UiAutomation restores a frozen rotation on disconnect; use the sensor so
         # hierarchy snapshots cannot overwrite the system's portrait lock setting.
@@ -164,10 +219,17 @@ class Regression:
             ux.adb("reverse", "tcp:" + str(port), "tcp:" + str(port))
         ux.adb("shell", "am", "force-stop", "com.mybrowser")
         popup = self.variant in ("popup", "popup-cross")
-        cross = self.variant in ("cross", "popup-cross")
+        cross = self.variant in ("cross", "popup-cross", "custom-cross")
+        custom = self.variant.startswith("custom")
         page = ("player-popup-fixture.html" if popup else
                 "player-cross-frame.html" if cross else "player-fixture.html")
         query = "?case=" + self.case + ("&" + self.variant + "=1" if self.variant in ("blob", "square", "custom") else "")
+        if custom and self.variant != "custom":
+            query += "&custom=1"
+        if self.variant == "custom-blob":
+            query += "&blob=1"
+        if self.variant == "custom-csp":
+            query += "&csp=1"
         if self.variant == "popup-cross":
             query += "&cross=1"
         launch_started = time.monotonic()
@@ -195,8 +257,14 @@ class Regression:
                          for strings in ux._translations]
         cast_buttons = [n for n in root.iter('node') if ux.visible(n) and
                         any(re.fullmatch(p, n.get('content-desc', '')) for p in cast_patterns)]
-        assert len(cast_buttons) == 1, 'Expected one floating cast action for the loaded fixture source'
-        self.record("inline page has one cast action and no duplicate playback controls")
+        if inline["source"].startswith("blob:"):
+            # A decoded Blob is controllable without a directly fetchable cast URL.
+            # Providers may serve the fetch from cache or finish it before navigation
+            # has established its candidate scope; neither should disable the player.
+            assert len(cast_buttons) <= 1, 'Duplicate floating cast actions'
+        else:
+            assert len(cast_buttons) == 1, 'Expected one floating cast action for the loaded fixture source'
+        self.record("inline page has no duplicate cast or playback controls", castActions=len(cast_buttons))
         if popup and (not cross or inline.get("probe")):
             self.inline_button("Play inline", "inlinePlayRect")
             self.wait(lambda s: not s["paused"])
@@ -207,6 +275,9 @@ class Regression:
             ux.adb("shell", "input", "keyevent", "4")
             ux.expect("选择要投送的内容", present=False)
             self.record("new popup tab retains its playing-media marker after the previous WebView is released")
+        if custom:
+            self.inline_button("Play inline", "inlinePlayRect")
+            inline = self.wait(lambda s: not s["paused"] and s["currentTime"] >= 2)
         self.enter_fullscreen()
         root, _ = ux.nodes()
         if ux.match(root, "Got it") is not None:
@@ -214,23 +285,8 @@ class Regression:
         self.snapshot("entered")
         self.record("fullscreen opened", width=self.width, height=self.height)
 
-        if self.variant == "custom":
-            assert ux.match(root, "退出全屏") is None
-            assert ux.match(root, "切换到增强控件") is None
-            assert ux.match(root, "暂停视频") is None
-            self.button("Web play/pause", reveal=False)
-            self.wait(lambda s: s["paused"] and not s["controls"])
-            self.button("Web play/pause", reveal=False)
-            self.wait(lambda s: not s["paused"] and s["fullscreen"])
-            self.record("custom container retains its only control layer and accepts touches")
-            ux.adb("shell", "input", "keyevent", "4")
-            self.wait(lambda s: not s["fullscreen"] and not s["controls"])
-            self.enter_fullscreen()
-            ux.adb("shell", "input", "keyevent", "4")
-            self.wait(lambda s: not s["fullscreen"])
-            self.record("custom fullscreen can exit and reopen without native controls")
-            time.sleep(1)
-            assert self.snapshot("exited") == original_size
+        if custom and (not cross or inline.get("probe")):
+            self.custom_player(original_size, inline)
             return
 
         if cross and not inline.get("probe"):
@@ -273,15 +329,19 @@ class Regression:
         assert self.width > self.height, "Landscape video did not rotate"
         self.record("landscape video rotates automatically")
 
-        self.button("投屏")
-        ux.expect("选择要投送的内容")
-        self.wait(lambda s: s["fullscreen"])
-        self.snapshot("cast-sheet")
-        dismiss_started = time.time()
-        ux.adb("shell", "input", "keyevent", "4")
-        self.wait(lambda s: s["receivedAt"] > dismiss_started + .5 and s["fullscreen"] and not s["controls"])
-        ux.expect("选择要投送的内容", present=False)
-        self.record("cast picker opens and dismisses without leaving fullscreen")
+        if cast_buttons:
+            self.button("投屏")
+            ux.expect("选择要投送的内容")
+            self.wait(lambda s: s["fullscreen"])
+            self.snapshot("cast-sheet")
+            dismiss_started = time.time()
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda s: s["receivedAt"] > dismiss_started + .5 and s["fullscreen"] and not s["controls"])
+            ux.expect("选择要投送的内容", present=False)
+            self.record("cast picker opens and dismisses without leaving fullscreen")
+        else:
+            assert inline["source"].startswith("blob:")
+            self.record("Blob video keeps enhanced controls without a direct cast candidate")
 
         self.button("暂停视频")
         self.wait(lambda s: s["paused"])
@@ -384,10 +444,17 @@ class Regression:
 
         if ux.adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2":
             self.button("锁定屏幕")
-            self.swipe((.001, .5), (.2, .5), 350)
-            time.sleep(1)
+            # Immersive mode can consume the first swipe to reveal system bars. Stop
+            # as soon as Back unlocks; a second delivered Back would correctly exit.
+            for _ in range(2):
+                self.swipe((.999, .5), (.7, .5), 500)
+                time.sleep(.2)
+                gesture_root, _ = ux.nodes()
+                if ux.match(gesture_root, "锁定屏幕") is not None:
+                    break
+                assert ux.match(gesture_root, "解锁屏幕") is not None, "Edge gesture unexpectedly exited fullscreen"
             self.wait(lambda s: s["fullscreen"])
-            assert ux.match(self.controls(), "锁定屏幕") is not None
+            assert ux.match(gesture_root, "锁定屏幕") is not None, "System Back did not unlock the player"
             self.record("system edge Back gesture unlocks without exiting the fullscreen video")
 
         self.button("切换到网页控件")
@@ -414,7 +481,7 @@ class Regression:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
-    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square", "custom", "popup", "popup-cross"], default="standard")
+    parser.add_argument("--variant", choices=["standard", "blob", "cross", "square", "custom", "custom-blob", "custom-cross", "custom-csp", "popup", "popup-cross"], default="standard")
     parser.add_argument("--expect-enhanced", action="store_true", help="Require the known provider to inject the media probe; do not accept cross-frame fallback")
     args = parser.parse_args()
     test = Regression(args.serial, args.variant, args.expect_enhanced)

@@ -4,8 +4,8 @@ Pure 浏览器是一款面向 Android 10 及以上设备的轻量浏览器。界
 Kotlin、Jetpack Compose 和 WebView 实现；网络规则、元素隐藏与 URL/书签解析使用
 Rust。项目追求体积可控、行为透明，以及在 Android 生命周期和存储规则下可验证地工作。
 
-当前源码与候选签名包为 `0.6.0`（versionCode 10），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
-自动检查与覆盖升级已通过，最终模拟器回归进行中；下列说明对应当前源码。
+当前源码与签名安装包为 `0.6.0`（versionCode 10），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
+自动检查及本次增强播放器更新的模拟器验证、交付信息见下文；下列说明对应当前源码。
 逐项完成与验证状态见 [实施记录](design/implementation-status.md)，翻译和跨设备同步按用户决定暂不实现。
 项目目录和 Gradle 根项目均命名为
 `pure-browser`；为保持已安装应用的升级兼容，Android applicationId 暂时仍为
@@ -151,9 +151,9 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
   媒体请求带有页面代次校验，旧页面仍在处理的请求不能在导航后重新填入投屏列表。
 - 页面存在视频时可从菜单打开倍速入口，暂停后仍可使用；网页内不显示悬浮倍速按钮。可选择 `0.5×`、`0.75×`、`1×`、
   `1.25×`、`1.5×`、`2×` 或 `3×`；记住速度默认关闭，长按临时加速不会写入偏好。
-- 开启增强控件设置时，标准 `<video controls>` 自身全屏可交接给浏览器，提供播放/暂停、
-  进度条、快退/快进 10 秒、倍速、旋转、投屏和锁定。网站自定义容器全屏、YouTube 及
-  无法访问的跨域播放器保留网页控件，不叠加浏览器标题栏、播放栏或手势层。
+- 增强控件默认开启：已加载的视频自身或网站自定义容器进入全屏时自动接管，不再要求 `controls`
+  属性，也不再按 YouTube 等域名排除。提供播放/暂停、进度条、快退/快进 10 秒、倍速、旋转、投屏和锁定。
+  HTTP(S) 直链、签名地址和 Blob/MSE 沿用同一视频元素；无法访问的跨域播放器或无法隔离的布局保留网页控件。
 - 增强全屏模式下，左侧上下滑动调整当前窗口亮度，右侧调整媒体音量；亮度退出后恢复，不修改系统亮度。
 - 横向滑动预览进度，松手跳转。直播或没有可跳转范围的视频不启用进度跳转。
 - 长按临时使用 2× 或 3×（不降低原有更快速度），松手、取消或切后台恢复原速度。
@@ -168,14 +168,15 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
   设备报告 PLAYING、请求已接受和状态暂不可用分别显示；没有实体电视，当前验证仍以本地 SOAP/状态机测试为准。
 
 视频解码仍由网站与 WebView 完成，没有新增 ExoPlayer/FFmpeg 等独立解码依赖。
-原生全屏界面只控制对应的 HTML 视频元素，网站登录、清晰度、字幕及 DRM 能力仍由网站负责。
-兼容的标准视频可以切回“网页控件”；复杂网站直接使用自己的全屏按钮或系统返回退出。
+原生全屏界面控制网页已加载的 HTML 视频元素，不新建或移动视频、不改写播放地址，保留进度、音量、倍速与登录态。
+网页自身的清晰度、弹幕、DOM 字幕等操作可切回“网页控件”使用；HTML 文本轨道和 DRM 解码仍由网站与 WebView 负责。
 网页确认交接后才显示浏览器播放栏；目标变化或退出时先撤下播放/手势层，再恢复视频原有控件。
 新建全屏视图等待新的全屏状态，不用上一轮缓存的全屏标记提前接管。
-临时隐藏样式仅作用于接管的视频元素，用于抑制 WebView 全屏时强制显示的内置控件；退出后移除。
+临时样式只作用于当前视频和全屏容器内的 DOM 路径，隐藏网站控制层及之后动态追加的控件，并解除嵌套布局限制。
+确认画面边界与控件隐藏成功后才接管；样式被阻止、被删除或目标失效时恢复网页，不反复切换。退出后清除临时样式并恢复原属性。
 播放遥测不会重置自动隐藏计时，过期回执不能重新开启已撤下的控件。
 
-MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，但 Blob 地址不能交给 DLNA
+MSE/Blob 的网站自定义播放器同样可以使用增强控件，但 Blob 地址不能交给 DLNA
 接收器直接访问。YouTube 常使用 MSE、分离音视频及短期签名请求，通常没有本嗅探器支持的完整媒体地址；
 没有候选时菜单显示“未检测到此视频可直接投送的媒体地址”。这不代表已经判断为 DRM。
 识别到 HTTP(S) 候选也不保证投送成功：Cookie、Referer、地址有效期和接收设备格式支持都会影响结果。
@@ -387,9 +388,10 @@ keyPassword=...
 该脚本执行 Rust fmt、workspace 测试、clippy，Node 协议/阅读提取测试、三语言资源检查，
 以及 Android/Robolectric 测试（含真实 host JNI）、lint、R8 Release 和 APK 签名检查。
 阅读 DOM 夹具使用仅供验证的 `linkedom 0.18.12`，由 `npm --prefix validation ci` 按锁文件安装，不进入 APK。
-本轮阶段检查为 329 项 Android 单元测试、58 项 Rust 测试、47 项 Node 测试与 661 项三语言资源校验。
-Rust 同时通过 host AddressSanitizer 检查；阶段证据在 `validation/results/system-upgrade/`，
-签名 Release 的最终设备回归记录在 `validation/results/release-0.6.0/`。以下交付段将在验收后替换历史包信息。
+本次完整构建通过 329 项 Android 单元测试、58 项 Rust 测试、54 项 Node 测试与 661 项三语言资源校验，
+以及 Rust fmt/clippy、Android lint、R8 Release 和 APK 签名验证。构建记录在 `validation/results/enhanced-player/build.json`。
+播放器设备验证的实际范围、失败重跑与限制见 [专项记录](design/enhanced-player-validation.md)。
+此前系统集成的阶段记录在 `validation/results/system-upgrade/`；其 host AddressSanitizer 结果属于此前阶段检查。
 
 Gradle 依赖版本由 `app/gradle.lockfile` 锁定，产物 SHA-256 由 `gradle/verification-metadata.xml` 校验。
 升级依赖时先检查版本来源，再使用 `./gradlew :app:dependencies --write-locks` 和
@@ -399,18 +401,18 @@ Material 3 为 1.4.0；库自带 Baseline Profile 随 Release 编译，尚未录
 
 当前签名 Release：
 
-- [PureBrowser-v0.5.2-release.apk](PureBrowser-v0.5.2-release.apk)
-- Android 10+、arm64-v8a，3,634,176 bytes（约 3.47 MiB）
-- SHA-256：`214b0908c9e92a8d52486c5104c259991be7fe846fac59ca87ce126e924158cf`
+- [PureBrowser-v0.6.0-release.apk](PureBrowser-v0.6.0-release.apk)
+- Android 10+、arm64-v8a，6,321,255 bytes（约 6.03 MiB）
+- SHA-256：`9452efe254164ccdf7ad40151e40513ad150ed1d0f1984fad1a6b14e15031743`
 - APK Signature Scheme v2：通过
-- 与 0.5.1 签名证书相同，versionCode 从 8 升至 9，可直接覆盖安装。
+- 与 0.5.2 签名证书相同，versionCode 从 9 升至 10，可直接覆盖安装。
 
 Release 使用 R8 全模式和资源裁剪；仅对实际 JNI 入口保留必要符号，其他代码使用 Android/AndroidX
 默认规则。DEX 与已剥离符号的 native 库采用 ZIP 压缩，Android 安装时解压。当前图标来源见
 [图标说明](design/app-icon/README.md)，旧候选及重复 XML 已删除。
 
 ```bash
-./install_and_test.sh PureBrowser-v0.5.2-release.apk
+./install_and_test.sh PureBrowser-v0.6.0-release.apk
 ./diagnose.sh
 # 单独执行 Android 检查：
 ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
@@ -418,19 +420,19 @@ Release 使用 R8 全模式和资源裁剪；仅对实际 JNI 入口保留必要
 ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 ```
 
-本轮围绕桌面模式验证 JavaScript/HTTP 重定向、请求 UA、页面 UA、1024 视口、开关稳定、关闭、
-刷新、重启和来源隔离，并额外检查实际 JRS 网站。Android 10 与 Android 14 模拟器各通过本机 12 项、
-实际网站 4 项，以及 browser、site、permissions、layout 四个相关阶段；最终诊断均无崩溃或 ANR。
-设备阶段均绑定当前 APK SHA-256，
-实际完成项、测试脚本的重跑和未覆盖范围见 [回归报告](EMULATOR_TEST_REPORT.md)。
-最终证据集中于 `validation/results/release-0.5.2/`；旧 APK 的开关翻转记录仅用于根因对照，
-不计入新版覆盖，也不将选定阶段描述为全功能矩阵重跑。
+本次验证聚焦增强播放器的控制交接、嵌套布局、动态网页控件、跨域/弹窗、Blob、样式限制与退出恢复，
+并检查相关系统媒体控制和画中画。每个设备阶段都绑定上方 APK 的 SHA-256；具体设备、WebView 版本与结果见
+[播放器专项记录](design/enhanced-player-validation.md)。其他系统集成的验证状态见 [实施记录](design/implementation-status.md)。
+
+0.5.2 的桌面模式、JRS 实际网站及相关浏览阶段历史结果保留在 [回归报告](EMULATOR_TEST_REPORT.md)，
+原始证据位于 `validation/results/release-0.5.2/`，对应的版本和哈希以历史记录为准。
 
 ```bash
 python3 validation/qa-server.py
 # 另一个终端，在专用模拟器安装同一 APK 并串行运行 UI 回归：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.2-release.apk
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.6.0-release.apk \
+  --label enhanced-player --stages video-standard video-custom video-custom-blob video-custom-cross video-custom-csp
 # 仅在 APK、AVD 和所选阶段完全相同时使用 --resume
 # 菜单专项：
 python3 validation/menu-navigation-regression.py --serial emulator-5554
@@ -502,4 +504,4 @@ README 是当前能力和构建入口；用户可见行为、依赖、验证结�
 本轮阶段验证已补充 `validation/resident-regression.py` 与 JNI instrumentation：最近普通标签往返
 保留 DOM、未提交表单、SPA 状态和滚动位置，离开的标签暂停媒体；Ctrl 快捷键先于 Chromium
 焦点处理。文档缓存有 8 线程并发淘汰等价检查。阶段记录见
-[实施记录](design/implementation-status.md)，最终签名安装包仍等待全部发布检查。
+[实施记录](design/implementation-status.md)；本次播放器更新的签名包、专项覆盖及未验证范围以上方交付段为准。
