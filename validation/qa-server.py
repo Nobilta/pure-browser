@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from collections import defaultdict, deque
+import argparse
 import json
 import mimetypes
 import re
@@ -13,6 +14,7 @@ import struct
 import zlib
 
 ROOT = Path(__file__).resolve().parent
+APK_PATH = ROOT.parent / 'app/build/outputs/apk/release/app-release.apk'
 EVENTS = defaultdict(lambda: deque(maxlen=600))
 LOCK = threading.Lock()
 FILTER_MODE = 'valid'
@@ -102,12 +104,12 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(IMAGE)
             return
         if parsed.path in ('/download-open.png', '/download-open.apk', '/download-unknown.bin'):
-            # Serve the built artifact directly; never keep another APK fixture copy.
+            # Serve the selected artifact directly; never keep another APK fixture copy.
             query = parse_qs(parsed.query)
             key = re.sub(r'[^a-zA-Z0-9-]', '', query.get('case', ['test'])[0])[:60]
             unknown = parsed.path.endswith('.bin')
             if parsed.path.endswith('.apk'):
-                apk = ROOT.parent / 'app/build/outputs/apk/release/app-release.apk'
+                apk = APK_PATH
                 if not apk.is_file():
                     self.send_error(404); return
                 payload, mime, extension = apk.read_bytes(), 'application/vnd.android.package-archive', 'apk'
@@ -195,6 +197,10 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--apk', type=Path, default=APK_PATH,
+                        help='APK served by the download fixture (default: Gradle release output)')
+    APK_PATH = parser.parse_args().apk.resolve()
     secondary = ThreadingHTTPServer(('127.0.0.1', 8876), Handler)
     threading.Thread(target=secondary.serve_forever, daemon=True).start()
     print('Fixtures available on loopback ports 8875 and 8876', flush=True)

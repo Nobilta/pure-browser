@@ -10,7 +10,7 @@ p.add_argument('--serial', required=True); p.add_argument('--previous', type=Pat
 p.add_argument('--apk', type=Path, required=True); p.add_argument('--output', type=Path, required=True)
 a = p.parse_args(); assert a.serial.startswith('emulator-'); ux.ADB = ['adb', '-s', a.serial]
 a.output.mkdir(parents=True, exist_ok=True)
-title = 'Upgrade retained bookmark'
+title = 'Upgrade bookmark ' + str(time.time_ns())
 subprocess.run(ux.ADB + ['install', '-r', str(a.previous)], check=True)
 ux.adb('reverse', 'tcp:8875', 'tcp:8875')
 ux.launch('http://127.0.0.1:8875/browser-ux.html?upgrade=' + str(time.time_ns()))
@@ -34,5 +34,7 @@ installed = ux.adb('shell', 'pm', 'path', 'com.mybrowser').partition(':')[2].str
 expected = hashlib.sha256(a.apk.read_bytes()).hexdigest()
 assert ux.adb('shell', 'sha256sum', installed).split()[0] == expected
 (a.output / 'result.json').write_text(json.dumps({'passed': True, 'apkSha256': expected,
+    'previousApkSha256': hashlib.sha256(a.previous.read_bytes()).hexdigest(),
+    'beforeVersionCode': before_code, 'afterVersionCode': after_code, 'bookmarkTitle': title,
     'checks': [f'Same-package in-place installation accepted: versionCode {before_code} to {after_code}', 'Bookmark created by the old release remains visible after database migration']}, indent=2))
 print('PASS upgrade retained bookmark and installed APK identity', flush=True)

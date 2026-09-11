@@ -118,10 +118,23 @@ public final class FastUiDump {
                 if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, values))
                     throw new IllegalStateException("Text input rejected");
                 System.out.println("Text entered");
-            } else if (args.length == 2 && args[0].equals("tap")) {
+            } else if (args.length == 2 && (args[0].equals("tap") || args[0].equals("visible"))) {
                 JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
                 AccessibilityNodeInfo target = findVisible(root, labels, 0);
-                if (target != null) {
+                // Keep one service connection alive while Chromium creates virtual
+                // descendants; reconnecting for each snapshot can restart that work.
+                long deadline = SystemClock.uptimeMillis() + 2000;
+                while (target == null && SystemClock.uptimeMillis() < deadline) {
+                    SystemClock.sleep(100);
+                    root = automation.getRootInActiveWindow();
+                    if (root != null) {
+                        root.refresh();
+                        target = findVisible(root, labels, 0);
+                    }
+                }
+                if (target != null && args[0].equals("visible")) {
+                    System.out.println("Target visible");
+                } else if (target != null) {
                     Rect bounds = new Rect();
                     target.getBoundsInScreen(bounds);
                     tap(automation, bounds.exactCenterX(), bounds.exactCenterY());

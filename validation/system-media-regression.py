@@ -47,7 +47,7 @@ def main():
         wait(lambda r:not r['paused'],before)
         (a.output/'pip.png').write_bytes(subprocess.check_output(ux.ADB+['exec-out','screencap','-p'],timeout=20))
         record('Home from fullscreen enters Android PiP and keeps the existing video playing')
-        ux.adb('shell','cmd','media_session','dispatch','pause');wait(lambda r:r['paused'])
+        ux.media_dispatch('pause');wait(lambda r:r['paused'])
         record('Android MediaSession pause reaches the selected WebView video')
         ux.launch();page();setting('Allow background media',True);page();ux.tap('Play inline')
         first=wait(lambda r:not r['paused'] and r['currentTime']>0);left=time.time()
@@ -56,7 +56,7 @@ def main():
         services=ux.adb('shell','dumpsys','activity','services',a.package);(a.output/'services.txt').write_text(services)
         assert 'MediaPlaybackService' in services and 'isForeground=true' in services
         record('Explicit background playback continues with a media foreground service')
-        ux.adb('shell','cmd','media_session','dispatch','pause');wait(lambda r:r['paused'])
+        ux.media_dispatch('pause');wait(lambda r:r['paused'])
         record('System pause also stops explicitly enabled background playback')
         ux.launch();page();setting('Allow background media',False);page()
         (a.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'background':after},indent=2))
