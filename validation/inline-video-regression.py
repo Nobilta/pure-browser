@@ -131,7 +131,15 @@ def main():
                 web = next(n for n in ux.nodes()[0].iter('node') if n.get('class') == 'android.webkit.WebView' and ux.visible(n))
                 left, top, right, bottom = ux.bounds(web)
                 x, low, high = (left + right) // 2, int(top + (bottom - top) * .85), int(top + (bottom - top) * .12)
-                ux.adb('shell', 'input', 'swipe', str(x), str(low), str(x), str(high), '450')
+                # Viewport height, toolbar collapse and old WebView scroll physics
+                # change the distance traveled by one swipe. Require actual DOM
+                # geometry to leave the screen before asserting overlay cleanup.
+                for _ in range(4):
+                    ux.adb('shell', 'input', 'swipe', str(x), str(low), str(x), str(high), '450')
+                    time.sleep(.5)
+                    state = wait(lambda s: s['ready'] >= 1)
+                    if state['videoRect']['y'] + state['videoRect']['height'] <= 0:
+                        break
                 wait(lambda s: s['hosts'] == 0 and s['videoRect']['y'] + s['videoRect']['height'] <= 0)
                 for _ in range(3):
                     ux.adb('shell', 'input', 'swipe', str(x), str(high), str(x), str(low), '450')

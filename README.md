@@ -167,7 +167,7 @@ lint、R8 和签名验证。当前自动检查通过 **321 项 Android、58 项 
 构建记录：`validation/results/release-0.7.0/build7.json` 与同名日志。
 
 ```bash
-python3 validation/qa-server.py
+python3 validation/qa-server.py --apk PureBrowser-v0.7.0-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
 python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.0-release.apk \
@@ -176,8 +176,11 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 ```
 
 QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、下载和文件。
+QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件，清理构建缓存后仍可复现。
 辅助程序仅置于 `/data/local/tmp`，Release 不开放 WebView 调试。runner 按实际安装 APK SHA-256 记录阶段，
-保留失败尝试，不把局部验证计作全部设备/网站覆盖。最新模拟器结果见 [回归报告](EMULATOR_TEST_REPORT.md)，
+保留失败尝试，不把局部验证计作全部设备/网站覆盖。最终包在 Android 10 / WebView 91 上通过 12 个阶段，
+Android 17 / WebView 145 上通过 10 个阶段；前一构建另有 28 阶段的扩展验证，未合并计入最终包覆盖。
+阶段、升级链和失败记录见 [回归报告](EMULATOR_TEST_REPORT.md)，
 复现与手工验收见 [测试指南](TESTING_GUIDE.md)。
 
 ### 交付包

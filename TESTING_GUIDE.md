@@ -31,7 +31,7 @@ shasum -a 256 PureBrowser-v0.7.0-release.apk
 不要与 Gradle 构建同时运行。QA 仅监听本机 8875/8876，通过 ADB reverse 使用；证书和桌面模式夹具另外使用 8877–8879。
 
 ```bash
-python3 validation/qa-server.py
+python3 validation/qa-server.py --apk PureBrowser-v0.7.0-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
 python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.0-release.apk \
@@ -44,6 +44,8 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/pure-ui-dump.jar`，提供真实触摸、
 键盘和无障碍树读取；动态网页使用 DOM 遥测与播放/文件内容核对操作结果，不能只判断按钮存在。
 权限窗口和全屏控件须在同一次辅助会话中定位并触摸，防止窗口动画/自动隐藏造成坐标过期。
+PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
+两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
 ## 0.7.0 重点验收
 
@@ -64,7 +66,8 @@ python3 validation/capabilities-regression.py --serial emulator-5554 --section d
 - 暂停、继续、主动暂停跨重启、运行中进程死亡后恢复、If-Range 及最终文件哈希；保存阶段与服务停止。
 - 系统 Downloads/SAF 自定义目录、同名文件、仅删记录/同时删文件、失败重试和队列策略。
 
-QA 的 APK 下载路由直接读取 `app/build/outputs/apk/release/app-release.apk`，不再保存 APK 夹具副本。
+QA 的 APK 下载路由直接读取 `--apk` 指定的文件，应与回归套件使用同一安装包；不保存 APK 夹具副本，
+清理构建缓存后仍可使用根目录的交付 APK。省略该参数时兼容读取 `app/build/outputs/apk/release/app-release.apk`。
 
 ### 内嵌和全屏视频
 
