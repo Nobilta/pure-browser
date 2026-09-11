@@ -1,16 +1,23 @@
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pure Video Lab</title>
-<style>body{font:16px system-ui;margin:16px;background:#111820;color:#e4edf8}video{width:100%;max-height:60vh;background:#000}button,a{display:inline-block;padding:16px;margin:8px 6px 8px 0;border:0;border-radius:12px;background:#bbd9ff;color:#09233f}[hidden]{display:none!important}pre{white-space:pre-wrap;font-size:13px}h2{font-weight:600}</style></head>
-<body><h2>Pure Video Lab</h2><div id="player-shell"><video id="player" controls playsinline preload="auto" loop></video><button id="web-play" hidden>Web play/pause</button></div>
+<style>body{font:16px system-ui;margin:16px;background:#111820;color:#e4edf8}video{width:100%;max-height:60vh;background:#000}button,a{display:inline-block;padding:16px;margin:8px 6px 8px 0;border:0;border-radius:12px;background:#bbd9ff;color:#09233f}[hidden]{display:none!important}pre{white-space:pre-wrap;font-size:13px}h2{font-weight:600}
+.custom #video-host{transform:translate(8px,2px);contain:paint;overflow:hidden;max-width:80%;padding:4px}.custom #player-shell::after{content:'Website overlay';position:absolute;top:10px;left:10px;background:#b22;color:white}.custom #player-shell{position:relative}</style></head>
+<body><h2>Pure Video Lab</h2><div id="player-shell"><div id="video-host"><video id="player" controls playsinline preload="auto" loop></video></div><button id="web-play" hidden>Web play/pause</button></div>
 <button id="start">Play fullscreen</button><button id="play">Play inline</button><button id="rate">Set 1.5x</button>
 <a href="sample.mp4" download="pure-video-test.mp4">Download sample</a><pre id="status">Loading</pre>
 <script>
 const params=new URLSearchParams(location.search), player=document.getElementById('player'), log=document.getElementById('status');
-if(params.has('custom')){player.controls=false;document.getElementById('web-play').hidden=false;}
+if(params.has('custom')){document.body.classList.add('custom');player.controls=false;document.getElementById('web-play').hidden=false;}
+if(params.has('csp')){const policy=document.createElement('meta');policy.httpEquiv='Content-Security-Policy';policy.content="style-src 'self'";document.head.appendChild(policy);}
 document.getElementById('web-play').onclick=()=>player.paused?player.play():player.pause();
 const caseId=params.get('case')||'default';let frameTop=0;
 addEventListener('message',event=>{if(event.source===parent&&event.data&&event.data.type==='fixture-offset')frameTop=Number(event.data.top)||0;});
+function visible(element){if(!element)return false;const style=getComputedStyle(element),rect=element.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&rect.width>0&&rect.height>0;}
 function state(event){return {event,caseId,capturedAt:performance.timeOrigin+performance.now(),paused:player.paused,rate:player.playbackRate,defaultRate:player.defaultPlaybackRate,
  currentTime:player.currentTime,duration:Number.isFinite(player.duration)?player.duration:0,controls:player.controls,
+ enhanced:player.hasAttribute('data-pure-browser-controls'),sameElement:document.getElementById('player')===player,videoRect:player.getBoundingClientRect().toJSON(),
+ rootRect:document.getElementById('player-shell').getBoundingClientRect().toJSON(),webControlsVisible:visible(document.getElementById('web-play')),
+ dynamicControlAdded:!!document.getElementById('dynamic-control'),dynamicControlVisible:visible(document.getElementById('dynamic-control')),
+ transientMarkers:document.querySelectorAll('[data-pure-browser-controls],[data-pure-browser-stage],[data-pure-browser-fullscreen]').length,
  fullscreen:!!document.fullscreenElement,width:player.videoWidth,height:player.videoHeight,source:player.currentSrc,frameTop,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},startRect:document.getElementById('start').getBoundingClientRect().toJSON(),inlinePlayRect:document.getElementById('play').getBoundingClientRect().toJSON(),webPlayRect:document.getElementById('web-play').getBoundingClientRect().toJSON(),
  probe:window.__pureBrowserVideoV2?window.__pureBrowserVideoV2.snapshot():null};}
 function report(event){const value=state(event);if(event!=='tick')log.textContent=(player.paused?'Paused':'Playing')+' · '+player.playbackRate+'x';fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(value),headers:{'Content-Type':'application/json'}}).catch(()=>{});
@@ -27,9 +34,14 @@ function report(event){const value=state(event);if(event!=='tick')log.textConten
 }
 ['play','pause','ratechange','seeked','loadedmetadata','ended','error'].forEach(name=>player.addEventListener(name,()=>report(name)));
 document.addEventListener('fullscreenchange',()=>report('fullscreenchange'));
+document.addEventListener('fullscreenchange',()=>{if(params.has('custom')&&document.fullscreenElement&&!document.getElementById('dynamic-control'))setTimeout(()=>{
+ const button=document.createElement('button');button.id='dynamic-control';button.textContent='Added website controls';document.getElementById('player-shell').appendChild(button);
+},500);});
 document.getElementById('start').onclick=()=>{player.play();(params.has('custom')?document.getElementById('player-shell'):player).requestFullscreen().catch(()=>report('fullscreen-failed'));};
 document.getElementById('play').onclick=()=>player.play();document.getElementById('rate').onclick=()=>{player.playbackRate=1.5;};
-const mediaSource=params.has('square')?'sample-default.mp4':'player-sample.mp4';
+// Give each run a real media request; cached fetch-to-Blob responses need not reach
+// WebView's network sniffer, so they cannot guarantee a direct-cast candidate.
+const mediaSource=(params.has('square')?'sample-default.mp4':'player-sample.mp4')+'?fixture='+encodeURIComponent(caseId);
 if(params.has('blob'))fetch(mediaSource).then(r=>r.blob()).then(b=>{player.src=URL.createObjectURL(b);});else player.src=mediaSource;
 setInterval(()=>report('tick'),300);
 </script></body></html>

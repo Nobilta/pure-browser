@@ -6,7 +6,8 @@
   var ids = new WeakMap(), speeds = new WeakMap(), nextId = 0;
   var selected = null, boost = null, nativeControls = null, disposed = false, suspended = false;
   var scheduled = null, pulse = null, observer = null;
-  var controlsAttribute = 'data-pure-browser-controls';
+  var controlsAttribute = 'data-pure-browser-controls', stageAttribute = 'data-pure-browser-stage';
+  var rootAttribute = 'data-pure-browser-fullscreen', rejectedControls = null;
   var rates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
   function finite(value, fallback) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
   function id(video) {
@@ -20,19 +21,29 @@
       return rect.width > 1 && rect.height > 1 && style.display !== 'none' && style.visibility !== 'hidden';
     } catch (_) { return false; }
   }
-  function fullscreen(video) {
+  function fullscreenRoot(video) {
     var root = doc.fullscreenElement || doc.webkitFullscreenElement;
-    return !!video.webkitDisplayingFullscreen || !!(root && (root === video || root.contains(video)));
+    if (root && (root === video || root.contains(video))) return root;
+    return video.webkitDisplayingFullscreen ? video : null;
+  }
+  function fullscreen(video) { return !!fullscreenRoot(video); }
+  function controlPath(video, root) {
+    var path = [], element = video;
+    while (element && path.length < 64) {
+      path.push(element);
+      if (element === root) return path;
+      element = element.parentElement;
+    }
+    return null;
   }
   function canUseNativeControls(video) {
     if (!video || String(video.tagName).toLowerCase() !== 'video') return false;
-    var host = new URL(win.location.href).hostname.toLowerCase();
-    if (/(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(host)) return false;
-    var root = doc.fullscreenElement || doc.webkitFullscreenElement;
-    var controls = nativeControls && nativeControls.video === video ? nativeControls.controls : video.controls;
-    // A container may render its own controls. Only the video's built-in controls can
-    // be handed off through video.controls; Blob/MSE alone says nothing about UI ownership.
-    return !!controls && (root === video || !!video.webkitDisplayingFullscreen);
+    var root = fullscreenRoot(video);
+    if (!root || video.readyState < 1 || !video.videoWidth || !video.videoHeight) return false;
+    if (rejectedControls && rejectedControls.video === video && rejectedControls.root === root) return false;
+    // Control the loaded element, including a site's custom container and MSE player.
+    // Neither a controls attribute, a hostname nor an unrelated network URL owns playback.
+    return !!controlPath(video, root);
   }
   function rank(video) {
     var score = fullscreen(video) ? 10000 : 0;
@@ -51,7 +62,7 @@
   function pick() {
     var found = videos();
     if (nativeControls && found.indexOf(nativeControls.video) >= 0 &&
-        !found.some(function(video) { return video !== nativeControls.video && fullscreen(video); })) {
+        fullscreenRoot(nativeControls.video) === nativeControls.root) {
       return nativeControls.video;
     }
     found.sort(function(a, b) { return rank(b) - rank(a); });
@@ -67,6 +78,10 @@
     } catch (_) {}
   }
   function snapshot() {
+    if (nativeControls && !controlsIntact(nativeControls)) {
+      rejectedControls = { video: nativeControls.video, root: nativeControls.root };
+      restoreBoost(); restoreControls();
+    }
     var video = pick(), urls = [], sourceUrl = null, rangeStart = 0, rangeEnd = 0;
     if (video) {
       selected = video;
@@ -133,31 +148,100 @@
     if (nativeControls) {
       var saved = nativeControls;
       nativeControls = null;
-      try {
-        if (saved.attribute === null) saved.video.removeAttribute(controlsAttribute);
-        else saved.video.setAttribute(controlsAttribute, saved.attribute);
-        saved.video.controls = saved.controls;
-      } catch (_) {}
+      if (saved.observer) saved.observer.disconnect();
+      saved.marks.forEach(function(mark) {
+        try {
+          if (mark.value === null) mark.element.removeAttribute(mark.name);
+          else mark.element.setAttribute(mark.name, mark.value);
+        } catch (_) {}
+      });
+      try { saved.video.controls = saved.controls; } catch (_) {}
       try { saved.style.remove(); } catch (_) {}
     }
   }
+  function controlsIntact(saved) {
+    try {
+      if (saved.video.isConnected === false || saved.video.controls ||
+          fullscreenRoot(saved.video) !== saved.root || saved.style.isConnected === false ||
+          !saved.style.sheet || !saved.style.sheet.cssRules.length) return false;
+      if (saved.marks.some(function(mark) { return mark.element.getAttribute(mark.name) !== saved.marker; })) return false;
+      var path = controlPath(saved.video, saved.root);
+      if (!path || path.length !== saved.path.length || path.some(function(node, i) { return node !== saved.path[i]; })) return false;
+      if (path.length === 1) return true;
+      var rect = saved.video.getBoundingClientRect(), rootRect = saved.root.getBoundingClientRect();
+      var style = win.getComputedStyle(saved.video);
+      if (style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) === 0 ||
+          rect.width < 1 || rect.height < 1 || Math.abs(rect.left - rootRect.left) > 2 ||
+          Math.abs(rect.top - rootRect.top) > 2 || Math.abs(rect.width - rootRect.width) > 2 ||
+          Math.abs(rect.height - rootRect.height) > 2) return false;
+      // Check that site !important rules did not leave a second visible control layer.
+      var checked = 0;
+      for (var i = 1; i < path.length; i++) {
+        var children = path[i].children;
+        for (var j = 0; j < children.length; j++) {
+          if (++checked > 512) return false;
+          var child = children[j];
+          if (child === path[i - 1]) continue;
+          var css = win.getComputedStyle(child);
+          if (css.display !== 'none' && css.visibility !== 'hidden' && css.visibility !== 'collapse') return false;
+        }
+      }
+      return true;
+    } catch (_) { return false; }
+  }
   function hideControls(video) {
-    if (!nativeControls || nativeControls.video !== video) {
+    var root = fullscreenRoot(video), path = controlPath(video, root);
+    if (!path) return false;
+    if (!nativeControls || nativeControls.video !== video || nativeControls.root !== root) {
       restoreControls();
       var style = doc.createElement('style'), marker = frameId + '-' + id(video);
-      nativeControls = { video: video, controls: video.controls,
-        attribute: video.getAttribute(controlsAttribute), style: style };
+      var saved = nativeControls = { video: video, root: root, path: path, controls: video.controls,
+        marks: [], marker: marker, style: style, observer: null };
+      function mark(element, name) {
+        saved.marks.push({ element: element, name: name, value: element.getAttribute(name) });
+        element.setAttribute(name, marker);
+      }
       // Chromium can force its UA controls in fullscreen even with controls=false.
       // Scope suppression to this element, and remove both marker and style on exit.
       var selector = 'video[' + controlsAttribute + '="' + marker + '"]';
       style.textContent = selector + '::-webkit-media-controls{display:none!important}' +
         selector + '::-webkit-media-controls-enclosure{display:none!important}';
+      mark(video, controlsAttribute);
+      if (root !== video) {
+        var stage = '[' + stageAttribute + '="' + marker + '"]';
+        var stageRoot = '[' + rootAttribute + '="' + marker + '"]';
+        path.slice(1).forEach(function(element) { mark(element, stageAttribute); });
+        mark(root, rootAttribute);
+        // Keep the media node, source, event listeners and decoder in place. Hide sibling
+        // branches (including controls added later) and remove containing-block constraints
+        // along its ancestry so a nested, transformed video fills the fullscreen viewport.
+        style.textContent += stage + '> :not(' + stage + '):not(' + selector + '){display:none!important}' +
+          stage + '::before,' + stage + '::after{display:none!important;content:none!important}' +
+          stage + '{display:block!important;position:static!important;transform:none!important;' +
+          'translate:none!important;rotate:none!important;scale:none!important;perspective:none!important;' +
+          'filter:none!important;backdrop-filter:none!important;contain:none!important;will-change:auto!important;' +
+          'content-visibility:visible!important;clip:auto!important;clip-path:none!important;mask:none!important;' +
+          'overflow:visible!important;opacity:1!important;visibility:hidden!important;pointer-events:none!important;}' +
+          stageRoot + '{position:fixed!important;top:0!important;right:0!important;bottom:0!important;left:0!important;width:100%!important;height:100%!important;' +
+          'margin:0!important;padding:0!important;border:0!important;max-width:none!important;max-height:none!important;' +
+          'background:#000!important;overflow:hidden!important;}' +
+          selector + '{position:fixed!important;top:0!important;right:0!important;bottom:0!important;left:0!important;width:100%!important;height:100%!important;' +
+          'min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;' +
+          'margin:0!important;padding:0!important;border:0!important;box-sizing:border-box!important;' +
+          'object-fit:contain!important;object-position:center!important;transform:none!important;' +
+          'translate:none!important;rotate:none!important;scale:none!important;clip:auto!important;clip-path:none!important;' +
+          'display:block!important;visibility:visible!important;opacity:1!important;z-index:2147483647!important;' +
+          'background:#000!important;pointer-events:none!important;}';
+      }
       (doc.head || doc.documentElement).appendChild(style);
       if (!style.sheet || !style.sheet.cssRules.length) throw new Error('Control styles unavailable');
-      video.setAttribute(controlsAttribute, marker);
+      saved.observer = new win.MutationObserver(schedule);
+      saved.observer.observe(root, { childList: true, subtree: true, attributes: true,
+        attributeFilter: ['class', 'style', 'controls', controlsAttribute, stageAttribute, rootAttribute] });
     }
     video.controls = false;
-    return !video.controls;
+    if (!controlsIntact(nativeControls)) throw new Error('Fullscreen layout cannot be isolated');
+    return true;
   }
   function seek(video, requested) {
     if (!Number.isFinite(requested) || !Number.isFinite(video.duration) || video.duration <= 0 || !video.seekable.length) return false;
@@ -243,6 +327,7 @@
   function visibilityChanged() { if (doc.hidden) restoreBoost(); schedule(); }
   function pageHide() { restoreBoost(); restoreControls(); }
   function fullscreenChanged() {
+    if (rejectedControls && fullscreenRoot(rejectedControls.video) !== rejectedControls.root) rejectedControls = null;
     if (nativeControls && !canUseNativeControls(nativeControls.video)) {
       restoreBoost(); restoreControls();
     }
