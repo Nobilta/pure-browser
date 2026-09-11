@@ -370,4 +370,45 @@ mod tests {
         assert_eq!(result.folders[2], vec!["Empty"]);
         assert!(parse(&"<h3>Deep</h3><dl>".repeat(17)).is_err());
     }
+
+    #[test]
+    fn generated_malformed_utf8_html_is_bounded_and_deterministic() {
+        let parts = [
+            "<DL>",
+            "</dl>",
+            "<H3>中文&amp;目录</H3>",
+            "<a href='https://site.test/文'>",
+            "</a>",
+            "<script>",
+            "</script>",
+            "<!--",
+            "-->",
+            "&#x1f600;",
+            "<a href=javascript:alert(1)>",
+            "\0",
+            "\"<>",
+        ];
+        let mut seed = 0xbb67ae85u64;
+        for _ in 0..2048 {
+            let mut input = String::new();
+            for _ in 0..40 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                input.push_str(parts[seed as usize % parts.len()]);
+                input.push_str(&String::from_utf8_lossy(&seed.to_le_bytes()));
+            }
+            if let Ok(result) = parse(&input) {
+                assert!(
+                    result.entries.len() <= MAX_BOOKMARKS && result.folders.len() <= MAX_FOLDERS
+                );
+                assert_eq!(result.entries, parse(&input).unwrap().entries);
+                assert!(result
+                    .entries
+                    .iter()
+                    .all(|entry| entry.url.starts_with("https://")
+                        && entry.folder_path.len() <= MAX_DEPTH));
+            }
+        }
+    }
 }

@@ -13,7 +13,7 @@
     if (!ids.has(video)) ids.set(video, 'v' + (++nextId));
     return ids.get(video);
   }
-  function videos() { return Array.prototype.slice.call(doc.querySelectorAll('video'), 0, 64); }
+  function videos() { return Array.prototype.slice.call(doc.querySelectorAll('video,audio'), 0, 64); }
   function visible(video) {
     try {
       var rect = video.getBoundingClientRect(), style = win.getComputedStyle(video);
@@ -25,7 +25,7 @@
     return !!video.webkitDisplayingFullscreen || !!(root && (root === video || root.contains(video)));
   }
   function canUseNativeControls(video) {
-    if (!video) return false;
+    if (!video || String(video.tagName).toLowerCase() !== 'video') return false;
     var host = new URL(win.location.href).hostname.toLowerCase();
     if (/(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(host)) return false;
     var root = doc.fullscreenElement || doc.webkitFullscreenElement;
@@ -89,7 +89,8 @@
     } catch (_) {}
     return {
       type: 'state', frameId: frameId, frameUrl: win.location.href,
-      videoId: video ? id(video) : null, hasVideo: !!video,
+      videoId: video ? id(video) : null, hasMedia: !!video,
+      hasVideo: !!video && String(video.tagName).toLowerCase() === 'video', muted: !!video && video.muted,
       playing: !!video && !video.paused && !video.ended,
       fullscreen: !!video && fullscreen(video), score: video ? rank(video) : 0,
       nativeControlsAvailable: canUseNativeControls(video),
@@ -113,7 +114,7 @@
     if (pulse !== null) win.clearTimeout(pulse);
     pulse = null;
     // No recurring DOM scan on pages without video or while the document is hidden.
-    if (state.hasVideo && !doc.hidden) pulse = win.setTimeout(post, 1000);
+    if (state.hasMedia && (!doc.hidden || state.playing)) pulse = win.setTimeout(post, 1000);
   }
   function schedule() {
     if (!disposed && scheduled === null) scheduled = win.setTimeout(post, 250);
@@ -179,6 +180,8 @@
     try {
       if (message.type === 'suspend') {
         suspend(!!message.value); ok = true;
+      } else if (message.type === 'pauseAll') {
+        pauseAll(); ok = true;
       } else if (message.type === 'endBoost') {
         ok = restoreBoost();
       } else if (message.type === 'restoreControls') {
@@ -204,8 +207,9 @@
         }
       } else if (message.type === 'seek') {
         ok = seek(video, Number(message.position));
-      } else if (message.type === 'togglePlayback') {
-        if (video.paused || video.ended) {
+      } else if (message.type === 'togglePlayback' || message.type === 'play' || message.type === 'pause') {
+        var shouldPlay = message.type === 'play' || (message.type === 'togglePlayback' && (video.paused || video.ended));
+        if (shouldPlay && !suspended) {
           var promise = video.play();
           if (promise && promise.then) {
             promise.then(function() { complete(true); post(); }, function() { complete(false); post(); });
@@ -258,6 +262,10 @@
     try { message = JSON.parse(String(event.data)); } catch (_) { return; }
     command(message, function(ok) { emit({ type: 'ack', id: message.id, frameId: frameId, ok: ok }); });
   };
+  function pauseAll() {
+    restoreBoost();
+    videos().forEach(function(video) { try { video.pause(); } catch (_) {} });
+  }
   function suspend(value) {
     suspended = !!value;
     if (suspended) {
@@ -266,7 +274,7 @@
     }
   }
   var api = {
-    snapshot: snapshot, post: post, command: command, suspend: suspend,
+    snapshot: snapshot, post: post, command: command, suspend: suspend, pauseAll: pauseAll,
     dispose: function() {
       restoreBoost(); restoreControls(); disposed = true;
       win.clearTimeout(scheduled); win.clearTimeout(pulse);

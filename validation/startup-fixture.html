@@ -1,0 +1,7 @@
+<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Startup fixture</title><body><h1>Startup fixture</h1><button onclick="this.textContent='Interactive'">Ready to interact</button>
+<script>
+const key=new URLSearchParams(location.search).get('case');
+addEventListener('load',()=>requestAnimationFrame(()=>requestAnimationFrame(()=>
+fetch('/__state?case='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ready:document.readyState,painted:true})}))));
+</script></body></html>

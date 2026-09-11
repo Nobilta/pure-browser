@@ -176,6 +176,8 @@ fun UserScriptsSheet(store: UserScriptStore, initialUrl: String?, onUrlConsumed:
                     Text(res.getString(R.string.script_grants, metadata.grants.joinToString(", ")), Modifier.padding(top = 8.dp))
                     Text(res.getString(R.string.script_timing, metadata.runAt))
                     if (metadata.requires.isNotEmpty()) Text(res.getString(R.string.script_requires, metadata.requires.joinToString("\n")))
+                    if (metadata.resources.isNotEmpty()) Text(res.getString(R.string.script_resources,
+                        metadata.resources.entries.joinToString("\n") { "${it.key}: ${it.value}" }))
                     if (!metadata.supported) Text(res.getString(R.string.script_unsupported, metadata.unsupported.joinToString(", ")),
                         color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                     if (replacing && !current.previewOnly) Text(res.getString(R.string.script_replace_notice), Modifier.padding(top = 8.dp))

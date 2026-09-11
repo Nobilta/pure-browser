@@ -166,7 +166,10 @@ try:
         foreground()
         root, _ = ux.nodes()
         assert not ux.menu_open(root), 'Menu still covers child: ' + label
-        assert window_count() == 2, 'Child retained a second modal window: ' + label
+        # The folder library is a full-screen navigable surface, like Settings.
+        # Other children still own one dialog above the browser window.
+        expected_windows = 1 if label == '书签' else 2
+        assert window_count() == expected_windows, 'Unexpected child window count: ' + label
         back()
         menu()
         back()

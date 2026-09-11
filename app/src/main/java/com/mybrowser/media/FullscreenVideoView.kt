@@ -48,6 +48,7 @@ class FullscreenVideoView(
     private val onExit: () -> Unit,
     private val onCast: () -> Unit,
     private val onChooseSpeed: () -> Unit,
+    private val onPictureInPicture: (() -> Unit)? = null,
 ) : FrameLayout(activity) {
     private val ui = Handler(Looper.getMainLooper())
     private val audio = activity.getSystemService(AudioManager::class.java)
@@ -67,6 +68,8 @@ class FullscreenVideoView(
     private var controlIdentity: String? = null
     private var controlGeneration = 0
     private var controlsVisible = true
+    private var pictureInPicture = false
+    private var platformBack: android.window.OnBackInvokedCallback? = null
     private var locked = false
     private var orientationChosen = false
     private var seeking = false
@@ -114,6 +117,9 @@ class FullscreenVideoView(
         top.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
         title.gravity = Gravity.CENTER_VERTICAL
         top.addView(mode, LinearLayout.LayoutParams(-2, dp(48)))
+        onPictureInPicture?.let { action ->
+            top.addView(imageButton(R.drawable.ic_pip, activity.getString(R.string.picture_in_picture), action), LinearLayout.LayoutParams(dp(48), dp(48)))
+        }
         top.addView(imageButton(R.drawable.ic_rotate, activity.getString(R.string.ui_rotate_screen)) { rotate() }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(top, LayoutParams(-1, -2, Gravity.TOP))
 
@@ -248,7 +254,7 @@ class FullscreenVideoView(
     }
 
     private fun refreshMode() {
-        gestures.visibility = if (enhanced) VISIBLE else GONE
+        gestures.visibility = if (enhanced && !pictureInPicture) VISIBLE else GONE
         mode.text = if (enhanced) activity.getString(R.string.ui_web_controls) else activity.getString(R.string.ui_enhanced_controls)
         mode.contentDescription = if (enhanced) activity.getString(R.string.ui_switch_to_web_controls) else activity.getString(R.string.ui_switch_to_enhanced_controls)
         mode.tooltipText = mode.contentDescription
@@ -263,10 +269,20 @@ class FullscreenVideoView(
     }
 
     private fun renderControls() {
+        if (pictureInPicture) {
+            top.visibility = GONE; bottom.visibility = GONE; lock.visibility = GONE; hud.visibility = GONE
+            return
+        }
         // State telemetry must not reveal controls or restart the user's hide timer.
         top.visibility = if (state.canUseEnhancedControls && !locked && (controlsVisible || !enhanced)) VISIBLE else GONE
         bottom.visibility = if (enhanced && !locked && controlsVisible) VISIBLE else GONE
         lock.visibility = if (enhanced && (controlsVisible || locked)) VISIBLE else GONE
+    }
+
+    fun setPictureInPicture(active: Boolean) {
+        pictureInPicture = active
+        gestures.cancelGesture()
+        refreshMode()
     }
 
     private fun scheduleHide() {
@@ -298,6 +314,20 @@ class FullscreenVideoView(
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (android.os.Build.VERSION.SDK_INT >= 33 && platformBack == null) {
+            // Chromium registers its own full-screen Back callback after the Activity
+            // fallback. Own the overlay's gesture so a locked video unlocks first.
+            val callback = android.window.OnBackInvokedCallback {
+                if (!released && !unlockOnBack()) onExit()
+            }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            platformBack = callback
+        }
     }
 
     private fun togglePlayback() {
@@ -348,6 +378,10 @@ class FullscreenVideoView(
 
     fun release() {
         if (released) return
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            platformBack?.let { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+            platformBack = null
+        }
         disconnectControls()
         released = true
         ui.removeCallbacksAndMessages(null)

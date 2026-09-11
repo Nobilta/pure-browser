@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private lifecycle fixture</title>
+<style>body{font:18px system-ui;padding:16px}button{padding:16px}</style>
+<h1>Private lifecycle fixture</h1><button id="store">Store private marker</button><p id="state"></p>
+<script>
+const key=new URLSearchParams(location.search).get('case'),token=crypto.getRandomValues(new Uint32Array(4)).join('-');
+function report(){const cookie=document.cookie.match(/(?:^|;\s*)lifecycle=([^;]*)/)?.[1]||'';
+const local=localStorage.getItem('lifecycle')||'';
+state.textContent=cookie===key&&local===key?'Private marker present':'Private marker absent';
+fetch('/__state?case='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({ready:document.readyState,token,cookie,local})}).catch(()=>{});}
+store.onclick=()=>{document.cookie='lifecycle='+key+';path=/;SameSite=Lax';localStorage.setItem('lifecycle',key);report()};
+addEventListener('load',report);setInterval(report,600);
+</script></html>

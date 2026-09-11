@@ -5,11 +5,12 @@
 ```bash
 cd rust
 cargo fmt --all -- --check
-cargo test --all
-cargo clippy --workspace --all-targets -- -D warnings
+cargo test --locked --all
+cargo clippy --locked --workspace --all-targets -- -D warnings
 
 cd ..
-node --test validation/playback-probe.test.cjs validation/userscript-runtime.test.cjs
+npm --prefix validation ci --ignore-scripts
+npm --prefix validation test
 python3 validation/check-localization.py
 ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
 ./gradlew :app:assembleRelease --console=plain
@@ -34,7 +35,7 @@ Gradle 自动构建 host JNI，并将其作为测试输入；不使用假 native
 ## APK 检查
 
 ```bash
-APK=PureBrowser-v0.5.2-release.apk
+APK=PureBrowser-v0.6.0-release.apk
 apksigner verify --verbose "$APK"
 unzip -l "$APK" | rg 'lib/|AndroidManifest.xml'
 ```
@@ -50,7 +51,7 @@ filename_parser；这些无调用的实验模块已删除。
 ./diagnose.sh
 ```
 
-以下是完整验收清单；在 API 29、API 34 arm64 模拟器和真机上按需执行，实际完成项单独记录：
+以下是验收清单；在 API 29、API 34、API 37 arm64 模拟器和真机上按需执行，实际完成项单独记录：
 
 - 启动、WebView 页面加载、前进/后退、主页、刷新/停止
 - 地址栏访问/搜索按钮、建议、外部协议交接
@@ -76,6 +77,12 @@ filename_parser；这些无调用的实验模块已删除。
 - 主题持久化、大字体与宽屏双栏、应用语言切换
 - 脚本安装预览、依赖、GM 数据重启保留、停用/删除、无痕隔离及旧 Provider 降级
 - 内置和自定义过滤列表、请求阻断/元素隐藏、ETag 304、无效/离线更新保留旧规则、后台调度开关
+- 按普通/无痕 Profile 清理 Cookie、localStorage、IndexedDB 和 CacheStorage，并核对非目标数据
+- 书签文件夹与分组、版本化本地备份恢复、脚本停用恢复、输入拍照/录像与旧文档回执取消
+- 普通/无痕系统 Autofill、网站来源权限及合成 passkey 请求；真实账号结果单独记录
+- PiP、后台播放默认值、MediaSession、关闭其他窗口与无痕媒体排除
+- 两窗口独立文档、真实分屏、私密 Activity 重建、TalkBack 焦点与双击、200% 字体和键盘
+- 用户脚本资源字节/类型、进程重启、排除规则与私密禁用；Google Cast 选择器和可恢复返回
 
 可控设备回归脚本、测试服务器启动命令和性能对照方法见
 [回归报告](./EMULATOR_TEST_REPORT.md)。测试时只运行一台模拟器，避免与 Gradle 构建并行。
@@ -131,29 +138,39 @@ cargo run --release --manifest-path rust/Cargo.toml -p adblock --example benchma
 python3 validation/qa-server.py
 # 在另一个终端，同一台模拟器只运行一个 UI 测试：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.2-release.apk
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.6.0-release.apk
 # 只有 APK 和 AVD 都相同时才能恢复通过的阶段：加 --resume
 python3 validation/capabilities-regression.py --serial emulator-5554 --section downloads
 python3 validation/cosmetic-benchmark.py
 ```
 
 新增分段为 site、permissions、tabs、reader、printing、bookmarks、downloads、layout。
-完整 runner 提供 API 29 的 30 阶段、API 34 的 32 阶段，每阶段记录包哈希、退出码、耗时和日志。
-当前 0.5.2 按桌面模式改动选择相关阶段，实际执行结果见回归报告，不算作全矩阵重跑。
+完整 runner 提供 API 29 的 39 阶段、API 34 的 41 阶段、API 37 的 42 阶段，
+每阶段记录包哈希、退出码、耗时和日志。现代 Profile 专项要求对应 WebView 能力；
+旧系统不把共享存储清理当作独立 Profile。实际执行范围见回归报告。
 它只接受专用模拟器；分页测试会写入测试数据库，书签/下载/PDF 会创建测试文件。
 系统文件选择器通过 Downloads 导航和列表滚动查找文件，避免依赖 Recent 的媒体索引或首屏位置。
 
-本轮阶段选择可复现为：
+系统集成和生命周期专项可单独复现：
 
 ```bash
 python3 validation/desktop-mode-regression.py --serial emulator-5554 --online
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.5.2-release.apk \
-  --label desktop-052 --stages browser site permissions layout
+python3 validation/lifecycle-boundaries-regression.py --serial emulator-5554 --section media \
+  --output validation/results/media-boundaries
+python3 validation/lifecycle-boundaries-regression.py --serial emulator-5554 --section private \
+  --output validation/results/private-recreation
+python3 validation/split-screen-regression.py --serial emulator-5554 --output validation/results/split-screen
+python3 validation/talkback-regression.py --serial emulator-5554 --output validation/results/talkback
+python3 validation/benchmark-startup.py --serial emulator-5554 --output validation/results/startup.json
 ```
 
 `--resume` 只接受完全相同的 APK、AVD 和阶段选择；失败保留在 `priorAttempts`，完成时清除顶层错误状态。
-浏览阶段冷启动新 renderer，避免旧 WebView 在前一阶段旋转后遗漏已绘制的网页页头节点；
+浏览阶段冷启动新 renderer，减少 Provider 在前一阶段旋转后遗漏已绘制网页节点的干扰；
+若仍失败，保留截图、完整无障碍树和 DOM 证据，区分真实页面操作与节点暴露问题，不能反复重试后隐去失败。
 仍由真实点击和页面变化判断通过，不把可访问性节点存在当作实际交互成功。
+TalkBack 专项使用辅助程序的 `a11y` 模式，保留真实无障碍服务；默认 UiAutomation 会暂时抑制它。
+分屏专项使用 Android WMShell 的真实分屏组织器，要求 API 31+，两窗操作仍注入真实触摸。
+启动测量期间停止其他 UI 测试与构建；首帧、两帧后网页回执和应用/renderer PSS 分开记录，PSS 不是峰值。
 
 CSS 基准仅运行当前 Rust：80 个 host、480 个冷查询和 200 个缓存命中查询，记录输入/输出哈希。
 临时 CSS 文件在运行后删除，只保留最新 `result.json`；不依赖旧提交、备份分支或 Kotlin 实验构建。

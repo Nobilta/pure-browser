@@ -8,6 +8,7 @@
 <a href="feature-storage.user.js">Install storage fixture</a>
 <a href="feature-dom.user.js">Install DOM fixture</a>
 <a href="feature-unsupported.user.js">Install unsupported fixture</a>
+<a href="feature-resource.user.js">Install resource fixture</a>
 <button onclick="alert('MD3 alert fixture');document.querySelector('#dialog-result').textContent='Alert completed'">Show alert</button>
 <button onclick="document.querySelector('#dialog-result').textContent='Confirm '+confirm('MD3 confirm fixture')">Show confirm</button>
 <button onclick="document.querySelector('#dialog-result').textContent='Prompt '+prompt('MD3 prompt fixture','example')">Show prompt</button>
@@ -19,6 +20,7 @@ function report(){
  const r=document.documentElement.dataset;
  fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
   ready:document.readyState,popup:new URLSearchParams(location.search).has('popup'),storageCount:Number(r.storageCount||0),dependency:r.dependency||'',domReady:window.__pureStartReady||'',pasted:r.pasted||'',
+  resourceText:r.resourceText||'',resourceBytes:Number(r.resourceBytes||0),resourceHeader:r.resourceHeader||'',browserVersion:r.browserVersion||'',
   styleApplied:getComputedStyle(document.querySelector('#script-status')).color==='rgb(20, 100, 60)',
   markerLoaded:window.__pureFilterMarker===true,cosmeticHidden:getComputedStyle(document.querySelector('#pure-filter-unit')).display==='none',
   dialogResult:document.querySelector('#dialog-result').textContent

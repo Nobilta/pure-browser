@@ -27,8 +27,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 9
-        versionName = "0.5.2"
+        versionCode = 10
+        versionName = "0.6.0"
         testInstrumentationRunner = "com.mybrowser.validation.NativeFilterInstrumentation"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
@@ -230,12 +230,15 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.androidx.webkit)
     implementation(libs.coroutines.android)
+    implementation(libs.google.cast)
+    implementation(libs.androidx.appcompat)
 
     // Compose. Every androidx.compose.* dependency takes its version from the BOM.
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.material3)
+    implementation(libs.compose.icons.core)
     implementation(libs.androidx.activity.compose)
 
     debugImplementation(libs.compose.ui.tooling)
@@ -251,3 +254,6 @@ dependencies {
     testImplementation(libs.asm.tree)
     testImplementation(libs.asm.util)
 }
+
+// Commit resolved versions as well as the catalog; upgrades explicitly refresh the lock.
+dependencyLocking { lockAllConfigurations() }

@@ -8,3 +8,8 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Android arm64 JNI comparisons (z/2/3, both execution orders) favor this hot crate.
+# Keep dependencies and URL/bookmark utilities optimized for size.
+[profile.release.package.adblock]
+opt-level = 3

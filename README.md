@@ -4,9 +4,9 @@ Pure 浏览器是一款面向 Android 10 及以上设备的轻量浏览器。界
 Kotlin、Jetpack Compose 和 WebView 实现；网络规则、元素隐藏与 URL/书签解析使用
 Rust。项目追求体积可控、行为透明，以及在 Android 生命周期和存储规则下可验证地工作。
 
-已发布 APK 为 `0.5.2`（versionCode 9），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
-下列功能说明跟随当前源码；本轮系统优化正在实施，新增功能尚未进入该历史 APK。
-逐项完成与验证状态见 [实施记录](design/implementation-status.md)，翻译和跨设备同步已按用户决定移出本轮。
+当前源码与候选签名包为 `0.6.0`（versionCode 10），Release 仅提供 `arm64-v8a`，不包含 32 位 Android。
+自动检查与覆盖升级已通过，最终模拟器回归进行中；下列说明对应当前源码。
+逐项完成与验证状态见 [实施记录](design/implementation-status.md)，翻译和跨设备同步按用户决定暂不实现。
 项目目录和 Gradle 根项目均命名为
 `pure-browser`；为保持已安装应用的升级兼容，Android applicationId 暂时仍为
 `com.mybrowser`。
@@ -37,6 +37,8 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
   单文件 image/video `input capture` 可调用系统拍照/录像，取消、拒绝权限和旧文档回执均取消文件选择。
   拍摄临时文件仅保留到文档离开；普通文件选择仍使用 SAF，不申请整个相册访问权。
 - 普通网页可通过菜单添加到手机桌面，使用 Android 启动器的固定快捷方式流程；不是完整 PWA 安装。
+- 菜单可打开第二个普通窗口，各有独立标签、最近关闭和当前文档，共享书签、设置与普通网站存储。
+  关闭只移除当前窗口；双窗口时须先关闭另一个窗口再进入无痕，无痕期间不能再开第二窗口。
 - 修复 `m.jrs16.com` 开启桌面模式后反复重载、开关反复变化：移动站与桌面站共用桌面偏好，
   避免跳转到 `www.jrs16.com` 时恢复移动 UA；相同 UA 不重复写入，桌面视口在新文档加载完成后应用。
 - HTTPS 安全弹窗展示证书主体、组织、签发者和有效期；有效期只说明当前时间是否处于范围内。
@@ -132,6 +134,10 @@ Rust。项目追求体积可控、行为透明，以及在 Android 生命周期�
 
 ### 媒体与投屏
 
+- 普通全屏视频支持画中画，可用全屏按钮或按 Home 进入；Android 12+ 使用系统自动 PiP 过渡。
+- 全屏窗口统一处理返回按键和系统返回手势，锁定时先解锁，再次返回才退出，避免 Chromium 提前关闭全屏。
+- 系统媒体按钮支持播放、暂停、停止和跳转，同时追踪音频元素。后台播放默认关闭；开启后当前普通页
+  通过媒体前台服务继续播放。切换标签、耳机断开或失去音频焦点时暂停；无痕隐藏时始终暂停，不发布系统媒体元数据。
 - 根据网络请求路径和 Accept 请求头识别视频、音频及 HLS/DASH 候选地址。
 - 当前视频已加载的 `currentSrc` 可补充嗅探遗漏的可识别 HTTP(S) 媒体候选，保留完整签名参数；
   尚未加载的 `src` 属性、页面资源线索和 Blob 地址不会通过此路径直接变成投屏候选。
@@ -173,8 +179,10 @@ MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，�
 接收器直接访问。YouTube 常使用 MSE、分离音视频及短期签名请求，通常没有本嗅探器支持的完整媒体地址；
 没有候选时菜单显示“未检测到此视频可直接投送的媒体地址”。这不代表已经判断为 DRM。
 识别到 HTTP(S) 候选也不保证投送成功：Cookie、Referer、地址有效期和接收设备格式支持都会影响结果。
-当前支持 DLNA 直投与远端会话控制，不包含 Google Cast 集成或鉴权代理。
-后续设计见 [播放器与投屏方案](./design/video-playback-and-casting.md)。
+媒体选择页另提供 Google Cast，使用 Cast Framework 22.3.1 的设备选择与默认媒体接收器，
+连接后显式发送选中地址，支持播放、暂停、停止与进度跳转。没有 Play services/Cast 模块时显示可返回的说明。
+接收器直接读取地址，不转发网页 Cookie、密码和授权头；不支持 Blob/DRM，未实现鉴权代理。
+实体接收器画面尚未验证；实现与设备验收边界见 [系统集成说明](design/system-integration-060.md)。
 
 支持 `WEB_MESSAGE_LISTENER` 和 `DOCUMENT_START_SCRIPT` 的 WebView 通过逐 frame 消息与
 确认回执控制跨域视频。旧 WebView 仅控制主文档及可访问的同源 iframe；不能访问的跨域播放器
@@ -195,7 +203,7 @@ MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，�
 - 当前源码已用 Public Suffix List（包含 PRIVATE 租户、通配和例外）修正 `$third-party` / `$~third-party`，
   同站兄弟子域、`co.uk`、IP 和 IDN 均有回归；桌面别名不会越过可注册域边界。
   使用固定版本 `psl 2.1.232`，升级列表随源码提交及边界测试一起进行，不在运行时下载未经校验的数据。
-  这些后续改动尚未进入上方的 0.5.2 APK；全部进度见 [实施记录](design/implementation-status.md)。
+  全部实施进度见 [实施记录](design/implementation-status.md)。
 - 修改开关或规则后刷新网页生效。源码、版本、校验值与许可见 [第三方说明](THIRD_PARTY_NOTICES.md)，APK 内同时附带原始归属和许可文本。
 
 ### 油猴脚本
@@ -208,8 +216,9 @@ MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，�
 | 匹配与执行时机 | `@match`、通配 `@include`/`@exclude`、`@exclude-match`、`@noframes`、start/end/idle |
 | 常用 API | `GM_addStyle`、get/set/delete/list values、log、openInTab、info 及对应 `GM.*`；`unsafeWindow` |
 | 依赖 | 确认安装时下载最多 8 个 HTTP(S) `@require`，之后离线使用 |
-| 管理与边界 | 单脚本 1 MiB，最多 24 个，总源码/依赖 12 MiB；每脚本值存储 64 KiB、256 个键 |
-| 明确不支持 | `GM_xmlhttpRequest`、`@resource`、菜单命令、正则 include 等，检测到后显示原因并保持禁用 |
+| 资源 | `@resource` 最多 8 个、各 256 KiB；`GM_getResourceText`/`GM_getResourceURL` 及 `GM.*`，保留文本与二进制 data URL |
+| 管理与边界 | 单脚本 1 MiB，最多 24 个，总源码/依赖/资源 12 MiB；每脚本值存储 64 KiB、256 个键 |
+| 明确不支持 | `GM_xmlhttpRequest`、菜单命令、正则 include 等，检测到后显示原因并保持禁用 |
 
 这是一套常用用户脚本兼容层，**不是完整 Tampermonkey 扩展**。支持 `DOCUMENT_START_SCRIPT` 和
 `WEB_MESSAGE_LISTENER` 的 WebView 可按准确时机执行并持久化 GM 数据；旧 WebView 只在主文档
@@ -218,6 +227,17 @@ MSE/Blob 与控件归属独立，标准 Blob 视频仍可使用增强控件，�
 脚本运行在网页 JavaScript 环境中，未提供 Tampermonkey 的隔离世界。只安装可信脚本；脚本能读取和修改匹配网页。
 原生桥接仅接受已启用脚本的有界值存储写入，并校验能力令牌、来源和当前授权；不暴露任意 Android、文件或跨域请求能力。
 无痕模式完全不运行用户脚本；修改或删除后需要刷新已打开网页，已经执行的网页代码不能被撤销。
+资源只在确认安装时下载，不携带浏览器 Cookie/认证；匹配模式预解析，单次匹配复用页面 URL。
+安装、重启、资源字节和备份回归及跨域/隔离设计见 [系统集成说明](design/system-integration-060.md)。
+
+### 系统密码与 passkey
+
+设置 → 隐私与过滤 → 密码与通行密钥显示 Autofill 状态及 WebView 能力，并可打开系统设置。
+普通页面显式启用系统自动填充，支持的 WebView 启用浏览器 WebAuthn；无痕关闭这两项能力。
+Android 14+ 声明并检查网站来源权限，权限不可用时关闭 WebAuthn，避免异步凭据请求导致闪退。
+凭据由用户的系统提供方保管，浏览器不保存密码库。真实登录还取决于网站、提供方和浏览器信任审核；
+Google Password Manager 要求第三方浏览器经过其批准，能力开关本身不授予凭据访问权。
+本轮未用真实账号验证成功登录。
 
 ### 开发工具与保护
 
@@ -260,13 +280,14 @@ Android WebView 没有一个在所有版本上都可用的统一“无痕开关�
 持久数据；在无痕模式中主动保存这些内容仍会保留。无痕模式也不隐藏公网 IP，不能
 替代 VPN、Tor 或系统级匿名网络。
 
-当前尚无自建账号同步、加密密码库、完整 WebExtension/Tampermonkey 环境、Google Cast、
+当前尚无自建账号同步、加密密码库、完整 WebExtension/Tampermonkey 环境、
 内置翻译或独立渲染/解码引擎。能力对照、已完成项和剩余边界见
 [0.5.0 复查报告](design/browser-capabilities-20260910.md)。
 
 ## 技术栈与语言边界
 
 - Kotlin、Jetpack Compose、Android WebView：UI、页面生命周期、权限与系统集成。
+- 系统 Autofill 与按能力启用的 WebAuthn、MediaSession/PiP、Google Cast SDK：由 Android/Provider 提供的集成能力。
 - Android SQLite：书签和历史。
 - Kotlin 协程与 Android 存储 API：下载、SAF、MediaStore 和前台服务。
 - Rust JNI：`adblock` 负责网络规则和元素隐藏，`url_utils` 负责 URL/搜索及批量书签 HTML 解析。
@@ -276,6 +297,7 @@ Android WebView 没有一个在所有版本上都可用的统一“无痕开关�
 - 一个窗口最多保留一个最近普通标签的活 WebView，加上当前页共两个；低内存设备不保留后台实例。
   驻留保留 DOM、表单、SPA 内存和滚动；切后台标签暂停媒体并拒绝新导航/资源请求，重新打开不自动播放。
   超过预算的标签显示休眠并以新实例恢复导航。无痕不进入普通驻留缓存，清理数据和模式切换销毁缓存。
+  内存压力通知释放驻留页面；后台下载/过滤任务启动不再预建 WebView，首次浏览窗口才准备 Chromium。
   元数据保存合并 350ms 内重复更新，后台/退出时落盘；不会承诺进程结束后保留 JavaScript 或表单状态。
 - 隐藏的开发工具、下载和投屏面板停止订阅对应动态状态；用户脚本 id 只计算一次，GM 值变化只重注册对应脚本。
 - 媒体候选复用未变化的播放线索，每次更新每个 URL 只解析一次，并保留编码路径/查询的资源身份。
@@ -312,6 +334,7 @@ pure-browser/
 │   ├── tabs/                 标签状态、最近关闭、恢复和缩略图
 │   ├── home/                 首页模式、快捷入口和 favicon
 │   ├── media/                媒体嗅探、播放追踪与原生全屏控件
+│   ├── cast/                 Google Cast 设备选择、媒体发送与控制
 │   ├── dlna/                 SSDP、设备描述与 AVTransport
 │   ├── security/             页面安全信息模型
 │   └── ui/                   Compose 页面、工具栏和弹窗
@@ -364,9 +387,15 @@ keyPassword=...
 该脚本执行 Rust fmt、workspace 测试、clippy，Node 协议/阅读提取测试、三语言资源检查，
 以及 Android/Robolectric 测试（含真实 host JNI）、lint、R8 Release 和 APK 签名检查。
 阅读 DOM 夹具使用仅供验证的 `linkedom 0.18.12`，由 `npm --prefix validation ci` 按锁文件安装，不进入 APK。
-本轮中间验证记录在 `validation/results/system-upgrade/`：Android 构建/全套单元测试、43 项 Node 测试、
-真实现代 Profile 的 10 项数据清理检查、书签/地址栏/设置搜索/200% 字体界面以及备份实际重启往返已通过。
-最终数量、lint 和交付 APK 信息将在发布验证完成后更新；以下 0.5.2 数据仍指历史发布。
+本轮阶段检查为 329 项 Android 单元测试、58 项 Rust 测试、47 项 Node 测试与 661 项三语言资源校验。
+Rust 同时通过 host AddressSanitizer 检查；阶段证据在 `validation/results/system-upgrade/`，
+签名 Release 的最终设备回归记录在 `validation/results/release-0.6.0/`。以下交付段将在验收后替换历史包信息。
+
+Gradle 依赖版本由 `app/gradle.lockfile` 锁定，产物 SHA-256 由 `gradle/verification-metadata.xml` 校验。
+升级依赖时先检查版本来源，再使用 `./gradlew :app:dependencies --write-locks` 和
+`./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --write-verification-metadata sha256`
+更新记录并审阅差异；正常构建不使用这些更新选项。Compose UI/Foundation/Runtime 统一为 1.9.4、
+Material 3 为 1.4.0；库自带 Baseline Profile 随 Release 编译，尚未录制应用专属 profile。
 
 当前签名 Release：
 
@@ -439,7 +468,8 @@ python3 validation/cosmetic-benchmark.py
 0.5.2 的 [系统审查与优化清单](design/follow-up-priorities.md) 覆盖 Rust 边界、请求日志、下载并发、
 搜索查询、标签状态、隐私清理、UI 交互和功能缺口，并区分已复现问题、源码发现及待验证建议。
 审查新增的 6 个主机 Rust 检查中有 3 个暴露第三方身份判断问题；SQLite 查询计划也单独记录。
-这些审查结果不计入上面的已通过发布测试，建议项尚未实现，当前交付 APK 保持不变。
+逐项实施结果见 [实施记录](design/implementation-status.md)；条件迁移、完整网页归档方案、
+系统登录/投屏与脚本兼容边界见 [系统集成说明](design/system-integration-060.md)。
 
 ## 相关文档
 

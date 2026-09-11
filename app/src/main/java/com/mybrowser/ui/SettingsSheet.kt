@@ -120,6 +120,8 @@ fun SettingsSheet(
 ) {
     val textResources = localizedResources()
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var showSystemLogin by remember { mutableStateOf(false) }
+    if (showSystemLogin) SystemLoginDialog { showSystemLogin = false }
     var highlightTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
@@ -220,6 +222,8 @@ fun SettingsSheet(
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
+                                            SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
+                                                { showSystemLogin = true }, R.drawable.ic_lock)
                                             SettingsToggle(textResources.getString(R.string.private_screenshot_protection),
                                                 textResources.getString(R.string.private_screenshot_summary), preferences.protectPrivateScreens,
                                                 { onPreferencesChange(preferences.copy(protectPrivateScreens = it)) })
@@ -235,6 +239,10 @@ fun SettingsSheet(
                                         }
                                         SettingsCategory.VIDEO -> {
                                             val video = preferences.video
+                                            SettingsToggle(textResources.getString(R.string.automatic_pip), textResources.getString(R.string.automatic_pip_summary),
+                                                video.automaticPip, { updateVideo(video.copy(automaticPip = it)) })
+                                            SettingsToggle(textResources.getString(R.string.background_playback), textResources.getString(R.string.background_playback_summary),
+                                                video.backgroundPlayback, { updateVideo(video.copy(backgroundPlayback = it)) })
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_experience))
                                             SettingsToggle(textResources.getString(R.string.ui_enhanced_fullscreen_controls), textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to), video.enhancedControls,
                                                 { updateVideo(video.copy(enhancedControls = it)) })
@@ -751,6 +759,9 @@ private fun Modifier.highlightSetting(title: String): Modifier = composed {
     bringIntoViewRequester(requester).then(if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
 }
 private val SETTINGS_SEARCH = listOf(
+    R.string.system_login to SettingsCategory.PRIVACY,
+    R.string.automatic_pip to SettingsCategory.VIDEO,
+    R.string.background_playback to SettingsCategory.VIDEO,
     R.string.backup_title to SettingsCategory.PRIVACY,
     R.string.cd_home to SettingsCategory.BROWSING,
     R.string.ui_restore_pages_on_startup to SettingsCategory.BROWSING,

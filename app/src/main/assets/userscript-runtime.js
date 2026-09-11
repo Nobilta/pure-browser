@@ -64,7 +64,8 @@
     if (data.ok) task.resolve(); else task.reject(new Error('GM storage write rejected'));
   });
   function allowed(name) {
-    return config.grants.indexOf(name) >= 0 || config.grants.indexOf(name.replace('GM_', 'GM.')) >= 0;
+    return config.grants.indexOf(name) >= 0 || config.grants.indexOf(name.replace('GM_', 'GM.')) >= 0 ||
+      (name === 'GM_getResourceURL' && config.grants.indexOf('GM.getResourceUrl') >= 0);
   }
   function clone(value) {
     if (value === undefined) return undefined;
@@ -122,7 +123,7 @@
     if (!/^https?:$/.test(url.protocol)) throw new Error('Only HTTP(S) tabs are supported');
     return open(url.href, '_blank');
   }
-  var info = { scriptHandler: 'PureBrowser', version: '0.4.1',
+  var info = { scriptHandler: 'PureBrowser', version: config.browserVersion || '',
     script: { name: config.name, namespace: config.namespace, version: config.version,
       description: config.description, matches: config.matches, includes: config.includes,
       excludes: config.excludes, grants: config.grants, 'run-at': config.runAt },
@@ -136,6 +137,19 @@
   if (allowed('GM_addStyle')) { api.GM_addStyle = addStyle; api.GM.addStyle = addStyle; }
   if (allowed('GM_log')) { api.GM_log = log; api.GM.log = log; }
   if (allowed('GM_openInTab')) { api.GM_openInTab = openInTab; api.GM.openInTab = openInTab; }
+  function resource(name, field) {
+    name = String(name);
+    if (!config.resources || !own(config.resources, name)) throw new Error('Unknown userscript resource');
+    return config.resources[name][field];
+  }
+  if (allowed('GM_getResourceText')) {
+    api.GM_getResourceText = function(name) { return resource(name, 'text'); };
+    api.GM.getResourceText = function(name) { return Promise.resolve(resource(name, 'text')); };
+  }
+  if (allowed('GM_getResourceURL')) {
+    api.GM_getResourceURL = function(name) { return resource(name, 'url'); };
+    api.GM.getResourceUrl = api.GM.getResourceURL = function(name) { return Promise.resolve(resource(name, 'url')); };
+  }
   function execute() {
     try { run(api); } catch (error) { warn('PureBrowser userscript: ' + config.name, error); }
   }

@@ -10,4 +10,5 @@
     <style name="Theme.MyBrowser" parent="Theme.MyBrowser.Base">
         <item name="android:windowBackground">#F9F9FF</item>
     </style>
+    <style name="Theme.MyBrowser.Cast" parent="Theme.AppCompat.DayNight.NoActionBar" />
 </resources>

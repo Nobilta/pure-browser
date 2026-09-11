@@ -157,3 +157,13 @@ test('one broken script does not prevent the next installed script from running'
   assert.equal(f.context.warnings.length, 1);
   assert.equal(f.context.apis.length, 1);
 });
+
+test('resource APIs are grant-scoped and cannot name undeclared resources', async () => {
+  const f=fixture();f.inject({ grants:['GM_getResourceText','GM.getResourceUrl'],resources:{theme:{text:'body{color:red}',url:'data:text/css;base64,Ym9keQ=='}} });
+  const api=f.context.apis[0];assert.equal(api.GM_getResourceText('theme'),'body{color:red}');
+  assert.equal(await api.GM.getResourceUrl('theme'),'data:text/css;base64,Ym9keQ==');
+  assert.throws(()=>api.GM_getResourceText('__proto__'),/Unknown userscript resource/);
+  assert.throws(()=>api.GM_getResourceURL('missing'),/Unknown userscript resource/);
+  const other=fixture();other.inject({resources:{theme:{text:'secret',url:'data:'}}});
+  assert.equal(other.context.apis[0].GM_getResourceText,undefined);
+});

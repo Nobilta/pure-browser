@@ -302,7 +302,7 @@ class Regression:
             ux.tap('导入或导出书签')
             ux.tap('导入书签')
             self.choose_document(fixture)
-            ux.expect('导入 1 个网页书签？已跳过 2 个无效或重复条目。已有书签会保留，文件夹将展开为列表。')
+            ux.expect('Web bookmarks to import: 1. Invalid or duplicate entries skipped: 2. Existing bookmarks will be kept.')
             self.snapshot('import-preview-' + str(attempt))
             self.last_button('导入书签')
             # The pagination regression may have seeded newer dates; search the whole library.
