@@ -50,6 +50,7 @@ class MediaPlaybackTracker(
         val canUseEnhancedControls: Boolean get() = hasVideo && isFullscreen && nativeControlsAvailable
     }
 
+    /** True when every new document receives the probe before page scripts run. */
     var isInstalled = false
         private set
     var current = Signal()
@@ -96,10 +97,9 @@ class MediaPlaybackTracker(
     private data class Pending(val frameId: String, val callback: (Boolean) -> Unit)
 
     fun install(): Boolean {
-        if (closed || isInstalled) return isInstalled
+        if (closed || listenerInstalled) return isInstalled
         if (!runCatching {
-                WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
-                    WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+                WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
             }.getOrDefault(false)
         ) return false
         return runCatching {
@@ -122,9 +122,17 @@ class MediaPlaybackTracker(
                     }
                 })
             listenerInstalled = true
-            scriptHandler = WebViewCompat.addDocumentStartJavaScript(webView, "$source(window);", setOf("*"))
-            isInstalled = true
-            true
+            // Older providers support messages before they support document-start
+            // scripts. Keep their live play/pause bridge: waiting for the 1.2 s
+            // fallback poll can let window hiding pause an opted-in background video.
+            // Page-load probing still installs scripts in accessible frames only.
+            scriptHandler = runCatching {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                    WebViewCompat.addDocumentStartJavaScript(webView, "$source(window);", setOf("*"))
+                } else null
+            }.getOrNull()
+            isInstalled = scriptHandler != null
+            isInstalled
         }.getOrElse { removeHooks(); false }
     }
 

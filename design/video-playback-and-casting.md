@@ -40,6 +40,8 @@ stateDiagram-v2
 
 支持 `DOCUMENT_START_SCRIPT` 和 `WEB_MESSAGE_LISTENER` 的 WebView 逐 frame 探测并确认命令。
 旧 Provider 仅操作主文档与可访问的同源 iframe，跨域播放器使用原控件；判断依据是 WebView 能力而非 Android 版本。
+消息桥与文档开始注入分别检测：支持消息桥的旧 Provider 保留即时播放/暂停回传，脚本由加载后的探测注入。
+这避免刚开始播放就切后台时，因等待周期探测而未及时应用后台播放偏好。
 
 ## 网页内控件
 
