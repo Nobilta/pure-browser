@@ -147,4 +147,22 @@ class BackupStorageTest {
         assertFalse(storage.hasPending())
         assertEquals("Imported", rows().single().title)
     }
+
+    @Test fun resourceBytesSurviveVersionedBackupAndRestoreWithoutEnablingScripts() {
+        val storage = BackupStorage(context)
+        val selected = setOf(BackupSection.SCRIPTS)
+        val document = storage.snapshot(selected)
+        val resource = com.mybrowser.userscript.ScriptResource("text/plain",
+            android.util.Base64.encodeToString("中文资源".toByteArray(), android.util.Base64.NO_WRAP))
+        val script = "// ==UserScript==\n// @name Resource backup\n// @namespace qa\n// @match https://example.test/*\n// @resource text https://example.test/text\n// @grant GM_getResourceText\n// ==/UserScript==\nvoid 0;"
+        BackupFormat.putArray(document.getJSONObject("sections").getJSONObject("SCRIPTS"), "userscripts/scripts.json",
+            JSONArray().put(JSONObject().put("source", script).put("enabled", true).put("requires", JSONArray())
+                .put("resources", JSONObject().put("text", resource.json()))))
+        storage.restore(BackupFormat.decode(BackupFormat.encode(document)), RestoreChoice(selected, replace = true))
+        val saved = BackupFormat.fileArray(storage.snapshot(selected).getJSONObject("sections").getJSONObject("SCRIPTS"),
+            "userscripts/scripts.json").getJSONObject(0)
+        assertFalse(saved.getBoolean("enabled"))
+        assertEquals("中文资源", com.mybrowser.userscript.ScriptResource.decode(saved.getJSONObject("resources").getJSONObject("text"))
+            .bytes().toString(Charsets.UTF_8))
+    }
 }

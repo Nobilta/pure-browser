@@ -17,17 +17,20 @@ data class UserScriptMetadata(
     val runAt: String,
     val noframes: Boolean,
     val unsupported: List<String>,
+    val resources: Map<String, String> = emptyMap(),
 ) {
     val id: String = TextDownloader.sha256(namespace + "\n" + name).take(32)
     val supported: Boolean get() = unsupported.isEmpty()
     fun grants(api: String): Boolean = api in grants || api.replace("GM_", "GM.") in grants
     val needsStorage: Boolean get() = grants.any { it in STORAGE_GRANTS }
+    private val matchRules by lazy { matches.mapNotNull(::compilePattern) }
+    private val excludeRules by lazy { excludeMatches.mapNotNull(::compilePattern) }
 
     fun matchesUrl(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         if (uri.scheme?.lowercase() !in listOf("http", "https") || uri.host == null || url.length > 8192) return false
-        return (matches.any { matchPattern(it, url) } || includes.any { glob(it, url) }) &&
-            excludes.none { glob(it, url) } && excludeMatches.none { matchPattern(it, url) }
+        return (matchRules.any { it.matches(uri) } || includes.any { glob(it, url) }) &&
+            excludes.none { glob(it, url) } && excludeRules.none { it.matches(uri) }
     }
 
     companion object {
@@ -35,7 +38,8 @@ data class UserScriptMetadata(
         val STORAGE_GRANTS = setOf("GM_getValue", "GM_setValue", "GM_deleteValue", "GM_listValues",
             "GM.getValue", "GM.setValue", "GM.deleteValue", "GM.listValues")
         val SUPPORTED_GRANTS = STORAGE_GRANTS + setOf("none", "unsafeWindow", "GM_info", "GM.info",
-            "GM_addStyle", "GM.addStyle", "GM_log", "GM.log", "GM_openInTab", "GM.openInTab")
+            "GM_addStyle", "GM.addStyle", "GM_log", "GM.log", "GM_openInTab", "GM.openInTab",
+            "GM_getResourceText", "GM.getResourceText", "GM_getResourceURL", "GM.getResourceURL", "GM.getResourceUrl")
         private val PATTERN = Regex("^(\\*|https?)://(\\*|\\*\\.[a-zA-Z0-9.-]+|[a-zA-Z0-9.-]+|\\[[0-9a-fA-F:]+\\])(/.*)$")
 
         fun parse(source: String): UserScriptMetadata {
@@ -73,10 +77,18 @@ data class UserScriptMetadata(
             if (runAt !in setOf("document-start", "document-end", "document-idle")) problems += "@run-at " + runAt
             val requires = list("require")
             if (requires.size > 8 || requires.any { !TextDownloader.isHttpUrl(it) }) problems += "@require URL"
-            listOf("resource", "unwrap", "top-level-await").filter { fields.containsKey(it) }.forEach { problems += "@" + it }
+            val resources = linkedMapOf<String, String>()
+            for (value in list("resource")) {
+                val pair = value.split(Regex("\\s+"), limit = 2)
+                if (pair.size != 2 || !Regex("[A-Za-z_][A-Za-z0-9_.-]{0,63}").matches(pair[0]) ||
+                    !TextDownloader.isHttpUrl(pair.getOrElse(1) { "" }) || resources.containsKey(pair[0])) problems += "@resource"
+                else resources[pair[0]] = pair[1]
+            }
+            if (resources.size > 8) problems += "@resource limit"
+            listOf("unwrap", "top-level-await").filter { fields.containsKey(it) }.forEach { problems += "@" + it }
             return UserScriptMetadata(name, first("namespace").take(256), first("version").take(64),
                 first("description").take(2048), matches, includes, excludes, excludeMatches, grants,
-                requires, runAt, fields.containsKey("noframes"), problems.distinct())
+                requires, runAt, fields.containsKey("noframes"), problems.distinct(), resources)
         }
 
         fun validPattern(pattern: String): Boolean = pattern == "<all_urls>" ||
@@ -85,16 +97,22 @@ data class UserScriptMetadata(
         fun matchPattern(pattern: String, url: String): Boolean {
             val uri = runCatching { URI(url) }.getOrNull() ?: return false
             if (uri.scheme !in listOf("http", "https") || uri.host == null) return false
-            if (pattern == "<all_urls>") return true
-            val match = PATTERN.matchEntire(pattern) ?: return false
-            val (scheme, host, path) = match.destructured
-            if (scheme != "*" && !scheme.equals(uri.scheme, true)) return false
-            val actual = uri.host.lowercase()
-            val expected = host.lowercase()
-            if (expected != "*" && expected != actual &&
-                !(expected.startsWith("*.") && (actual == expected.drop(2) || actual.endsWith(expected.drop(1))))) return false
-            val pathAndQuery = uri.rawPath.orEmpty().ifEmpty { "/" } + (uri.rawQuery?.let { "?" + it } ?: "")
-            return glob(path, pathAndQuery)
+            return compilePattern(pattern)?.matches(uri) == true
+        }
+
+        private data class MatchRule(val scheme: String, val host: String, val path: String) {
+            fun matches(uri: URI): Boolean {
+                if (scheme != "*" && !scheme.equals(uri.scheme, true)) return false
+                val actual = uri.host?.lowercase() ?: return false
+                if (host != "*" && host != actual &&
+                    !(host.startsWith("*.") && (actual == host.drop(2) || actual.endsWith(host.drop(1))))) return false
+                return glob(path, uri.rawPath.orEmpty().ifEmpty { "/" } + (uri.rawQuery?.let { "?" + it } ?: ""))
+            }
+        }
+        private fun compilePattern(pattern: String): MatchRule? {
+            if (pattern == "<all_urls>") return MatchRule("*", "*", "*")
+            val match = PATTERN.matchEntire(pattern) ?: return null
+            return MatchRule(match.groupValues[1], match.groupValues[2].lowercase(), match.groupValues[3])
         }
 
         /** Linear wildcard matching avoids backtracking regular expressions from imported metadata. */
@@ -122,4 +140,5 @@ data class InstalledUserScript(
     val requiredCode: List<String> = emptyList(),
     val enabled: Boolean = true,
     val values: String = "{}",
+    val resources: Map<String, ScriptResource> = emptyMap(),
 )

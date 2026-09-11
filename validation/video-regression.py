@@ -382,6 +382,14 @@ class Regression:
         assert ux.match(self.controls(), "锁定屏幕") is not None
         self.record("lock blocks gestures and Back unlocks before exiting")
 
+        if ux.adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2":
+            self.button("锁定屏幕")
+            self.swipe((.001, .5), (.2, .5), 350)
+            time.sleep(1)
+            self.wait(lambda s: s["fullscreen"])
+            assert ux.match(self.controls(), "锁定屏幕") is not None
+            self.record("system edge Back gesture unlocks without exiting the fullscreen video")
+
         self.button("切换到网页控件")
         self.wait(lambda s: s["controls"])
         self.button("切换到增强控件")

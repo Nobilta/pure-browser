@@ -18,6 +18,8 @@ data class VideoPreferences(
     val landscapeFullscreen: Boolean = true,
     val rememberSpeed: Boolean = false,
     val preferredSpeed: Float = PlaybackSpeed.DEFAULT,
+    val automaticPip: Boolean = true,
+    val backgroundPlayback: Boolean = false,
 )
 
 data class BrowserPreferences(
@@ -41,6 +43,8 @@ class BrowserPreferencesRepository(context: Context) {
         theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM").orEmpty()) }
             .getOrDefault(ThemeMode.SYSTEM),
         video = VideoPreferences(
+            automaticPip = prefs.getBoolean("video_auto_pip", true),
+            backgroundPlayback = prefs.getBoolean("video_background", false),
             enhancedControls = prefs.getBoolean("video_controls", true),
             verticalGestures = prefs.getBoolean("video_vertical", true),
             horizontalSeek = prefs.getBoolean("video_seek", true),
@@ -58,6 +62,8 @@ class BrowserPreferencesRepository(context: Context) {
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
         )
         prefs.edit {
+            putBoolean("video_auto_pip", video.automaticPip)
+            putBoolean("video_background", video.backgroundPlayback)
             putBoolean("bottom_address_bar", value.bottomAddressBar)
             putBoolean("swipe_tabs", value.swipeTabs)
             putBoolean("protect_private_screens", value.protectPrivateScreens)

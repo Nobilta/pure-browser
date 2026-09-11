@@ -57,6 +57,7 @@ ux.menu_item("下载")
 ux.inspect("results/api" + sdk + "-downloads")
 print("PASS: range download matches SHA-256 and the foreground service stops", flush=True)
 ux.adb("shell", "input", "keyevent", "4")
+ux.expect_menu()  # Wait for the download sheet's return animation before selecting Settings.
 ux.open_settings("浏览与启动")
 ux.tap("默认浏览器")
 root, raw = ux.nodes()

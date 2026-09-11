@@ -56,6 +56,7 @@ fun MenuSheet(
     onOpenReadingList: () -> Unit,
     onSharePage: () -> Unit,
     onPinWebsite: () -> Unit = {},
+    onOtherWindow: () -> Unit = {},
     onCopyPage: () -> Unit,
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
@@ -117,6 +118,8 @@ fun MenuSheet(
             }
 
             MenuSection(title = stringResource(R.string.menu_section_page)) {
+                MenuRow(iconRes = R.drawable.ic_tabs, title = stringResource(R.string.other_window),
+                    subtitle = stringResource(R.string.other_window_summary), enabled = !isIncognito, onClick = onOtherWindow)
                 MenuRow(iconRes = R.drawable.ic_file, title = stringResource(R.string.reading_mode),
                     subtitle = "", enabled = canUsePageActions, onClick = onOpenReader)
                 MenuRow(iconRes = R.drawable.ic_print, title = stringResource(R.string.page_print),

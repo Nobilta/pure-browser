@@ -27,6 +27,7 @@ import java.util.UUID
 class TabManager(
     private val maxTabs: Int = MAX_TABS,
     private val rememberClosedTabs: Boolean = true,
+    private val recentPreferenceName: String = RECENT_PREFS,
 ) {
 
     init {
@@ -176,14 +177,14 @@ class TabManager(
 
     fun saveRecentlyClosed(context: Context) {
         if (!rememberClosedTabs) return
-        context.getSharedPreferences(RECENT_PREFS, Context.MODE_PRIVATE).edit {
+        context.getSharedPreferences(recentPreferenceName, Context.MODE_PRIVATE).edit {
             putString(KEY_RECENT, recentJson())
         }
     }
 
     fun restoreRecentlyClosed(context: Context) {
         if (!rememberClosedTabs) return
-        restoreRecentJson(context.getSharedPreferences(RECENT_PREFS, Context.MODE_PRIVATE).getString(KEY_RECENT, null))
+        restoreRecentJson(context.getSharedPreferences(recentPreferenceName, Context.MODE_PRIVATE).getString(KEY_RECENT, null))
     }
 
     private fun recentJson(): String = JSONArray().apply {

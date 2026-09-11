@@ -168,11 +168,16 @@ import java.util.WeakHashMap
  * assignment recomposes [BrowserScreen], whose holder reconciliation swaps the instance
  * in. No view manipulation at this level.
  */
-class MainActivity : ComponentActivity(),
+open class MainActivity : ComponentActivity(),
     BrowserWebViewClient.Listener,
-    BrowserChromeClient.Listener {
+    BrowserChromeClient.Listener,
+    com.mybrowser.media.BrowserMediaSession.Owner {
 
     private lateinit var pool: WebViewPool
+    protected open val windowName = "main"
+    private var startupAborted = false
+    private lateinit var windowState: com.mybrowser.tabs.BrowserWindowState
+    private val normalTabsPreferences get() = if (windowName == "main") NORMAL_TABS_PREFS else "normal_tabs_secondary"
     private val dialogs = Dialogs()
     private val rendererRecovery = RendererRecovery()
     private val externalGate = ExternalNavigationGate()
@@ -208,7 +213,9 @@ class MainActivity : ComponentActivity(),
     private var showFilterSettings by mutableStateOf(false)
     private var showUserScripts by mutableStateOf(false)
     private lateinit var normalSites: SiteSettingsRepository
-    private var privateSites: SiteSettingsRepository? = null
+    private var privateSites: SiteSettingsRepository?
+        get() = windowState.privateSites
+        set(value) { windowState.privateSites = value }
     private val activeSites get() = if (privacy.isIncognito) privateSites ?: normalSites else normalSites
     private var showSiteOrigin by mutableStateOf<String?>(null)
     private var showManagedSites by mutableStateOf(false)
@@ -320,6 +327,8 @@ class MainActivity : ComponentActivity(),
     /** Fullscreen video state. */
     private var fullscreenView: FullscreenVideoView? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+    private lateinit var pipController: com.mybrowser.media.PictureInPictureController
+    private val systemMedia get() = (application as App).mediaSession
     private var rememberedVideo: String? = null
 
     // Security dialog state
@@ -358,11 +367,18 @@ class MainActivity : ComponentActivity(),
         enableEdgeToEdge()
 
         val app = application as App
+        if (app.windows.any { (name, state) -> name != windowName && state.privacy.isIncognito }) {
+            startupAborted = true
+            toast(getString(R.string.window_private_limit)); finish(); return
+        }
+        windowState = androidx.lifecycle.ViewModelProvider(this)[com.mybrowser.tabs.BrowserWindowState::class.java]
+        windowState.attach(windowName)
+        app.prepareWebEngine()
         pool = app.webViewPool
         filter = app.filterController
         customFilter = app.filterSubscriptions
         userScripts = app.userScripts
-        privacy = app.privacyMode
+        privacy = windowState.privacy
 
         // Initialize search engine manager
         searchEngineManager = SearchEngineManager(this)
@@ -381,7 +397,7 @@ class MainActivity : ComponentActivity(),
         }
 
         // Initialize both tab managers
-        normalTabManager = TabManager()
+        normalTabManager = windowState.normalTabs
         // A recreated Activity in this process retains its tabs. A fresh process follows
         // the startup preference even when Android retained the task's old saved state.
         val sessionSnapshot = savedInstanceState
@@ -399,16 +415,17 @@ class MainActivity : ComponentActivity(),
             showManagedSites = savedInstanceState.getBoolean(STATE_MANAGED_SITES_OPEN)
             showSiteOrigin = savedInstanceState.getString(STATE_SITE_ORIGIN)
         }
-        if (sessionSnapshot != null) {
+        if (!windowState.initialized && sessionSnapshot != null) {
             normalTabManager.restoreMetadata(sessionSnapshot)
-        } else if (restoreLastSession) {
-            normalTabManager.restoreMetadata(this, NORMAL_TABS_PREFS)
-        } else {
-            normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
+        } else if (!windowState.initialized && restoreLastSession) {
+            normalTabManager.restoreMetadata(this, normalTabsPreferences)
+        } else if (!windowState.initialized) {
+            normalTabManager.clearMetadata(this, normalTabsPreferences)
         }
-        normalTabManager.restoreRecentlyClosed(this)
-        incognitoTabManager = TabManager(rememberClosedTabs = false)
-        tabManager = normalTabManager
+        if (!windowState.initialized) normalTabManager.restoreRecentlyClosed(this)
+        incognitoTabManager = windowState.privateTabs
+        tabManager = if (privacy.isIncognito) incognitoTabManager else normalTabManager
+        windowState.initialized = true
 
         // Initialize bookmarks and history managers
         bookmarkManager = BookmarkManager(this)
@@ -426,9 +443,17 @@ class MainActivity : ComponentActivity(),
         readingList = app.readingList
         preferencesRepository = BrowserPreferencesRepository(this)
         browserPreferences = preferencesRepository.load()
+        pipController = com.mybrowser.media.PictureInPictureController(this,
+            { webViewOrNull?.let(mediaTrackers::get) }, { !privacy.isIncognito }, { fullscreenView },
+            { browserPreferences.video.automaticPip })
         downloadHandler = app.downloadHandler
 
-        webViewOrNull = pool.acquire(this).also(::configure)
+        webViewOrNull = (if (privacy.isIncognito) pool.acquireFresh(this) else pool.acquire(this)).also(::configure)
+        windowState.clearBrowsingPage = { origin ->
+            if (!privacy.isIncognito && (origin == null || SiteOrigin.of(state.currentUrl) == origin ||
+                (dataCleaner.supportsCompleteDeletion && state.currentUrl.toUri().host?.let(UrlUtils::registrableDomain) ==
+                    origin.toUri().host?.let(UrlUtils::registrableDomain)))) resetPageForDataRemoval()
+        }
 
         // A VIEW/SEND intent is an explicit destination. Restoring the previous tab first
         // would briefly start its WebView and let late subresource callbacks pollute the
@@ -577,6 +602,11 @@ class MainActivity : ComponentActivity(),
                                 if (sheetNavigation.push(entry, Sheet.READING_LIST)) runReadingWork { readingList.initialize() }
                             },
                             onSharePage = { sheetAction(entry) { shareUrl(state.currentUrl) } },
+                            onOtherWindow = { sheetAction(entry) {
+                                if ((application as App).windows.values.any { it.privacy.isIncognito }) toast(getString(R.string.window_private_limit))
+                                else startActivity(Intent(this, if (windowName == "main") SecondaryActivity::class.java else MainActivity::class.java)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT))
+                            } },
                             onPinWebsite = { sheetAction(entry) {
                                 if (!com.mybrowser.core.WebsiteShortcuts.pin(this, state.currentUrl, state.pageTitle.orEmpty(), tabManager.currentTab?.favicon))
                                     toast(getString(R.string.shortcut_unavailable))
@@ -638,6 +668,11 @@ class MainActivity : ComponentActivity(),
                                     cast.cast(candidate, device, ::toast)
                                 },
                                 onCopyUrl = { copyToClipboard(it.url) },
+                                onGoogleCast = if (privacy.isIncognito) null else { candidate ->
+                                    startActivity(Intent(this, com.mybrowser.cast.GoogleCastActivity::class.java)
+                                        .putExtra("url", candidate.url).putExtra("kind", candidate.kind.name)
+                                        .putExtra("title", state.pageTitle.orEmpty()))
+                                },
                                 onDismiss = { dismissSheet(entry) },
                                 preferredCandidate = mediaSnapshot.preferredCandidate,
                                 playingCandidateUrls = mediaSnapshot.playingCandidateUrls,
@@ -1158,6 +1193,7 @@ class MainActivity : ComponentActivity(),
         // instance defaults to the normal profile, which would silently drop an incognito
         // session back onto persistent storage.
         privacy.applyTo(view)
+        com.mybrowser.core.SystemLoginSupport.configure(view, privacy.isIncognito)
 
         // Apply desktop mode setting
         applySiteSettings(view, state.currentUrl)
@@ -1180,8 +1216,12 @@ class MainActivity : ComponentActivity(),
                     return@runOnUiThread
                 }
                 hasVideo = signal.hasVideo
+                (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden =
+                    signal.isPlaying && browserPreferences.video.backgroundPlayback && !privacy.isIncognito
                 playbackSpeed = signal.playbackRate ?: PlaybackSpeed.DEFAULT
                 media.updatePlayback(signal)
+                systemMedia.update(this, signal, state.pageTitle.orEmpty(), privacy.isIncognito, browserPreferences.video.backgroundPlayback)
+                pipController.update()
                 fullscreenView?.update(signal)
                 val preferences = browserPreferences.video
                 if (signal.isPlaying && !signal.isBoosting && preferences.rememberSpeed &&
@@ -1199,6 +1239,7 @@ class MainActivity : ComponentActivity(),
     private fun removeMediaPlaybackTracker(view: WebView) {
         scriptRuntimes.remove(view)?.close()
         if (webViewOrNull === view) {
+            systemMedia.detach(this)
             leaveFullscreen()
             rememberedVideo = null
             hasVideo = false
@@ -1393,6 +1434,9 @@ class MainActivity : ComponentActivity(),
      */
     private fun toggleIncognito() {
         if (clearingData) return
+        if (!privacy.isIncognito && (application as App).windows.size > 1) {
+            toast(getString(R.string.window_private_limit)); return
+        }
         clearResidentTabs()
         temporaryFilterOrigins = emptySet()
         viewOwnerId = null
@@ -1469,6 +1513,7 @@ class MainActivity : ComponentActivity(),
      * If the tab has saved state, restore it; otherwise load its URL.
      */
     private fun loadCurrentTab() {
+        systemMedia.detach(this)
         cancelWebsitePermissions()
         cancelPendingSslError()
         if (awaitScriptsReady(::loadCurrentTab)) return
@@ -1491,6 +1536,7 @@ class MainActivity : ComponentActivity(),
                 val keep = !privacy.isIncognito && wasReady == oldId && state.pageFailure == null &&
                     !state.isLoading && normalTabManager.tabs.any { it.id == oldId }
                 if (keep) {
+                    (old as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
                     mediaTrackers[old]?.setSuspended(true)
                     old.stopLoading(); old.onPause()
                     old.webViewClient = com.mybrowser.tabs.ParkedWebViewClient { gone ->
@@ -1869,8 +1915,9 @@ class MainActivity : ComponentActivity(),
                 }
             }
             try {
-                if (current in targets && request.types.any { it == ClearDataType.WEBSITE_DATA || it == ClearDataType.COOKIES }) {
-                    resetPageForDataRemoval()
+                if (request.types.any { it == ClearDataType.WEBSITE_DATA || it == ClearDataType.COOKIES }) {
+                    if (DataProfile.NORMAL in targets) (application as App).windows.values.toList().forEach { it.clearBrowsingPage?.invoke(null) }
+                    if (current in targets && privacy.isIncognito) resetPageForDataRemoval()
                 }
                 targets.forEach { target ->
                     if (ClearDataType.WEBSITE_DATA in request.types) attempt { dataCleaner.clearWebsiteData(target) }
@@ -1886,6 +1933,9 @@ class MainActivity : ComponentActivity(),
                     dismissTabUndo()
                     normalTabManager.clearRecentlyClosed()
                     normalTabManager.saveRecentlyClosed(this@MainActivity)
+                    (application as App).windows.values.filter { it.normalTabs !== normalTabManager }.forEach {
+                        it.normalTabs.clearRecentlyClosed(); it.normalTabs.saveRecentlyClosed(this@MainActivity)
+                    }
                     historyLibrary.refresh()
                 }
                 showClearData = false
@@ -1923,7 +1973,8 @@ class MainActivity : ComponentActivity(),
                 lifecycleScope.launch {
                     try {
                         val currentHost = state.currentUrl.toUri().host
-                        if (SiteOrigin.of(state.currentUrl) == origin ||
+                        if (profile == DataProfile.NORMAL) (application as App).windows.values.toList().forEach { it.clearBrowsingPage?.invoke(origin) }
+                        else if (SiteOrigin.of(state.currentUrl) == origin ||
                             (dataCleaner.supportsCompleteDeletion && currentHost?.let(UrlUtils::registrableDomain) == domain)) resetPageForDataRemoval()
                         dataCleaner.clearSite(profile, origin)
                         showSiteOrigin = null
@@ -1953,6 +2004,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPageStarted(url: String) {
+        systemMedia.detach(this)
         viewOwnerId = tabManager.currentTab?.id
         cancelWebsitePermissions()
         applySiteSettings(webView, url)
@@ -1977,7 +2029,7 @@ class MainActivity : ComponentActivity(),
         tabManager.notifyChanged()
         refreshBookmarkStatus(url)
         if (!privacy.isIncognito && restoreLastSession) {
-            normalTabManager.scheduleSaveMetadata(this, NORMAL_TABS_PREFS)
+            normalTabManager.scheduleSaveMetadata(this, normalTabsPreferences)
         }
     }
 
@@ -2003,7 +2055,7 @@ class MainActivity : ComponentActivity(),
         // Add to history (only in normal mode)
         addToHistory(url, webView.title ?: url)
         if (!privacy.isIncognito && restoreLastSession) {
-            normalTabManager.scheduleSaveMetadata(this, NORMAL_TABS_PREFS)
+            normalTabManager.scheduleSaveMetadata(this, normalTabsPreferences)
         }
 
         // Detect the active media element for cast preference. The document-start tracker
@@ -2031,7 +2083,7 @@ class MainActivity : ComponentActivity(),
         tabManager.notifyChanged()
         refreshBookmarkStatus(url)
         if (!privacy.isIncognito && restoreLastSession) {
-            normalTabManager.scheduleSaveMetadata(this, NORMAL_TABS_PREFS)
+            normalTabManager.scheduleSaveMetadata(this, normalTabsPreferences)
         }
     }
 
@@ -2287,11 +2339,13 @@ class MainActivity : ComponentActivity(),
                 tracker.probe()
                 openSheet(Sheet.PLAYBACK_SPEED)
             },
+            onPictureInPicture = if (pipController.isAvailable) ({ pipController.enter(); Unit }) else null,
         )
         fullscreenView = host
         (window.decorView as ViewGroup).addView(host, ViewGroup.LayoutParams(-1, -1))
         host.requestFocus()
         setSystemBarsVisible(false)
+        pipController.update()
     }
 
     private fun leaveFullscreen() {
@@ -2307,6 +2361,7 @@ class MainActivity : ComponentActivity(),
         host.release()
         (host.parent as? ViewGroup)?.removeView(host)
         setSystemBarsVisible(true)
+        if (::pipController.isInitialized) pipController.update()
     }
 
     override fun onShowFileChooser(
@@ -2473,6 +2528,7 @@ class MainActivity : ComponentActivity(),
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (startupAborted) return
         setIntent(intent)
         handleIntent(intent)
     }
@@ -2518,7 +2574,15 @@ class MainActivity : ComponentActivity(),
 
     // --- Back handling ---
 
+    // This is Activity's public input hook. AndroidX marks its forwarding override
+    // restricted, but dispatch must run before Chromium consumes browser shortcuts.
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        // Chromium can consume a Back key before our full-screen view sees it.
+        // The current activity window owns this key; modal dialogs have their own window.
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK && fullscreenView != null) {
+            return fullscreenView!!.dispatchKeyEvent(event)
+        }
         // Chromium consumes some Ctrl combinations before Activity.onKeyShortcut.
         // Browser commands own the key-down; ordinary text keys still reach the page.
         if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0 &&
@@ -2604,6 +2668,37 @@ class MainActivity : ComponentActivity(),
 
     // --- Lifecycle ---
 
+    override fun setPlaying(playing: Boolean) {
+        if (playing && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) &&
+            !isInPictureInPictureMode && (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)) return
+        webViewOrNull?.let { view ->
+            (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden =
+                playing && browserPreferences.video.backgroundPlayback && !privacy.isIncognito
+            if (playing) mediaTrackers[view]?.setSuspended(false)
+            if (playing) mediaTrackers[view]?.setPlaying(true) else mediaTrackers[view]?.pauseAll()
+        }
+    }
+
+    override fun seek(positionMs: Long) { webViewOrNull?.let { mediaTrackers[it]?.seekTo(positionMs / 1000.0) } }
+    override fun openIntent(): Intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    override fun onUserLeaveHint() {
+        if (android.os.Build.VERSION.SDK_INT < 31 && ::pipController.isInitialized && browserPreferences.video.automaticPip &&
+            webViewOrNull?.let { mediaTrackers[it]?.current?.isPlaying } == true) pipController.enter()
+        super.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(active: Boolean, configuration: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(active, configuration)
+        if (::pipController.isInitialized) pipController.modeChanged(active)
+        if (!active) window.decorView.post {
+            if (!isInPictureInPictureMode && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                webViewOrNull?.let { mediaTrackers[it]?.setSuspended(true) }
+                systemMedia.detach(this)
+            }
+        }
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && fullscreenView != null) {
@@ -2627,8 +2722,8 @@ class MainActivity : ComponentActivity(),
             webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
         }
         normalTabManager.saveRecentlyClosed(this)
-        if (restoreLastSession) normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
-        else normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
+        if (restoreLastSession) normalTabManager.saveMetadata(this, normalTabsPreferences)
+        else normalTabManager.clearMetadata(this, normalTabsPreferences)
     }
 
     private fun exitBrowser() {
@@ -2649,7 +2744,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        if ((application as App).restoreBlocked) { super.onSaveInstanceState(outState); return }
+        if (startupAborted || (application as App).restoreBlocked) { super.onSaveInstanceState(outState); return }
         persistNormalSession()
         outState.putBundle(STATE_NORMAL_TABS, normalTabManager.snapshotMetadata())
         outState.putString(STATE_PROCESS_SESSION, PROCESS_SESSION)
@@ -2664,36 +2759,55 @@ class MainActivity : ComponentActivity(),
 
     override fun onStop() {
         persistNormalSession()
+        if (::privacy.isInitialized && !isInPictureInPictureMode &&
+            (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)) {
+            webViewOrNull?.let { mediaTrackers[it]?.setSuspended(true); it.onPause() }
+            systemMedia.detach(this)
+        }
         super.onStop()
     }
 
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Preserve recent tabs on ordinary window switches; evict on actual pressure
+        // in older Android, or when the process becomes a background eviction candidate.
+        if (::pool.isInitialized && (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
+                level in android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW..android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)) {
+            clearResidentTabs()
+        }
+    }
+
     override fun onPause() {
-        if ((application as App).restoreBlocked) { super.onPause(); return }
+        if (startupAborted || (application as App).restoreBlocked) { super.onPause(); return }
         if (::privacy.isInitialized && privacy.isIncognito) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         cast.setVisible(false)
         dismissPageContext()
         fullscreenView?.cancelTransientControls()
         super.onPause()
-        // Suspends timers and JS so a backgrounded page cannot keep burning CPU. Media
-        // keeps playing: onPause on the WebView itself would kill audio, which is wrong
-        // for a browser.
-        webViewOrNull?.pauseTimers()
+        // pauseTimers() is process-wide and would freeze a second visible window.
+        // onStop applies this window's explicit media/background policy instead.
     }
 
     override fun onResume() {
-        if ((application as App).restoreBlocked) { super.onResume(); return }
+        if (startupAborted || (application as App).restoreBlocked) { super.onResume(); return }
+        if (::preferencesRepository.isInitialized) browserPreferences = preferencesRepository.load()
         if (::privacy.isInitialized) updatePrivateScreenProtection()
         cast.setVisible(sheet == Sheet.CAST)
         super.onResume()
         isDefaultBrowser = DefaultBrowser.isDefault(this)
         downloadHandler.resumeInterrupted()
         webViewOrNull?.onResume()
-        webViewOrNull?.resumeTimers()
+        webViewOrNull?.let { mediaTrackers[it]?.setSuspended(false) }
     }
 
     override fun onDestroy() {
-        if ((application as App).restoreBlocked) { super.onDestroy(); return }
+        if (startupAborted || (application as App).restoreBlocked) { super.onDestroy(); return }
+        if (::windowState.isInitialized) windowState.clearBrowsingPage = null
+        if (isChangingConfigurations && ::privacy.isInitialized && privacy.isIncognito) saveCurrentTab()
         dialogs.dismiss()
+        if (::pipController.isInitialized) pipController.close()
+        systemMedia.detach(this)
         clearResidentTabs()
         cast.setVisible(false)
         cast.cancel()
@@ -2723,13 +2837,7 @@ class MainActivity : ComponentActivity(),
         }
         webViewOrNull = null
 
-        // Clean up tab resources
-        if (::normalTabManager.isInitialized) normalTabManager.cleanup()
-        if (::incognitoTabManager.isInitialized) incognitoTabManager.cleanup()
-        if (::privacy.isInitialized && privacy.isIncognito) {
-            val hadRealIsolation = privacy.hasRealIsolation
-            privacy.exit(wipeSharedStorage = !hadRealIsolation)
-        }
+        // ViewModel clears tab resources and private storage only when this window ends.
         if (::bookmarkManager.isInitialized) bookmarkManager.close()
         if (::historyManager.isInitialized) historyManager.close()
 

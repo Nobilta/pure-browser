@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 The fullscreen `ic_replay_10`, `ic_forward_10`, `ic_lock`, `ic_lock_open`, and browser
-`ic_copy`, `ic_share`, `ic_edit`, `ic_add`, `ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_print`
+`ic_copy`, `ic_share`, `ic_edit`, `ic_add`, `ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_print`, `ic_pip`
 drawables are adapted from [Google Material Icons](https://github.com/google/material-design-icons),
 licensed under the [Apache License 2.0](third_party/material-icons-LICENSE.txt).
 The SVG paths were converted to Android VectorDrawable resources; the replay icon
@@ -9,6 +9,14 @@ uses the forward icon's zero glyph. These notices and the license accompany the
 source and local APK delivery.
 
 AndroidX and other existing dependencies retain their upstream licenses.
+
+The 0.6.0 integration uses AndroidX AppCompat 1.7.1, MediaRouter 1.8.0-beta01,
+Compose UI/Foundation/Runtime 1.9.4 and Material 3 1.4.0 under Apache License 2.0.
+Google Cast Framework and Play Services Cast 22.3.1 are distributed under the
+[Android Software Development Kit License](https://developer.android.com/studio/terms.html),
+as specified by their upstream Maven POMs. They are not relicensed as Apache-2.0.
+Exact runtime and transitive versions are recorded in `app/gradle.lockfile`;
+artifact checksums are in `gradle/verification-metadata.xml`.
 
 The bundled **EasyList, EasyPrivacy and EasyList China** rule data are unmodified
 2026-09-09 snapshots, attributed to **The EasyList authors (https://easylist.to/)**

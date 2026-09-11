@@ -22,6 +22,7 @@
 
 # Local delivery artifacts are reproducible and should not bloat Git history.
 /PureBrowser-*.apk
+/PureBrowser-*.apk.tmp
 
 # Generated emulator screenshots, UI hierarchy dumps and diagnostic logs. Keep the
 # reproducible HTML/media fixtures in validation/ under version control.

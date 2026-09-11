@@ -147,7 +147,7 @@ class WebViewPool(
 
     private fun create(): WebView {
         // Wrapped from the start so the base can be swapped later without recreating.
-        val webView = WebView(MutableContextWrapper(appContext))
+        val webView = BrowserWebView(MutableContextWrapper(appContext))
         WebViewConfig.apply(webView)
         instances += webView
         created++
@@ -164,6 +164,7 @@ class WebViewPool(
     }
 
     private fun reset(webView: WebView) {
+        (webView as? BrowserWebView)?.keepMediaOnWindowHidden = false
         webView.setOnScrollChangeListener(null)
         webView.setOnLongClickListener(null)
         webView.setFindListener(null)

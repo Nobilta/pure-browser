@@ -6,7 +6,7 @@
 <main id="article"></main><script>
 const params=new URLSearchParams(location.search),name=params.get('name')||'A',key=params.get('case')||'resident';
 document.title='Resident '+name;heading.textContent=document.title;
-const token=crypto.randomUUID(),started=Date.now();let spa=0;
+const token=crypto.getRandomValues(new Uint32Array(4)).join('-'),started=Date.now();let spa=0;
 article.innerHTML=Array.from({length:90},(_,i)=>'<p>Article paragraph '+i+' — 中文长文章与代码阅读位置验证。</p>').join('');
 prepare.onclick=()=>{draft.value='Unsubmitted '+name;spa++;history.pushState({spa},'',location.pathname+location.search+'#step'+spa);report()};
 document.getElementById('scroll').onclick=()=>{scrollTo(0,1050);report()};play.onclick=()=>movie.play();

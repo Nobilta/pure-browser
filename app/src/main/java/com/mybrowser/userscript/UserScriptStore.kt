@@ -46,13 +46,16 @@ class UserScriptStore(context: Context) {
                     val requires = entry.optJSONArray("requires") ?: JSONArray()
                     require(requires.length() <= 8)
                     val code = (0 until requires.length()).map { requires.getString(it) }
+                    val resources = ScriptResource.readMap(entry.optJSONObject("resources") ?: JSONObject())
+                    require(metadata.resources.keys.containsAll(resources.keys))
                     val values = runCatching {
                         valuesFile(metadata.id).openRead().use { TextDownloader.readText(it, MAX_VALUES_BYTES) }
                             .also { JSONObject(it) }
                     }.getOrDefault("{}")
                     loaded += InstalledUserScript(metadata, source,
                         entry.optString("url").takeIf { TextDownloader.isHttpUrl(it) }, code,
-                        entry.optBoolean("enabled") && metadata.supported && code.size == metadata.requires.size, values)
+                        entry.optBoolean("enabled") && metadata.supported && code.size == metadata.requires.size &&
+                            resources.keys == metadata.resources.keys, values, resources)
                 }
                 require(loaded.map { it.metadata.id }.distinct().size == loaded.size)
                 checkSize(loaded)
@@ -71,6 +74,7 @@ class UserScriptStore(context: Context) {
         val dependencies = if (metadata.supported) metadata.requires.map {
             TextDownloader().get(it, MAX_REQUIRE_BYTES).text ?: throw IOException("Empty dependency")
         } else emptyList()
+        val resources = if (metadata.supported) metadata.resources.mapValues { ScriptResource.fetch(it.value) } else emptyMap()
         mutex.withLock {
             initializeLocked()
             check(!loadFailed) { "Saved scripts could not be read" }
@@ -78,7 +82,7 @@ class UserScriptStore(context: Context) {
             require(old != null || _scripts.value.size < MAX_SCRIPTS) { "Script limit reached" }
             val script = InstalledUserScript(metadata, source,
                 sourceUrl?.takeIf(TextDownloader::isHttpUrl), dependencies,
-                enabled = metadata.supported && (old?.enabled ?: true), values = old?.values ?: "{}")
+                enabled = metadata.supported && (old?.enabled ?: true), values = old?.values ?: "{}", resources = resources)
             val next = if (old == null) _scripts.value + script else _scripts.value.map {
                 if (it.metadata.id == metadata.id) script else it
             }
@@ -93,7 +97,7 @@ class UserScriptStore(context: Context) {
             initializeLocked()
             val next = _scripts.value.map {
                 if (it.metadata.id == id) it.copy(enabled = enabled && it.metadata.supported &&
-                    it.requiredCode.size == it.metadata.requires.size) else it
+                    it.requiredCode.size == it.metadata.requires.size && it.resources.keys == it.metadata.resources.keys) else it
             }
             persist(next)
             _scripts.value = next
@@ -135,6 +139,7 @@ class UserScriptStore(context: Context) {
         val json = JSONArray()
         scripts.forEach { script ->
             json.put(JSONObject().put("source", script.source).put("url", script.sourceUrl)
+                .put("resources", JSONObject().also { obj -> script.resources.forEach { (name, resource) -> obj.put(name, resource.json()) } })
                 .put("requires", JSONArray(script.requiredCode)).put("enabled", script.enabled))
         }
         manifest.writeUtf8(json.toString())
@@ -143,7 +148,8 @@ class UserScriptStore(context: Context) {
     private fun checkSize(scripts: List<InstalledUserScript>) {
         val size = scripts.sumOf { script ->
             require(script.requiredCode.all { it.toByteArray().size <= MAX_REQUIRE_BYTES })
-            script.source.toByteArray().size.toLong() + script.requiredCode.sumOf { it.toByteArray().size.toLong() }
+            script.source.toByteArray().size.toLong() + script.requiredCode.sumOf { it.toByteArray().size.toLong() } +
+                script.resources.values.sumOf { it.bytes().size.toLong() }
         }
         require(size <= MAX_TOTAL_BYTES) { "Script storage limit reached" }
     }
