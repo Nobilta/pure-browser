@@ -99,7 +99,6 @@
     <string name="menu_adblock_off">Off</string>
     <string name="menu_clear_data">Clear browsing data</string>
     <string name="clear_data_title">Clear browsing data</string>
-    <string name="clear_data_message">History, cookies, and cache will be cleared. This cannot be undone.</string>
     <string name="clear_data_done">Browsing data cleared</string>
     <string name="cast_pick_device">Choose device</string>
     <string name="cast_search_again">Search again</string>
@@ -376,7 +375,6 @@
     <string name="context_copy_image_link">Copy image link</string>
     <string name="context_opened_background">Opened in background</string>
     <string name="context_share_unavailable">No app available to share this link</string>
-    <string name="menu_share_page">Share page</string>
     <string name="library_load_more">Load more</string>
     <string name="library_retry">Retry</string>
     <string name="library_load_failed">Unable to load entries</string>
@@ -388,7 +386,7 @@
     <string name="bookmarks_search">Search bookmarks</string>
     <string name="bookmarks_clear_confirm">Delete all bookmarks? This cannot be undone.</string>
     <string name="history_search">Search history</string>
-    <string name="history_clear_confirm">Delete all browsing history and recently closed tabs? This cannot be undone.</string>
+    <string name="history_clear_confirm">Delete all browsing history? This cannot be undone.</string>
     <string name="history_today">Today</string>
     <string name="history_yesterday">Yesterday</string>
     <string name="tabs_count">Tabs (%1$d)</string>
@@ -479,15 +477,6 @@
     <string name="site_save_failed">Unable to save website settings. Try again.</string>
 
     <!-- Tab recovery and bookmark interchange. -->
-    <string name="tabs_open">Open tabs</string>
-    <string name="tabs_recent">Recently closed (%1$d)</string>
-    <string name="tabs_reopen">Reopen last closed tab</string>
-    <string name="tabs_restore">Restore</string>
-    <string name="tabs_recent_empty">No recently closed pages</string>
-    <string name="tabs_clear_recent">Clear recently closed pages</string>
-    <string name="tabs_clear_recent_confirm">Clear the recently closed list? Open tabs and bookmarks will remain.</string>
-    <string name="tabs_closed">Tab closed</string>
-    <string name="action_undo">Undo</string>
     <string name="bookmarks_transfer">Import or export bookmarks</string>
     <string name="bookmarks_import">Import bookmarks</string>
     <string name="bookmarks_export">Export bookmarks</string>
@@ -495,9 +484,6 @@
     <string name="bookmarks_imported">Bookmarks imported: %1$d; duplicates or invalid entries skipped: %2$d</string>
     <string name="bookmarks_exported">Bookmarks exported: %1$d</string>
     <string name="bookmarks_transfer_failed">Unable to read or write the bookmarks file. Use UTF-8 HTML, up to 8 MiB and 5,000 bookmarks.</string>
-    <string name="page_wait_until_loaded">Wait for the page to finish loading</string>
-    <string name="page_print">Print or save as PDF</string>
-    <string name="page_print_failed">Unable to open Android printing</string>
     <string name="cast_status_unavailable">The device has not reported playback status</string>
     <string name="cast_remote_playing">Device is playing</string>
     <string name="cast_remote_paused">Device is paused</string>

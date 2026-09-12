@@ -18,25 +18,25 @@ lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实�
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.7.1-release.apk
-shasum -a 256 PureBrowser-v0.7.1-release.apk
-./install_and_test.sh PureBrowser-v0.7.1-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.7.2-release.apk
+shasum -a 256 PureBrowser-v0.7.2-release.apk
+./install_and_test.sh PureBrowser-v0.7.2-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
 
 ## 模拟器串行回归
 
-使用专用模拟器，回归会写入测试书签、下载、PDF 和站点数据。只运行一台模拟器和一个 UI 脚本，
+使用专用模拟器，回归会写入测试书签、下载和站点数据。只运行一台模拟器和一个 UI 脚本，
 不要与 Gradle 构建同时运行。QA 仅监听本机 8875/8876，通过 ADB reverse 使用；证书和桌面模式夹具另外使用 8877–8879。
 本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.1-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.2-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.1-release.apk \
-  --label release-071 --stages omnibar media-lifecycle menu-navigation settings-back inline-video system-media
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.2-release.apk \
+  --label release-072 --stages menu-navigation settings-back site layout browser productivity
 ```
 
 不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
@@ -44,25 +44,29 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 
 Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/pure-ui-dump.jar`，提供真实触摸、
 键盘和无障碍树读取；动态网页使用 DOM 遥测与播放/文件内容核对操作结果，不能只判断按钮存在。
+WebView 漏报可见网页节点时，先核对当前网址与新鲜夹具几何，再执行真实触摸；网站夹具不在导航后立即追加刷新。
 权限窗口和全屏控件须在同一次辅助会话中定位并触摸，防止窗口动画/自动隐藏造成坐标过期。
 全部窗口的只读采集遇到 Android 10 辅助进程 SIGSEGV 时仅重试一次；不重放触摸或返回输入，连续失败仍终止回归。
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.7.1 重点验收
+## 0.7.2 重点验收
 
-### 地址栏与菜单返回
+### 菜单、标签、设置返回与滚动
 
 ```bash
-python3 validation/omnibar-regression.py --serial emulator-5554 --output validation/results/omnibar
 python3 validation/menu-navigation-regression.py --serial emulator-5554
 python3 validation/settings-back-regression.py --serial emulator-5554
+python3 validation/capabilities-regression.py --serial emulator-5554 --section site
 ```
 
-- 顶部和底部地址栏均使用实际 Gboard 软键盘触摸，检查连续输入、删除、清除、补全后继续输入与 Go。
-- 建议可见时保持编辑器焦点，单一 Activity 窗口；旋转保留草稿，点击页面结束编辑。
+- 菜单没有分享网页、复制链接和打印/PDF；标签列表和操作菜单没有最近关闭、恢复或清理记录入口。
+- 单个/批量关闭、最后一个标签关闭、普通/无痕切换仍正常，重启不恢复已关闭的标签。
 - 验证滚动收起/展开地址栏时，滑动起终点均位于当前 WebView 边界内，避免底部地址栏拦截按整屏比例定位的触摸。
-- 菜单 → 设置 → 菜单 → 浏览器；左上角、系统 Back、连续快速返回、重建和宽屏行为一致。
+- 菜单 → 设置 → 菜单 → 浏览器；左上角、系统 Back、左右边缘手势、连续快速返回、重建和宽屏行为一致。
+  设置与菜单各自只有一个弹层窗口；返回菜单后，所有窗口中均不存在旧设置内容，最终浏览器只剩主窗口且可触摸。
+- 网站设置上下边界分别连续执行快/慢滑动；标题和保存按钮坐标不变，停止后连续三帧表单像素一致，设置仍可修改、取消和保存。
+- 管理网站列表使用固定弹层，通过左上角返回关闭；横屏和放大字体下同样可到达全部操作。
 - 开发者工具仅在菜单出现，关于和设置搜索不再包含该入口。
 
 ### 关闭媒体与画中画
@@ -125,7 +129,7 @@ python3 validation/system-media-regression.py --serial emulator-5554 --package c
 
 - 主浏览链路、标签与历史恢复、主页、链接/图片上下文菜单、默认浏览器、外部 VIEW/SEND。
 - 菜单/设置逐级返回、快速连续点击、拖动关闭、重建与宽屏；私密会话配置重建及 Profile 清理。
-- 书签文件夹/移动/批量、HTML 导入导出与非法协议过滤；打印/PDF 的真实文件内容。
+- 书签文件夹/移动/批量、HTML 导入导出与非法协议过滤。
 - 网站权限与系统授权分离；导航取消旧请求；input capture 拍照/录像/取消/重建后的字节回传。
 - Autofill 配置及合成 passkey 请求结果，不能冒充真实账户成功登录。
 - 脚本预览、依赖/资源字节、排除匹配、进程恢复、私密禁用和旧 WebView 降级。
@@ -133,7 +137,7 @@ python3 validation/system-media-regression.py --serial emulator-5554 --package c
 - 语言、主题、150%/200% 字号、TalkBack 与键盘按需要单独执行，实际覆盖以报告为准。
 
 对应脚本可由 `validation/run-regressions.py` 查看。阅读/离线文章、Google Cast、整体备份恢复和双窗口
-已经删除，不再包含这些功能的回归阶段。
+已经删除；本版另外删除最近关闭/撤销与打印的过时测试阶段。可临时创建专项测试文件，完成验证后删除，不把一次性测试留在源码中。
 
 ## 可选性能和线上检查
 

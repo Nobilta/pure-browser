@@ -99,7 +99,6 @@
     <string name="menu_adblock_off">已关闭</string>
     <string name="menu_clear_data">清除浏览数据</string>
     <string name="clear_data_title">清除浏览数据</string>
-    <string name="clear_data_message">将清除历史记录、Cookie 与缓存，此操作无法撤销。</string>
     <string name="clear_data_done">浏览数据已清除</string>
     <string name="cast_pick_device">选择设备</string>
     <string name="cast_search_again">重新搜索</string>
@@ -376,7 +375,6 @@
     <string name="context_copy_image_link">复制图片链接</string>
     <string name="context_opened_background">已在后台打开</string>
     <string name="context_share_unavailable">没有可用于分享链接的应用</string>
-    <string name="menu_share_page">分享网页</string>
     <string name="library_load_more">加载更多</string>
     <string name="library_retry">重试</string>
     <string name="library_load_failed">暂时无法加载</string>
@@ -388,7 +386,7 @@
     <string name="bookmarks_search">搜索书签</string>
     <string name="bookmarks_clear_confirm">删除全部书签？此操作无法撤销。</string>
     <string name="history_search">搜索历史记录</string>
-    <string name="history_clear_confirm">删除全部浏览历史和最近关闭标签？此操作无法撤销。</string>
+    <string name="history_clear_confirm">删除全部浏览历史？此操作无法撤销。</string>
     <string name="history_today">今天</string>
     <string name="history_yesterday">昨天</string>
     <string name="tabs_count">标签页（%1$d）</string>
@@ -478,15 +476,6 @@
     <string name="site_save_failed">无法保存网站设置，请重试。</string>
 
     <!-- Tab recovery and bookmark interchange. -->
-    <string name="tabs_open">打开的标签</string>
-    <string name="tabs_recent">最近关闭（%1$d）</string>
-    <string name="tabs_reopen">恢复刚关闭的标签</string>
-    <string name="tabs_restore">恢复</string>
-    <string name="tabs_recent_empty">没有最近关闭的网页</string>
-    <string name="tabs_clear_recent">清空最近关闭记录</string>
-    <string name="tabs_clear_recent_confirm">清空最近关闭列表？打开的标签和书签会保留。</string>
-    <string name="tabs_closed">标签已关闭</string>
-    <string name="action_undo">撤销</string>
     <string name="bookmarks_transfer">导入或导出书签</string>
     <string name="bookmarks_import">导入书签</string>
     <string name="bookmarks_export">导出书签</string>
@@ -494,9 +483,6 @@
     <string name="bookmarks_imported">已导入 %1$d 个书签，跳过 %2$d 个重复或无效条目</string>
     <string name="bookmarks_exported">已导出 %1$d 个书签</string>
     <string name="bookmarks_transfer_failed">无法读写书签文件。请使用 UTF-8 HTML，文件不超过 8 MiB、书签不超过 5,000 个。</string>
-    <string name="page_wait_until_loaded">请等待网页加载完成</string>
-    <string name="page_print">打印或保存为 PDF</string>
-    <string name="page_print_failed">无法打开 Android 打印服务</string>
     <string name="cast_status_unavailable">设备暂未返回播放状态</string>
     <string name="cast_remote_playing">设备正在播放</string>
     <string name="cast_remote_paused">设备已暂停</string>

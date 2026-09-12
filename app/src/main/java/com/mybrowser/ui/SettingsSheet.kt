@@ -60,7 +60,6 @@ import androidx.compose.ui.composed
 import androidx.compose.foundation.background
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -74,6 +73,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import com.mybrowser.R
@@ -119,17 +120,28 @@ fun SettingsSheet(
     val textResources = localizedResources()
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showSystemLogin by remember { mutableStateOf(false) }
-    if (showSystemLogin) SystemLoginDialog { showSystemLogin = false }
     var highlightTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
     var pickerGeneration by rememberSaveable { mutableLongStateOf(0L) }
     val openPicker: (String) -> Unit = { pickerGeneration++; picker = it }
     val selected = SettingsCategory.entries.firstOrNull { it.name == sectionName }
-    val back = { if (!childOpen) { if (selected != null) sectionName = null else onDismiss() } }
-    BackHandler(enabled = !childOpen && picker == null, onBack = back)
+    val back = {
+        if (!childOpen && picker == null && !showSystemLogin) {
+            if (selected != null) sectionName = null else onDismiss()
+        }
+    }
     val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
 
+    // The settings surface and system Back callback share one dialog lifecycle.
+    // Returning to the menu removes the whole window, including its input owner.
+    Dialog(onDismissRequest = back, properties = DialogProperties(
+        usePlatformDefaultWidth = false,
+        decorFitsSystemWindows = false,
+        dismissOnClickOutside = false,
+    )) {
+    ApplySheetSystemBars(fullscreen = true)
+    if (showSystemLogin) SystemLoginDialog { showSystemLogin = false }
     CompositionLocalProvider(LocalSettingHighlight provides highlightTitle) {
     Surface(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
         .testTag(if (selected == null) "settings_root" else "settings_detail")) {
@@ -318,6 +330,7 @@ fun SettingsSheet(
     }
 }
 
+    }
 }
 
 private enum class SettingsCategory(val titleRes: Int, val icon: Int) {

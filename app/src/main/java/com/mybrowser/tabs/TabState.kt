@@ -18,6 +18,3 @@ data class TabState(
     var savedState: Bundle? = null,
     var group: String = "",
 )
-
-/** Recently closed pages contain navigation metadata, never private storage or bitmaps. */
-data class ClosedTab(val id: String, val url: String, val title: String, val index: Int, val group: String = "")

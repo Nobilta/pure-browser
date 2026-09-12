@@ -9,7 +9,7 @@ import com.mybrowser.site.SiteSettingsRepository
 class BrowserSessionState(application: Application) : AndroidViewModel(application) {
     val privacy = PrivacyMode(application)
     val normalTabs = TabManager()
-    val privateTabs = TabManager(rememberClosedTabs = false)
+    val privateTabs = TabManager()
     var privateSites: SiteSettingsRepository? = null
     var initialized = false
 

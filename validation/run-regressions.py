@@ -76,7 +76,7 @@ def main():
               ('developer-tools', ['developer-tools-regression.py']), ('browser', ['emulator-ux.py', 'regress']),
               ('video-blob', ['video-regression.py', '--variant', 'blob'])]
     stages += [(part, ['capabilities-regression.py', '--section', part])
-               for part in ['site', 'permissions', 'tabs', 'printing', 'bookmarks', 'downloads', 'layout']]
+               for part in ['site', 'permissions', 'bookmarks', 'downloads', 'layout']]
     stages += [('features-' + part, ['features-regression.py', '--section', part])
                for part in ['scripts', 'imports', 'filters', 'dialogs', 'media']]
     stages += [('video-' + variant, ['video-regression.py', '--variant', variant] +

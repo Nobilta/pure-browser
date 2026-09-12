@@ -26,7 +26,6 @@ sdk = ux.adb('shell', 'getprop', 'ro.build.version.sdk')
 output = ROOT / 'results'
 output.mkdir(exist_ok=True)
 checks = []
-target_bounds = {}
 run = str(time.time_ns())
 base = 'http://127.0.0.1:8875/productivity-fixture.html?run=' + run
 
@@ -48,22 +47,10 @@ def back():
     time.sleep(.5)
 
 
-def long_press(label):
-    root, _ = ux.nodes()
-    for target in ('Background destination', 'Linked test image', 'Plain test image'):
-        node = next((n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.Image'
-                     and n.get('text') == target), None)
-        if node is None:
-            node = ux.match(root, target)
-        if node is not None:
-            target_bounds[target] = ux.bounds(node)
-    # Older WebViews can stop publishing accessibility children after closing a modal.
-    # This fixed-layout fixture has not scrolled or changed its target positions.
-    assert label in target_bounds, label
-    x1, y1, x2, y2 = target_bounds[label]
-    x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
-    ux.adb('shell', 'input', 'swipe', x, y, x, y, '900')
-    time.sleep(.6)
+def long_press(label, page=None):
+    target = {'Background destination': 'background', 'Linked test image': 'linked', 'Plain test image': 'plain'}[label]
+    url = base if page is None else base.replace('?run=', '?page=' + page + '&run=')
+    ux.tap_fixture(label, 'productivity-geometry-' + run, target, url, hold_ms=900)
 
 
 def edit(text, index=0):
@@ -128,11 +115,16 @@ def seed_libraries():
             conn.execute("DELETE FROM bookmarks WHERE url LIKE 'https://productivity.test/%'")
             conn.execute("DELETE FROM history WHERE url LIKE 'https://productivity.test/%'")
             now = int(time.time()*1000)
+            # Match normal bookmark insertion: new rows precede existing folder
+            # entries. Creation time alone no longer controls the root list order.
+            first_position = conn.execute('SELECT COALESCE(MIN(position), 0) - 1 FROM bookmarks WHERE folder_id = 0').fetchone()[0]
             for i in range(123):
                 title = 'Archive Needle' if i == 0 else f'Library {i:03d}'
                 url = f'https://productivity.test/{i}'
-                conn.execute('INSERT INTO bookmarks(title,url,created_at) VALUES(?,?,?)', (title,url,now+i))
-                conn.execute('INSERT INTO history(title,url,visit_time,visit_count) VALUES(?,?,?,1)', (title,url,now+i))
+                conn.execute('INSERT INTO bookmarks(title,url,created_at,position,host) VALUES(?,?,?,?,?)',
+                             (title,url,now+i,first_position-i,'productivity.test'))
+                conn.execute('INSERT INTO history(title,url,visit_time,visit_count,host) VALUES(?,?,?,1,?)',
+                             (title,url,now+i,'productivity.test'))
         conn.close()
         ux.adb('push', str(local), db)
     for suffix in ('-wal', '-shm'):
@@ -174,9 +166,9 @@ def browser_checks():
     ux.expect('Tabs (1)')
     back()
     record('filtered tab selection uses identity and fresh tabs have independent back history')
-    ux.tap('Second destination')
+    ux.tap_fixture('Second destination', 'productivity-geometry-' + run, 'second', base)
     ux.expect('Productivity second')
-    long_press('Background destination')
+    long_press('Background destination', page='second')
     ux.tap('Open in new tab')
     ux.expect('Productivity background')
     close_background()
