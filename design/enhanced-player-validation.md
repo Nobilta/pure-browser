@@ -1,6 +1,6 @@
 # 增强播放器接管与验证
 
-版本：0.7.0。安装包、测试数量和实际模拟器结果分别以 [README](../README.md)
+版本：0.7.1。安装包、测试数量和实际模拟器结果分别以 [README](../README.md)
 和 [模拟器报告](../EMULATOR_TEST_REPORT.md) 为准。本文件说明播放器的验收方法与覆盖边界。
 
 ## 接管原则
@@ -36,7 +36,9 @@
 核对原视频目标、进度、倍速、画面比例和临时属性清理。标准视频另检查双击、亮度/音量/进度手势、
 长按加速、锁定返回、旋转、控件自动隐藏以及弹层关闭。
 
-`system-media-regression.py` 检查 PiP、系统媒体暂停、显式后台播放和无痕隐藏暂停。
+`system-media-regression.py` 检查 PiP、系统媒体暂停和显式后台播放；私密生命周期阶段检查无痕隐藏暂停。
+`media-lifecycle-regression.py` 另核对视频结束/删除/卸载/隐藏/替换、页面导航、关闭标签和关闭 PiP 后，
+系统 session、通知和服务退出，同时浏览器进程存活；检查小窗实际画面和跨域 frame 独立失效。
 Node 协议测试覆盖签名来源、多个视频目标固定、布局失效、样式删除、原始属性恢复及过期命令隔离。
 验证工具不为 Release 打开 WebView 调试接口，也不引入播放器或解码依赖。
 
@@ -47,7 +49,7 @@ Node 协议测试覆盖签名来源、多个视频目标固定、布局失效、
 ```bash
 python3 validation/setup-ui-probe.py emulator-5554
 python3 validation/run-regressions.py --serial emulator-5554 \
-  --apk PureBrowser-v0.7.0-release.apk --label player-070 \
+  --apk PureBrowser-v0.7.1-release.apk --label player-071 \
   --stages inline-video system-media video-standard video-custom video-custom-blob video-custom-cross video-custom-csp
 ```
 

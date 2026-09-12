@@ -229,11 +229,14 @@ public final class FastUiDump {
         attribute(xml, "content-desc", node.getContentDescription());
         attribute(xml, "resource-id", node.getViewIdResourceName());
         attribute(xml, "class", node.getClassName());
+        attribute(xml, "package", node.getPackageName());
         attribute(xml, "checked", node.isChecked());
         attribute(xml, "checkable", node.isCheckable());
         attribute(xml, "selected", node.isSelected());
         attribute(xml, "clickable", node.isClickable());
         attribute(xml, "enabled", node.isEnabled());
+        attribute(xml, "focused", node.isFocused());
+        attribute(xml, "editable", node.isEditable());
         attribute(xml, "accessibility-focused", node.isAccessibilityFocused());
         attribute(xml, "reported-child-count", node.getChildCount());
         attribute(xml, "scrollable", node.isScrollable());

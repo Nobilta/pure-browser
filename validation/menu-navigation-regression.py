@@ -178,16 +178,16 @@ try:
         record(label + ' returns to menu, then browser, without retaining another window')
 
     ux.open_settings('关于')
-    ux.tap('开发者工具')
-    back()
     ux.expect('Pure 浏览器')
+    root, _ = ux.nodes()
+    assert ux.match(root, '开发者工具') is None, 'Developer tools are duplicated in About'
     back()
     settings()
     back()
     menu()
     back()
     browser()
-    record('developer tools opened from About retain settings category and menu ancestry')
+    record('About contains version information; developer tools are available only in the menu')
 
     ux.open_settings('浏览与启动')
     ux.tap('搜索引擎')

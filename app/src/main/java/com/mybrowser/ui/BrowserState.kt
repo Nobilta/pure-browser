@@ -19,10 +19,8 @@ import com.mybrowser.core.UrlUtils
  * Every property is backed by a snapshot state object, so [Stable] is accurate rather
  * than aspirational: Compose can skip recomposition when this instance is unchanged.
  *
- * Not a ViewModel on purpose. The Activity declares `configChanges` covering rotation, so
- * it is never recreated in normal use and there is no state to survive. Adding a
- * ViewModel would buy nothing and obscure that the WebView pool, not this class, is what
- * makes rotation cheap.
+ * Session ownership and configuration recreation are managed by BrowserSessionState;
+ * this object owns the current chrome and editing state, not the WebView lifecycle.
  */
 @Stable
 class BrowserState {

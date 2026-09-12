@@ -1,131 +1,125 @@
-# 0.7.0 验证报告
+# 0.7.1 验证报告
 
-日期：2026-09-11。回归使用签名 Release，模拟器 UI 操作串行执行。
-安装包哈希用于区分交付验证和开发阶段记录；旧包的通过项不计入本版设备覆盖。
+日期：2026-09-12。回归使用同签名 Release，模拟器 UI 操作串行执行。
+结果按实际安装 APK 的 SHA-256 绑定；0.7.0 和开发阶段构建的通过项不计入最终包覆盖。
 
 ## 安装包与自动检查
 
-- `PureBrowser-v0.7.0-release.apk`，versionCode 11，包名 `com.mybrowser`。
-- Android 10+（minSdk 29）、targetSdk 37、arm64-v8a；4,682,919 bytes，约 4.47 MiB。
-- SHA-256：`bb878a3cb0cb6ef728e2dd6518f340bba58cf3f1186a748213f74aa048e6945e`。
-- APK v2 签名、16 KiB zipalign、打包后的播放器脚本与源码逐字节一致检查通过。
+- `PureBrowser-v0.7.1-release.apk`，versionCode 12，包名 `com.mybrowser`。
+- Android 10+（minSdk 29）、targetSdk 37、arm64-v8a；4,682,751 bytes，约 4.47 MiB。
+- SHA-256：`17c4063be72261d9f1eaf809edbff5d2e93adeff776491ef1831581d4bde7d06`。
+- APK v2 签名、16 KiB zipalign、打包后的两份播放器脚本与源码逐字节一致检查通过。
 - 证书 SHA-256：`7d468e8b3a9be385a2386b27ef548e83cb55206e67911d81b721b5adbe1e8236`，延续旧版签名。
-- 321 项 Android/Robolectric 测试，0 failures、0 errors、0 skipped；包含真实 host JNI 检查。
-- 58 项 Rust、51 项 Node 测试及 619 项三语言资源检查通过；Rust fmt/clippy、R8 和 Release 构建通过。
-- lint 为 0 errors、11 warnings、2 hints，主要涉及兼容性提示、工具版本、Compose 约定、英文复数、
-  arm64 交付范围及代码简化建议；没有将其表述为零警告。
+- 332 项 Android/Robolectric 测试，0 failures、0 errors、0 skipped，包含真实 host JNI。
+- 58 项 Rust、55 项 JavaScript 协议测试和 617 项三语言资源校验通过；fmt/clippy、R8 和 Release 构建通过。
+- lint 为 0 errors、11 warnings、1 hint，未将现有兼容性和代码约定提示表述为零警告。
 
-最终构建为 `build7`，包含旧 WebView 实时播放消息桥修复，完整构建检查通过。
-原始依据：[构建结果](validation/results/release-0.7.0/build7.json)、
-[构建日志](validation/results/release-0.7.0/build7.log)、
-[交付清单](validation/results/release-0.7.0/delivery.json)、
-[签名](validation/results/release-0.7.0/signature.txt)。APK 和生成的验证记录不提交 Git。
+依据：[构建结果](validation/results/release-0.7.1/build-final.json)、
+[构建日志](validation/results/release-0.7.1/build-final.log)、
+[交付清单](validation/results/release-0.7.1/delivery.json)、
+[签名](validation/results/release-0.7.1/signature.txt)。生成的 APK、测试结果与签名配置不提交 Git。
 
-## 本版重点
+## 本版修复与验收方法
 
-### 下载交互
+### 地址栏与搜索建议
 
-完成行本身是打开入口，浏览器发送不指定 MIME 的 `ACTION_VIEW`、可读 `content:` URI 和临时读取授权，
-由 Android 根据内容提供方解析文件类型。没有独立“打开/安装”按钮，也没有浏览器自己的 APK 安装或来源授权分支。
+0.7.0 基线已通过真实软键盘按键和清除操作复现失焦。原因是建议使用独立 Popup，
+其外部点击处理也接收到输入法和清除按钮的操作，并提前结束编辑。
+0.7.1 将建议移到编辑器同一窗口，明确提交、页面点击和返回的编辑结束时机，
+保留光标、输入法组合文字与旋转草稿；清除及补全后可继续输入。
 
-下载专项核对未知总长时已下载字节的变化、拒绝通知权限后仍完成下载、最终文件 SHA-256，
-并通过实际触摸进入系统图片查看器和安装器。缺失文件不会启动外部 Activity；Toast 已通过截图复核。
-安装器的来源授权由 Android 设置处理。完成通知可在进程已结束时打开浏览器并定位到对应下载行。
+`omnibar-regression.py` 分别验证顶部/底部地址栏：实际 Gboard 连续按键、清除、Delete、
+补全后继续输入、建议行导航、旋转后的草稿与继续输入、Go 和点击页面结束编辑。
+同时核对应用窗口数为一，避免仅用程序设置文本代替软键盘验证。
 
-截图中的系统安装授权不是浏览器的二次确认。部分进度截图抓取时下载已经完成，
-进度变化以执行时连续读取的无障碍文字和字节校验为依据，不能把完成截图当作进行中进度的证明。
+### 系统媒体、后台播放与画中画
 
-### 内嵌与全屏播放器
+基线中视频结束、卸载、移除和移除跨域 frame 后存在旧媒体 token 或播放状态。
+新版将媒体可继续播放状态与 DOM 元素存在分开；关闭时释放 MediaSession 本体、元数据、通知和前台服务。
+无最终回执的媒体 frame 由独立超时清理，暂停中的旧媒体消息不能重新创建已释放的会话。
+普通 Pause 保持可恢复；显式 Stop、视频结束/隐藏并暂停/卸载/移除/替换、关闭标签和离页会释放。
 
-内嵌专项覆盖标准、自定义容器、Blob、160×90 小视频和跨域 frame，核对真实播放状态、
-原节点/来源保留、网站控制层隔离、倍速、跳转、静音、显式恢复、滚动、尺寸变化、弹窗遮挡、
-样式丢失、视频替换、全屏进出和设置即时开关。CSP 或 Provider 能力不足时保留网页播放器。
+回归以实际播放遥测、`dumpsys media_session`、服务、活动通知和浏览器 PID 交叉核对，
+保持浏览器进程不变，等待超过一轮失效时间，确认迟到消息不会重新激活会话。
+开启后台播放后保持连续播放超过两轮失效时间，再通过系统 Stop 验证释放。
 
-全屏与系统媒体的独立阶段继续检查标准/自定义/Blob/跨域/CSP 路径、手势、锁定、旋转、
-画中画、系统暂停和显式后台播放。具体脚本与边界见 [播放器验收说明](design/enhanced-player-validation.md)。
+画中画修复包含三部分：全屏时不给浏览器工具栏保留布局高度；全屏宿主随 Activity content 容器缩放，
+小窗提示区域使用进入前的窗口坐标；增强接管期间抑制 Chromium 自带的旋转退出逻辑，退出接管恢复原属性。
+系统关闭小窗会暂停原视频，即使允许后台播放也释放媒体状态；返回浏览器后仍暂停。
+截图与 DOM 几何同时核对小窗内是实际视频，不能只看到 pinned 或 PLAYING 就判定通过。
 
-### 功能精简与私密生命周期
+### 菜单返回与开发工具入口
 
-阅读/离线文章、Google Cast、本地整体备份恢复及双窗口的界面、实现、专用依赖和回归阶段已删除。
-普通标签、书签 HTML、打印/PDF、DLNA、脚本及系统媒体继续保留。
+开发工具仅保留菜单入口；设置关于页和设置搜索移除重复项。
+菜单只允许一个子页面，恢复时拒绝反向及过深的来路；路由切换真正销毁旧组合与返回处理，
+父级仍保留滚动位置。设置选项、分类、设置首页、菜单和浏览器按同一规则逐级返回。
 
-同时修复真实的私密会话隔离问题：WebView 145 拒绝删除当前进程已加载的 Profile，
-旧实现复用固定名称会使下次私密会话重新读到上次 Cookie/localStorage。
-现在每次会话使用新名称，退出时清理数据并先退役名称；重启时清理专用前缀下的遗留 Profile。
-新增 5 项单元检查覆盖删除失败、配置重建、重启清理及连续会话名称不复用，模拟器另核对真实站点数据。
+0.7.0 的单次系统返回与边缘返回没有重现用户报告的整个卡死序列，
+因此不将某次设备上的现象断言为 ANR 或唯一已复现原因。
+新版通过反复输入、窗口数量、迟到回调、重建和立即返回验证加固后的行为。
+菜单专项包含 24 轮快速往返及 0/15/50/100 ms 立即返回，设置专项另覆盖六类设置、选项和宽屏。
 
-## 模拟器结果
+## 最终安装包模拟器结果
 
-最终 `build7` 的两轮选定回归均完成，所有阶段的安装包 SHA-256 与上方交付包一致，均无失败尝试：
+| 设备 | WebView | 通过阶段 | 结果 |
+|---|---|---|---|
+| Android 17 / API 37，PureBrowser_API37 | 145.0.7632.218 | 14 / 14 | [最终包套件](validation/results/api37-release-071-final-suite.json) |
+| Android 10 / API 29，PureBrowser_API29 | 91.0.4472.114 | 12 / 12 | [最终包套件](validation/results/api29-release-071-final-suite.json) |
 
-| AVD | Android / API | WebView | 最终包阶段 | 原始记录 |
-|---|---|---|---|---|
-| PureBrowser_API29 | 10 / 29 | 91.0.4472.114 | 12 / 12 通过 | [API 29 套件](validation/results/api29-release-070-build7-suite.json) |
-| PureBrowser_API37 | 17 / 37 | 145.0.7632.218 | 10 / 10 通过 | [API 37 套件](validation/results/api37-release-070-build7-suite.json) |
+两台设备共同通过媒体关闭、顶部/底部地址栏、内嵌视频、系统媒体、菜单返回、基础浏览、
+标准全屏、自定义容器、Blob、跨域播放器、CSP 回退和设置返回 12 个阶段。
+Android 17 另通过无痕生命周期和下载完成行直接交给系统打开文件。
+阶段数不等同于单元测试数，也不表示所有浏览器功能和在线站点都在本版重测。
 
-两台设备均覆盖私密会话生命周期、内嵌视频、下载进度与系统打开、系统媒体、基础浏览，以及标准、
-自定义、Blob、跨域和 CSP 全屏路径。Android 10 另执行 Range 下载和下载管理阶段。
-阶段内包含多个操作断言，阶段数不等同于单元测试数。Android 10 的跨域回退和共享站点存储限制按实际
-Provider 能力验收；Android 17 验证独立私密 Profile 和跨域增强控制。API 34 没有最终包覆盖。
+Android 17 的[画中画补测](validation/results/release-0.7.1/api37-pip-geometry/result.json)
+另确认缩放完成后的实际视频画面、系统关闭、会话释放和恢复后保持暂停；Android 10 的媒体关闭阶段
+也按 DOM/窗口几何及截图检查小窗，而非仅检查 pinned 状态。
+WebView 91 无法观察测试用跨域 frame，因此该平台不计入“移除跨域 frame 后独立超时清理”的覆盖；
+这一能力已在 WebView 145 验证，旧 Provider 保留网页控件。
 
-前一构建 `build6` 的 Android 17 套件完成 28 个阶段，保留在
-[前一构建套件](validation/results/api37-release-070-delivery-suite.json)。最后在 Android 10 验证中发现旧 WebView
-后台播放回传延迟，修复后生成 `build7`；旧包的 28 项不计为最终包已通过的阶段。
-该轮额外覆盖保留的菜单/设置、布局、书签、打印、权限、拍摄上传、脚本和登录能力边界等；
-其哈希为 `6941e47a3a1b5177bc0cf1e1033b8ee99d941b5ab81fd0701dccf05120e8f072`。
+覆盖升级保留原应用数据，没有卸载或清空数据：
 
-Android 10 实际升级链为 **0.6.0（versionCode 10）→ 0.7.0 build6（11）→ 最终 build7（11）**，
-全程同签名覆盖安装，未卸载或清空数据。旧版 UI 新建的唯一书签在两次覆盖后仍可见。
-[升级结果](validation/results/release-0.7.0/upgrade-api29/result.json)保存首次升级两版哈希及书签证据；
-升级成功后清理旧 APK，再覆盖最终修复包，设备哈希核对见
-[最后一次覆盖安装](validation/results/release-0.7.0/upgrade-api29/final-reinstall.json)。
+- Android 10：0.7.0（versionCode 11）直接升级到最终 0.7.1（12），旧版 UI 创建的书签仍可见，
+  安装后 APK 哈希匹配。[升级记录](validation/results/release-0.7.1/api29-upgrade/result.json)。
+- Android 17：0.7.0（11）先覆盖到开发阶段 0.7.1（12），随后覆盖安装最终包（12）；
+  最终包再次确认旧版书签仍在。[首次升级](validation/results/release-0.7.1/api37-upgrade/result.json)、
+  [最终包复核](validation/results/release-0.7.1/api37-upgrade/final-reinstall.json)。
 
-## 失败与重跑记录
+## 开发阶段问题与验证修正
 
-- 私密 Profile 删除失败属于应用缺陷，已修复；原始复现见
-  `validation/results/release-0.7.0/private-profile-before-fix.log`。
-- 旧 WebView 缺少文档开始注入时，原实现也关闭了已支持的消息桥。开始播放后较快按 Home，
-  应用可能尚未收到下一次周期探测结果，后台播放偏好未及时生效。现将两项能力分别检测，加载后注入也保留实时消息。
-  Android 10 修复后的后台连续播放、系统暂停及 PiP 专项通过；修复前的遥测和服务状态保存在
-  `validation/results/release-0.7.0/api29-background-media/`。
-- 默认浏览器入口曾在系统角色弹窗尚未出现时立即断言失败；后续实际界面正常，脚本改为有界等待系统窗口。
-- Android 17 的系统媒体脚本曾在全屏转场尚未稳定时按 Home，并只等待 1 秒。
-  同一 APK 在播放稳定后可以进入 PiP；脚本改为等待实际全屏/横屏状态，再有界等待系统 pinned 模式，仍只发送一次 Home。
-  原始失败与诊断保存在 `validation/results/release-0.7.0/media-home-during-fullscreen-transition/`，重跑由 suite 的 `priorAttempts` 保留。
-- 系统安装器、Toast 与权限弹窗的无障碍暴露和动画时序依 Android 版本而异。
-  使用窗口/实际 Activity/文件字节和截图交叉核对，不把缺少无障碍 Toast 节点写成已自动识别提示。
-- 菜单 SPA 按钮和网页对话框曾因 WebView 尚未提供无障碍子节点而误报缺失。
-  辅助程序在同一服务连接中等待节点建立；SPA 另用夹具提供的实时几何位置执行真实触摸，并检查实际导航结果。
-  大字号横屏设置需要更多滚动，脚本的有界查找次数由 8 次增至 24 次。
-- 全屏视频从 PiP 返回时，Activity 已恢复但屏幕仍在旋转；旧脚本缓存 1080×2400 后，
-  将点击发送到已变为 2400×1080 的屏幕之外。现在等待退出 pinned 模式以及两次一致的目标屏幕尺寸。
-  同一 APK 在实际横屏坐标下可以正常退出全屏，并恢复原视频的单个内嵌控制层。
-  依据见 `validation/results/release-0.7.0/video-resume-controls/`。
-- Android 17 沉浸模式下第一次边缘滑动只唤出导航栏。旧脚本读取整个 WebView 树耗时超过系统栏显示时间，
-  第二次滑动又只唤出系统栏；系统记录为 `navbar_hidden`、`backGestureDisabled=true`。
-  改为快速查询原生锁定按钮后，实际系统返回手势成功解锁并保持全屏。
-  依据见 `validation/results/release-0.7.0/video-edge-back/`。
-- 一次冷启动页面在 25 秒内未产生遥测，已保留失败记录。夹具服务器返回完整页面；重启专用模拟器后加载恢复。
-  该次超时的根因尚未确定，没有计为通过；前一构建的套件记录保留该失败尝试及后续完整成功阶段。
-- Android 10 的 shell 夜间模式切换未触发测试所需的即时 Activity 重建，改用字体比例变化；
-  仍要求进程 PID 不变、文档 token 改变，并核对无痕 Cookie/localStorage 保留和退出后的清理。
-  内嵌视频离屏测试改为根据实际画面边界执行最多四次滑动，避免假定所有屏幕一次滑动的距离相同。
-  其系统媒体 shell 命令使用 `media dispatch`，较新 Android 使用 `cmd media_session dispatch`；实际播放状态仍需核对。
+- 之前开发构建的输入框与媒体关闭部分已通过，但 PiP 截图仍出现浏览器界面；没有将那轮记录计为完整成功。
+- 调用链显示 Chromium 在方向变化后的尺寸调整期间发出退出全屏回调，浏览器没有主动返回。
+  自定义容器全屏对照和 Chromium 源码用于定位；最终通过临时 `controlslist` 条件抑制内建旋转退出，
+  不使用私有 WebView 反射，也不创建第二份解码器。原属性恢复和页面夺回控制已纳入协议测试。
+- 系统 pinned 状态早于 WebView 完成缩放；首轮最终包截图仍捕获了一帧过渡中的裁切画面，
+  遥测随后显示视口缩到真实小窗尺寸且保持全屏。截图验收改为等待 DOM 尺寸匹配系统小窗边界，
+  并单独复测该路径，避免固定延时冒充稳定画面。
+- Android 17 部分 PiP 菜单不提供无障碍关闭节点。保留菜单截图，使用菜单出现后的实时小窗边界
+  和实际关闭按钮位置执行系统触摸；不能沿用打开菜单前的尺寸。
+- 一次小窗补核的关闭点击未生效；独立计时发现截图耗时约 3.85 秒，可能耗尽系统菜单的显示时间。
+  相同位置的较短操作链可关闭小窗，浏览器 PID 保持不变且会话释放。脚本移除关闭点击前的截图编码，
+  改为先触摸、确认退出 pinned，再保存关闭后的画面；原失败及输入计时继续保留。
+- 旧 WebView 的跨域消息能力按 Provider 实际情况记录，不将无法观察的跨域 frame 计为已验证失效。
+- Android 10 不支持 `cmd notification list`，首轮媒体专项在通知查询处失败；改读系统转储的活动
+  `Notification List` 段，排除归档记录，媒体专项随后通过。原失败保存在 `api29-notification-query/`。
+- Android 10 的一次界面采集在 shell `app_process` 的 ART/JIT 工作线程崩溃，浏览器进程仍存活。
+  `api29-ui-helper/` 保留原失败、crash buffer 和浏览器 PID；全部窗口采集仅针对退出码 139 重试一次只读操作，
+  不重放键盘、触摸或返回输入，连续失败仍终止。地址栏完整重跑通过。
+- 基础浏览脚本按窗口高度 80% 定位的滑动，在底部地址栏布局中触碰了地址栏，导致收起断言失败。
+  `api29-browser-scroll/` 保留前后画面与实际触摸坐标；同一 APK 在 WebView 实际边界内滑动可正常收起，
+  回归脚本改为在当前网页边界内定位滑动起终点。
+
+修复前的必要诊断保存在 `validation/results/release-0.7.1/`；最终 suite 保留失败与重跑记录。
+验证结束后已关闭专用模拟器和 QA 服务，清理 0.7.0 APK、旧版回归产物及可重新生成的构建缓存，
+共约 1,003 MiB；保留最终 APK、本版验证/诊断、单元测试 XML、lint 与 R8 映射。
+详情见[清理记录](validation/results/release-0.7.1/cleanup.json)。
 
 ## 覆盖边界与复现
 
-复现入口为 [测试指南](TESTING_GUIDE.md)，套件 JSON 保存实际选定阶段、包哈希、WebView 版本、退出码和日志。
-只能在 APK、AVD、阶段选择完全相同时使用 `--resume`；失败记录不能用旧包结果替换。
+[测试指南](TESTING_GUIDE.md)列出统一 runner、软键盘、媒体关闭、下载、菜单和播放器的复现步骤。
+只能在安装包、AVD 和阶段选择完全一致时使用 `--resume`；阶段包含多个断言，阶段数不等同于单元测试数。
+下载仍为完成行直接交给 Android 打开文件；保留增强内嵌/全屏视频、无痕会话与基础浏览的相关回归。
 
-最终包的系统安装器、缺失文件提示及稳定后的 160×90 小视频控件另经截图复核，记录见
-[视觉复核](validation/results/release-0.7.0/visual-review.json)。API 37 套件最初的小视频截图捕获了旋转动画，
-因此另存转场结束后的截图；没有用该动画截图代替稳定布局的确认。
-
-清理后项目只保留最终交付 APK；删除旧包、过期结果和可重新生成的构建缓存，共 17,509 个文件、
-2,785,913,914 bytes，详见[清理清单](validation/results/release-0.7.0/cleanup.json)。保留本次缺陷与失败诊断、
-前一构建扩展验证、最终包回归及升级依据。QA 通过 `--apk` 直接读取交付文件，清理构建目录后
-[完整文件及 Range 下载检查](validation/results/release-0.7.0/qa-delivery-route.json)仍通过。
-
-本版没有使用实体 DLNA 接收器、真实账号、低端真机，也未逐站测试全部生产视频服务、DRM、
-HLS/DASH 直播、MSE 或鉴权 CDN。静态 Blob 夹具不能代表全部流媒体加载实现。
-无法访问的视频节点、封闭 Shadow DOM、Canvas 或无法隔离的布局，恢复网页播放器属于预期行为。
+本版没有使用真实账号、实体 DLNA 接收器、低端真机，未逐站验收全部生产视频服务、DRM、
+HLS/DASH 直播、MSE 或鉴权 CDN。静态 Blob 夹具不能代表所有流媒体加载实现。
+无法访问的节点、封闭 Shadow DOM、Canvas 或不能隔离的布局保留网页播放器；Android API 与 WebView 版本分别记录。

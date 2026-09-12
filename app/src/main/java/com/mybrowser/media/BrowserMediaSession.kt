@@ -50,11 +50,16 @@ class BrowserMediaSession(private val context: Context) {
         if (owner.get() !== source) {
             if (!value.isPlaying) return
             owner.get()?.setPlaying(false)
+            releaseSession()
             owner = WeakReference(source)
+        }
+        val sameMedia = signal.identity == value.identity && signal.sourceUrl == value.sourceUrl
+        if (!value.hasMedia || !value.playbackAvailable || (!value.isPlaying && !sameMedia)) {
+            detach(source)
+            return
         }
         signal = value; title = if (incognito) "" else name.take(256)
         isPrivate = incognito; backgroundAllowed = allowBackground && !incognito
-        if (!value.hasMedia) { detach(source); return }
         if (!isPrivate) {
             val active = session ?: MediaSession(context, "PureBrowser").also { created ->
                 created.setCallback(object : MediaSession.Callback() {
@@ -74,7 +79,7 @@ class BrowserMediaSession(private val context: Context) {
                 .setState(if (value.isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
                     (value.position * 1000).toLong(), if (value.isPlaying) value.playbackRate ?: 1f else 0f).build())
             active.setSessionActivity(openPage())
-        } else session?.isActive = false
+        } else releaseSession()
         if (backgroundAllowed && value.isPlaying) ensureService()
         else if (serviceRequested) stopService()
         if (serviceRequested) notifications.notify(NOTIFICATION_ID, notification())
@@ -82,8 +87,25 @@ class BrowserMediaSession(private val context: Context) {
 
     fun detach(source: Owner) {
         if (owner.get() !== source) return
-        owner.clear(); signal = MediaPlaybackTracker.Signal(); session?.isActive = false
+        owner.clear()
+        signal = MediaPlaybackTracker.Signal()
+        title = ""
+        isPrivate = false
+        backgroundAllowed = false
+        releaseSession()
         stopService()
+    }
+
+    private fun releaseSession() {
+        val previous = session ?: return
+        session = null
+        previous.setCallback(null)
+        previous.setPlaybackState(PlaybackState.Builder()
+            .setState(PlaybackState.STATE_STOPPED, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 0f).build())
+        previous.setMetadata(null)
+        previous.isActive = false
+        // Inactive alone leaves Android holding a live token and stale PLAYING state.
+        previous.release()
     }
 
     private fun openPage(): PendingIntent = PendingIntent.getActivity(context, 70,

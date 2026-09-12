@@ -315,8 +315,9 @@ class MainActivity : ComponentActivity(),
         get() = checkNotNull(webViewOrNull) { "WebView read before onCreate acquired it" }
 
     /** Fullscreen video state. */
-    private var fullscreenView: FullscreenVideoView? = null
+    private var fullscreenView by mutableStateOf<FullscreenVideoView?>(null)
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+    private var pictureInPictureSession = false
     private lateinit var pipController: com.mybrowser.media.PictureInPictureController
     private val systemMedia get() = (application as App).mediaSession
     private var rememberedVideo: String? = null
@@ -502,6 +503,7 @@ class MainActivity : ComponentActivity(),
                         openSheet(Sheet.TABS)
                     },
                     tabCount = tabManager.count,
+                    isVideoFullscreen = fullscreenView != null,
                     mediaCount = mediaSnapshot.count,
                     onCast = {
                         mediaTrackers[webView]?.probe()
@@ -884,9 +886,6 @@ class MainActivity : ComponentActivity(),
                             onFilterEnabledChange = filter::setEnabled,
                             onClearData = {
                                 showClearData = true
-                            },
-                            onOpenDeveloperTools = {
-                                sheetNavigation.push(entry, Sheet.DEVELOPER_TOOLS)
                             },
                             onDismiss = { dismissSheet(entry) },
                         )
@@ -2267,7 +2266,10 @@ class MainActivity : ComponentActivity(),
             onPictureInPicture = if (pipController.isAvailable) ({ pipController.enter(); Unit }) else null,
         )
         fullscreenView = host
-        (window.decorView as ViewGroup).addView(host, ViewGroup.LayoutParams(-1, -1))
+        // DecorView manages its own children during PiP/window resize. Keep the
+        // video in the Activity content container so it is measured with the new
+        // bounds instead of retaining an off-screen fullscreen surface.
+        findViewById<ViewGroup>(android.R.id.content).addView(host, ViewGroup.LayoutParams(-1, -1))
         host.requestFocus()
         setSystemBarsVisible(false)
         pipController.update()
@@ -2578,12 +2580,18 @@ class MainActivity : ComponentActivity(),
     override fun onPictureInPictureModeChanged(active: Boolean, configuration: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(active, configuration)
         if (::pipController.isInitialized) pipController.modeChanged(active)
-        if (!active) window.decorView.post {
-            if (!isInPictureInPictureMode && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
-                webViewOrNull?.let { mediaTrackers[it]?.setSuspended(true) }
-                systemMedia.detach(this)
-            }
+        if (active) pictureInPictureSession = true
+        else if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            pictureInPictureSession = false
+        } else if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            stopHiddenMedia()
+            leaveFullscreen()
         }
+    }
+
+    private fun stopHiddenMedia() {
+        webViewOrNull?.let { mediaTrackers[it]?.setSuspended(true); it.onPause() }
+        systemMedia.detach(this)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -2645,10 +2653,12 @@ class MainActivity : ComponentActivity(),
 
     override fun onStop() {
         persistNormalSession()
-        if (::privacy.isInitialized && !isInPictureInPictureMode &&
-            (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)) {
-            webViewOrNull?.let { mediaTrackers[it]?.setSuspended(true); it.onPause() }
-            systemMedia.detach(this)
+        // A visible PiP Activity stays STARTED. Stopping it means the user closed
+        // or hid that player; background-playback preference must not revive it.
+        if (::privacy.isInitialized && (pictureInPictureSession ||
+                (!isInPictureInPictureMode && (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)))) {
+            stopHiddenMedia()
+            if (pictureInPictureSession) leaveFullscreen()
         }
         super.onStop()
     }
@@ -2678,6 +2688,7 @@ class MainActivity : ComponentActivity(),
         if (::privacy.isInitialized) updatePrivateScreenProtection()
         cast.setVisible(sheet == Sheet.CAST)
         super.onResume()
+        if (!isInPictureInPictureMode) pictureInPictureSession = false
         isDefaultBrowser = DefaultBrowser.isDefault(this)
         downloadHandler.resumeInterrupted()
         webViewOrNull?.onResume()

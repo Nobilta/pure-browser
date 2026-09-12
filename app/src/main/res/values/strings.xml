@@ -261,7 +261,7 @@
     <string name="ui_connections_2ad3d3">%1$s · Connections: %2$d</string>
     <string name="ui_fullscreen_gestures_hold_for">Fullscreen gestures · Hold for %1$s</string>
     <string name="ui_use_webpage_controls">Use webpage controls</string>
-    <string name="ui_version_and_developer_tools">Version and developer tools</string>
+    <string name="ui_version_information">Version information</string>
     <string name="ui_startup">Startup</string>
     <string name="ui_restore_pages_on_startup">Restore pages on startup</string>
     <string name="ui_next_launch_restore_regular_tabs">Next launch: restore regular tabs</string>
@@ -300,8 +300,6 @@
     <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">Custom website players keep their own controls.</string>
     <string name="ui_pure_browser">Pure Browser</string>
     <string name="ui_version_android_10_or_later_64_bit_arm">Version %1$s\nAndroid 10 or later · 64-bit ARM devices</string>
-    <string name="ui_developer_tools">Developer tools</string>
-    <string name="ui_view_console_output_and_network_requests_for_the">View console output and network requests for the current page</string>
     <string name="ui_browsing_and_startup">Browsing and startup</string>
     <string name="ui_appearance">Appearance</string>
     <string name="ui_privacy_and_filtering">Privacy and filtering</string>
