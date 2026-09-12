@@ -78,6 +78,12 @@ def browser_root():
     root, _ = ux.nodes()
     assert not ux.menu_open(root), "Menu window remained open"
     assert ux.match(root, "编辑网址") is not None, "Browser toolbar is not visible"
+    windows, _ = ux.window_nodes()
+    assert not any(node.get("resource-id") in ("settings_root", "settings_detail")
+                   for node in windows.iter("node")), "Retired settings content remains over the browser"
+    count = len(re.findall(r"Window #\d+ Window\{[^}\n]*com\.mybrowser/com\.mybrowser\.MainActivity",
+                           ux.adb("shell", "dumpsys", "window", "windows")))
+    assert count == 1, "A retired dialog still owns browser input"
     activity = ux.adb("shell", "dumpsys", "activity", "activities")
     assert re.search(r"(?:mResumedActivity|topResumedActivity)[^\n]*com\.mybrowser/", activity), \
         "Back from the menu exited the browser"
@@ -189,6 +195,19 @@ try:
         ux.open_settings()
         settings_root()
         record("left and right edge gestures traverse picker, category, settings, menu and browser")
+        for cycle in range(6):
+            gesture_back(right=bool(cycle % 2))
+            ux.expect_menu()
+            gesture_back(right=not bool(cycle % 2))
+            browser_root()
+            ux.open_settings()
+            settings_root()
+            toolbar_back()
+            ux.expect_menu()
+            back()
+            browser_root()
+            ux.open_settings()
+        record("six repeated edge and toolbar return cycles leave no retired settings window or blocked close button")
     else:
         result["skipped"].append("edge gestures: device does not use gesture navigation")
 

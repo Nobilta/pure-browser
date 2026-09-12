@@ -51,10 +51,7 @@ fun MenuSheet(
     isCurrentPageBookmarked: Boolean,
     canUsePageActions: Boolean,
     onOpenSiteSettings: () -> Unit,
-    onPrintPage: () -> Unit,
-    onSharePage: () -> Unit,
     onPinWebsite: () -> Unit = {},
-    onCopyPage: () -> Unit,
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onToggleDesktopMode: () -> Unit,
@@ -101,8 +98,6 @@ fun MenuSheet(
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 QuickMenuAction(R.drawable.ic_bookmark, stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
-                QuickMenuAction(R.drawable.ic_share, stringResource(R.string.menu_share_page), canUsePageActions, onSharePage, Modifier.weight(1f))
-                QuickMenuAction(R.drawable.ic_copy, stringResource(R.string.context_copy_link), canUsePageActions, onCopyPage, Modifier.weight(1f))
                 QuickMenuAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind, Modifier.weight(1f))
             }
             Row(Modifier.fillMaxWidth()) {
@@ -115,8 +110,6 @@ fun MenuSheet(
             }
 
             MenuSection(title = stringResource(R.string.menu_section_page)) {
-                MenuRow(iconRes = R.drawable.ic_print, title = stringResource(R.string.page_print),
-                    subtitle = "", enabled = canUsePageActions, onClick = onPrintPage)
                 MenuRow(iconRes = R.drawable.ic_home, title = stringResource(R.string.pin_website),
                     subtitle = "", enabled = canUsePageActions && !isIncognito, onClick = onPinWebsite)
                 MenuRow(

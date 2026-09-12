@@ -46,8 +46,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.collectAsState
@@ -229,8 +227,6 @@ class MainActivity : ComponentActivity(),
     private var currentPageBookmarked by mutableStateOf(false)
 
     private val state = BrowserState()
-    private val tabSnackbar = SnackbarHostState()
-    private var tabUndoJob: Job? = null
 
     /** Video candidates for the current page; cleared on every main-frame navigation. */
     private val media = MediaCandidateStore()
@@ -401,7 +397,6 @@ class MainActivity : ComponentActivity(),
         } else if (!sessionState.initialized) {
             normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
         }
-        if (!sessionState.initialized) normalTabManager.restoreRecentlyClosed(this)
         incognitoTabManager = sessionState.privateTabs
         tabManager = if (privacy.isIncognito) incognitoTabManager else normalTabManager
         sessionState.initialized = true
@@ -547,7 +542,6 @@ class MainActivity : ComponentActivity(),
                     historyManager = historyManager,
                     tabRevision = tabManager.revision,
                     certificateError = hasCertificateWarning,
-                    snackbarHostState = tabSnackbar.takeUnless { sheet == Sheet.TABS },
                 )
 
                 BrowserSheetHost(sheetNavigation, visible = !(sheet == Sheet.BOOKMARKS && bookmarkDraft != null)) { entry ->
@@ -568,13 +562,10 @@ class MainActivity : ComponentActivity(),
                                     if (sheetNavigation.push(entry, Sheet.SITE_SETTINGS)) showSiteOrigin = origin
                                 }
                             },
-                            onPrintPage = { sheetAction(entry, ::printPage) },
-                            onSharePage = { sheetAction(entry) { shareUrl(state.currentUrl) } },
                             onPinWebsite = { sheetAction(entry) {
                                 if (!com.mybrowser.core.WebsiteShortcuts.pin(this, state.currentUrl, state.pageTitle.orEmpty(), tabManager.currentTab?.favicon))
                                     toast(getString(R.string.shortcut_unavailable))
                             } },
-                            onCopyPage = { sheetAction(entry) { copyToClipboard(state.currentUrl) } },
                             onToggleIncognito = { sheetAction(entry, ::toggleIncognito) },
                             onToggleFilter = { if (sheetNavigation.isCurrent(entry)) filter.setEnabled(it) },
                             onToggleDesktopMode = { sheetAction(entry, ::toggleDesktopMode) },
@@ -660,10 +651,6 @@ class MainActivity : ComponentActivity(),
                             residentIds = residentIds,
                             onMoveTab = { id, delta -> tabManager.move(id, delta); persistNormalSession() },
                             onGroupTab = { id, group -> tabManager.setGroup(id, group); persistNormalSession() },
-                            snackbarHostState = tabSnackbar,
-                            recentlyClosed = tabManager.recentlyClosed,
-                            onReopen = ::reopenClosedTab,
-                            onClearRecent = { dismissTabUndo(); tabManager.clearRecentlyClosed(); persistNormalSession() },
                             tabs = tabManager.tabs,
                             currentIndex = tabManager.currentIndex,
                             isIncognito = privacy.isIncognito,
@@ -738,12 +725,7 @@ class MainActivity : ComponentActivity(),
                             onClearAll = {
                                 dialogs.confirm(this, getString(R.string.history_clear),
                                     getString(R.string.history_clear_confirm)) { confirmed ->
-                                    if (confirmed) updateLibrary({ historyManager.clearAll() }) {
-                                        dismissTabUndo()
-                                        normalTabManager.clearRecentlyClosed()
-                                        normalTabManager.saveRecentlyClosed(this@MainActivity)
-                                        loadHistory()
-                                    }
+                                    if (confirmed) updateLibrary({ historyManager.clearAll() }, ::loadHistory)
                                 }
                             },
                             onDismiss = { dismissSheet(entry) },
@@ -792,7 +774,7 @@ class MainActivity : ComponentActivity(),
                         )
 
                         Sheet.SETTINGS -> SettingsSheet(
-                            childOpen = showFilterSettings || showUserScripts || showManagedSites || showSiteOrigin != null,
+                            childOpen = showFilterSettings || showUserScripts || showManagedSites || showSiteOrigin != null || showClearData,
                             restoreLastSession = restoreLastSession,
                             onRestoreLastSessionChange = { enabled ->
                                 restoreLastSession = enabled
@@ -1360,7 +1342,6 @@ class MainActivity : ComponentActivity(),
         clearResidentTabs()
         temporaryFilterOrigins = emptySet()
         viewOwnerId = null
-        dismissTabUndo()
         cancelWebsitePermissions()
         showSiteOrigin = null
         showManagedSites = false
@@ -1551,7 +1532,6 @@ class MainActivity : ComponentActivity(),
     private fun closeTab(index: Int) {
         if (index !in tabManager.tabs.indices) return
         val wasCurrent = index == tabManager.currentIndex
-        val previousRecent = tabManager.recentlyClosed.firstOrNull()?.id
         tabManager.closeTab(index)
         pruneResidentTabs()
         if (wasCurrent) {
@@ -1559,37 +1539,11 @@ class MainActivity : ComponentActivity(),
             loadCurrentTab()
         }
         persistNormalSession()
-        tabManager.recentlyClosed.firstOrNull()?.takeIf { it.id != previousRecent }?.let { closed ->
-            dismissTabUndo()
-            val manager = tabManager
-            tabUndoJob = lifecycleScope.launch {
-                if (tabSnackbar.showSnackbar(getString(R.string.tabs_closed), getString(R.string.action_undo)) ==
-                    SnackbarResult.ActionPerformed && manager === tabManager && manager.recentlyClosed.any { it.id == closed.id }) {
-                    reopenClosedTab(closed.id)
-                }
-            }
-        }
-    }
-
-    private fun dismissTabUndo() {
-        tabUndoJob?.cancel()
-        tabUndoJob = null
-        tabSnackbar.currentSnackbarData?.dismiss()
     }
 
     private fun closeAllTabs() {
-        dismissTabUndo()
         clearResidentTabs()
-        tabManager.clearAllTabs(remember = true)
-        webView.stopLoading()
-        loadCurrentTab()
-        persistNormalSession()
-    }
-
-    private fun reopenClosedTab(id: String) {
-        saveCurrentTab()
-        if (tabManager.reopenClosed(id) == null) { toast(getString(R.string.ui_tab_limit_reached)); return }
-        sheetNavigation.clear()
+        tabManager.clearAllTabs()
         webView.stopLoading()
         loadCurrentTab()
         persistNormalSession()
@@ -1617,7 +1571,7 @@ class MainActivity : ComponentActivity(),
     private fun shareUrl(url: String) {
         if (!UrlUtils.isHttpUrl(url)) return
         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
-        runCatching { startActivity(Intent.createChooser(send, getString(R.string.menu_share_page))) }
+        runCatching { startActivity(Intent.createChooser(send, getString(R.string.context_share_link))) }
             .onFailure { toast(getString(R.string.context_share_unavailable)) }
     }
 
@@ -1858,9 +1812,6 @@ class MainActivity : ComponentActivity(),
                     withContext(Dispatchers.IO) {
                         historyManager.clearSince(request.historyPeriod.durationMs?.let { System.currentTimeMillis() - it } ?: 0)
                     }
-                    dismissTabUndo()
-                    normalTabManager.clearRecentlyClosed()
-                    normalTabManager.saveRecentlyClosed(this@MainActivity)
                     historyLibrary.refresh()
                 }
                 showClearData = false
@@ -2334,16 +2285,6 @@ class MainActivity : ComponentActivity(),
         result: JsResult,
     ): Boolean = handleJsDialog(type, origin, message, defaultValue, result)
 
-    private fun printPage() {
-        if (state.isLoading) { toast(getString(R.string.page_wait_until_loaded)); return }
-        if (!UrlUtils.isHttpUrl(state.currentUrl)) return
-        runCatching {
-            val manager = getSystemService(android.print.PrintManager::class.java)
-            val title = state.pageTitle?.take(80)?.ifBlank { null } ?: "Pure Browser"
-            manager.print(title, webView.createPrintDocumentAdapter(title), android.print.PrintAttributes.Builder().build())
-        }.onFailure { toast(getString(R.string.page_print_failed)) }
-    }
-
     // --- Navigation ---
 
     private fun navigate(input: String) {
@@ -2616,7 +2557,6 @@ class MainActivity : ComponentActivity(),
         if (!privacy.isIncognito && readyWebViewTabId == normalTabManager.currentTab?.id) {
             webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
         }
-        normalTabManager.saveRecentlyClosed(this)
         if (restoreLastSession) normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
         else normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
     }

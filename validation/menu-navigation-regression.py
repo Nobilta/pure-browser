@@ -67,6 +67,9 @@ def menu():
     while window_count() != 2:
         assert time.monotonic() < deadline, 'Menu has missing or duplicate dialog windows'
         time.sleep(.15)
+    windows, _ = ux.window_nodes()
+    assert not any(node.get('resource-id') in ('settings_root', 'settings_detail')
+                   for node in windows.iter('node')), 'Retired settings content remains behind the menu'
     return root
 
 
@@ -74,7 +77,7 @@ def settings():
     ux.expect('浏览与启动')
     ux.expect('视频播放')
     foreground()
-    assert window_count() == 1, 'A menu window remains above the settings page'
+    assert window_count() == 2, 'Settings must own exactly one dialog above the browser'
 
 
 def back(delay=.55):
@@ -283,30 +286,8 @@ try:
     # Reload through the actual toolbar after attaching the probe, as in browser regressions.
     ux.tap('刷新')
     ux.expect('Pure UX First Page')
-    # Some Providers still expose only the WebView root after closing a dialog.
-    # Locate through current fixture geometry, then touch; never invoke JS click().
-    root, _ = ux.nodes()
-    if ux.match(root, 'SPA route') is not None:
-        ux.tap('SPA route')
-    else:
-        deadline = time.monotonic() + 10
-        while True:
-            root, _ = ux.nodes()
-            rows = json.load(urllib.request.urlopen('http://127.0.0.1:8875/__state?case=' + page_probe, timeout=4))
-            state = rows[-1] if rows else None
-            web = next((n for n in root.iter('node') if n.get('class') == 'android.webkit.WebView' and ux.visible(n)), None)
-            if state and web is not None and state['route']['width'] > 0:
-                x1, y1, x2, y2 = ux.bounds(web)
-                scale = (x2 - x1) / state['viewportWidth']
-                rect = state['route']
-                x = x1 + (rect['left'] + rect['width'] / 2) * scale
-                y = y1 + (rect['top'] + rect['height'] / 2) * scale
-                assert x1 < x < x2 and y1 < y < y2, 'SPA button is outside the visible WebView'
-                result['pageTouchGeometry'] = {'x': x, 'y': y, 'page': state}
-                ux.adb('shell', 'input', 'tap', str(round(x)), str(round(y)))
-                break
-            assert time.monotonic() < deadline, 'No current geometry for the visible SPA button'
-            time.sleep(.2)
+    result['pageTouchGeometry'] = ux.tap_fixture('SPA route', page_probe, 'route',
+        'http://127.0.0.1:8875/browser-ux.html?from=menu&touchProbe=' + page_probe)
     deadline = time.monotonic() + 10
     while True:
         rows = json.load(urllib.request.urlopen('http://127.0.0.1:8875/__state?case=' + page_probe, timeout=4))

@@ -49,6 +49,8 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Drop the removed closed-tab archive when upgrading from an older release.
+        deleteSharedPreferences("recently_closed_tabs")
         // Captures from a process that died have no surviving WebView consumer.
         java.io.File(cacheDir, "web-capture").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
 

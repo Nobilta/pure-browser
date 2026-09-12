@@ -1,6 +1,6 @@
 # 增强播放器接管与验证
 
-版本：0.7.1。安装包、测试数量和实际模拟器结果分别以 [README](../README.md)
+播放器最近专项版本：0.7.1；本版播放器实现沿用该版本。安装包、测试数量和实际模拟器结果分别以 [README](../README.md)
 和 [模拟器报告](../EMULATOR_TEST_REPORT.md) 为准。本文件说明播放器的验收方法与覆盖边界。
 
 ## 接管原则
@@ -49,7 +49,7 @@ Node 协议测试覆盖签名来源、多个视频目标固定、布局失效、
 ```bash
 python3 validation/setup-ui-probe.py emulator-5554
 python3 validation/run-regressions.py --serial emulator-5554 \
-  --apk PureBrowser-v0.7.1-release.apk --label player-071 \
+  --apk PureBrowser-v0.7.2-release.apk --label player-072 \
   --stages inline-video system-media video-standard video-custom video-custom-blob video-custom-cross video-custom-csp
 ```
 

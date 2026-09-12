@@ -1,6 +1,6 @@
 # 播放器与 DLNA 投屏
 
-更新：2026-09-11，适用于 0.7.1。本次增强播放器验证见 [专项记录](enhanced-player-validation.md)，其他模拟器和网站结果见 [回归报告](../EMULATOR_TEST_REPORT.md)。
+更新：2026-09-11，适用于 0.7.2。本次增强播放器验证见 [专项记录](enhanced-player-validation.md)，其他模拟器和网站结果见 [回归报告](../EMULATOR_TEST_REPORT.md)。
 
 ## 控制权与回退
 

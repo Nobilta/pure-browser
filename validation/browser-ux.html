@@ -44,8 +44,9 @@
   if (touchProbe) {
     const reportTouch = () => fetch('/__state?case=' + encodeURIComponent(touchProbe), {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({title: document.title, viewportWidth: innerWidth,
-        route: document.querySelector('#route').getBoundingClientRect().toJSON()})
+      body: JSON.stringify({title: document.title, url: location.href, viewportWidth: innerWidth,
+        route: document.querySelector('#route').getBoundingClientRect().toJSON(),
+        popup: document.querySelector('a[target="_blank"]').getBoundingClientRect().toJSON()})
     }).catch(() => {});
     reportTouch();
     setInterval(reportTouch, 300);
