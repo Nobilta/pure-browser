@@ -18,9 +18,9 @@ lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实�
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.7.0-release.apk
-shasum -a 256 PureBrowser-v0.7.0-release.apk
-./install_and_test.sh PureBrowser-v0.7.0-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.7.1-release.apk
+shasum -a 256 PureBrowser-v0.7.1-release.apk
+./install_and_test.sh PureBrowser-v0.7.1-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
@@ -29,13 +29,14 @@ shasum -a 256 PureBrowser-v0.7.0-release.apk
 
 使用专用模拟器，回归会写入测试书签、下载、PDF 和站点数据。只运行一台模拟器和一个 UI 脚本，
 不要与 Gradle 构建同时运行。QA 仅监听本机 8875/8876，通过 ADB reverse 使用；证书和桌面模式夹具另外使用 8877–8879。
+本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.0-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.1-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.0-release.apk \
-  --label release-070 --stages inline-video download-opening private-lifecycle menu-navigation
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.1-release.apk \
+  --label release-071 --stages omnibar media-lifecycle menu-navigation settings-back inline-video system-media
 ```
 
 不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
@@ -44,10 +45,41 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/pure-ui-dump.jar`，提供真实触摸、
 键盘和无障碍树读取；动态网页使用 DOM 遥测与播放/文件内容核对操作结果，不能只判断按钮存在。
 权限窗口和全屏控件须在同一次辅助会话中定位并触摸，防止窗口动画/自动隐藏造成坐标过期。
+全部窗口的只读采集遇到 Android 10 辅助进程 SIGSEGV 时仅重试一次；不重放触摸或返回输入，连续失败仍终止回归。
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.7.0 重点验收
+## 0.7.1 重点验收
+
+### 地址栏与菜单返回
+
+```bash
+python3 validation/omnibar-regression.py --serial emulator-5554 --output validation/results/omnibar
+python3 validation/menu-navigation-regression.py --serial emulator-5554
+python3 validation/settings-back-regression.py --serial emulator-5554
+```
+
+- 顶部和底部地址栏均使用实际 Gboard 软键盘触摸，检查连续输入、删除、清除、补全后继续输入与 Go。
+- 建议可见时保持编辑器焦点，单一 Activity 窗口；旋转保留草稿，点击页面结束编辑。
+- 验证滚动收起/展开地址栏时，滑动起终点均位于当前 WebView 边界内，避免底部地址栏拦截按整屏比例定位的触摸。
+- 菜单 → 设置 → 菜单 → 浏览器；左上角、系统 Back、连续快速返回、重建和宽屏行为一致。
+- 开发者工具仅在菜单出现，关于和设置搜索不再包含该入口。
+
+### 关闭媒体与画中画
+
+```bash
+python3 validation/media-lifecycle-regression.py --serial emulator-5554 --output validation/results/media-lifecycle
+```
+
+- 普通暂停仍可系统继续；Stop、播放结束、隐藏并暂停、卸载、移除、替换、关闭标签和导航后释放系统会话。
+- 用 dumpsys 核对 session token、服务和活动通知消失，浏览器 PID 不变；迟到消息不能重新创建旧会话。
+- Android 10 从通知转储的 `Notification List` 段读取活动通知；归档记录不代表通知仍在显示。
+- 删除最后一个跨域 frame 后仍独立失效；不支持跨域观察的旧 WebView 记录实际限制，不冒充已验证该路径。
+- 开启后台播放后持续播放超过两个 frame 失效周期；正常播放不会被错误退休。
+- PiP 必须实际显示视频，等待 DOM 尺寸匹配小窗实际边界，不能只断言 pinned 或 PLAYING；系统关闭后恢复浏览器，视频仍暂停。
+- Android 17 的部分 PiP 菜单不暴露无障碍节点时，依据已复核的菜单截图和当前边界点击系统关闭目标。
+  关闭触摸前只读取必要的窗口信息；耗时截图放在关闭后，避免按钮在截图编码期间自动隐藏。
+
 
 ### 下载
 

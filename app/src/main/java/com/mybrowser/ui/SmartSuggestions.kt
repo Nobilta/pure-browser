@@ -49,9 +49,10 @@ fun SmartSuggestions(
     modifier: Modifier = Modifier
 ) {
     val textResources = localizedResources()
-    var suggestions by remember { mutableStateOf<List<Suggestion>>(emptyList()) }
+    // Do not leave rows for the previous query clickable during debounce.
+    var suggestions by remember(query, bookmarkManager, historyManager) { mutableStateOf<List<Suggestion>>(emptyList()) }
 
-    LaunchedEffect(query) {
+    LaunchedEffect(query, bookmarkManager, historyManager) {
         if (query.isBlank()) {
             suggestions = emptyList()
             return@LaunchedEffect
@@ -104,7 +105,7 @@ fun SmartSuggestions(
             LazyColumn(
                 modifier = Modifier.heightIn(max = maxHeight)
             ) {
-                items(suggestions) { suggestion ->
+                items(suggestions, key = { it.type.name + ":" + it.url }) { suggestion ->
                     SuggestionItem(
                         suggestion = suggestion,
                         onClick = { onSuggestionClick(suggestion.url) },

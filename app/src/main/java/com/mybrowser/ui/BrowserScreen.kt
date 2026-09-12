@@ -8,7 +8,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -64,6 +68,7 @@ fun BrowserScreen(
     onMenu: () -> Unit,
     onTabs: () -> Unit,
     tabCount: Int,
+    isVideoFullscreen: Boolean = false,
     mediaCount: Int = 0,
     onCast: () -> Unit = {},
     showHomeDashboard: Boolean = false,
@@ -96,6 +101,11 @@ fun BrowserScreen(
     val observedTabRevision = tabRevision
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    fun finishEditing() {
+        focusManager.clearFocus()
+        state.onOmnibarFocusChange(false)
+        keyboard?.hide()
+    }
 
     // Only the omnibar-focused case is handled here, because clearing focus needs a
     // FocusManager and that only exists inside the composition. Everything else the back
@@ -106,9 +116,7 @@ fun BrowserScreen(
     // Activity's, and OnBackPressedDispatcher runs callbacks in reverse registration
     // order, so an enabled BackHandler wins. Disabled, it is transparent.
     BackHandler(enabled = state.isOmnibarFocused) {
-        focusManager.clearFocus()
-        state.onOmnibarFocusChange(false)
-        keyboard?.hide()
+        finishEditing()
     }
 
     val addressBar: @Composable () -> Unit = {
@@ -125,9 +133,6 @@ fun BrowserScreen(
                     currentUrl = state.currentUrl,
                     displayTitle = state.displayTitle,
                     onSecurityClick = onSecurityClick,
-                    bookmarkManager = bookmarkManager,
-                    historyManager = if (isIncognito) null else historyManager,
-                    suggestionsAbove = bottomAddressBar,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
     }
@@ -135,7 +140,9 @@ fun BrowserScreen(
     Column(modifier = Modifier.fillMaxSize()) {
 
         // --- top bar ---
-        Column(
+        // Keep the underlying WebView nonzero in a small PiP window. Reserving
+        // address/toolbar height there makes Chromium exit HTML fullscreen.
+        if (!isVideoFullscreen) Column(
             modifier = Modifier
                 .fillMaxWidth()
                 // Tinted in incognito. A mode this consequential should be visible without
@@ -267,6 +274,33 @@ fun BrowserScreen(
             snackbarHostState?.let {
                 SnackbarHost(it, modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
             }
+
+            if (state.isOmnibarFocused && !isVideoFullscreen) {
+                // Share the editor's window: Popup outside-touch callbacks also
+                // receive keyboard and clear-button taps, cancelling their input.
+                BoxWithConstraints(Modifier.fillMaxSize().clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = ::finishEditing,
+                )) {
+                    if (bookmarkManager != null && state.omnibarValue.text.isNotBlank() && maxHeight >= 56.dp) {
+                        SmartSuggestions(
+                            query = state.omnibarValue.text,
+                            bookmarkManager = bookmarkManager,
+                            historyManager = if (isIncognito) null else historyManager,
+                            onFillSuggestion = { text ->
+                                state.onOmnibarValueChange(androidx.compose.ui.text.input.TextFieldValue(
+                                    text, androidx.compose.ui.text.TextRange(text.length)))
+                                keyboard?.show()
+                            },
+                            onSuggestionClick = { text -> onNavigate(text); finishEditing() },
+                            maxHeight = (maxHeight - 8.dp).coerceAtMost(400.dp),
+                            modifier = Modifier.align(if (bottomAddressBar) Alignment.BottomCenter else Alignment.TopCenter)
+                                .padding(vertical = 4.dp),
+                        )
+                    }
+                }
+            }
         }
 
         // --- bottom bar ---
@@ -275,7 +309,7 @@ fun BrowserScreen(
         // what the View implementation hand-rolled as maxOf(bars.bottom, ime.bottom). One
         // inset source instead of two, same result: the bar sits directly on the keyboard
         // when it is up and on the navigation bar when it is not.
-        Column {
+        if (!isVideoFullscreen) Column {
             if (bottomAddressBar) AnimatedVisibility(visible = !state.isToolbarHidden || showHomeDashboard) { addressBar() }
             // Find bar appears above the toolbar
             if (state.isFindBarVisible) {
@@ -296,16 +330,16 @@ fun BrowserScreen(
             BrowserToolbar(
                 canGoBack = state.canGoBack,
                 canGoForward = state.canGoForward,
-                onBack = onBack,
-                onBackLongPress = onBackLongPress,
-                onForward = onForward,
-                onHome = onHome,
-                onTabs = onTabs,
-                onNewTab = onNewTab,
+                onBack = { if (state.isOmnibarFocused) finishEditing() else onBack() },
+                onBackLongPress = { finishEditing(); onBackLongPress() },
+                onForward = { finishEditing(); onForward() },
+                onHome = { finishEditing(); onHome() },
+                onTabs = { finishEditing(); onTabs() },
+                onNewTab = { finishEditing(); onNewTab() },
                 swipeTabs = swipeTabs,
-                onSwitchTab = onSwitchTab,
+                onSwitchTab = { finishEditing(); onSwitchTab(it) },
                 tabCount = tabCount,
-                onMenu = onMenu,
+                onMenu = { finishEditing(); onMenu() },
                 modifier = Modifier
                     .background(MaterialTheme.colorScheme.surfaceContainer)
                     .windowInsetsPadding(

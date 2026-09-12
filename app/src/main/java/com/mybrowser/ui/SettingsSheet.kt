@@ -114,7 +114,6 @@ fun SettingsSheet(
     isFilterEnabled: Boolean,
     onFilterEnabledChange: (Boolean) -> Unit,
     onClearData: () -> Unit,
-    onOpenDeveloperTools: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val textResources = localizedResources()
@@ -160,7 +159,7 @@ fun SettingsSheet(
                                     SettingsCategory.PRIVACY -> if (isFilterEnabled) textResources.getString(R.string.ui_ad_filtering_on) else textResources.getString(R.string.ui_ad_filtering_off)
                                     SettingsCategory.DOWNLOADS -> textResources.getString(R.string.ui_connections_2ad3d3, downloadSettings.displayDestinationLabel(textResources), downloadSettings.threadCount)
                                     SettingsCategory.VIDEO -> if (preferences.video.enhancedControls) textResources.getString(R.string.ui_fullscreen_gestures_hold_for, PlaybackSpeed.label(preferences.video.boostRate)) else textResources.getString(R.string.ui_use_webpage_controls)
-                                    SettingsCategory.ABOUT -> textResources.getString(R.string.ui_version_and_developer_tools)
+                                    SettingsCategory.ABOUT -> textResources.getString(R.string.ui_version_information)
                                 }
                                 Card(
                                     onClick = { sectionName = category.name },
@@ -266,7 +265,6 @@ fun SettingsSheet(
                                             val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
                                             Text(textResources.getString(R.string.ui_pure_browser), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
                                             SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
-                                            SettingsItem(textResources.getString(R.string.ui_developer_tools), textResources.getString(R.string.ui_view_console_output_and_network_requests_for_the), onOpenDeveloperTools, R.drawable.ic_code)
                                         }
                                         SettingsCategory.DOWNLOADS -> Unit
                                     }
@@ -781,5 +779,4 @@ private val SETTINGS_SEARCH = listOf(
     R.string.ui_hold_speed to SettingsCategory.VIDEO,
     R.string.ui_remember_playback_speed to SettingsCategory.VIDEO,
     R.string.ui_default_playback_speed to SettingsCategory.VIDEO,
-    R.string.ui_developer_tools to SettingsCategory.ABOUT,
 )

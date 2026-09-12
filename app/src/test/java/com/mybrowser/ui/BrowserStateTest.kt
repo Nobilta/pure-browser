@@ -51,6 +51,21 @@ class BrowserStateTest {
     }
 
     @Test
+    fun composingInputSurvivesFocusRefreshAndPageUpdatesUntilExplicitClear() {
+        val state = loadedState()
+        state.onOmnibarFocusChange(true)
+        val composing = TextFieldValue("zhong", TextRange(5), TextRange(0, 5))
+        state.onOmnibarValueChange(composing)
+        state.onOmnibarFocusChange(true)
+        state.onPageFinished("https://example.com/new", true, false)
+        assertEquals(composing, state.omnibarValue)
+        state.clearOmnibar()
+        assertTrue(state.isOmnibarFocused)
+        assertEquals("", state.omnibarValue.text)
+        assertNull(state.omnibarValue.composition)
+    }
+
+    @Test
     fun navigationClearsFindResultsFromThePreviousDocument() {
         val state = loadedState()
         state.showFindBar()

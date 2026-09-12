@@ -20,6 +20,7 @@ class MediaPlaybackService : Service() {
         media.taskRemoved(rootIntent)
     }
     override fun onDestroy() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
         media.serviceStopped()
         super.onDestroy()
     }

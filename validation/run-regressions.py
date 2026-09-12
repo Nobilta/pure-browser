@@ -61,7 +61,9 @@ def main():
                ('organization', 'system-upgrade-regression.py'), ('resident', 'resident-regression.py')]
     if int(sdk) >= 37:
         upgrade.insert(0, ('profiles', 'profile-cleanup-regression.py'))
-    stages = [('private-lifecycle', ['lifecycle-boundaries-regression.py', '--section', 'private', '--output', str(OUT / (prefix + '-private-lifecycle'))]),
+    stages = [('media-lifecycle', ['media-lifecycle-regression.py', '--output', str(OUT / (prefix + '-media-lifecycle'))]),
+              ('omnibar', ['omnibar-regression.py', '--output', str(OUT / (prefix + '-omnibar'))]),
+              ('private-lifecycle', ['lifecycle-boundaries-regression.py', '--section', 'private', '--output', str(OUT / (prefix + '-private-lifecycle'))]),
               ('inline-video', ['inline-video-regression.py', '--output', str(OUT / (prefix + '-inline-video'))]),
               ('download-opening', ['download-opening-regression.py', '--output', str(OUT / (prefix + '-download-opening'))])]
     stages += [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
