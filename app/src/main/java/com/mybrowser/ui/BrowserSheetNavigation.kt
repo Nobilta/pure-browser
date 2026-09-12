@@ -3,6 +3,7 @@ package com.mybrowser.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -37,7 +38,8 @@ internal class BrowserSheetNavigation {
     }
 
     fun push(owner: Presentation, destination: Destination): Boolean {
-        if (!isCurrent(owner) || owner.destination == destination) return false
+        if (!isCurrent(owner) || owner.destination != Destination.MENU ||
+            destination == Destination.MENU || routes.size != 1) return false
         show(routes + Route(nextKey++, destination))
         return true
     }
@@ -60,7 +62,9 @@ internal class BrowserSheetNavigation {
 
     fun restore(savedRoutes: List<Route>) {
         // Saved state is local but may come from an older version or malformed Bundle.
-        val valid = savedRoutes.size <= Destination.entries.size &&
+        val valid = savedRoutes.size <= 2 &&
+            (savedRoutes.size < 2 || (savedRoutes.first().destination == Destination.MENU &&
+                savedRoutes.last().destination != Destination.MENU)) &&
             savedRoutes.all { it.key >= 0 && it.key < Long.MAX_VALUE } &&
             savedRoutes.map { it.key }.distinct().size == savedRoutes.size &&
             savedRoutes.map { it.destination }.distinct().size == savedRoutes.size
@@ -90,10 +94,12 @@ internal fun BrowserSheetHost(
         knownKeys.addAll(activeKeys)
     }
     navigation.current?.takeIf { visible }?.let { owner ->
-        // The provider keys and replaces compositions by route. A presentation object
-        // must not become a Compose key: that changes rememberSaveable's generated keys
-        // and loses the parent's scroll/category state every time Back remounts it.
-        savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+        // SaveableStateProvider uses ReusableContent. A separate route boundary
+        // disposes the actual Settings surface before a menu Dialog takes ownership
+        // of input and Back. Stable route keys still restore the parent's UI state.
+        key(owner.route.key) {
+            savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+        }
     }
 }
 

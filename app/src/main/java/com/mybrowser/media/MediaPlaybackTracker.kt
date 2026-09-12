@@ -31,6 +31,7 @@ class MediaPlaybackTracker(
         val playbackRate: Float? = null,
         val hasVideo: Boolean = false,
         val hasMedia: Boolean = hasVideo,
+        val playbackAvailable: Boolean = hasMedia,
         val muted: Boolean = false,
         val frameId: String = "",
         val videoId: String = "",
@@ -60,6 +61,7 @@ class MediaPlaybackTracker(
     private var scriptHandler: ScriptHandler? = null
     private val handler = Handler(Looper.getMainLooper())
     private val frames = linkedMapOf<String, Frame>()
+    private val expireFrames = Runnable { if (!closed) publishCurrent() }
     private val pending = linkedMapOf<Int, Pending>()
     private var nextCommand = 0
     private var fullscreenTarget: Target? = null
@@ -200,6 +202,10 @@ class MediaPlaybackTracker(
             send(Target(frame.signal.frameId, frame.signal.videoId, frame.proxy), "suspend", JSONObject().put("value", value))
         }
         runCatching { webView.evaluateJavascript(walkScript("api.suspend($value);", "true"), null) }
+        if (value) {
+            frames.replaceAll { _, frame -> frame.copy(signal = frame.signal.copy(isPlaying = false)) }
+            publishCurrent()
+        }
     }
 
     fun seekTo(position: Double, onResult: (Boolean) -> Unit = {}) {
@@ -273,9 +279,16 @@ class MediaPlaybackTracker(
             send(Target(signal.frameId, signal.videoId, proxy), "suspend", JSONObject().put("value", true))
         }
         val now = SystemClock.uptimeMillis()
-        frames[signal.frameId] = Frame(signal, now, proxy ?: frames[signal.frameId]?.proxy)
-        frames.entries.removeAll { now - it.value.time > 4_000L }
+        // A delayed play message must not recreate a session after a tab or PiP closes.
+        val observed = if (suspended) signal.copy(isPlaying = false) else signal
+        frames[signal.frameId] = Frame(observed, now, proxy ?: frames[signal.frameId]?.proxy)
         while (frames.size > 32) frames.remove(frames.keys.first())
+        publishCurrent()
+    }
+
+    private fun publishCurrent() {
+        val now = SystemClock.uptimeMillis()
+        frames.entries.removeAll { now - it.value.time >= FRAME_TIMEOUT_MS }
         val pinned = fullscreenTarget
         val best = frames.values.filter { it.signal.hasMedia }.maxWithOrNull(
             compareBy<Frame> { it.signal.isFullscreen }
@@ -284,12 +297,19 @@ class MediaPlaybackTracker(
         )
         current = best?.signal ?: Signal()
         onSignal(current)
+        // Removed cross-origin frames can disappear without a final JS message.
+        // Expiry must run even when the remaining page contains no media and is quiet.
+        handler.removeCallbacks(expireFrames)
+        frames.values.filter { it.signal.hasMedia }.minOfOrNull { it.time }?.let { earliest ->
+            handler.postDelayed(expireFrames, (earliest + FRAME_TIMEOUT_MS - now).coerceAtLeast(1L))
+        }
     }
 
     fun reset() {
         endBoost()
         fullscreenTarget = null
         frames.clear()
+        handler.removeCallbacks(expireFrames)
         val callbacks = pending.values.toList()
         pending.clear()
         callbacks.forEach { it.callback(false) }
@@ -323,6 +343,7 @@ class MediaPlaybackTracker(
     }
 
     companion object {
+        private const val FRAME_TIMEOUT_MS = 4_000L
         private const val BRIDGE = "mybrowserMediaProbe"
         @Volatile private var cachedSource: String? = null
         private fun probeSource(context: Context): String = cachedSource ?: synchronized(this) {
@@ -358,7 +379,9 @@ class MediaPlaybackTracker(
                 frameUrl = json.optString("frameUrl").take(8192),
                 score = json.optInt("score").coerceIn(0, 20_000),
                 playbackRate = PlaybackSpeed.sanitizeObserved(json.optDouble("playbackRate", Double.NaN).toFloat()),
-                hasVideo = hasVideo, hasMedia = hasMedia, muted = json.optBoolean("muted"), frameId = frame, videoId = video,
+                hasVideo = hasVideo, hasMedia = hasMedia,
+                playbackAvailable = hasMedia && json.optBoolean("playbackAvailable", hasMedia),
+                muted = json.optBoolean("muted"), frameId = frame, videoId = video,
                 position = seconds("position"), duration = seconds("duration"),
                 seekStart = seconds("seekStart"), seekEnd = seconds("seekEnd"),
                 width = json.optInt("width").coerceIn(0, 16384), height = json.optInt("height").coerceIn(0, 16384),

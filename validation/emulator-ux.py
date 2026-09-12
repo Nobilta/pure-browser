@@ -95,6 +95,22 @@ def nodes():
     raise AssertionError("UIAutomator did not produce a current hierarchy")
 
 
+def window_nodes():
+    """Read every window, including the IME, without replaying any input action."""
+    for attempt in range(2):
+        try:
+            raw = adb("shell", "env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false",
+                      "/system/bin", "com.mybrowser.validation.FastUiDump", "windows")
+            return ET.fromstring(raw), raw
+        except subprocess.CalledProcessError as error:
+            # Android 10's shell ART can crash in its JIT worker during a snapshot.
+            # One fresh read is safe; input commands must never be retried here.
+            if error.returncode != 139 or attempt:
+                raise
+            print("UI snapshot helper exited 139; retrying one read", flush=True)
+            time.sleep(.15)
+
+
 def bounds(node):
     return list(map(int, re.findall(r"-?\d+", node.get("bounds", ""))))
 
@@ -324,6 +340,20 @@ def regress():
     adb("reverse", "tcp:8875", "tcp:8875")
     evidence = "results/api" + adb("shell", "getprop", "ro.build.version.sdk") + "-browser-"
     base = "http://127.0.0.1:8875/browser-ux.html"
+
+    def swipe_page(downward):
+        root, _ = nodes()
+        web = next(n for n in root.iter("node")
+                   if n.get("class") == "android.webkit.WebView" and visible(n))
+        left, top, right, bottom = bounds(web)
+        # A touch at 80% of the window height can hit the bottom address bar.
+        # Keep the complete gesture inside the current webpage in either layout.
+        upper, lower = top + int((bottom - top) * .3), top + int((bottom - top) * .8)
+        start, end = (upper, lower) if downward else (lower, upper)
+        x = (left + right) // 2
+        adb("shell", "input", "swipe", str(x), str(start), str(x), str(end), "450")
+        time.sleep(.6)
+
     # Start this stage with a fresh renderer. Older WebView accessibility trees can
     # retain missing header nodes after the preceding stage rotates its diagnostics UI.
     adb("shell", "am", "force-stop", PACKAGE)
@@ -339,11 +369,9 @@ def regress():
     time.sleep(0.4)
     adb("shell", "input", "keyevent", "4")
     time.sleep(0.4)
-    root, _ = nodes()
-    swipe(root, downward=False)
+    swipe_page(downward=False)
     expect("编辑网址", present=False)
-    root, _ = nodes()
-    swipe(root, downward=True)
+    swipe_page(downward=True)
     expect("编辑网址")
     inspect(evidence + "toolbar")
     open_settings("浏览与启动")

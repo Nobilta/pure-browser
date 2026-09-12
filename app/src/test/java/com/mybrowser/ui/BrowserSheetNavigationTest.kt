@@ -67,20 +67,17 @@ class BrowserSheetNavigationTest {
         assertFalse(navigation.push(menu, SETTINGS))
     }
 
-    @Test fun directEntryClosesToBrowserWhileSettingsToolsReturnThroughTheirParents() {
+    @Test fun directEntryClosesToBrowserAndToolsHaveOneMenuParent() {
         val navigation = BrowserSheetNavigation()
         navigation.open(CAST)
         navigation.back(navigation.current!!)
         assertNull(navigation.current)
         navigation.open(MENU)
-        navigation.push(navigation.current!!, SETTINGS)
-        val settingsKey = navigation.current!!.route.key
         navigation.push(navigation.current!!, DEVELOPER_TOOLS)
         navigation.back(navigation.current!!)
-        assertEquals(SETTINGS, navigation.current!!.destination)
-        assertEquals(settingsKey, navigation.current!!.route.key)
-        navigation.back(navigation.current!!)
         assertEquals(MENU, navigation.current!!.destination)
+        navigation.back(navigation.current!!)
+        assertNull(navigation.current)
     }
 
     @Test fun recreationRetainsRouteStateKeysButNotOldCallbackOwnership() {
@@ -93,8 +90,10 @@ class BrowserSheetNavigationTest {
         recreated.restore(navigation.routes)
         assertEquals(navigation.routes, recreated.routes)
         assertFalse(recreated.back(oldOwner))
+        recreated.back(recreated.current!!)
         recreated.push(recreated.current!!, DEVELOPER_TOOLS)
-        assertEquals(3, recreated.routes.map { it.key }.distinct().size)
+        assertTrue(recreated.current!!.route.key > oldOwner.route.key)
+        assertEquals(2, recreated.routes.map { it.key }.distinct().size)
     }
 
     @Test fun invalidRestoredRoutesDoNotTrapTheUserInADuplicateStack() {
@@ -103,6 +102,30 @@ class BrowserSheetNavigationTest {
         assertNull(navigation.current)
         navigation.restore(listOf(BrowserSheetNavigation.Route(-1, MENU)))
         assertNull(navigation.current)
+    }
+
+    @Test fun settingsCannotPushAnotherMenuOrDuplicateItsOwnParent() {
+        val navigation = BrowserSheetNavigation()
+        navigation.open(MENU)
+        navigation.push(navigation.current!!, SETTINGS)
+        val settings = navigation.current!!
+        for (destination in listOf(MENU, SETTINGS, DEVELOPER_TOOLS)) {
+            assertFalse(navigation.push(settings, destination))
+        }
+        assertEquals(listOf(MENU, SETTINGS), navigation.routes.map { it.destination })
+        navigation.back(settings)
+        navigation.back(navigation.current!!)
+        assertNull(navigation.current)
+    }
+
+    @Test fun restoredReverseAncestryAndRemovedThirdLevelCannotReopenSettingsOnBack() {
+        val navigation = BrowserSheetNavigation()
+        for (destinations in listOf(listOf(SETTINGS, MENU), listOf(MENU, SETTINGS, DEVELOPER_TOOLS))) {
+            navigation.restore(destinations.mapIndexed { index, destination ->
+                BrowserSheetNavigation.Route(index.toLong(), destination)
+            })
+            assertNull(navigation.current)
+        }
     }
 
     @Test fun rapidRoundTripsKeepOnlyTheCurrentMenuAndRejectAllRetiredCallbacks() {

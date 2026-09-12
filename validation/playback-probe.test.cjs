@@ -188,6 +188,27 @@ test('native mode restores the exact original controls setting and speed', () =>
   f.command('beginBoost', { rate: 2 });
   f.command('restoreControls'); assert.equal(v.controls, true); assert.equal(v.playbackRate, 1);
 });
+test('native fullscreen suppresses Chromium auto-rotation and restores the original controls list', () => {
+  for (const original of [null, '', 'nodownload', 'noremoteplayback nofullscreen']) {
+    const f = fixture(), v = f.videos[0];
+    if (original !== null) v.setAttribute('controlslist', original);
+    f.doc.fullscreenElement = v;
+    assert.equal(f.command('nativeControls'), true);
+    assert.match(v.getAttribute('controlslist'), /(^|\s)nofullscreen(\s|$)/);
+    f.command('restoreControls');
+    assert.equal(v.getAttribute('controlslist'), original);
+  }
+});
+test('a page taking back its fullscreen controls restores native takeover state', () => {
+  const f = fixture(), v = f.videos[0];
+  f.doc.fullscreenElement = v;
+  assert.equal(f.command('nativeControls'), true);
+  v.removeAttribute('controlslist');
+  assert.equal(f.api.snapshot().nativeControlsAvailable, false);
+  assert.equal(v.controls, true);
+  assert.equal(v.getAttribute('data-pure-browser-controls'), null);
+  assert.equal(f.styles.length, 0);
+});
 test('inline video stays with the page and fullscreen does not require a controls attribute', () => {
   const f = fixture(), v = f.videos[0];
   assert.equal(f.api.snapshot().nativeControlsAvailable, false);
@@ -431,4 +452,25 @@ test('system pause silences all audio/video elements while allowing explicit res
   assert.equal(f.videos[0].playbackRate, 1);
   f.command('play');
   assert.equal(f.api.snapshot().playing, true);
+});
+
+test('ended, unloaded and hidden paused videos retire system playback without removing page controls', () => {
+  for (const close of [v => { v.ended = true; }, v => { v.readyState = 0; },
+    v => { v.computedStyle = { display: 'none' }; }, v => { v.error = { code: 4 }; }]) {
+    const f = fixture(), v = f.videos[0]; v.paused = true; close(v);
+    const state = f.api.snapshot();
+    assert.equal(state.hasMedia, true);
+    assert.equal(state.playbackAvailable, false);
+  }
+});
+
+test('ordinary pause remains resumable and hidden playing media can continue in background', () => {
+  const f = fixture(), v = f.videos[0];
+  v.paused = true;
+  assert.equal(f.api.snapshot().playbackAvailable, true);
+  v.computedStyle = { display: 'none' };
+  v.paused = false;
+  assert.equal(f.api.snapshot().playbackAvailable, true);
+  v.paused = true; v.tagName = 'AUDIO';
+  assert.equal(f.api.snapshot().playbackAvailable, true);
 });

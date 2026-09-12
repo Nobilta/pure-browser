@@ -261,7 +261,7 @@
     <string name="ui_connections_2ad3d3">%1$s · %2$d 线程</string>
     <string name="ui_fullscreen_gestures_hold_for">全屏手势 · 长按 %1$s</string>
     <string name="ui_use_webpage_controls">使用网页控件</string>
-    <string name="ui_version_and_developer_tools">版本信息与开发工具</string>
+    <string name="ui_version_information">版本信息</string>
     <string name="ui_startup">启动</string>
     <string name="ui_restore_pages_on_startup">启动时恢复上次网页</string>
     <string name="ui_next_launch_restore_regular_tabs">下次启动：继续浏览普通标签页</string>
@@ -300,8 +300,6 @@
     <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">网站自定义播放器保留原有控件。</string>
     <string name="ui_pure_browser">Pure 浏览器</string>
     <string name="ui_version_android_10_or_later_64_bit_arm">版本 %1$s\n支持 Android 10 及以上 · 64 位 ARM 设备</string>
-    <string name="ui_developer_tools">开发工具</string>
-    <string name="ui_view_console_output_and_network_requests_for_the">查看当前页面的控制台与网络请求</string>
     <string name="ui_browsing_and_startup">浏览与启动</string>
     <string name="ui_appearance">外观</string>
     <string name="ui_privacy_and_filtering">隐私与过滤</string>

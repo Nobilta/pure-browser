@@ -106,6 +106,10 @@
     return {
       type: 'state', frameId: frameId, frameUrl: win.location.href,
       videoId: video ? id(video) : null, hasMedia: !!video,
+      // An element can remain in the DOM after its player is closed or unloaded.
+      // Keep it controllable in-page, but stop advertising a resumable system session.
+      playbackAvailable: !!video && video.readyState >= 1 && !video.error && !video.ended &&
+        (!video.paused || String(video.tagName).toLowerCase() === 'audio' || visible(video)),
       hasVideo: !!video && String(video.tagName).toLowerCase() === 'video', muted: !!video && video.muted,
       playing: !!video && !video.paused && !video.ended,
       fullscreen: !!video && fullscreen(video), score: video ? rank(video) : 0,
@@ -157,6 +161,12 @@
         } catch (_) {}
       });
       try { saved.video.controls = saved.controls; } catch (_) {}
+      if (saved.suppressRotation) {
+        try {
+          if (saved.controlsList === null) saved.video.removeAttribute('controlslist');
+          else saved.video.setAttribute('controlslist', saved.controlsList);
+        } catch (_) {}
+      }
       try { saved.style.remove(); } catch (_) {}
     }
   }
@@ -165,6 +175,7 @@
       if (saved.video.isConnected === false || saved.video.controls ||
           fullscreenRoot(saved.video) !== saved.root || saved.style.isConnected === false ||
           !saved.style.sheet || !saved.style.sheet.cssRules.length) return false;
+      if (saved.suppressRotation && !/(^|\s)nofullscreen(\s|$)/.test(saved.video.getAttribute('controlslist') || '')) return false;
       if (saved.marks.some(function(mark) { return mark.element.getAttribute(mark.name) !== saved.marker; })) return false;
       var path = controlPath(saved.video, saved.root);
       if (!path || path.length !== saved.path.length || path.some(function(node, i) { return node !== saved.path[i]; })) return false;
@@ -198,6 +209,7 @@
       restoreControls();
       var style = doc.createElement('style'), marker = frameId + '-' + id(video);
       var saved = nativeControls = { video: video, root: root, path: path, controls: video.controls,
+        controlsList: video.getAttribute('controlslist'), suppressRotation: root === video,
         marks: [], marker: marker, style: style, observer: null };
       function mark(element, name) {
         saved.marks.push({ element: element, name: name, value: element.getAttribute(name) });
@@ -205,6 +217,12 @@
       }
       // Chromium can force its UA controls in fullscreen even with controls=false.
       // Scope suppression to this element, and remove both marker and style on exit.
+      // Its rotate-to-fullscreen delegate also stays active with controls=false.
+      // While native controls own fullscreen, prevent the launcher orientation
+      // change during Activity PiP from making Chromium exit video fullscreen.
+      if (saved.suppressRotation && !/(^|\s)nofullscreen(\s|$)/.test(saved.controlsList || '')) {
+        video.setAttribute('controlslist', (saved.controlsList ? saved.controlsList + ' ' : '') + 'nofullscreen');
+      }
       var selector = 'video[' + controlsAttribute + '="' + marker + '"]';
       style.textContent = selector + '::-webkit-media-controls{display:none!important}' +
         selector + '::-webkit-media-controls-enclosure{display:none!important}';
@@ -239,7 +257,7 @@
       if (!style.sheet || !style.sheet.cssRules.length) throw new Error('Control styles unavailable');
       saved.observer = new win.MutationObserver(schedule);
       saved.observer.observe(root, { childList: true, subtree: true, attributes: true,
-        attributeFilter: ['class', 'style', 'controls', controlsAttribute, stageAttribute, rootAttribute] });
+        attributeFilter: ['class', 'style', 'controls', 'controlslist', controlsAttribute, stageAttribute, rootAttribute] });
     }
     video.controls = false;
     if (!controlsIntact(nativeControls)) throw new Error('Fullscreen layout cannot be isolated');
