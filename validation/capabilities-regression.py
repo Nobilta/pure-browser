@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise 0.5 browser capabilities through the installed signed APK and Android UI."""
+"""Exercise website, bookmark and download capabilities through the installed signed APK and Android UI."""
 import argparse
 import base64
 import hashlib
@@ -53,10 +53,10 @@ class Regression:
 
     def page(self, port=8875):
         self.url = 'http://127.0.0.1:' + str(port) + '/capabilities-fixture.html?visit=' + str(time.time_ns())
+        # Enable Chromium accessibility before navigation; telemetry observes the
+        # requested URL without issuing a second load through the refresh button.
+        ux.nodes()
         ux.launch(self.url)
-        ux.nodes()  # Enable Chromium accessibility before reloading this fixture.
-        ux.tap('刷新')
-        time.sleep(.4)
 
     def telemetry(self, condition=lambda event: True, timeout=8):
         deadline = time.monotonic() + timeout
@@ -146,8 +146,60 @@ class Regression:
         self.last_button('重置网站设置')
         time.sleep(.5)
 
+    def site_edges(self):
+        ux.menu_item('网站设置')
+        root, _ = ux.nodes()
+        region = max((n for n in root.iter('node') if n.get('scrollable') == 'true' and ux.visible(n)),
+                     key=lambda n: ux.bounds(n)[3] - ux.bounds(n)[1])
+        x1, y1, x2, y2 = ux.bounds(region)
+        header = ux.bounds(ux.match(root, '网站设置'))
+        footer = ux.bounds(ux.match(root, '保存并刷新'))
+
+        def pixels():
+            # Compare rendered pixels: accessibility bounds do not expose stretch.
+            # Exclude the system bars and the webpage behind the scrim.
+            raw = subprocess.check_output(ux.ADB + ['exec-out', 'screencap'], timeout=20)
+            width, height, pixel_format = struct.unpack('<III', raw[:12])
+            assert pixel_format == 1 and len(raw) >= width * height * 4, 'Expected RGBA screenshot'
+            rgba = raw[-width * height * 4:]
+            def strip(top, bottom):
+                return hashlib.sha256(b''.join(rgba[(y * width + x1 + 8) * 4:(y * width + x2 - 8) * 4]
+                                               for y in range(top, bottom))).hexdigest()
+            return {'body': strip(y1 + 8, y2 - 8),
+                    'header': strip(header[1] - 8, y1 - 8),
+                    'footer': strip(y2 + 8, footer[3] + 8)}
+
+        anchors = pixels()
+        for edge in ('bottom', 'top'):
+            low, high = y1 + (y2 - y1) * 4 // 5, y1 + (y2 - y1) // 5
+            start, end = (low, high) if edge == 'bottom' else (high, low)
+            for duration in (350, 120, 120, 120, 350, 120):
+                ux.adb('shell', 'input', 'swipe', str((x1+x2)//2), str(start),
+                       str((x1+x2)//2), str(end), str(duration))
+            time.sleep(1)
+            root, _ = ux.nodes()
+            # Compose may change a Text node's clipped bottom bound after a scroll
+            # even when its pixels do not move. Check its anchor and rendered strip.
+            assert ux.bounds(ux.match(root, '网站设置'))[:2] == header[:2], 'Edge fling moved or dismissed the sheet'
+            assert ux.bounds(ux.match(root, '保存并刷新'))[:2] == footer[:2], 'Edge fling moved the fixed action row'
+            frames = []
+            for _ in range(3):
+                frame = pixels()
+                assert all(frame[key] == anchors[key] for key in ('header', 'footer')), 'Edge fling changed a fixed action/header'
+                frames.append(frame['body'])
+                time.sleep(.25)
+            assert len(set(frames)) == 1, 'Site form continues animating after the ' + edge + ' fling'
+            self.snapshot('scroll-' + edge)
+            self.record('Repeated ' + edge + ' edge flings leave a stationary, usable website form',
+                        frameHashes=frames, header=header, footer=footer,
+                        headerHash=anchors['header'], footerHash=anchors['footer'])
+        ux.tap('取消')
+        ux.expect_menu()
+        self.back()
+
     def site(self):
         self.page()
+        self.site_edges()
         self.reset_site()
         self.telemetry(lambda e: e['hidden'])
         ux.menu_item('网站设置')
@@ -205,71 +257,6 @@ class Regression:
         ux.tap('阻止')
         self.record('Navigation dismisses the old permission request; another port requests its own consent')
         self.page()
-
-    def tabs_button(self):
-        root, _ = ux.nodes()
-        for count in range(1, 33):
-            node = ux.match(root, '标签页（' + str(count) + '）')
-            if node is not None:
-                self.click(node)
-                return
-        raise AssertionError('Tabs button missing')
-
-    def close_fixture_tab(self):
-        self.tabs_button()
-        root, _ = ux.nodes()
-        candidates = [n for n in root.iter('node') if ux.match(n, 'Pure capability article') is not None
-                      and ux.match(n, '关闭标签页') is not None]
-        card = min(candidates, key=lambda n: len(list(n.iter('node'))))
-        self.click(ux.match(card, '关闭标签页'))
-
-    def tabs(self):
-        self.page()
-        self.close_fixture_tab()
-        ux.tap('撤销')
-        ux.expect('Pure capability article')
-        self.record('Closing a page offers a working Undo action')
-        self.close_fixture_tab()
-        self.back()
-        ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
-        ux.launch()
-        self.tabs_button()
-        ux.tap('标签页操作')
-        ux.tap('恢复刚关闭的标签')
-        ux.expect('Pure capability article')
-        self.record('Recently closed page metadata survives process restart and restores the page')
-        self.snapshot('restored')
-
-    def printing(self):
-        self.page()
-        ux.menu_item('打印或保存为 PDF')
-        root, raw = ux.nodes()
-        assert 'com.android.printspooler' in raw, raw
-        self.snapshot('android-print')
-        self.record('Print / Save PDF opens the Android print adapter with the current page')
-        if ux.match(root, 'Save as PDF') is None:
-            ux.tap('Select a printer')
-            ux.tap('Save as PDF')
-        ux.tap('Save to PDF', timeout=10)
-        self.downloads_directory()
-        name = 'pure-capability-print-api' + self.sdk + '-' + str(time.time_ns()) + '.pdf'
-        self.enter_text(name)
-        ux.tap('Save')
-        path = '/sdcard/Download/' + name
-        deadline = time.monotonic() + 15
-        data = b''
-        while time.monotonic() < deadline:
-            completed = subprocess.run(ux.ADB + ['exec-out', 'cat', path], capture_output=True)
-            if completed.returncode == 0 and completed.stdout.rstrip().endswith(b'%%EOF'):
-                data = completed.stdout
-                break
-            time.sleep(.3)
-        assert data.startswith(b'%PDF-') and len(data) > 2048, 'Print output is not a complete PDF'
-        assert len(re.findall(rb'/Type\s*/Page\b', data)) >= 1, 'PDF has no page objects'
-        (ROOT / 'results' / (self.prefix + '.pdf')).write_bytes(data)
-        ux.expect('菜单')
-        self.record('Android Save as PDF writes a complete document through SAF', file=path,
-                    sha256=hashlib.sha256(data).hexdigest(), bytes=len(data))
 
     def bookmarks(self):
         ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
@@ -427,6 +414,6 @@ class Regression:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
-    parser.add_argument('--section', required=True, choices=['site','permissions','tabs','printing','bookmarks','downloads','layout'])
+    parser.add_argument('--section', required=True, choices=['site','permissions','bookmarks','downloads','layout'])
     args = parser.parse_args()
     Regression(args.serial, args.section).run()

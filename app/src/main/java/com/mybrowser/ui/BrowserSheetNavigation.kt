@@ -94,9 +94,8 @@ internal fun BrowserSheetHost(
         knownKeys.addAll(activeKeys)
     }
     navigation.current?.takeIf { visible }?.let { owner ->
-        // SaveableStateProvider uses ReusableContent. A separate route boundary
-        // disposes the actual Settings surface before a menu Dialog takes ownership
-        // of input and Back. Stable route keys still restore the parent's UI state.
+        // A route boundary disposes the outgoing window and its Back callback.
+        // Stable route keys restore UI state without retaining hidden windows.
         key(owner.route.key) {
             savedState.SaveableStateProvider(owner.route.key) { content(owner) }
         }

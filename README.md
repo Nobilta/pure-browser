@@ -1,11 +1,11 @@
 # Pure 浏览器
 
 面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.7.1（versionCode 12）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+当前版本 **0.7.2（versionCode 13）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
 
-本版修复地址栏输入与建议的焦点冲突、关闭视频后的系统媒体残留、画中画和菜单返回层级，并移除设置中重复的开发者工具入口。
-阅读与离线文章、Google Cast、本地备份恢复和双窗口已移除；保留普通多标签、书签 HTML 导入导出、
-打印/PDF、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
+本版移除菜单中的分享网页、复制链接、打印/PDF，以及最近关闭标签和撤销关闭；精简对应代码、资源和过时测试。
+设置使用独立全屏窗口处理返回，网站设置固定弹层位置并关闭边界拉伸，修复返回残留和滚动抖动。
+保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
 
 ## 功能
 
@@ -19,9 +19,10 @@
   Android 13+ 支持系统应用语言设置，旧系统跟随系统语言。
 - 设置按浏览与启动、外观、隐私与过滤、下载、视频、关于分类，支持搜索定位；宽屏可显示分类与详情两栏。
   菜单和设置逐级返回，保留滚动与分类；Activity 重建保留当前来路，外部网址导航关闭临时面板。
-  菜单只保留一个子页面，切换时释放前一个页面的窗口与返回处理；开发者工具仅在菜单提供入口。
+  菜单只保留一个子页面，设置的画面与返回回调由同一个独立全屏窗口持有，退出时一起释放；开发者工具仅在菜单提供入口。
 - 链接长按支持新标签、后台打开、复制和分享；图片支持打开、保存和复制地址，普通文字保留原生选区。
-- 标签搜索、排序、命名分组、缩略图、批量关闭确认；关闭可撤销，最近关闭最多保留 20 个普通网页。
+- 标签搜索、排序、命名分组、缩略图和批量关闭确认；关闭标签后释放其记录，最后一个标签关闭后回到新标签。
+  升级时清理旧版最近关闭存档。
   后台新标签延迟加载；普通标签最多保留最近一个后台页面的 DOM/表单/SPA/滚动，低内存设备不驻留。
   切换标签暂停旧页媒体；进程结束后只恢复元数据，不承诺恢复 JavaScript 或未提交表单。
 - 冷启动默认打开主页；可开启恢复普通标签的地址、标题与选中项。无痕标签不写入恢复文件。
@@ -37,7 +38,7 @@
 - 系统文件选择器导入/导出 UTF-8 Netscape HTML，最多 5,000 条/8 MiB；导入先预览，保留层级与空目录，
   跳过非法与重复地址，保留已有条目 ID/标题，整个批次使用 SQLite 事务。
 - 书签、历史按数据库分页搜索，每页 50 条；历史合并重复访问、按日期分组，支持新标签打开、复制和删除。
-  旧查询不能覆盖新搜索；写入成功才更新界面，失败可重试。清空历史同时清空最近关闭和撤销记录。
+  旧查询不能覆盖新搜索；写入成功才更新界面，失败可重试。
 
 ### 下载与系统打开文件
 
@@ -96,6 +97,7 @@
 - 网站可单独设置 JavaScript、过滤、图片、第三方 Cookie、桌面模式、网页暗色、50%–200% 字号，
   桌面视口支持网页原值及 980/1024/1280/1440。其他设置按完整 origin 管理；
   桌面模式只在同站同协议/端口的裸域、m./mobile./www. 展示入口间共享，避免移动站重定向循环。
+  网站表单与管理列表保持固定位置；滚动到上下边界不会拖动弹层，使用返回或取消关闭。
 - 相机、麦克风、定位、受保护媒体标识和外部应用跳转分别管理；网站决定与系统授权分开，导航取消旧请求。
   单文件图片/视频 `input capture` 调用系统相机，普通文件上传使用系统选择器；取消或旧文档回执不会误上传。
 - HTTPS 证书信息、忽略证书后的持续警告、Safe Browsing、外部协议限制与 renderer 崩溃恢复。
@@ -104,7 +106,6 @@
   现代 WebView 支持 Cookie/IndexedDB/CacheStorage 等删除；旧 Provider 如实提示能力范围。
 - 普通网页接入系统 Autofill；满足 WebView 能力和来源权限时启用 WebAuthn。无痕关闭这两项。
   密码/passkey 由系统提供方保管；提供方信任审核和真实账号登录未在本版模拟器测试中验证。
-- 已加载网页可通过 Android 打印服务打印或保存 PDF，输出位置由系统文件选择器确定。
 
 无痕边界取决于 WebView：支持 `MULTI_PROFILE` 时每次无痕会话使用新的独立 Profile，退出先清理其站点数据与 Cookie；
 已载入内存的 Profile 可能无法当场删除，浏览器不再复用其名称，下次进程启动时按专用前缀清理遗留目录。
@@ -164,20 +165,20 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 
 ```bash
 ./build-and-test.sh
-./install_and_test.sh PureBrowser-v0.7.1-release.apk
+./install_and_test.sh PureBrowser-v0.7.2-release.apk
 ./diagnose.sh
 ```
 
 完整构建执行三语言资源校验、Node 协议测试、Rust fmt/test/clippy、真实 host JNI 的 Android/Robolectric 测试、
-lint、R8 和签名验证。当前自动检查通过 **332 项 Android、58 项 Rust、55 项 Node 测试及 617 项三语言资源校验**。
-lint 为 0 errors、11 warnings、1 hint。构建记录：`validation/results/release-0.7.1/build-final.json` 与同名日志。
+lint、R8 和签名验证。当前自动检查通过 **328 项 Android、58 项 Rust、55 项 Node 测试及 603 项三语言资源校验**。
+lint 为 0 errors、10 warnings、1 hint。构建记录：`validation/results/release-0.7.2/build-final.json` 与同名日志。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.1-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.2-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.1-release.apk \
-  --label release-071 --stages omnibar media-lifecycle menu-navigation settings-back inline-video system-media
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.2-release.apk \
+  --label release-072 --stages menu-navigation settings-back site layout browser productivity
 # 只有 APK、AVD、阶段选择相同时才能加 --resume
 ```
 
@@ -185,17 +186,16 @@ QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、�
 若本机启用了 HTTP 代理，运行回归时为 `127.0.0.1,localhost` 设置 `NO_PROXY` 与 `no_proxy`，确保遥测请求直连本机。
 QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件，清理构建缓存后仍可复现。
 辅助程序仅置于 `/data/local/tmp`，Release 不开放 WebView 调试。runner 按实际安装 APK SHA-256 记录阶段，
-保留失败尝试，不把局部验证计作全部设备/网站覆盖。0.7.1 最终包在 Android 17 / WebView 145 上通过 14 个阶段，
-在 Android 10 / WebView 91 上通过 12 个阶段；Android 10 从 0.7.0 直接覆盖升级后保留旧版书签。
-旧版及开发阶段构建的通过项不计入本次交付覆盖。
+保留失败尝试，不把局部验证计作全部设备/网站覆盖。最终包在 Android 17 / WebView 145 上通过 8 个阶段，
+Android 10 / WebView 91 上通过 5 个阶段、网站表单边界专项及覆盖升级；旧 WebView 的完整站点切换阶段出现渲染进程崩溃，未计为通过。
 阶段、升级链和失败记录见 [回归报告](EMULATOR_TEST_REPORT.md)，
 复现与手工验收见 [测试指南](TESTING_GUIDE.md)。
 
 ### 交付包
 
-- `PureBrowser-v0.7.1-release.apk`：Android 10+、arm64-v8a，4,682,751 bytes（约 4.47 MiB）。
-- SHA-256：`17c4063be72261d9f1eaf809edbff5d2e93adeff776491ef1831581d4bde7d06`。
-- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 11 → 12。
+- `PureBrowser-v0.7.2-release.apk`：Android 10+、arm64-v8a，4,661,251 bytes（约 4.45 MiB）。
+- SHA-256：`c738eb6c2d19e963ee0d1f00ec2a8d401d74df366e343eee1bd6b32c0180cbc2`。
+- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 12 → 13。
 - 证书 SHA-256：`7d468e8b3a9be385a2386b27ef548e83cb55206e67911d81b721b5adbe1e8236`。
 
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。

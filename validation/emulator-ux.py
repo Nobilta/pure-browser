@@ -10,6 +10,7 @@ import re
 import shlex
 import subprocess
 import time
+import urllib.request
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
@@ -170,6 +171,42 @@ def tap_node(node):
     x1, y1, x2, y2 = bounds(node)
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(0.5)
+
+
+def tap_fixture(label, case, target, expected_url, hold_ms=0):
+    """Use current fixture geometry when WebView omits a visible virtual node."""
+    def press(x, y):
+        x, y = str(round(x)), str(round(y))
+        if hold_ms:
+            adb("shell", "input", "swipe", x, y, x, y, str(hold_ms))
+        else:
+            adb("shell", "input", "tap", x, y)
+        time.sleep(.5)
+
+    root, _ = nodes()
+    node = match(root, label)
+    if node is not None:
+        x1, y1, x2, y2 = bounds(node)
+        press((x1 + x2) / 2, (y1 + y2) / 2)
+        return {"accessibilityNode": True}
+    deadline = time.monotonic() + 10
+    while True:
+        root, _ = nodes()
+        rows = json.load(urllib.request.urlopen("http://127.0.0.1:8875/__state?case=" + case, timeout=4))
+        state = next((row for row in reversed(rows) if row.get("url") == expected_url
+                      and time.time() - row["receivedAt"] < 2), None)
+        web = next((n for n in root.iter("node") if n.get("class") == "android.webkit.WebView" and visible(n)), None)
+        if state and web is not None and state[target]["width"] > 0:
+            x1, y1, x2, y2 = bounds(web)
+            scale = (x2 - x1) / state["viewportWidth"]
+            rect = state[target]
+            x = x1 + (rect["left"] + rect["width"] / 2) * scale
+            y = y1 + (rect["top"] + rect["height"] / 2) * scale
+            assert x1 < x < x2 and y1 < y < y2, "Fixture target is outside the visible WebView"
+            press(x, y)
+            return {"x": x, "y": y, "page": state}
+        assert time.monotonic() < deadline, "No current fixture geometry: " + target
+        time.sleep(.2)
 
 
 def open_downloads_directory():
@@ -340,6 +377,8 @@ def regress():
     adb("reverse", "tcp:8875", "tcp:8875")
     evidence = "results/api" + adb("shell", "getprop", "ro.build.version.sdk") + "-browser-"
     base = "http://127.0.0.1:8875/browser-ux.html"
+    page_probe = "browser-touch-" + str(time.time_ns())
+    probe_url = base + "?touchProbe=" + page_probe
 
     def swipe_page(downward):
         root, _ = nodes()
@@ -384,10 +423,11 @@ def regress():
         tap("启动时恢复上次网页")
     tap("返回")
     tap("返回")
-    launch(base)
+    launch(probe_url)
     nodes()
     tap("刷新")
-    tap("Popup page")
+    geometry = tap_fixture("Popup page", page_probe, "popup", probe_url)
+    (ROOT / (evidence + "popup-touch.json")).write_text(json.dumps(geometry, indent=2))
     expect("Pure UX popup Page")
     adb("shell", "input", "keyevent", "3")
     time.sleep(1)

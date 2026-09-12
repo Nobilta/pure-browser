@@ -12,9 +12,9 @@ p { line-height: 1.6; }
 </style>
 <h1 id="heading">Productivity First</h1>
 <a id="background" href="?page=background">Background destination</a>
-<a href="?page=second">Second destination</a>
-<a href="?page=image"><img src="context-image.png" alt="Linked test image"></a>
-<img src="context-image.png" alt="Plain test image">
+<a id="second" href="?page=second">Second destination</a>
+<a href="?page=image"><img id="linked" src="context-image.png" alt="Linked test image"></a>
+<img id="plain" src="context-image.png" alt="Plain test image">
 <p>Selectable browser text remains selectable after installing the page context menu.</p>
 <script>
 const page = new URL(location.href).searchParams.get('page') || 'First';
@@ -26,5 +26,16 @@ document.querySelectorAll('a').forEach(link => {
   target.searchParams.set('run', run);
   link.href = target;
 });
+const reportGeometry = () => {
+  if (document.visibilityState !== 'visible') return;
+  fetch('/__state?case=productivity-geometry-' + encodeURIComponent(run), {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: location.href, viewportWidth: innerWidth,
+      ...Object.fromEntries(['background', 'second', 'linked', 'plain'].map(id =>
+        [id, document.getElementById(id).getBoundingClientRect().toJSON()]))})
+  }).catch(() => {});
+};
+reportGeometry();
+setInterval(reportGeometry, 300);
 </script>
 </html>

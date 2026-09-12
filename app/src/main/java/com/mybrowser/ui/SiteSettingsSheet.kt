@@ -28,12 +28,19 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     onTemporaryFilteringChange: (() -> Unit)? = null) {
     var draft by remember(origin, settings) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
+    val contentInsets = WindowInsets.safeDrawing
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetGesturesEnabled = false,
+        dragHandle = null,
+        contentWindowInsets = { contentInsets }) {
         ApplySheetSystemBars()
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {
-            Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(top = 20.dp, bottom = 12.dp))
+            // Keep edge flings in the form. Sheet dragging and stretch overscroll
+            // otherwise compete with its changing height/insets at the boundaries.
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null)) {
                 // Long origins and large fonts must not consume the fixed-height viewport.
                 Text(origin, style = MaterialTheme.typography.bodyMedium)
                 Text(stringResource(if (privateSession) R.string.site_private_scope else R.string.site_scope),
@@ -124,14 +131,19 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
 @Composable
 fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    val contentInsets = WindowInsets.safeDrawing
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetGesturesEnabled = false, dragHandle = null, contentWindowInsets = { contentInsets }) {
         ApplySheetSystemBars()
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 20.dp)) {
-            Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 12.dp))
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
+                Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge)
+            }
             LibrarySearchField(query, stringResource(R.string.site_search)) { query = it }
             val origins = sites.keys.filter { it.contains(query, true) }.sorted()
             if (origins.isEmpty()) Text(stringResource(R.string.site_none), modifier = Modifier.padding(vertical = 20.dp))
-            LazyColumn(Modifier.weight(1f)) {
+            LazyColumn(Modifier.weight(1f), overscrollEffect = null) {
                 items(origins, key = { it }) { origin ->
                     ListItem(headlineContent = { Text(origin) }, modifier = Modifier.clickable { onSelect(origin) })
                     HorizontalDivider()

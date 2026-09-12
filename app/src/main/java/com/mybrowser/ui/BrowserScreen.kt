@@ -33,8 +33,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -95,7 +93,6 @@ fun BrowserScreen(
     // intentionally lightweight mutable records.
     tabRevision: Int = 0,
     certificateError: Boolean = false,
-    snackbarHostState: SnackbarHostState? = null,
 ) {
     @Suppress("UNUSED_VARIABLE")
     val observedTabRevision = tabRevision
@@ -270,10 +267,6 @@ fun BrowserScreen(
             }
 
             state.pageFailure?.let { PageRecovery(it, onRetryPage, onHome, onSecurityClick) }
-
-            snackbarHostState?.let {
-                SnackbarHost(it, modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
-            }
 
             if (state.isOmnibarFocused && !isVideoFullscreen) {
                 // Share the editor's window: Popup outside-touch callbacks also

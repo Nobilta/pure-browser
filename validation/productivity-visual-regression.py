@@ -16,7 +16,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--serial', required=True)
 args = parser.parse_args()
 ux.ADB = ['adb', '-s', args.serial]
-assert int(ux.adb('shell', 'getprop', 'ro.build.version.sdk')) >= 33
+sdk = ux.adb('shell', 'getprop', 'ro.build.version.sdk')
+assert int(sdk) >= 33
 output = ROOT / 'results'
 checks = []
 
@@ -26,7 +27,7 @@ def snapshot(name, expected):
     values = {value for node in root.iter('node') if ux.visible(node)
               for value in (node.get('text'), node.get('content-desc'))}
     assert all(value in values for value in expected), (name, expected)
-    stem = output / ('api34-productivity-visual-' + name)
+    stem = output / ('api' + sdk + '-productivity-visual-' + name)
     stem.with_suffix('.xml').write_text(raw)
     png = subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'])
     stem.with_suffix('.png').write_bytes(png)
@@ -61,7 +62,7 @@ try:
             snapshot('native-selection', [])
             back()
         ux.tap('Menu')
-        snapshot(locale + '-menu', [expected['menu_share_page'], expected['context_copy_link']])
+        snapshot(locale + '-menu', [expected['menu_settings'], expected['menu_find']])
         back()
         root, _ = ux.nodes()
         node = next(n for n in root.iter('node') if n.get('content-desc', '').startswith(('Tabs (','标签页（','分頁（')))
@@ -84,4 +85,4 @@ finally:
     ux.adb('shell','settings','put','system','user_rotation','0')
     ux.adb('shell','settings','put','system','accelerometer_rotation','1')
     ux.adb('shell','cmd','locale','set-app-locales',ux.PACKAGE,'--user','0')
-    (output / 'api34-productivity-visual.json').write_text(json.dumps(checks, indent=2))
+    (output / ('api' + sdk + '-productivity-visual.json')).write_text(json.dumps(checks, indent=2))
