@@ -86,6 +86,7 @@ fun BrowserScreen(
     onSwitchTab: (Int) -> Unit = {},
     onRetryPage: () -> Unit = onReloadOrStop,
     onSecurityClick: () -> Unit = {},
+    onScanQr: () -> Unit = {},
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
     // Read by the caller from TabManager's snapshot state; keeping it in the parameter
@@ -130,6 +131,8 @@ fun BrowserScreen(
                     currentUrl = state.currentUrl,
                     displayTitle = state.displayTitle,
                     onSecurityClick = onSecurityClick,
+                    isHomePage = showHomeDashboard,
+                    onScanQr = { finishEditing(); onScanQr() },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
     }

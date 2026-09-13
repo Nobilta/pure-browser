@@ -9,7 +9,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,13 +53,7 @@ fun TabsSheet(
     val currentId = tabs.getOrNull(currentIndex)?.id
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.tabs_count, tabs.size), style = MaterialTheme.typography.titleLarge)
-                    if (isIncognito) Text(stringResource(R.string.incognito_badge),
-                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            BrowserSheetHeader(stringResource(R.string.tabs_count, tabs.size), onBack = onDismiss) {
                 BrowserIconAction(R.drawable.ic_add, stringResource(R.string.tabs_new), canCreateTab, onNewTab)
                 Box {
                     BrowserIconAction(R.drawable.ic_more, stringResource(R.string.tabs_actions)) { menuOpen = true }
@@ -72,6 +65,8 @@ fun TabsSheet(
                     }
                 }
             }
+            if (isIncognito) Text(stringResource(R.string.incognito_badge), Modifier.padding(start = 24.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LibrarySearchField(query, stringResource(R.string.tabs_search)) { query = it }
             if (groups.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -85,10 +80,10 @@ fun TabsSheet(
                 items(filtered, key = { it.id }) { tab ->
                     var itemMenu by remember { mutableStateOf(false) }
                     Surface(shape = MaterialTheme.shapes.medium, color = if (tab.id == currentId)
-                        MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                        MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
                         modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(64.dp, 80.dp).clip(RoundedCornerShape(4.dp))
+                            Box(Modifier.size(64.dp, 80.dp).clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
                                 val thumbnail = tab.thumbnail
                                 if (thumbnail != null && !thumbnail.isRecycled) Image(thumbnail.asImageBitmap(), null, Modifier.fillMaxSize())

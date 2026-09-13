@@ -594,4 +594,42 @@
     <string name="download_complete_notification">下載完成 · 點按查看</string>
     <string name="site_enhanced_playback">增強全螢幕播放</string>
     <string name="site_enhanced_playback_summary">僅在此網站全螢幕播放時嘗試接管。關閉後使用網頁控制項，重設網站設定後跟隨瀏覽器預設值。</string>
+
+    <!-- Developer tools and QR scanner -->
+    <string name="dev_network_all">全部</string>
+    <string name="dev_network_document">文件</string>
+    <string name="dev_network_fetch">Fetch/XHR</string>
+    <string name="dev_network_script">指令碼</string>
+    <string name="dev_network_style">樣式</string>
+    <string name="dev_network_image">圖片</string>
+    <string name="dev_network_media">媒體</string>
+    <string name="dev_network_font">字型</string>
+    <string name="dev_network_other">其他</string>
+    <string name="dev_network_any_status">所有狀態</string>
+    <string name="dev_network_blocked">已封鎖</string>
+    <string name="dev_network_failed">失敗</string>
+    <string name="dev_network_search">搜尋網址、方法或狀態</string>
+    <string name="dev_network_count">%1$d / %2$d 筆請求</string>
+    <string name="dev_source_summary">HTML · %1$d 個字元</string>
+    <string name="dev_source_refresh">重新整理原始碼</string>
+    <string name="dev_source_truncated_notice">網頁原始碼較長，顯示前 %1$d 個字元。</string>
+    <string name="qr_scan">掃描 QR Code</string>
+    <string name="qr_scan_hint">將 QR Code 放入取景區域</string>
+    <string name="qr_scan_privacy">網頁連結將直接開啟，其他內容顯示為純文字。</string>
+    <string name="qr_pick_image">從圖片辨識</string>
+    <string name="qr_permission_title">允許使用相機</string>
+    <string name="qr_permission_summary">使用相機掃描 QR Code，也可以選擇圖片辨識。</string>
+    <string name="qr_allow_camera">啟用相機</string>
+    <string name="qr_camera_settings">相機權限設定</string>
+    <string name="qr_camera_unavailable">相機暫時無法使用，請重試或選擇圖片。</string>
+    <string name="qr_image_no_code">未在圖片中找到 QR Code。</string>
+    <string name="qr_image_failed">無法讀取這張圖片。</string>
+    <string name="qr_reading_image">正在辨識圖片…</string>
+    <string name="qr_result_title">QR Code 內容</string>
+    <string name="qr_scan_again">繼續掃描</string>
+    <string name="qr_copy">複製文字</string>
+    <string name="qr_copied">已複製文字</string>
+    <string name="qr_flash_on">開啟手電筒</string>
+    <string name="qr_flash_off">關閉手電筒</string>
+    <string name="qr_retry">重試</string>
 </resources>

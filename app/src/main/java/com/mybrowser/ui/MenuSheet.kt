@@ -60,6 +60,7 @@ fun MenuSheet(
     onToggleBookmark: () -> Unit,
     onClearData: () -> Unit,
     onOpenDeveloperTools: () -> Unit = {},
+    onScanQr: () -> Unit = {},
     onExit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -70,22 +71,10 @@ fun MenuSheet(
     BrowserBottomSheet(
         onDismissRequest = onDismiss,
     ) {
-        Column(
-            modifier = Modifier
-                .semantics { testTagsAsResourceId = true }
-                .testTag("browser_menu")
-                .verticalScroll(scrollState)
-                .padding(start = 12.dp, end = 12.dp, bottom = 28.dp),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(R.string.menu_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp),
-                )
-                BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close), onClick = onDismiss)
-            }
-
+        Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.testTag("browser_menu")) {
+            BrowserSheetHeader(stringResource(R.string.menu_title), onDismiss = onDismiss)
+            Column(Modifier.weight(1f, fill = false).verticalScroll(scrollState)
+                .padding(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 QuickMenuAction(if (isCurrentPageBookmarked) R.drawable.ic_bookmark_remove else R.drawable.ic_bookmark_add,
                     stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
@@ -180,6 +169,7 @@ fun MenuSheet(
             }
 
             MenuSection(title = stringResource(R.string.menu_section_tools)) {
+                MenuRow(R.drawable.ic_qr_scan, stringResource(R.string.qr_scan), "", onScanQr)
                 MenuRow(
                     iconRes = R.drawable.ic_code,
                     title = stringResource(R.string.menu_developer_tools),
@@ -194,6 +184,7 @@ fun MenuSheet(
                 subtitle = "",
                 onClick = onExit,
             )
+            }
         }
     }
 }
@@ -230,7 +221,7 @@ private fun MenuRow(
 
     Row(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxWidth().heightIn(min = 56.dp)
             .then(if (toggleState != null) Modifier.toggleable(toggleState, enabled, Role.Switch) { onClick() } else Modifier.clickable(enabled = enabled, onClick = onClick))
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -594,4 +594,42 @@
     <string name="download_complete_notification">下载完成 · 点击查看</string>
     <string name="site_enhanced_playback">增强全屏播放</string>
     <string name="site_enhanced_playback_summary">仅在此网站全屏播放时尝试接管。关闭后使用网页控件，重置网站设置后跟随浏览器默认值。</string>
+
+    <!-- Developer tools and QR scanner -->
+    <string name="dev_network_all">全部</string>
+    <string name="dev_network_document">文档</string>
+    <string name="dev_network_fetch">Fetch/XHR</string>
+    <string name="dev_network_script">脚本</string>
+    <string name="dev_network_style">样式</string>
+    <string name="dev_network_image">图片</string>
+    <string name="dev_network_media">媒体</string>
+    <string name="dev_network_font">字体</string>
+    <string name="dev_network_other">其他</string>
+    <string name="dev_network_any_status">所有状态</string>
+    <string name="dev_network_blocked">已拦截</string>
+    <string name="dev_network_failed">失败</string>
+    <string name="dev_network_search">搜索网址、方法或状态</string>
+    <string name="dev_network_count">%1$d / %2$d 条请求</string>
+    <string name="dev_source_summary">HTML · %1$d 个字符</string>
+    <string name="dev_source_refresh">刷新源码</string>
+    <string name="dev_source_truncated_notice">页面源码较长，显示前 %1$d 个字符。</string>
+    <string name="qr_scan">扫描二维码</string>
+    <string name="qr_scan_hint">将二维码放入取景区域</string>
+    <string name="qr_scan_privacy">网页链接将直接打开，其他内容显示为纯文本。</string>
+    <string name="qr_pick_image">从图片识别</string>
+    <string name="qr_permission_title">允许使用相机</string>
+    <string name="qr_permission_summary">使用相机扫描二维码，也可以选择图片识别。</string>
+    <string name="qr_allow_camera">启用相机</string>
+    <string name="qr_camera_settings">相机权限设置</string>
+    <string name="qr_camera_unavailable">相机暂不可用，请重试或选择图片。</string>
+    <string name="qr_image_no_code">未在图片中找到二维码。</string>
+    <string name="qr_image_failed">无法读取这张图片。</string>
+    <string name="qr_reading_image">正在识别图片…</string>
+    <string name="qr_result_title">二维码内容</string>
+    <string name="qr_scan_again">继续扫描</string>
+    <string name="qr_copy">复制文本</string>
+    <string name="qr_copied">已复制文本</string>
+    <string name="qr_flash_on">打开手电筒</string>
+    <string name="qr_flash_off">关闭手电筒</string>
+    <string name="qr_retry">重试</string>
 </resources>

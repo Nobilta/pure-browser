@@ -18,9 +18,9 @@ lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实�
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.7.4-release.apk
-shasum -a 256 PureBrowser-v0.7.4-release.apk
-./install_and_test.sh PureBrowser-v0.7.4-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.8.0-release.apk
+shasum -a 256 PureBrowser-v0.8.0-release.apk
+./install_and_test.sh PureBrowser-v0.8.0-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
@@ -32,11 +32,11 @@ shasum -a 256 PureBrowser-v0.7.4-release.apk
 本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.4-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.8.0-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.4-release.apk \
-  --label release-074 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.0-release.apk \
+  --label release-080 --stages menu-navigation settings-back site layout browser productivity
 ```
 
 不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
@@ -49,10 +49,28 @@ WebView 漏报可见网页节点时，先核对当前网址与新鲜夹具几何
 播放器检查通过 `playerDump` / `playerReveal` / `playerTap` 只查询前景原生控件，跳过后台 WebView 子树，并主动刷新暂停视频的 Compose 节点缓存。
 全屏宿主按原生结构识别，不能假定无障碍树的子节点顺序等于窗口前后顺序；媒体选择夹具会回传按钮坐标与实际播放来源。
 全部窗口的只读采集遇到 Android 10 辅助进程 SIGSEGV 时仅重试一次；不重放触摸或返回输入，连续失败仍终止回归。
+Compose 页签切换后的输入先核对当前窗口实际聚焦的可编辑节点。添加过滤订阅使用有界完成等待，
+覆盖后台规则重建；普通界面切换仍使用较短等待。Android 10 手动旋转使用 `wm set-user-rotation`，
+新版使用 `wm user-rotation`，并以实际截图尺寸核对方向。
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.7.4 重点验收
+## 0.8.0 新增验收
+
+- 首页地址栏可点击输入，左侧不显示主页占位图标，右侧仅扫码；普通网页保留安全信息、刷新/停止。顶部/底部地址栏均验证。
+- 相机首次授权、拒绝、设置恢复、切后台、旋转、快速开关和手电筒；退出后 `dumpsys media.camera` 不保留本应用活动客户端。
+- 扫描 HTTP(S) 与无协议域名应在当前标签访问一次；多行中文、emoji、Wi-Fi、`javascript:`、`file:` 和应用协议只展示纯文本。
+- 从系统文件选择器选择二维码图片，验证中文原文复制、继续扫描、无二维码和无效文件错误；不需 Google Play 服务或外网。
+- 开发工具源码查看普通 HTML、脚本/样式、单行压缩源码、百万字符、只有大量换行、emoji 跨块边界；检查颜色、滚动、截断和刷新。
+- 网络组合测试类型、状态和大小写搜索，清空、无结果、切页签恢复及后台日志；Fetch/XHR 使用目的头或明确 Accept 头的本地夹具。
+- 菜单、标签、历史、下载、书签、网站设置、过滤、脚本、设置、投屏及扫码检查统一标题间距、48dp 操作、轻量过渡、逐级返回。
+- 浅/深主题、中文/英文、150% 字体、横竖屏和键盘避让；系统动画缩放设为 0 时也可正常操作。
+- 使用 `dumpsys gfxinfo com.mybrowser reset` / `framestats` 采集实际布局/滚动帧；主机词法扫描耗时不能代替手机渲染性能。
+
+临时测试代码和二维码/大源码夹具在完成后删除，实际专项结果和截图保留在本次交付的验证目录。
+
+## 播放器与既有功能验收
+
 
 ### 全屏浮层与 Material 3 控件
 

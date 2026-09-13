@@ -30,8 +30,7 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     var confirmReset by remember { mutableStateOf(false) }
     BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {
-            Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(top = 20.dp, bottom = 12.dp))
+            BrowserSheetHeader(stringResource(R.string.site_settings))
             // Keep edge flings in the form. Sheet dragging and stretch overscroll
             // otherwise compete with its changing height/insets at the boundaries.
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null)) {
@@ -132,16 +131,14 @@ fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Un
     var query by rememberSaveable { mutableStateOf("") }
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 20.dp)) {
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
-                Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge)
-            }
+            BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
             LibrarySearchField(query, stringResource(R.string.site_search)) { query = it }
             val origins = sites.keys.filter { it.contains(query, true) }.sorted()
             if (origins.isEmpty()) Text(stringResource(R.string.site_none), modifier = Modifier.padding(vertical = 20.dp))
             LazyColumn(Modifier.weight(1f), overscrollEffect = null) {
                 items(origins, key = { it }) { origin ->
-                    ListItem(headlineContent = { Text(origin) }, modifier = Modifier.clickable { onSelect(origin) })
+                    ListItem(colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                        headlineContent = { Text(origin) }, modifier = Modifier.clickable { onSelect(origin) })
                     HorizontalDivider()
                 }
             }

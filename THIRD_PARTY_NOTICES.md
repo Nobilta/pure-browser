@@ -10,6 +10,11 @@ source and local APK delivery.
 
 AndroidX and other existing dependencies retain their upstream licenses.
 
+The QR scanner uses [ZXing Core 3.5.3](https://github.com/zxing/zxing),
+copyright ZXing authors, under the [Apache License 2.0](third_party/material-icons-LICENSE.txt).
+Only its offline QR decoder is used at runtime. Camera capture uses Android Camera2;
+Google Play services and a remote recognition service are not required.
+
 The 0.7.0 integration uses AndroidX Activity 1.13.0, WebKit 1.17.0,
 Compose UI/Foundation/Runtime 1.9.4 and Material 3 1.4.0 under Apache License 2.0.
 Exact runtime and transitive versions are recorded in `app/gradle.lockfile`;

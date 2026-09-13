@@ -1,60 +1,20 @@
 package com.mybrowser.ui
 
-import android.content.res.Resources
 import android.content.res.Configuration
-import com.mybrowser.R
+import android.content.res.Resources
 import android.webkit.WebView
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import com.mybrowser.ui.theme.BrowserColors
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,23 +26,22 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import com.mybrowser.R
 import com.mybrowser.core.ConsoleLogEntry
 import com.mybrowser.core.ConsoleLogLevel
 import com.mybrowser.core.NetworkRequestLog
+import com.mybrowser.ui.theme.BrowserColors
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONTokener
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-/**
- * Lightweight, in-app diagnostics inspired by the useful part of X/Via's page tools.
- *
- * The Activity owns the stores because WebView callbacks are imperative and can arrive
- * while this sheet is closed. This composable only renders immutable snapshots and sends
- * commands back to the current WebView.
- */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+/** Logs and source are bounded; only the selected tab does work or publishes snapshots. */
 @Composable
 fun DeveloperTools(
     webView: WebView?,
@@ -92,292 +51,141 @@ fun DeveloperTools(
     onClearNetwork: () -> Unit = {},
     onClearConsole: () -> Unit = {},
     pageUrl: String? = null,
+    pageGeneration: Long = 0L,
+    isCurrentDocument: (Long) -> Boolean = { true },
+    onLogVisibility: (network: Boolean, console: Boolean) -> Unit = { _, _ -> },
     onExplainFilter: (NetworkRequestLog) -> Unit = {},
 ) {
-    val textResources = localizedResources()
+    val resources = localizedResources()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var command by rememberSaveable { mutableStateOf("") }
-    var evaluations by remember(webView) { mutableStateOf<List<ConsoleLine>>(emptyList()) }
-    var pageSource by remember(webView, pageUrl) { mutableStateOf(textResources.getString(R.string.ui_loading)) }
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-    // A landscape keyboard can leave less room than the normal toolbars need. Keep the
-    // editor and its action visible; dismissing the keyboard restores the full toolbar.
+    val identity = remember(webView, pageUrl, pageGeneration) { Any() }
+    val currentIdentity by rememberUpdatedState(identity)
+    val currentDocument by rememberUpdatedState(isCurrentDocument)
+    var evaluations by remember(identity) { mutableStateOf<List<ConsoleLine>>(emptyList()) }
+    var document by remember(identity) { mutableStateOf<SourceDocument?>(null) }
+    var sourceError by remember(identity) { mutableStateOf<String?>(null) }
+    var sourceLoading by remember(identity) { mutableStateOf(false) }
+    var sourceRevision by remember(identity) { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val tabStates = rememberSaveableStateHolder()
     val compactInput = selectedTab == 0 && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
         WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    // Developer tools contains a console input row as well as a potentially long output
-    // list. Starting partially expanded hides that row behind the viewport on phones;
-    // opening expanded makes the command surface immediately usable and the inner lists
-    // retain their own scrolling behavior.
-
-    // Source is deliberately capped. A large application can have a multi-megabyte DOM;
-    // putting all of it in a Compose Text would otherwise stall the UI and retain a second
-    // copy of the document while the sheet is open.
-    LaunchedEffect(webView, pageUrl, selectedTab) {
-        if (selectedTab != 2) return@LaunchedEffect
-        val view = webView ?: run {
-            pageSource = textResources.getString(R.string.ui_unable_to_read_page_source)
-            return@LaunchedEffect
-        }
-        pageSource = textResources.getString(R.string.ui_loading)
+    val visibility by rememberUpdatedState(onLogVisibility)
+    DisposableEffect(selectedTab) {
+        visibility(selectedTab == 1, selectedTab == 0)
+        onDispose { visibility(false, false) }
+    }
+    LaunchedEffect(identity, selectedTab, sourceRevision) {
+        if (selectedTab != 2 || document != null) return@LaunchedEffect
+        sourceLoading = true
+        sourceError = null
         try {
-            // Bound the WebView bridge payload, and cancel stale results after navigation.
-            val raw = suspendCancellableCoroutine<String?> { continuation ->
-                view.evaluateJavascript("(document.documentElement?.outerHTML || '').slice(0, ${MAX_SOURCE_CHARS + 1})") {
-                    if (continuation.isActive) continuation.resume(it)
-                }
-            }
-            val source = decodeJavascriptString(raw)
-                .ifBlank { textResources.getString(R.string.ui_this_page_has_no_source_to_display) }
-            pageSource = if (source.length > MAX_SOURCE_CHARS) {
-                textResources.getString(R.string.ui_source_truncated, source.take(MAX_SOURCE_CHARS))
-            } else source
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            pageSource = textResources.getString(R.string.ui_unable_to_read_page_source_e0f027, error.message.orEmpty())
-        }
-    }
-
-    BrowserBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = containerColor,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding(),
-        ) {
-            if (!compactInput) {
-                TopAppBar(
-                    windowInsets = WindowInsets(0, 0, 0, 0),
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = containerColor),
-                    title = {
-                        Text(
-                            text = textResources.getString(R.string.menu_developer_tools),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = textResources.getString(R.string.ui_close))
-                        }
-                    },
-                )
-
-                PrimaryTabRow(selectedTabIndex = selectedTab, containerColor = containerColor) {
-                    listOf(R.string.ui_console, R.string.ui_network, R.string.ui_source, R.string.ui_info)
-                        .forEachIndexed { index, label ->
-                            Tab(
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                text = { Text(textResources.getString(label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            )
-                        }
-                }
-            }
-
-            when (selectedTab) {
-                0 -> ConsoleTab(
-                    entries = consoleEntries,
-                    webView = webView,
-                    onClear = { evaluations = emptyList(); onClearConsole() },
-                    command = command,
-                    onCommandChange = { command = it },
-                    evaluations = evaluations,
-                    onEvaluation = { evaluations = appendEvaluation(evaluations, it) },
-                    showHeader = !compactInput,
-                )
-                1 -> NetworkTab(
-                    entries = networkEntries,
-                    onClear = onClearNetwork,
-                    onExplain = onExplainFilter,
-                )
-                2 -> SourceCodeTab(pageSource)
-                3 -> InfoTab(webView, pageUrl)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConsoleTab(
-    entries: List<ConsoleLogEntry>,
-    webView: WebView?,
-    onClear: () -> Unit,
-    command: String,
-    onCommandChange: (String) -> Unit,
-    evaluations: List<ConsoleLine>,
-    onEvaluation: (String) -> Unit,
-    showHeader: Boolean,
-) {
-    val textResources = localizedResources()
-    val outputScroll = rememberScrollState()
-    LaunchedEffect(evaluations) {
-        if (evaluations.isNotEmpty()) {
+            val view = webView ?: error(resources.getString(R.string.ui_unable_to_read_page_source))
+            // Let the selected tab and loading state paint before asking the renderer.
             withFrameNanos { }
-            outputScroll.scrollTo(outputScroll.maxValue)
-        }
+            val raw = view.awaitJavascript("(document.documentElement ? document.documentElement.outerHTML : '').slice(0, ${SourceHighlighter.MAX_SOURCE_CHARS + 1})")
+            val parsed = withContext(Dispatchers.Default) {
+                SourceHighlighter.parse(decodeJavascriptString(raw)) { ensureActive() }
+            }
+            if (currentDocument(pageGeneration)) document = parsed
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            sourceError = resources.getString(R.string.ui_unable_to_read_page_source_e0f027, error.message.orEmpty())
+        } finally { sourceLoading = false }
     }
-
-    // The same action is exposed through both the visible button and the keyboard's
-    // Done key. A modal sheet can sit behind the IME on edge-to-edge devices, so the
-    // keyboard action must remain a complete execution path.
-    val executeCommand: () -> Unit = {
+    val execute: () -> Unit = {
         val expression = command.trim()
-        if (expression.isNotEmpty()) {
-            onCommandChange("")
-            val view = webView
-            if (view == null) {
-                onEvaluation(textResources.getString(R.string.ui_webview_is_unavailable, expression))
-            } else {
-                runCatching {
-                    view.evaluateJavascript(expression) { raw ->
-                        onEvaluation("> $expression\n${decodeJavascriptString(raw)}")
+        if (expression.isNotEmpty() && webView != null) {
+            command = ""
+            val owner = identity
+            scope.launch {
+                val result = try {
+                    val raw = webView.awaitJavascript(expression)
+                    withContext(Dispatchers.Default) {
+                        "> $expression\n${decodeJavascriptString(raw).take(MAX_RESULT_CHARS)}"
                     }
-                }.onFailure {
-                    onEvaluation(textResources.getString(R.string.ui_execution_failed, expression, it.message.orEmpty()))
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { resources.getString(R.string.ui_execution_failed, expression, error.message.orEmpty()) }
+                if (currentIdentity === owner && currentDocument(pageGeneration)) {
+                    evaluations = (evaluations + ConsoleLine((evaluations.lastOrNull()?.id ?: 0L) + 1, result)).takeLast(100)
                 }
             }
         }
     }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        if (showHeader) DiagnosticsHeader(
-            title = textResources.getString(R.string.ui_console_5633ea, entries.size + evaluations.size),
-            onClear = onClear,
-        )
-
-        Surface(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            shape = MaterialTheme.shapes.medium,
-            tonalElevation = 1.dp,
-        ) {
-            if (entries.isEmpty() && evaluations.isEmpty()) {
-                Text(
-                    text = textResources.getString(R.string.ui_no_console_output),
-                    modifier = Modifier.padding(16.dp),
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Column(
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .verticalScroll(outputScroll),
-                ) {
-                    entries.forEach { entry ->
-                        Text(
-                            text = formatConsoleEntry(entry, textResources),
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = consoleColor(entry.level),
-                            modifier = Modifier.padding(vertical = 2.dp),
-                        )
-                    }
-                    evaluations.forEach { line ->
-                        Text(
-                            text = line.text,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(vertical = 2.dp),
-                        )
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxSize()) {
+            if (!compactInput) {
+                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools), onDismiss = onDismiss)
+                PrimaryTabRow(selectedTabIndex = selectedTab, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    listOf(R.string.ui_console, R.string.ui_network, R.string.ui_source, R.string.ui_info).forEachIndexed { index, label ->
+                        Tab(selected = selectedTab == index, onClick = { selectedTab = index }, modifier = Modifier.heightIn(min = 48.dp),
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = { Text(resources.getString(label), maxLines = 1, overflow = TextOverflow.Ellipsis) })
                     }
                 }
             }
+            tabStates.SaveableStateProvider(selectedTab) {
+                when (selectedTab) {
+                    0 -> ConsoleTab(consoleEntries, evaluations, command, { command = it.take(MAX_COMMAND_CHARS) }, execute,
+                        webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput)
+                    1 -> NetworkLogTab(networkEntries, onClearNetwork, onExplainFilter)
+                    2 -> SourceCodeTab(document, sourceLoading, sourceError) { document = null; sourceRevision++ }
+                    3 -> InfoTab(webView, pageUrl, pageGeneration, currentDocument)
+                }
+            }
         }
+    }
+}
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = command,
-                onValueChange = onCommandChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(textResources.getString(R.string.ui_enter_a_javascript_command)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { executeCommand() }),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            FilledTonalButton(
-                enabled = command.isNotBlank() && webView != null,
-                onClick = executeCommand,
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null)
+@Composable
+private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<ConsoleLine>, command: String,
+    onCommandChange: (String) -> Unit, onExecute: () -> Unit, canExecute: Boolean, onClear: () -> Unit, showHeader: Boolean) {
+    val resources = localizedResources()
+    val scroll = rememberLazyListState()
+    LaunchedEffect(evaluations.lastOrNull()?.id) {
+        if (evaluations.isNotEmpty()) scroll.scrollToItem(entries.size + evaluations.lastIndex)
+    }
+    Column(Modifier.fillMaxSize()) {
+        if (showHeader) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(resources.getString(R.string.ui_console_5633ea, entries.size + evaluations.size), Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = onClear) { Text(resources.getString(R.string.ui_clear)) }
+        }
+        Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = MaterialTheme.shapes.medium) {
+            LazyColumn(state = scroll, contentPadding = PaddingValues(12.dp)) {
+                if (entries.isEmpty() && evaluations.isEmpty()) item {
+                    Text(resources.getString(R.string.ui_no_console_output), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                items(entries, key = { "log-${it.id}" }, contentType = { "log" }) { entry ->
+                    Text(remember(entry, resources) { formatConsoleEntry(entry, resources) },
+                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                        color = consoleColor(entry.level), modifier = Modifier.padding(vertical = 2.dp))
+                }
+                items(evaluations, key = { "eval-${it.id}" }, contentType = { "evaluation" }) { line ->
+                    Text(line.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = 2.dp))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(command, onCommandChange, Modifier.weight(1f),
+                placeholder = { Text(resources.getString(R.string.ui_enter_a_javascript_command)) }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onExecute() }))
+            Spacer(Modifier.width(8.dp))
+            FilledTonalButton(onClick = onExecute, enabled = canExecute && command.isNotBlank()) {
+                Icon(Icons.Default.PlayArrow, null)
                 Spacer(Modifier.width(4.dp))
-                Text(textResources.getString(R.string.ui_run))
+                Text(resources.getString(R.string.ui_run))
             }
         }
     }
 }
 
 @Composable
-private fun NetworkTab(entries: List<NetworkRequestLog>, onClear: () -> Unit, onExplain: (NetworkRequestLog) -> Unit) {
-    val textResources = localizedResources()
-    Column(modifier = Modifier.fillMaxSize()) {
-        DiagnosticsHeader(
-            title = textResources.getString(R.string.ui_network_requests, entries.size),
-            onClear = onClear,
-        )
-        if (entries.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(textResources.getString(R.string.ui_no_requests_yet_open_or_refresh_a_page))
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-            ) {
-                items(entries.asReversed(), key = { it.id }) { request ->
-                    Column {
-                        NetworkRequestItem(request)
-                        if (!request.isForMainFrame) TextButton(onClick = { onExplain(request) }) {
-                            Text(textResources.getString(R.string.filter_explain))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiagnosticsHeader(title: String, onClear: () -> Unit) {
-    val textResources = localizedResources()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(text = title, style = MaterialTheme.typography.titleMedium)
-        TextButton(onClick = onClear) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(textResources.getString(R.string.ui_clear))
-        }
-    }
-}
-
-@Composable
-private fun NetworkRequestItem(request: NetworkRequestLog) {
+internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkRequestLog) -> Unit) {
     val textResources = localizedResources()
     val statusColor = when {
         request.blocked -> BrowserColors.warning
@@ -389,7 +197,7 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = MaterialTheme.shapes.medium,
     ) {
@@ -400,7 +208,7 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = request.method,
+                    text = request.method + " · " + textResources.getString(com.mybrowser.core.NetworkCategory.of(request).label),
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -433,6 +241,9 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
                 )
                 Text(text = request.durationText(textResources), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (!request.isForMainFrame) TextButton(onClick = { onExplain(request) }) {
+                Text(textResources.getString(R.string.filter_explain))
+            }
             request.errorDescription?.let { description ->
                 Text(
                     text = description,
@@ -448,136 +259,55 @@ private fun NetworkRequestItem(request: NetworkRequestLog) {
 }
 
 @Composable
-private fun SourceCodeTab(source: String) {
-    Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp,
-    ) {
-        Text(
-            text = source,
-            modifier = Modifier
-                .padding(8.dp)
-                .verticalScroll(rememberScrollState()),
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-@Composable
-private fun InfoTab(webView: WebView?, pageUrl: String?) {
-    val textResources = localizedResources()
-    var pageInfo by remember(webView, pageUrl) { mutableStateOf<PageInfo?>(null) }
-
-    LaunchedEffect(webView, pageUrl) {
+private fun InfoTab(webView: WebView?, pageUrl: String?, generation: Long, isCurrent: (Long) -> Boolean) {
+    val resources = localizedResources()
+    var pageInfo by remember(webView, pageUrl, generation) { mutableStateOf<List<Pair<String, String>>?>(null) }
+    LaunchedEffect(webView, pageUrl, generation) {
         val view = webView ?: return@LaunchedEffect
-        pageInfo = null
-        runCatching {
-            view.evaluateJavascript(
-                """
-                JSON.stringify({
-                    title: document.title || '',
-                    url: window.location.href || '',
-                    userAgent: navigator.userAgent || '',
-                    cookiesEnabled: navigator.cookieEnabled,
-                    screenWidth: screen.width,
-                    screenHeight: screen.height,
-                    language: navigator.language || ''
-                })
-                """.trimIndent(),
-            ) { raw ->
-                val json = decodeJavascriptString(raw)
-                val parsed = runCatching { JSONObject(json) }.getOrNull()
-                val url = parsed?.optString("url").orEmpty().ifBlank { pageUrl.orEmpty() }
+        // WebView properties are read on Main; JSON decoding and URI work use Default.
+        val fallbackTitle = view.title.orEmpty()
+        val fallbackAgent = view.settings.userAgentString.orEmpty()
+        try {
+            val raw = view.awaitJavascript("""
+                JSON.stringify({title: document.title || '', url: location.href || '',
+                    userAgent: navigator.userAgent || '', cookiesEnabled: navigator.cookieEnabled,
+                    screenWidth: screen.width, screenHeight: screen.height, language: navigator.language || ''})
+            """.trimIndent())
+            val info = withContext(Dispatchers.Default) {
+                val json = runCatching { JSONObject(decodeJavascriptString(raw)) }.getOrNull()
+                val url = json?.optString("url").orEmpty().ifBlank { pageUrl.orEmpty() }
                 val uri = runCatching { url.toUri() }.getOrNull()
-                pageInfo = PageInfo(
-                    title = parsed?.optString("title").orEmpty().ifBlank { view.title.orEmpty() },
-                    url = url,
-                    protocol = uri?.scheme?.uppercase().orEmpty().ifBlank { "—" },
-                    host = uri?.host ?: uri?.authority.orEmpty(),
-                    userAgent = parsed?.optString("userAgent").orEmpty()
-                        .ifBlank { view.settings.userAgentString.orEmpty() },
-                    language = parsed?.optString("language").orEmpty().ifBlank { "—" },
-                    cookiesEnabled = parsed?.optBoolean("cookiesEnabled", true) ?: true,
-                    screen = "${parsed?.optInt("screenWidth", 0)} × ${parsed?.optInt("screenHeight", 0)}",
+                listOf(
+                    resources.getString(R.string.ui_page_title) to json?.optString("title").orEmpty().ifBlank { fallbackTitle },
+                    "URL" to url,
+                    resources.getString(R.string.ui_protocol) to uri?.scheme.orEmpty().uppercase(),
+                    resources.getString(R.string.ui_host) to uri?.host.orEmpty(),
+                    "User Agent" to json?.optString("userAgent").orEmpty().ifBlank { fallbackAgent },
+                    resources.getString(R.string.ui_language) to json?.optString("language").orEmpty(),
+                    "Cookie" to resources.getString(if (json?.optBoolean("cookiesEnabled", true) != false) R.string.ui_enabled else R.string.ui_disabled),
+                    resources.getString(R.string.ui_screen) to "${json?.optInt("screenWidth", 0)} × ${json?.optInt("screenHeight", 0)}",
                 )
             }
-        }.onFailure {
-            pageInfo = PageInfo(
-                title = view.title.orEmpty(),
-                url = pageUrl.orEmpty(),
-                protocol = pageUrl.orEmpty().toUri().scheme?.uppercase().orEmpty().ifBlank { "—" },
-                host = pageUrl.orEmpty().toUri().host.orEmpty(),
-                userAgent = view.settings.userAgentString.orEmpty(),
-                language = "—",
-                cookiesEnabled = true,
-                screen = "—",
-            )
+            if (isCurrent(generation)) pageInfo = info
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            if (isCurrent(generation)) pageInfo = listOf(resources.getString(R.string.ui_page_title) to fallbackTitle, "URL" to pageUrl.orEmpty())
         }
     }
-
-    if (pageInfo == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(textResources.getString(R.string.ui_reading_page_information))
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-        ) {
-            val info = pageInfo ?: return@LazyColumn
-            item {
-                InfoItem(textResources.getString(R.string.ui_page_title), info.title)
-                InfoItem("URL", info.url)
-                InfoItem(textResources.getString(R.string.ui_protocol), info.protocol)
-                InfoItem(textResources.getString(R.string.ui_host), info.host)
-                InfoItem("User Agent", info.userAgent)
-                InfoItem(textResources.getString(R.string.ui_language), info.language)
-                InfoItem("Cookie", if (info.cookiesEnabled) textResources.getString(R.string.ui_enabled) else textResources.getString(R.string.ui_disabled))
-                InfoItem(textResources.getString(R.string.ui_screen), info.screen)
+    if (pageInfo == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(resources.getString(R.string.ui_reading_page_information))
+    } else LazyColumn(contentPadding = PaddingValues(16.dp)) {
+        items(pageInfo.orEmpty(), key = { it.first }) { (label, value) ->
+            Column(Modifier.padding(vertical = 8.dp)) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value.ifBlank { "—" }, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
+                HorizontalDivider(Modifier.padding(top = 8.dp))
             }
         }
     }
 }
 
-@Composable
-private fun InfoItem(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value.ifBlank { "—" },
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-private data class ConsoleLine(val text: String)
-
-private data class PageInfo(
-    val title: String,
-    val url: String,
-    val protocol: String,
-    val host: String,
-    val userAgent: String,
-    val language: String,
-    val cookiesEnabled: Boolean,
-    val screen: String,
-)
-
-private fun appendEvaluation(current: List<ConsoleLine>, text: String): List<ConsoleLine> =
-    (current + ConsoleLine(text)).takeLast(MAX_EVALUATIONS)
+private data class ConsoleLine(val id: Long, val text: String)
 
 private fun formatConsoleEntry(entry: ConsoleLogEntry, textResources: Resources): String {
     val prefix = when (entry.level) {
@@ -603,13 +333,16 @@ private fun consoleColor(level: ConsoleLogLevel): Color = when (level) {
     ConsoleLogLevel.LOG -> MaterialTheme.colorScheme.onSurface
 }
 
-/** evaluateJavascript returns a JSON string literal, including escaped newlines/quotes. */
+/** Cancellation discards callbacks from a closed tab or an obsolete document. */
+private suspend fun WebView.awaitJavascript(script: String): String? = suspendCancellableCoroutine { continuation ->
+    evaluateJavascript(script) { raw -> if (continuation.isActive) continuation.resume(raw) }
+}
+
 private fun decodeJavascriptString(raw: String?): String {
     val value = raw?.trim().orEmpty()
     if (value.isEmpty() || value == "null") return ""
-    return runCatching { JSONTokener(value).nextValue() as? String ?: value }
-        .getOrElse { value.removeSurrounding("\"") }
+    return runCatching { JSONTokener(value).nextValue() as? String ?: value }.getOrElse { value.removeSurrounding("\"") }
 }
 
-private const val MAX_SOURCE_CHARS = 1_000_000
-private const val MAX_EVALUATIONS = 100
+private const val MAX_COMMAND_CHARS = 8_192
+private const val MAX_RESULT_CHARS = 8_192

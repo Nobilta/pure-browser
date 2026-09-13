@@ -1,11 +1,12 @@
 # Pure 浏览器
 
 面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.7.4（versionCode 15）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+当前版本 **0.8.0（versionCode 16）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
 
-本版全屏增强播放器采用 Material 3 控件、圆角控制条和深色动态配色。
-倍速与投屏在右下角显示紧凑悬浮面板，与播放器共用窗口；弹出与关闭不改变视频尺寸或位置。
-增强播放继续按网站设置选择，非全屏保留网页原播放器；菜单和子页继续共享窗口并使用固定滚动边界。
+本版修复开发工具源码无高亮及长文档卡顿，增加网络请求分类、状态筛选与搜索。
+浏览器自带页面统一使用 Material 3 标题、间距、主题和轻量过渡，菜单标题固定在滚动内容上方。
+新增离线二维码扫描：首页地址栏移除左侧主页占位图标，右侧扫码替代刷新；网页仍保留安全信息与刷新/停止。
+全屏播放器继续使用 Material 3 控件与同窗口倍速/投屏浮层，非全屏保留网页原播放器。
 保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
 
 ## 功能
@@ -21,7 +22,8 @@
 - 设置按浏览与启动、外观、隐私与过滤、下载、视频、关于分类，支持搜索定位；宽屏可显示分类与详情两栏。
   菜单和设置逐级返回，保留滚动与分类；Activity 重建保留当前来路，外部网址导航关闭临时面板。
   菜单只保留一个子页面，在同一个窗口内直接替换内容，保留父级滚动状态；设置与书签使用全屏布局。
-  所有同类弹层、表单和列表关闭拖动与滚动边界拉伸，支持按钮、系统返回及外部区域关闭；开发者工具仅在菜单提供入口。
+  所有同类弹层、表单和列表使用统一标题与安全边距，关闭拖动与滚动边界拉伸，支持按钮、系统返回及外部区域关闭。
+  入场仅动画变换/透明度，关闭使用短退出过渡；切子页保持窗口与不透明底板，支持系统关闭动画设置。开发者工具仅在菜单提供入口。
 - 链接长按支持新标签、后台打开、复制和分享；图片支持打开、保存和复制地址，普通文字保留原生选区。
 - 标签搜索、排序、命名分组、缩略图和批量关闭确认；关闭标签后释放其记录，最后一个标签关闭后回到新标签。
   升级时清理旧版最近关闭存档。
@@ -41,6 +43,15 @@
   跳过非法与重复地址，保留已有条目 ID/标题，整个批次使用 SQLite 事务。
 - 书签、历史按数据库分页搜索，每页 50 条；历史合并重复访问、按日期分组，支持新标签打开、复制和删除。
   旧查询不能覆盖新搜索；写入成功才更新界面，失败可重试。
+
+### 二维码
+
+- 首页地址栏右侧和菜单均可扫码，支持相机、手电筒及从系统文件选择器读取图片；无需 Google 服务或在线识别。
+  横屏采用分栏布局，取景框按预览短边限制尺寸，大字体下操作区可滚动。
+- 有效 HTTP(S) 网页链接直接在当前标签打开，无协议的有效域名补 HTTPS；其余内容按纯文本原样展示，可选择、复制或继续扫描。
+  文本、Wi-Fi 内容、自定义应用协议、脚本和本地文件地址不自动执行、跳转或送往搜索引擎。
+- 相机只在扫码界面前台运行，退出、切后台、展示结果或选图时释放；拒绝相机权限后仍可选图识别。
+  图片按最长边 1600px 采样，实时帧在工作线程以有限频率识别，不保存相机画面或扫码历史。
 
 ### 下载与系统打开文件
 
@@ -137,13 +148,20 @@
   单脚本 1 MiB、最多 24 个、源码/依赖/资源共 12 MiB，单脚本值存储 64 KiB/256 键。
 - 无痕不执行脚本；旧 WebView 只执行页面加载后的 DOM 脚本，跳过依赖原生存储桥的脚本。
   脚本运行于网页环境，不是完整 Tampermonkey 或隔离世界；不提供 `GM_xmlhttpRequest` 和任意原生网络/文件接口。
-- 菜单中的开发工具提供有界控制台/网络日志、规则命中解释、命令执行、源码及页面信息；只在可见时批量刷新。
-  键盘避让、横屏输入、命令草稿和结果保留；过期页面回执被丢弃。
+- 开发工具提供有界控制台/网络日志、规则命中解释、命令执行、源码及页面信息；只有当前选中的日志页批量刷新。
+  控制台与源码使用按需列表，命令草稿、筛选和阅读位置在页签切换间保留；导航代次变化丢弃旧源码、命令和信息回执。
+- 源码后台解码并对 HTML、内嵌 JavaScript/CSS 着色；长行拆为有界文本块，最多读取 100 万字符/4096 块，截断明确提示。
+  切回源码复用已读结果，可手动刷新；遵循浅色、深色和动态配色，支持选择可见文本。
+- 网络按文档、Fetch/XHR、脚本、样式、图片、媒体、字体及其他分类，可同时筛选拦截/失败，并按网址、方法、状态或错误搜索。
+  优先使用 Chromium 请求目的头，旧 WebView 回退到 Accept、XHR 头及扩展名；类别判断受 WebView 可见信息限制。
+  主文档与子资源按同一次导航归档，保留早于页面开始回调的请求，连续刷新不会混入上一页记录。
+  不接管成功响应的传输，无法获得的子资源状态、大小和耗时继续显示未知。
 
 ## 架构与开发
 
 Android UI、生命周期、SQLite、下载、SAF/MediaStore、权限与系统集成保留 Kotlin；
 网络过滤、元素隐藏、PSL/IDNA、URL/搜索和书签 HTML 解析使用 Rust JNI；DOM 控制使用 JavaScript。
+源码高亮在 Kotlin 工作线程线性扫描，扫码使用 Camera2 与 ZXing Core 3.5.3；本轮优化集中于避免 UI 同步大文本排版和无效刷新。
 `Application` 持有下载、过滤、网站设置和 DLNA 仓库；Activity ViewModel 保留单浏览会话。
 详见 [架构说明](ARCHITECTURE_REVIEW.md) 和 [系统能力边界](design/system-integration.md)。
 
@@ -152,7 +170,7 @@ app/src/main/java/com/mybrowser/
   core/ data/ home/ tabs/ ui/       浏览、导航、SQLite、标签和界面
   download/ filter/ userscript/    下载、过滤订阅及用户脚本
   privacy/ site/ security/         Profile、网站权限与安全
-  media/ dlna/                    视频、系统媒体及 DLNA
+  media/ dlna/ qr/                视频、系统媒体、DLNA 与离线二维码
 app/src/main/assets/               播放控制、脚本运行时和内置规则
 rust/                             adblock、site_identity、url_utils
 validation/                       可复现页面、自动检查及模拟器工具
@@ -163,7 +181,7 @@ Node.js 18+、Python 3.9+。`minSdk=29`、`compileSdk/targetSdk=37`；Rust 使�
 SDK 从 `local.properties` 或环境变量查找，NDK 由 `rust/resolve-android-ndk.sh` 解析；不修改全局 shell/Cargo 配置。
 Gradle 堆上限 2 GiB、Metaspace 768 MiB；低内存机器需停止模拟器再构建。
 
-Compose UI/Foundation/Runtime 1.9.4、Material 3 1.4.0、Activity 1.13.0、WebKit 1.17.0。
+Compose UI/Foundation/Runtime 1.9.4、Material 3 1.4.0、Activity 1.13.0、WebKit 1.17.0、ZXing Core 3.5.3。
 依赖图由 `app/gradle.lockfile`、`gradle/verification-metadata.xml`、`rust/Cargo.lock` 固定；
 正常构建不自动刷新锁和校验值。验证用 Node 脚本无需第三方运行依赖。
 
@@ -174,41 +192,41 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 
 ```bash
 ./build-and-test.sh
-./install_and_test.sh PureBrowser-v0.7.4-release.apk
+./install_and_test.sh PureBrowser-v0.8.0-release.apk
 ./diagnose.sh
 ```
 
 完整构建执行三语言资源校验、Node 协议测试、Rust fmt/test/clippy、真实 host JNI 的 Android/Robolectric 测试、
-lint、R8 和签名验证。当前自动检查通过 **330 项 Android、58 项 Rust、55 项 Node 测试及 586 项三语言资源校验**。
-lint 为 0 errors、10 warnings、1 hint。构建记录：`validation/results/release-0.7.4/build-final.json` 与同名日志；Node/Rust 预检保留在该目录的 `build-first.log`。
+lint、R8 和签名验证。当前交付的实际结果、设备覆盖和文件校验值以本节及 [回归报告](EMULATOR_TEST_REPORT.md) 为准。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.4-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.8.0-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.4-release.apk \
-  --label release-074 --stages system-media media-lifecycle features-media video-standard video-custom video-square
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.0-release.apk \
+  --label release-080 --stages developer-tools menu-navigation settings-back settings site layout browser productivity home-shortcut
 # 只有 APK、AVD、阶段选择相同时才能加 --resume
 ```
 
 QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、下载和文件。
 若本机启用了 HTTP 代理，运行回归时为 `127.0.0.1,localhost` 设置 `NO_PROXY` 与 `no_proxy`，确保遥测请求直连本机。
-QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件，清理构建缓存后仍可复现。
+QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件。
 辅助程序仅置于 `/data/local/tmp`，Release 不开放 WebView 调试。runner 按实际安装 APK SHA-256 记录阶段，
-保留失败尝试，不把局部验证计作全部设备/网站覆盖。当前交付包在 Android 17 / WebView 145 上通过 9 个媒体阶段，
-另以中文、150% 字体重跑横竖屏浮层检查；六张暂停画面截图的选定视频区域像素完全一致，覆盖浮层开关及投屏列表滚动。
-Android 10 / WebView 91 上通过 6 个兼容阶段及 0.7.3 → 0.7.4 同签名覆盖升级。
-两版系统均检查后台服务、系统媒体和画中画，最终包日志没有浏览器崩溃或 ANR 标记。
-阶段、升级链和失败记录见 [回归报告](EMULATOR_TEST_REPORT.md)，
-复现与手工验收见 [测试指南](TESTING_GUIDE.md)。
+保留失败尝试，不把局部验证计作全部设备/网站覆盖。输入辅助核对可见窗口中实际聚焦的控件，兼容 Compose 页签切换。
+复现与扫码/大源码手工验收见 [测试指南](TESTING_GUIDE.md)。
 
 ### 交付包
 
-- `PureBrowser-v0.7.4-release.apk`：Android 10+、arm64-v8a，4,610,358 bytes（约 4.40 MiB）。
-- SHA-256：`7e61f1296713e3dde28da9ff8dc1d471d8dfcd5b7b383ce093562ca002e5977f`。
-- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 14 → 15。
-- 证书 SHA-256：`7d468e8b3a9be385a2386b27ef548e83cb55206e67911d81b721b5adbe1e8236`。
+签名 APK 为 [`PureBrowser-v0.8.0-release.apk`](PureBrowser-v0.8.0-release.apk)，Android 10+、arm64-v8a，versionCode 15 → 16。
+大小 **4,688,330 bytes（约 4.47 MiB）**，SHA-256：
+`7d384d68084d754b904e63a2c703669b60e60cc82cc466e5c7d763cb903ee924`。
+与上一版使用同一签名，可覆盖安装；v2 签名、16 KiB zipalign、三份 native 库 ELF LOAD 对齐和两个运行时脚本一致性检查通过。
 
+本轮 330 项 Android/Robolectric、58 项 Rust、55 项 Node 测试通过；29 项临时专项验证后已删除测试源码。
+622 项三语言资源校验通过；lint 为 0 errors、19 warnings、1 hint。界面、扫码、性能与设备覆盖的实际结果见 [回归报告](EMULATOR_TEST_REPORT.md)。
+最终包通过 Android 17 的 18 阶段回归和 Android 10 的 3 阶段兼容回归，以及两版系统的相机/图片扫码专项。
+Android 10 从 0.7.4 覆盖升级后，已有数据库与偏好文件校验值保持一致。百万字符源码可显示和滚动；
+帧统计仅是模拟器采样，不作为真机性能提升百分比。
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。
 本地交付只保留最新 APK 及必要验证记录；完整源码使用 `master` 普通提交维护，不创建备份或回滚分支。
 

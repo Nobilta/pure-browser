@@ -38,11 +38,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     }
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-            Row(Modifier.fillMaxWidth().padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) {
-                    Icon(painterResource(R.drawable.ic_back), contentDescription = res.getString(R.string.cd_back))
-                }
-                Text(res.getString(R.string.ui_ad_filter_settings), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            BrowserSheetHeader(res.getString(R.string.ui_ad_filter_settings), onBack = onDismiss) {
                 Switch(enabled, onCheckedChange = filterController::setEnabled,
                     modifier = Modifier.semantics { contentDescription = res.getString(R.string.ui_ad_filter_settings) })
             }
@@ -62,7 +58,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
             error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
                 item {
-                    ListItem(
+                    ListItem(colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                         headlineContent = { Text(res.getString(R.string.filter_auto_update)) },
                         supportingContent = { Text(res.getString(R.string.filter_auto_update_summary)) },
                         trailingContent = { Switch(autoUpdate, onCheckedChange = controller::setAutoUpdate,
