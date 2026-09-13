@@ -34,7 +34,6 @@ fun DownloadsSheet(
     focusedId: Long? = null,
 ) {
     val textResources = localizedResources()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClearCompleted by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -43,11 +42,9 @@ fun DownloadsSheet(
         if (index >= 0) listState.scrollToItem(index)
     }
 
-    ModalBottomSheet(
+    BrowserBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
     ) {
-        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -61,9 +58,11 @@ fun DownloadsSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                BrowserIconAction(R.drawable.ic_back, textResources.getString(R.string.cd_back), onClick = onDismiss)
                 Text(
                     text = textResources.getString(R.string.ui_download_manager),
-                    style = MaterialTheme.typography.titleLarge
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
                 )
 
                 if (downloads.isEmpty()) {

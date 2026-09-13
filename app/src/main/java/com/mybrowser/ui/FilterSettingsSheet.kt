@@ -36,8 +36,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     val dateFormat = remember(res.configuration.locales.toLanguageTags()) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, res.configuration.locales[0])
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             Row(Modifier.fillMaxWidth().padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) {

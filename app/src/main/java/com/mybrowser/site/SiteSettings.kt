@@ -47,7 +47,11 @@ data class SiteSettings(
     val externalApps: SitePermission = SitePermission.ASK,
     val webDarkening: Boolean = true,
     val desktopWidth: Int = 1024,
+    // Null inherits the browser default; an explicit choice belongs to this origin only.
+    val enhancedPlayback: Boolean? = null,
 ) {
+    fun useEnhancedPlayback(default: Boolean): Boolean = enhancedPlayback ?: default
+
     fun permission(capability: SiteCapability) = when (capability) {
         SiteCapability.CAMERA -> camera
         SiteCapability.MICROPHONE -> microphone
@@ -126,6 +130,7 @@ class SiteSettingsRepository private constructor(
                 .put("desktop", settings.desktop).put("textZoom", settings.textZoom)
                 .put("externalApps", settings.externalApps.name)
                 .put("webDarkening", settings.webDarkening).put("desktopWidth", settings.desktopWidth)
+                .put("enhancedPlayback", settings.enhancedPlayback)
             SiteCapability.entries.forEach { entry.put(it.name, settings.permission(it).name) }
             json.put(origin, entry)
         }
@@ -165,7 +170,8 @@ class SiteSettingsRepository private constructor(
                         textZoom = entry.optInt("textZoom", 100).coerceIn(50, 200),
                         externalApps = runCatching { SitePermission.valueOf(entry.optString("externalApps")) }.getOrDefault(SitePermission.ASK),
                         webDarkening = entry.optBoolean("webDarkening", true),
-                        desktopWidth = entry.optInt("desktopWidth", 1024).takeIf { it in DESKTOP_WIDTHS } ?: 1024)
+                        desktopWidth = entry.optInt("desktopWidth", 1024).takeIf { it in DESKTOP_WIDTHS } ?: 1024,
+                        enhancedPlayback = entry.opt("enhancedPlayback") as? Boolean)
                     SiteCapability.entries.forEach { capability ->
                         val permission = runCatching { SitePermission.valueOf(entry.optString(capability.name)) }.getOrDefault(SitePermission.ASK)
                         value = value.withPermission(capability, permission)

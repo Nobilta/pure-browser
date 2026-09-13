@@ -25,16 +25,10 @@ import kotlin.math.roundToInt
 fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Boolean, busy: Boolean,
     onSave: (SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
     onClearSiteData: (() -> Unit)? = null, temporaryFilteringOff: Boolean = false,
-    onTemporaryFilteringChange: (() -> Unit)? = null) {
+    onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true) {
     var draft by remember(origin, settings) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
-    val contentInsets = WindowInsets.safeDrawing
-    ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        sheetGesturesEnabled = false,
-        dragHandle = null,
-        contentWindowInsets = { contentInsets }) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {
             Text(stringResource(R.string.site_settings), style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(top = 20.dp, bottom = 12.dp))
@@ -58,6 +52,11 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 SiteToggle(stringResource(R.string.site_third_party_cookies), draft.thirdPartyCookies, !busy) { draft = draft.copy(thirdPartyCookies = it) }
                 SiteToggle(stringResource(R.string.menu_desktop_site), draft.desktop, !busy) { draft = draft.copy(desktop = it) }
                 SiteToggle(stringResource(R.string.site_web_darkening), draft.webDarkening, !busy) { draft = draft.copy(webDarkening = it) }
+                SiteToggle(stringResource(R.string.site_enhanced_playback), draft.useEnhancedPlayback(defaultEnhancedPlayback), !busy) {
+                    draft = draft.copy(enhancedPlayback = it)
+                }
+                Text(stringResource(R.string.site_enhanced_playback_summary), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 var viewportExpanded by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.site_desktop_viewport), Modifier.weight(1f))
@@ -131,10 +130,7 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
 @Composable
 fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    val contentInsets = WindowInsets.safeDrawing
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        sheetGesturesEnabled = false, dragHandle = null, contentWindowInsets = { contentInsets }) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)

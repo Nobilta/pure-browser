@@ -19,11 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +32,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
-import com.mybrowser.media.PlaybackSpeed
 
 /** Browser actions grouped into predictable Material 3 sections. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -46,7 +43,6 @@ fun MenuSheet(
     mediaCount: Int,
     hasCastSession: Boolean,
     hasVideo: Boolean,
-    playbackSpeed: Float,
     isDesktopMode: Boolean,
     isCurrentPageBookmarked: Boolean,
     canUsePageActions: Boolean,
@@ -56,7 +52,6 @@ fun MenuSheet(
     onToggleFilter: (Boolean) -> Unit,
     onToggleDesktopMode: () -> Unit,
     onOpenFind: () -> Unit,
-    onOpenPlaybackSpeed: () -> Unit,
     onOpenMedia: () -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenHistory: () -> Unit,
@@ -69,20 +64,12 @@ fun MenuSheet(
     onDismiss: () -> Unit,
 ) {
     val textResources = localizedResources()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // The dialog has a separate saved-state registry. Keep scroll state in the
-    // route's composition so returning from Settings restores the actual menu row.
+    // Route state survives child pages in the shared dialog.
     val scrollState = rememberScrollState()
-    // Capture host insets before entering the dialog (Android 10 can report zero
-    // inside it). A tall menu must not put its drag handle under the status bar.
-    val contentInsets = WindowInsets.safeDrawing
 
-    ModalBottomSheet(
+    BrowserBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        contentWindowInsets = { contentInsets },
     ) {
-        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .semantics { testTagsAsResourceId = true }
@@ -90,14 +77,18 @@ fun MenuSheet(
                 .verticalScroll(scrollState)
                 .padding(start = 12.dp, end = 12.dp, bottom = 28.dp),
         ) {
-            Text(
-                text = stringResource(R.string.menu_title),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.menu_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp),
+                )
+                BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close), onClick = onDismiss)
+            }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                QuickMenuAction(R.drawable.ic_bookmark, stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
+                QuickMenuAction(if (isCurrentPageBookmarked) R.drawable.ic_bookmark_remove else R.drawable.ic_bookmark_add,
+                    stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
                 QuickMenuAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind, Modifier.weight(1f))
             }
             Row(Modifier.fillMaxWidth()) {
@@ -105,7 +96,7 @@ fun MenuSheet(
                 QuickMenuAction(R.drawable.ic_download, stringResource(R.string.menu_downloads), true, onOpenDownloads, Modifier.weight(1f))
             }
             Row(Modifier.fillMaxWidth()) {
-                QuickMenuAction(R.drawable.ic_settings, stringResource(R.string.site_settings), canUsePageActions, onOpenSiteSettings, Modifier.weight(1f))
+                QuickMenuAction(R.drawable.ic_site_settings, stringResource(R.string.site_settings), canUsePageActions, onOpenSiteSettings, Modifier.weight(1f))
                 QuickMenuAction(R.drawable.ic_settings, stringResource(R.string.menu_settings), true, onOpenSettings, Modifier.weight(1f))
             }
 
@@ -129,20 +120,6 @@ fun MenuSheet(
                             enabled = canUsePageActions,
                         )
                     },
-                )
-                MenuRow(
-                    iconRes = R.drawable.ic_speed,
-                    title = stringResource(R.string.menu_playback_speed),
-                    subtitle = if (hasVideo) {
-                        stringResource(
-                            R.string.menu_playback_speed_current,
-                            PlaybackSpeed.label(playbackSpeed),
-                        )
-                    } else {
-                        stringResource(R.string.menu_playback_speed_unavailable)
-                    },
-                    enabled = hasVideo,
-                    onClick = onOpenPlaybackSpeed,
                 )
                 MenuRow(
                     iconRes = R.drawable.ic_cast,

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,8 +72,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import com.mybrowser.R
@@ -133,19 +130,12 @@ fun SettingsSheet(
     }
     val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
 
-    // The settings surface and system Back callback share one dialog lifecycle.
-    // Returning to the menu removes the whole window, including its input owner.
-    Dialog(onDismissRequest = back, properties = DialogProperties(
-        usePlatformDefaultWidth = false,
-        decorFitsSystemWindows = false,
-        dismissOnClickOutside = false,
-    )) {
-    ApplySheetSystemBars(fullscreen = true)
+    BrowserFullscreenSheet(onDismissRequest = back) {
     if (showSystemLogin) SystemLoginDialog { showSystemLogin = false }
     CompositionLocalProvider(LocalSettingHighlight provides highlightTitle) {
     Surface(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
         .testTag(if (selected == null) "settings_root" else "settings_detail")) {
-        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(browserSheetInsets())) {
             val twoPane = maxWidth >= 720.dp && selected != null
             Row(Modifier.fillMaxSize()) {
                 if (twoPane || selected == null) {
@@ -241,7 +231,7 @@ fun SettingsSheet(
                                             SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
-                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_settings)
+                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
                                             SettingsGroup(textResources.getString(R.string.menu_section_data))
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
@@ -259,11 +249,11 @@ fun SettingsSheet(
                                                 { updateVideo(video.copy(landscapeFullscreen = it)) })
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_gestures))
                                             SettingsToggle(textResources.getString(R.string.ui_brightness_and_volume_gestures), textResources.getString(R.string.ui_swipe_vertically_on_the_left_for_brightness_and), video.verticalGestures,
-                                                { updateVideo(video.copy(verticalGestures = it)) }, video.enhancedControls)
+                                                { updateVideo(video.copy(verticalGestures = it)) })
                                             SettingsToggle(textResources.getString(R.string.ui_swipe_to_seek), textResources.getString(R.string.ui_swipe_horizontally_to_preview_a_position_release_to), video.horizontalSeek,
-                                                { updateVideo(video.copy(horizontalSeek = it)) }, video.enhancedControls)
+                                                { updateVideo(video.copy(horizontalSeek = it)) })
                                             SettingsToggle(textResources.getString(R.string.ui_hold_for_temporary_speed_boost), textResources.getString(R.string.ui_release_to_restore_the_previous_playback_speed), video.holdToBoost,
-                                                { updateVideo(video.copy(holdToBoost = it)) }, video.enhancedControls)
+                                                { updateVideo(video.copy(holdToBoost = it)) })
                                             SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_speed)
                                             SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
                                             SettingsGroup(textResources.getString(R.string.menu_playback_speed))
@@ -292,10 +282,8 @@ fun SettingsSheet(
         val owner = pickerGeneration
         val dismissPicker = { if (pickerGeneration == owner) picker = null }
         key(owner) {
-            ModalBottomSheet(onDismissRequest = dismissPicker,
-                sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-                ApplySheetSystemBars()
-                Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
+            BrowserBottomSheet(onDismissRequest = dismissPicker) {
+                        Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
                     when (picker) {
                         "search" -> SearchEngineSettings(currentSearchEngine, availableSearchEngines,
                             onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine, dismissPicker)

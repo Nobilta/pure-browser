@@ -38,7 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import com.mybrowser.ui.theme.BrowserColors
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
@@ -47,7 +46,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -110,7 +108,6 @@ fun DeveloperTools(
     // list. Starting partially expanded hides that row behind the viewport on phones;
     // opening expanded makes the command surface immediately usable and the inner lists
     // retain their own scrolling behavior.
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Source is deliberately capped. A large application can have a multi-megabyte DOM;
     // putting all of it in a Compose Text would otherwise stall the UI and retain a second
@@ -141,25 +138,13 @@ fun DeveloperTools(
         }
     }
 
-    ModalBottomSheet(
+    BrowserBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
         containerColor = containerColor,
-        dragHandle = if (compactInput) null else ({ BottomSheetDefaults.DragHandle() }),
-        modifier = Modifier
-            .statusBarsPadding()
-            // Apply the IME inset to the sheet itself. Material3 consumes the inset
-            // before passing constraints to some sheet content, so padding only the
-            // inner column is not sufficient on edge-to-edge Android 15+ windows.
-            .imePadding(),
     ) {
-        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // ModalBottomSheet does not resize its content on every WebView/IME
-                // combination. Apply the inset explicitly so the JS command row and
-                // execute button cannot end up underneath the software keyboard.
                 .imePadding(),
         ) {
             if (!compactInput) {

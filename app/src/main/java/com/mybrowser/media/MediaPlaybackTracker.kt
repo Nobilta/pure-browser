@@ -20,7 +20,6 @@ import org.json.JSONTokener
 @SuppressLint("RequiresFeature")
 class MediaPlaybackTracker(
     private val webView: WebView,
-    private var enhancedControls: Boolean = true,
     private val onSignal: (Signal) -> Unit,
 ) {
     data class Signal(
@@ -67,32 +66,7 @@ class MediaPlaybackTracker(
     private var fullscreenTarget: Target? = null
     private var boostTarget: Target? = null
     private var suspended = false
-    private var composedSource: String? = null
-    private val source: String get() = composedSource ?: run {
-        val context = webView.context
-        val labels = JSONObject()
-        mapOf("player" to com.mybrowser.R.string.inline_player, "play" to com.mybrowser.R.string.inline_play,
-            "pause" to com.mybrowser.R.string.inline_pause, "mute" to com.mybrowser.R.string.inline_mute,
-            "unmute" to com.mybrowser.R.string.inline_unmute, "speed" to com.mybrowser.R.string.inline_speed,
-            "seek" to com.mybrowser.R.string.inline_seek, "fullscreen" to com.mybrowser.R.string.inline_fullscreen,
-            "webControls" to com.mybrowser.R.string.inline_web_controls).forEach { (key, id) -> labels.put(key, context.getString(id)) }
-        val options = JSONObject().put("enabled", enhancedControls).put("labels", labels)
-        "(function(w){return (${probeSource(context)})(w,$options,${inlineSource(context)});})".also { composedSource = it }
-    }
-
-    fun setEnhancedControls(enabled: Boolean) {
-        if (closed || enhancedControls == enabled) return
-        enhancedControls = enabled
-        composedSource = null
-        if (isInstalled) {
-            scriptHandler?.let { runCatching { it.remove() } }
-            scriptHandler = runCatching { WebViewCompat.addDocumentStartJavaScript(webView, "$source(window);", setOf("*")) }.getOrNull()
-        }
-        frames.values.toList().forEach { frame ->
-            send(Target(frame.signal.frameId, frame.signal.videoId, frame.proxy), "configure", JSONObject().put("enabled", enabled))
-        }
-        runCatching { webView.evaluateJavascript(walkScript("api.configure($enabled);", "true"), null) }
-    }
+    private val source: String get() = probeSource(webView.context)
 
     private data class Frame(val signal: Signal, val time: Long, val proxy: JavaScriptReplyProxy?)
     private data class Target(val frameId: String, val videoId: String, val proxy: JavaScriptReplyProxy?)
@@ -349,11 +323,6 @@ class MediaPlaybackTracker(
         private fun probeSource(context: Context): String = cachedSource ?: synchronized(this) {
             cachedSource ?: context.assets.open("playback-probe.js").bufferedReader().use { it.readText() }
                 .also { cachedSource = it }
-        }
-        @Volatile private var cachedInline: String? = null
-        private fun inlineSource(context: Context): String = cachedInline ?: synchronized(this) {
-            cachedInline ?: context.assets.open("inline-player.js").bufferedReader().use { it.readText() }
-                .also { cachedInline = it }
         }
         private fun decode(raw: String?): Any? {
             if (raw == null || raw.length > 131_072) return null

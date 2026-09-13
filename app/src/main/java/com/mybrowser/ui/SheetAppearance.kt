@@ -27,6 +27,7 @@ internal fun ApplySheetSystemBars(fullscreen: Boolean = false) {
         // The pinned Material3 version configures its dialog window after composition.
         // Apply the app preference after that update instead of following the OS theme.
         val apply = Runnable {
+            window?.setWindowAnimations(0)
             if (fullscreen && window != null) {
                 // Dialog initialization can reset the constructor's edge-to-edge
                 // flags. Apply them after attachment; content supplies safe insets.

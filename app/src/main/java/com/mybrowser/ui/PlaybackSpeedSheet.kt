@@ -13,10 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,13 +30,10 @@ fun PlaybackSpeedSheet(
     onSelect: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    BrowserBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
     ) {
-        ApplySheetSystemBars()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -46,11 +41,14 @@ fun PlaybackSpeedSheet(
                 .selectableGroup()
                 .padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
         ) {
-            Text(
-                text = stringResource(R.string.playback_speed_title),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
+                Text(
+                    text = stringResource(R.string.playback_speed_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                )
+            }
             PlaybackSpeed.OPTIONS.forEach { speed ->
                 val selected = PlaybackSpeed.equivalent(speed, currentSpeed)
                 Row(

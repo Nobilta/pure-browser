@@ -2,6 +2,7 @@ package com.mybrowser.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -69,7 +70,8 @@ fun MyBrowserTheme(
     } else {
         if (dark) DarkColors else LightColors
     }
-    CompositionLocalProvider(LocalIsDarkTheme provides dark) {
+    // Browser forms and libraries use fixed edges, including nested pickers/dialogs.
+    CompositionLocalProvider(LocalIsDarkTheme provides dark, LocalOverscrollFactory provides null) {
         MaterialTheme(colorScheme = colors, content = content)
     }
 }

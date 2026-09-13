@@ -1,5 +1,0 @@
-<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Inline cross-origin player</title>
-<style>body{margin:0;font:16px system-ui}h1{font-size:18px;margin:8px}iframe{display:block;width:100%;height:650px;border:0}</style>
-<h1>Inline cross-origin player</h1><iframe id="frame" allow="autoplay;fullscreen" allowfullscreen></iframe>
-<script>const key=new URLSearchParams(location.search).get('case');frame.src='http://localhost:8876/inline-player-fixture.html?variant=custom&case='+encodeURIComponent(key);
-setInterval(()=>{const r=frame.getBoundingClientRect();fetch('/__state?case='+encodeURIComponent(key),{method:'POST',body:JSON.stringify({kind:'frame',x:r.left,y:r.top,viewportWidth:innerWidth})}).catch(()=>{})},250)</script></html>

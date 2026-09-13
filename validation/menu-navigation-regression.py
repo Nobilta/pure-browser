@@ -170,9 +170,8 @@ try:
         foreground()
         root, _ = ux.nodes()
         assert not ux.menu_open(root), 'Menu still covers child: ' + label
-        # The folder library is a full-screen navigable surface, like Settings.
-        # Other children still own one dialog above the browser window.
-        expected_windows = 1 if label == '书签' else 2
+        # All menu destinations reuse the same dialog above the browser.
+        expected_windows = 2
         assert window_count() == expected_windows, 'Unexpected child window count: ' + label
         back()
         menu()
@@ -207,10 +206,10 @@ try:
     ux.open_settings('视频播放')
     ux.adb('shell', 'input', 'keyevent', '3')
     ux.launch()
-    ux.expect('增强视频控件')
+    ux.expect('默认启用增强播放')
     ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '1.15')
     time.sleep(1.2)
-    ux.expect('增强视频控件')
+    ux.expect('默认启用增强播放')
     back()
     settings()
     back()
@@ -222,22 +221,16 @@ try:
     time.sleep(1)
     record('background/resume and Activity recreation retain the complete return path')
 
-    # Dismiss the menu through its drag handle, not by scrolling its inner list.
     ux.tap('菜单')
     root = menu()
-    handle = ux.match(root, 'Drag handle')
-    if handle is None:
-        handle = next((node for node in root.iter('node') if ux.visible(node)
-                       and node.get('content-desc') in ('拖动句柄', '拖曳控點')), None)
-    assert handle is not None, 'Menu drag handle missing'
-    x, y = tap_point(handle)
-    safe = ux.stable_display_bounds(root)
-    assert safe[0] < x < safe[2] and safe[1] < y < safe[3], 'Menu handle overlaps a system gesture area'
-    height = int(re.search(r'(\d+)x(\d+)', ux.adb('shell', 'wm', 'size'))[2])
-    ux.adb('shell', 'input', 'swipe', str(x), str(y), str(x), str(height - 70), '250')
-    time.sleep(.6)
+    assert ux.match(root, '播放速度') is None, 'Page playback speed is still in the menu'
+    assert ux.match(root, 'Drag handle') is None, 'Fixed menu must not have a drag handle'
+    close = [node for node in root.iter('node') if ux.visible(node)
+             and node.get('content-desc') in ux.labels('关闭') and ux.bounds(node)[2] - ux.bounds(node)[0] < 200]
+    assert close, 'Menu close button is missing'
+    ux.tap_node(close[0])
     browser()
-    record('drag dismissal removes the menu window and releases input')
+    record('fixed menu has a close button and no page playback speed action or drag handle')
 
     # Each cycle starts from an observed settings root. Rapid Back can land before
     # the remounted menu has registered its callback; in that case close that one
