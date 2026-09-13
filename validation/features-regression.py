@@ -401,8 +401,9 @@ class Regression:
         self.record("themed HTTP auth dialog submits masked credentials")
 
     def media(self):
-        ux.launch(self.base + "media-fixture.html")
-        time.sleep(1)
+        self.since = time.time()
+        ux.launch(self.base + "media-fixture.html?case=" + self.case)
+        self.wait(lambda s: bool(s.get("mediaButtons")))
         patterns = [re.escape(s["cast_detected_sources"]).replace(re.escape("%1$d"), r"\d+") for s in ux._translations]
         def cast_button():
             nodes = [n for n in ux.nodes()[0].iter("node") if ux.visible(n) and
@@ -414,19 +415,23 @@ class Regression:
                 ux.tap(name, timeout=25)
                 return
             except AssertionError:
-                # API 29 WebView can paint a sibling HTML button while exposing only
-                # the first button in its accessibility tree. Derive the second
-                # button's real center from the visible first button and touch it.
-                if name != "Play secondary":
-                    raise
+                # Old WebView can paint both buttons but omit them after a dialog
+                # closes. Use fresh DOM geometry inside the verified page viewport.
                 root, _ = ux.nodes()
-                primary = ux.match(root, "Play primary")
-                assert primary is not None, "Neither media button is accessible"
-                x1, y1, x2, y2 = ux.bounds(primary)
-                ux.adb("shell", "input", "tap", str(x2 + int((x2 - x1) * .62)), str((y1 + y2) // 2))
+                assert ux.match(root, "Pure media detection fixture") is not None
+                web = next(n for n in root.iter("node") if n.get("class") == "android.webkit.WebView" and ux.visible(n))
+                after = int(ux.adb("shell", "date", "+%s%3N"))
+                state = self.wait(lambda s: s.get("capturedAt", 0) >= after
+                                  and s.get("mediaButtons", {}).get(name, {}).get("width", 0) > 0)
+                rect, scale = state["mediaButtons"][name], state["viewport"]["dpr"]
+                left, top, right, bottom = ux.bounds(web)
+                x, y = int(left + (rect["x"] + rect["width"] / 2) * scale), int(top + (rect["y"] + rect["height"] / 2) * scale)
+                assert left <= x < right and top <= y < bottom, "Media button is outside the visible page"
+                ux.adb("shell", "input", "tap", str(x), str(y))
                 time.sleep(.7)
         for name, label in [("Play primary", "sample-default.mp4"), ("Play secondary", "player-sample.mp4")]:
             tap_media_button(name)
+            self.wait(lambda s: s.get("playing") == name.removeprefix("Play "))
             time.sleep(1.2)
             self.snapshot("floating-cast-" + name[-7:])
             self.click(cast_button())

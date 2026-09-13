@@ -89,7 +89,6 @@
     <string name="menu_cast_none">No castable videos on this page</string>
     <string name="menu_cast_no_direct_source">No direct media address detected for this video</string>
     <string name="playback_speed_title">Playback speed</string>
-    <string name="playback_speed_normal">%1$s (normal)</string>
     <string name="playback_speed_applied">Playback speed set to %1$s</string>
     <string name="playback_speed_failed">No controllable video found</string>
     <string name="menu_adblock">Ad blocking</string>

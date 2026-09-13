@@ -8,12 +8,12 @@ import com.mybrowser.App
 /** Keeps only the explicitly enabled, currently playing normal page alive in background. */
 class MediaPlaybackService : Service() {
     private val media get() = (application as App).mediaSession
-    override fun onCreate() {
-        super.onCreate()
-        startForeground(BrowserMediaSession.NOTIFICATION_ID, media.notification())
-    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        media.command(intent?.action, fromService = true)
+        // A new foreground request can reach an existing instance while its prior
+        // stop is queued. Acknowledge every start before processing any command.
+        startForeground(BrowserMediaSession.NOTIFICATION_ID, media.notification())
+        if (intent?.action == ACTION_FINISH) stopSelfResult(startId)
+        else media.command(intent?.action, fromService = true)
         return START_NOT_STICKY
     }
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -25,4 +25,8 @@ class MediaPlaybackService : Service() {
         super.onDestroy()
     }
     override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object {
+        internal const val ACTION_FINISH = "com.mybrowser.media.FINISH_SERVICE"
+    }
 }

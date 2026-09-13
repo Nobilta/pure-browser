@@ -1,11 +1,11 @@
 # Pure 浏览器
 
 面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.7.3（versionCode 14）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+当前版本 **0.7.4（versionCode 15）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
 
-本版增强播放器仅在全屏时尝试接管，支持在网站设置中单独开启或关闭；移除网页内播放器接管代码。
-菜单移除页面播放速度入口，书签与添加书签、网站设置与设置使用不同图标。
-菜单及子页面共享窗口，弹层固定位置并关闭边界拉伸，避免页面切换闪出网页及滚动到边界时抖动。
+本版全屏增强播放器采用 Material 3 控件、圆角控制条和深色动态配色。
+倍速与投屏在右下角显示紧凑悬浮面板，与播放器共用窗口；弹出与关闭不改变视频尺寸或位置。
+增强播放继续按网站设置选择，非全屏保留网页原播放器；菜单和子页继续共享窗口并使用固定滚动边界。
 保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
 
 ## 功能
@@ -75,6 +75,10 @@
   删除左下角快进/后退按钮和右上角网页/增强控件切换按钮；单击显隐，双击中央播放/暂停、两侧跳转 10 秒。
   横滑预览进度，左右竖滑分别调亮度/音量；长按临时 2×/3×，松开恢复。
   锁定后返回先解锁，退出恢复方向、亮度和常亮状态；闲置自动隐藏不被遥测刷新打断。
+- 播放器使用 Material 3 按钮、滑块和字型，底部圆角控制条区分主播放操作与倍速/投屏操作；触摸目标至少 48dp；中央手势提示透传触摸，不阻挡连续操作。
+  倍速七档以紧凑网格选择，投屏沿用媒体、设备及远端控制列表；面板锚定右下角，长内容在面板内滚动。
+  面板开启时控件保持可见，返回、关闭或首次点击面板外只关闭面板；切后台、进入画中画或退出全屏时清理面板。
+  系统安全边距只影响控件，不再施加到视频本身，避免弹层和临时系统栏令画面上移或缩放。
 - 接管时只隔离当前全屏播放器的控件。无法隔离、样式受限/丢失、命令失败或目标失效时恢复网页控件；
   退出全屏恢复原始 DOM 属性、控件和布局，网页内不再次接管。
 - HTTP(S)、签名链接和 Blob 视频使用相同原视频控制路径；MSE 仍由网站/WebView 管理。
@@ -88,6 +92,7 @@
 - 当前视频普通暂停可继续播放；结束、隐藏并暂停、卸载、移除、替换为待播视频、关闭标签或导航时，
   释放旧系统媒体会话、标题、通知和媒体前台服务。消失的跨域 frame 即使没有最后一条消息，也会在 4 秒未更新后失效。
   关闭系统画中画会暂停视频并释放会话，开启后台播放也不会让已关闭的小窗继续播放。
+  快速暂停、停止或离开播放页面时按序结束后台服务，避免服务启动与停止交错造成闪退。
 - 网络请求及已加载 `currentSrc` 提供有界媒体候选，保留完整签名参数，并标记实际匹配的当前播放来源。
   页面只有一个投屏入口，全屏时在控制栏内提供；缺少候选会明确说明。
 - DLNA 支持 SSDP 发现、发送地址、播放/暂停/停止、进度及设备音量，区分命令被接受和设备报告正在播放。
@@ -169,20 +174,20 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 
 ```bash
 ./build-and-test.sh
-./install_and_test.sh PureBrowser-v0.7.3-release.apk
+./install_and_test.sh PureBrowser-v0.7.4-release.apk
 ./diagnose.sh
 ```
 
 完整构建执行三语言资源校验、Node 协议测试、Rust fmt/test/clippy、真实 host JNI 的 Android/Robolectric 测试、
-lint、R8 和签名验证。当前自动检查通过 **330 项 Android、58 项 Rust、55 项 Node 测试及 587 项三语言资源校验**。
-lint 为 0 errors、10 warnings、1 hint。构建记录：`validation/results/release-0.7.3/build-final.json` 与同名日志。
+lint、R8 和签名验证。当前自动检查通过 **330 项 Android、58 项 Rust、55 项 Node 测试及 586 项三语言资源校验**。
+lint 为 0 errors、10 warnings、1 hint。构建记录：`validation/results/release-0.7.4/build-final.json` 与同名日志；Node/Rust 预检保留在该目录的 `build-first.log`。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.3-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.4-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.3-release.apk \
-  --label release-073 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.4-release.apk \
+  --label release-074 --stages system-media media-lifecycle features-media video-standard video-custom video-square
 # 只有 APK、AVD、阶段选择相同时才能加 --resume
 ```
 
@@ -190,17 +195,18 @@ QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、�
 若本机启用了 HTTP 代理，运行回归时为 `127.0.0.1,localhost` 设置 `NO_PROXY` 与 `no_proxy`，确保遥测请求直连本机。
 QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件，清理构建缓存后仍可复现。
 辅助程序仅置于 `/data/local/tmp`，Release 不开放 WebView 调试。runner 按实际安装 APK SHA-256 记录阶段，
-保留失败尝试，不把局部验证计作全部设备/网站覆盖。当前交付包在 Android 17 / WebView 145 上通过 14 个阶段，
-Android 10 / WebView 91 上通过 7 个兼容阶段及 0.7.2 → 0.7.3 覆盖升级。
-另完成菜单切换录像逐帧检测与脚本、过滤、网站列表边界滑动检查。
+保留失败尝试，不把局部验证计作全部设备/网站覆盖。当前交付包在 Android 17 / WebView 145 上通过 9 个媒体阶段，
+另以中文、150% 字体重跑横竖屏浮层检查；六张暂停画面截图的选定视频区域像素完全一致，覆盖浮层开关及投屏列表滚动。
+Android 10 / WebView 91 上通过 6 个兼容阶段及 0.7.3 → 0.7.4 同签名覆盖升级。
+两版系统均检查后台服务、系统媒体和画中画，最终包日志没有浏览器崩溃或 ANR 标记。
 阶段、升级链和失败记录见 [回归报告](EMULATOR_TEST_REPORT.md)，
 复现与手工验收见 [测试指南](TESTING_GUIDE.md)。
 
 ### 交付包
 
-- `PureBrowser-v0.7.3-release.apk`：Android 10+、arm64-v8a，4,599,770 bytes（约 4.39 MiB）。
-- SHA-256：`d10dc92ec6a16fce41ee7a18cc399eaca8bbf046bc97484629eddbd88d9f4600`。
-- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 13 → 14。
+- `PureBrowser-v0.7.4-release.apk`：Android 10+、arm64-v8a，4,610,358 bytes（约 4.40 MiB）。
+- SHA-256：`7e61f1296713e3dde28da9ff8dc1d471d8dfcd5b7b383ce093562ca002e5977f`。
+- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 14 → 15。
 - 证书 SHA-256：`7d468e8b3a9be385a2386b27ef548e83cb55206e67911d81b721b5adbe1e8236`。
 
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。

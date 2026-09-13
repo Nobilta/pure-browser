@@ -4,39 +4,35 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
-import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.text.TextUtils
 import android.view.GestureDetector
-import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.FrameLayout
-import android.widget.ImageButton
-import android.widget.LinearLayout
-import android.widget.SeekBar
-import android.widget.TextView
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.mybrowser.R
 import com.mybrowser.data.VideoPreferences
+import com.mybrowser.ui.theme.MyBrowserTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Native controls around Chromium's custom view; decoding, cookies and subtitles stay on the page. */
+/** Chromium keeps its video surface; controls and menus share a separate, non-resizing overlay. */
 @SuppressLint("ViewConstructor")
 class FullscreenVideoView(
     private val activity: Activity,
@@ -47,8 +43,8 @@ class FullscreenVideoView(
     private val titleProvider: () -> String,
     private val canCast: () -> Boolean,
     private val onExit: () -> Unit,
-    private val onCast: () -> Unit,
-    private val onChooseSpeed: () -> Unit,
+    private val onChooseSpeed: (Float) -> Unit,
+    private val castContent: @Composable () -> Unit,
     private val onPictureInPicture: (() -> Unit)? = null,
 ) : FrameLayout(activity) {
     private val ui = Handler(Looper.getMainLooper())
@@ -58,35 +54,28 @@ class FullscreenVideoView(
     private val originalOrientation = activity.requestedOrientation
     private val originalVolumeStream = activity.volumeControlStream
     private val keptScreenOn = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
-    private val accent = Color.rgb(165, 200, 255)
-    // Chromium may create this custom view before the tracker observes the new
-    // fullscreen event. A previous session's cached flag must not start a handoff.
-    private var state = tracker.current.copy(isFullscreen = false)
+    // A cached fullscreen flag from the previous session cannot start a new handoff.
+    private var state by mutableStateOf(tracker.current.copy(isFullscreen = false))
+    private var title by mutableStateOf("")
     private var released = false
-    private var enhanced = false
+    private var enhanced by mutableStateOf(false)
     private var wantEnhanced = enhancedPlayback
     private var connecting = false
     private var controlIdentity: String? = null
     private var controlGeneration = 0
-    private var controlsVisible = true
+    private var controlsVisible by mutableStateOf(true)
     private var pictureInPicture = false
     private var platformBack: android.window.OnBackInvokedCallback? = null
-    private var locked = false
+    private var locked by mutableStateOf(false)
     private var orientationChosen = false
-    private var seeking = false
-    private val top = LinearLayout(activity)
-    private val bottom = LinearLayout(activity)
-    private val title = TextView(activity)
-    private val clock = TextView(activity)
-    private val seek = SeekBar(activity)
-    private val play = imageButton(R.drawable.ic_pause, activity.getString(R.string.ui_pause_video)) { togglePlayback() }
-    private val speed = textButton("1×", activity.getString(R.string.menu_playback_speed)) { showSpeedPicker() }
-    private val lock = imageButton(R.drawable.ic_lock, activity.getString(R.string.ui_lock_screen)) { setLocked(!locked) }
-    private val cast = imageButton(R.drawable.ic_cast, activity.getString(R.string.cd_cast)) { onCast() }
-    private val hud = TextView(activity)
+    private var seeking by mutableStateOf(false)
+    private var progress by mutableFloatStateOf(0f)
+    private var menu by mutableStateOf<PlayerMenu?>(null)
+    private var hudMessage by mutableStateOf<String?>(null)
+    private val controlsHost = ComposeView(activity)
     private val gestures = GestureSurface(activity)
-    private val hideControls = Runnable { if (!locked && !seeking) showControls(false) }
-    private val hideHud = Runnable { hud.visibility = GONE }
+    private val hideControls = Runnable { if (!locked && !seeking && menu == null) showControls(false) }
+    private val hideHud = Runnable { hudMessage = null }
     private val poll = object : Runnable {
         override fun run() {
             if (released) return
@@ -103,67 +92,52 @@ class FullscreenVideoView(
         addView(videoView, LayoutParams(-1, -1))
         addView(gestures, LayoutParams(-1, -1))
         gestures.visibility = GONE
-
-        top.orientation = LinearLayout.HORIZONTAL
-        top.gravity = Gravity.CENTER_VERTICAL
-        top.setPadding(dp(12), dp(8), dp(12), dp(20))
-        top.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xDD000000.toInt(), Color.TRANSPARENT))
-        top.addView(imageButton(R.drawable.ic_back, activity.getString(R.string.ui_exit_fullscreen), onExit), LinearLayout.LayoutParams(dp(48), dp(48)))
-        title.setTextColor(Color.WHITE)
-        title.textSize = 16f
-        title.setTypeface(null, Typeface.BOLD)
-        title.maxLines = 1
-        title.ellipsize = TextUtils.TruncateAt.END
-        top.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
-        title.gravity = Gravity.CENTER_VERTICAL
-        onPictureInPicture?.let { action ->
-            top.addView(imageButton(R.drawable.ic_pip, activity.getString(R.string.picture_in_picture), action), LinearLayout.LayoutParams(dp(48), dp(48)))
+        addView(controlsHost, LayoutParams(-1, -1))
+        controlsHost.setContent {
+            MyBrowserTheme(darkTheme = true) {
+                val position = if (seeking) seekPosition(progress) else state.position
+                PlayerControls(
+                    state = PlayerControlsState(
+                        visible = enhanced && controlsVisible,
+                        locked = enhanced && locked,
+                        title = title,
+                        playing = state.isPlaying,
+                        hasVideo = state.hasVideo,
+                        canSeek = state.canSeek,
+                        progress = progress,
+                        position = if (state.duration > 0) progressText(position, state.duration)
+                            else if (state.hasVideo) activity.getString(R.string.ui_live, VideoGestureMath.time(position))
+                            else activity.getString(R.string.ui_waiting_for_webpage_video),
+                        rate = state.playbackRate ?: 1f,
+                        canCast = canCast(),
+                        menu = menu,
+                        hud = hudMessage,
+                    ),
+                    onPlayPause = ::togglePlayback,
+                    onSeek = {
+                        if (!seeking) { seeking = true; ui.removeCallbacks(hideControls); gestures.cancelGesture() }
+                        progress = it
+                    },
+                    onSeekFinished = {
+                        seeking = false
+                        seekTo(seekPosition(progress))
+                        scheduleHide()
+                    },
+                    onLock = { changeLock(!locked) },
+                    onExit = onExit,
+                    onRotate = ::rotate,
+                    onPictureInPicture = onPictureInPicture,
+                    onMenu = ::changeMenu,
+                    onSpeed = { rate -> changeMenu(null); onChooseSpeed(rate) },
+                    castContent = castContent,
+                )
+            }
         }
-        top.addView(imageButton(R.drawable.ic_rotate, activity.getString(R.string.ui_rotate_screen)) { rotate() }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        addView(top, LayoutParams(-1, -2, Gravity.TOP))
-
-        bottom.orientation = LinearLayout.VERTICAL
-        bottom.setPadding(dp(16), dp(24), dp(16), dp(12))
-        bottom.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.TRANSPARENT, 0xEE000000.toInt()))
-        clock.setTextColor(Color.WHITE)
-        clock.textSize = 12f
-        bottom.addView(clock)
-        seek.max = 10000
-        seek.progressTintList = ColorStateList.valueOf(accent)
-        seek.thumbTintList = ColorStateList.valueOf(accent)
-        seek.contentDescription = activity.getString(R.string.ui_video_progress)
-        bottom.addView(seek, LinearLayout.LayoutParams(-1, dp(48)))
-        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onStartTrackingTouch(bar: SeekBar) { seeking = true; ui.removeCallbacks(hideControls); gestures.cancelGesture() }
-            override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
-                if (fromUser && state.canSeek) clock.text = progressText(seekPosition(progress), state.duration)
-            }
-            override fun onStopTrackingTouch(bar: SeekBar) {
-                seeking = false
-                seekTo(seekPosition(bar.progress))
-                scheduleHide()
-            }
-        })
-        val row = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
-        row.addView(play, LinearLayout.LayoutParams(dp(48), dp(48)))
-        row.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f))
-        row.addView(speed, LinearLayout.LayoutParams(-2, dp(48)))
-        row.addView(cast, LinearLayout.LayoutParams(dp(48), dp(48)))
-        bottom.addView(row)
-        addView(bottom, LayoutParams(-1, -2, Gravity.BOTTOM))
-        addView(lock, LayoutParams(dp(48), dp(48), Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(16) })
-
-        hud.setTextColor(Color.WHITE)
-        hud.textSize = 16f
-        hud.gravity = Gravity.CENTER
-        hud.setPadding(dp(24), dp(16), dp(24), dp(16))
-        hud.background = rounded(0xD9222630.toInt())
-        hud.visibility = GONE
-        hud.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        addView(hud, LayoutParams(-2, -2, Gravity.CENTER))
         ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
             val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            // Insets belong to controls, never to the decoder's surface. Even transient
+            // system bars must not resize or translate the underlying video.
+            controlsHost.setPadding(safe.left, safe.top, safe.right, safe.bottom)
             insets
         }
         refreshMode()
@@ -175,30 +149,18 @@ class FullscreenVideoView(
     fun update(signal: MediaPlaybackTracker.Signal) {
         if (released) return
         state = signal
-        title.text = titleProvider().ifBlank { activity.getString(R.string.ui_video_playback) }
+        title = titleProvider().ifBlank { activity.getString(R.string.ui_video_playback) }
         if (!orientationChosen && preferences.landscapeFullscreen && state.isFullscreen && state.width > state.height && state.height > 0) {
             orientationChosen = true
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
-        if ((enhanced || connecting) &&
-            (!state.canUseEnhancedControls || controlIdentity != state.identity)
-        ) {
+        if ((enhanced || connecting) && (!state.canUseEnhancedControls || controlIdentity != state.identity)) {
             disconnectControls()
         }
         refreshMode()
         if (wantEnhanced && !enhanced && !connecting && state.canUseEnhancedControls) connectControls()
-        play.setImageResource(if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play)
-        play.contentDescription = if (state.isPlaying) activity.getString(R.string.ui_pause_video) else activity.getString(R.string.ui_play_video)
-        play.isEnabled = state.hasVideo
-        speed.text = PlaybackSpeed.label(state.playbackRate ?: 1f)
-        speed.contentDescription = activity.getString(R.string.ui_playback_speed, speed.text)
-        cast.visibility = if (canCast()) VISIBLE else GONE
-        seek.isEnabled = state.canSeek
-        if (!seeking) {
-            clock.text = if (state.duration > 0) progressText(state.position, state.duration)
-                else if (state.hasVideo) activity.getString(R.string.ui_live, VideoGestureMath.time(state.position)) else activity.getString(R.string.ui_waiting_for_webpage_video)
-            seek.progress = if (state.canSeek) (((state.position - state.seekStart) / (state.seekEnd - state.seekStart)) * 10000).roundToInt().coerceIn(0, 10000) else 0
-        }
+        if (!seeking) progress = if (state.canSeek)
+            ((state.position - state.seekStart) / (state.seekEnd - state.seekStart)).toFloat().coerceIn(0f, 1f) else 0f
     }
 
     private fun connectControls() {
@@ -227,71 +189,58 @@ class FullscreenVideoView(
     private fun disconnectControls() {
         controlGeneration++
         gestures.cancelGesture()
+        menu = null
         enhanced = false
         connecting = false
         controlIdentity = null
-        hud.visibility = GONE
-        setLocked(false)
-        // Remove our input and playback layers before returning control to the page.
+        hudMessage = null
+        changeLock(false)
         refreshMode()
         tracker.setFullscreenControls(false)
     }
 
     private fun refreshMode() {
         gestures.visibility = if (enhanced && !pictureInPicture) VISIBLE else GONE
+        controlsHost.visibility = if (pictureInPicture) GONE else VISIBLE
         if (!enhanced) ui.removeCallbacks(hideControls)
-        renderControls()
     }
 
     private fun showControls(show: Boolean) {
         controlsVisible = show
-        renderControls()
         if (show) scheduleHide()
-    }
-
-    private fun renderControls() {
-        if (pictureInPicture) {
-            top.visibility = GONE; bottom.visibility = GONE; lock.visibility = GONE; hud.visibility = GONE
-            return
-        }
-        // State telemetry must not reveal controls or restart the user's hide timer.
-        top.visibility = if (enhanced && !locked && controlsVisible) VISIBLE else GONE
-        bottom.visibility = if (enhanced && !locked && controlsVisible) VISIBLE else GONE
-        lock.visibility = if (enhanced && (controlsVisible || locked)) VISIBLE else GONE
     }
 
     fun setPictureInPicture(active: Boolean) {
         pictureInPicture = active
-        gestures.cancelGesture()
+        cancelTransientControls()
+        hudMessage = null
         refreshMode()
     }
 
     private fun scheduleHide() {
         ui.removeCallbacks(hideControls)
-        if (enhanced && !locked && !seeking && !accessibility.isTouchExplorationEnabled) ui.postDelayed(hideControls, 3500)
+        if (enhanced && !locked && !seeking && menu == null && !accessibility.isTouchExplorationEnabled)
+            ui.postDelayed(hideControls, 3500)
     }
 
-    private fun setLocked(value: Boolean) {
+    private fun changeLock(value: Boolean) {
         gestures.cancelGesture()
+        menu = null
         locked = value
-        lock.setImageResource(if (locked) R.drawable.ic_lock_open else R.drawable.ic_lock)
-        lock.contentDescription = if (locked) activity.getString(R.string.ui_unlock_screen) else activity.getString(R.string.ui_lock_screen)
-        lock.tooltipText = lock.contentDescription
-        lock.background = rounded(if (locked) 0xD9365F91.toInt() else 0x88343A46.toInt())
         showControls(!locked)
     }
 
-    /** Back unlocks first, preventing an accidental exit while controls are locked. */
-    fun unlockOnBack(): Boolean {
+    /** Back dismisses the local menu, then unlocks; only the next Back exits fullscreen. */
+    fun handleBack(): Boolean {
+        if (menu != null) { changeMenu(null); return true }
         if (!locked) return false
-        setLocked(false)
+        changeLock(false)
         return true
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Handle Back before Chromium's custom view, which otherwise exits while locked.
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !unlockOnBack()) onExit()
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !handleBack()) onExit()
             return true
         }
         return super.dispatchKeyEvent(event)
@@ -300,10 +249,8 @@ class FullscreenVideoView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (android.os.Build.VERSION.SDK_INT >= 33 && platformBack == null) {
-            // Chromium registers its own full-screen Back callback after the Activity
-            // fallback. Own the overlay's gesture so a locked video unlocks first.
             val callback = android.window.OnBackInvokedCallback {
-                if (!released && !unlockOnBack()) onExit()
+                if (!released && !handleBack()) onExit()
             }
             activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
@@ -324,16 +271,18 @@ class FullscreenVideoView(
     private fun seekTo(position: Double) {
         tracker.seekTo(position) { if (!it && !released) showHud(activity.getString(R.string.ui_the_webpage_could_not_seek), 1800) }
     }
-    private fun seekPosition(progress: Int) = state.seekStart + progress / 10000.0 * (state.seekEnd - state.seekStart)
+    private fun seekPosition(progress: Float) = state.seekStart + progress * (state.seekEnd - state.seekStart)
     private fun progressText(position: Double, duration: Double) = activity.getString(
         R.string.video_progress, VideoGestureMath.time(position), VideoGestureMath.time(duration),
     )
 
-    private fun showSpeedPicker() {
+    private fun changeMenu(value: PlayerMenu?) {
         gestures.cancelGesture()
-        ui.removeCallbacks(hideControls)
         tracker.endBoost()
-        onChooseSpeed()
+        hudMessage = null
+        menu = value
+        showControls(true)
+        if (value != null) tracker.probe()
     }
 
     private fun rotate() {
@@ -346,14 +295,14 @@ class FullscreenVideoView(
     private fun showHud(message: String, millis: Long = 0) {
         if (released) return
         ui.removeCallbacks(hideHud)
-        hud.text = message
-        hud.visibility = VISIBLE
+        hudMessage = message
         if (millis > 0) ui.postDelayed(hideHud, millis)
     }
 
     fun cancelTransientControls() {
         gestures.cancelGesture()
         tracker.endBoost()
+        menu = null
         ui.removeCallbacks(hideControls)
     }
 
@@ -365,6 +314,7 @@ class FullscreenVideoView(
         }
         disconnectControls()
         released = true
+        controlsHost.disposeComposition()
         ui.removeCallbacksAndMessages(null)
         activity.window.attributes = activity.window.attributes.apply { screenBrightness = originalBrightness }
         activity.requestedOrientation = originalOrientation
@@ -377,28 +327,10 @@ class FullscreenVideoView(
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (!hasWindowFocus) cancelTransientControls()
-        else if (!released && enhanced && !locked) {
-            // A sheet can remain open longer than the hide timeout. Start a fresh
-            // interaction window after it closes, so the first tap reaches its button.
-            showControls(true)
-        }
+        else if (!released && enhanced && !locked) showControls(true)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
-    private fun rounded(color: Int, radius: Int = 16) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
-    private fun buttonBackground() = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), rounded(0x55343A46, 24), null)
-    private fun imageButton(resource: Int, description: String, click: () -> Unit) = ImageButton(activity).apply {
-        setImageResource(resource); imageTintList = ColorStateList.valueOf(Color.WHITE)
-        contentDescription = description; background = buttonBackground(); setPadding(dp(12), dp(12), dp(12), dp(12))
-        tooltipText = description
-        setOnClickListener { click() }
-    }
-    private fun textButton(label: String, description: String, click: () -> Unit) = TextView(activity).apply {
-        text = label; contentDescription = description; textSize = 13f; setTextColor(Color.WHITE)
-        tooltipText = description
-        gravity = Gravity.CENTER; minWidth = dp(48); setPadding(dp(12), 0, dp(12), 0)
-        background = buttonBackground(); isFocusable = true; setOnClickListener { click() }
-    }
 
     @SuppressLint("ClickableViewAccessibility")
     private inner class GestureSurface(context: Context) : View(context) {
