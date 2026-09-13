@@ -18,9 +18,9 @@ lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实�
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.8.0-release.apk
-shasum -a 256 PureBrowser-v0.8.0-release.apk
-./install_and_test.sh PureBrowser-v0.8.0-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.8.1-release.apk
+shasum -a 256 PureBrowser-v0.8.1-release.apk
+./install_and_test.sh PureBrowser-v0.8.1-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
@@ -32,11 +32,11 @@ shasum -a 256 PureBrowser-v0.8.0-release.apk
 本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.8.0-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.8.1-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.0-release.apk \
-  --label release-080 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.1-release.apk \
+  --label release-081 --stages menu-navigation settings-back site layout browser productivity
 ```
 
 不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
@@ -55,7 +55,17 @@ Compose 页签切换后的输入先核对当前窗口实际聚焦的可编辑节
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.8.0 新增验收
+## 0.8.1 扫码预览验收
+
+- 使用带 TOP、LEFT、RIGHT、不同角标、方格和正圆的非对称测试图；核对文字方向、左右顺序、圆形比例及居中裁切。
+  模拟器 `imagefile` 先通过独立 Camera2 采集记录原始帧与传感器方向，区分夹具投影和应用预览变换；扫码成功不能代替画面验证。
+- 覆盖屏幕 0°、90°、180°、270°、窄竖屏和宽横屏；连续 90°→270° 时核对预览宽高不变仍更新方向。
+  前摄回退保持系统默认镜像，应用不再叠加镜像。模拟器结果与未验证的实体设备覆盖分开记录。
+- 确认后台释放、前台恢复、Back/快速关闭释放，以及相机网页码、图片文本码、继续扫描和拒绝权限后选图。
+- 临时几何测试覆盖各传感器角度与不同缓冲区/视口比例，检查等长垂直像素轴、中心位置、裁切边界和方向。
+  删除临时测试源码后再执行完整构建，最终模拟器回归必须绑定同一签名 APK 的 SHA-256。
+
+## 既有开发工具、界面和扫码验收
 
 - 首页地址栏可点击输入，左侧不显示主页占位图标，右侧仅扫码；普通网页保留安全信息、刷新/停止。顶部/底部地址栏均验证。
 - 相机首次授权、拒绝、设置恢复、切后台、旋转、快速开关和手电筒；退出后 `dumpsys media.camera` 不保留本应用活动客户端。
