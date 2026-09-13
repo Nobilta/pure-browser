@@ -210,7 +210,7 @@ class MainActivity : ComponentActivity(),
     private var showSiteOrigin by mutableStateOf<String?>(null)
     private var showManagedSites by mutableStateOf(false)
     private var siteSettingsBusy by mutableStateOf(false)
-    private var permissionEpoch = 0L
+    private var permissionEpoch by androidx.compose.runtime.mutableLongStateOf(0L)
     private val websitePermissions by lazy {
         WebsitePermissions(lifecycleScope,
             isGranted = { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED },
@@ -468,8 +468,6 @@ class MainActivity : ComponentActivity(),
                 val activeSheetEntry = sheetNavigation.current
                 val activeSheet = activeSheetEntry?.destination
                 androidx.compose.runtime.DisposableEffect(activeSheet) {
-                    networkLogs.setVisible(activeSheet == Sheet.DEVELOPER_TOOLS)
-                    consoleLogs.setVisible(activeSheet == Sheet.DEVELOPER_TOOLS)
                     cast.setVisible(activeSheet == Sheet.CAST)
                     onDispose {
                         networkLogs.setVisible(false)
@@ -489,6 +487,7 @@ class MainActivity : ComponentActivity(),
                         if (state.isLoading) webView.stopLoading() else webView.reload()
                     },
                     onMenu = { if (sheet == null) openSheet(Sheet.MENU) },
+                    onScanQr = { openSheet(Sheet.QR_SCANNER) },
                     onTabs = {
                         tabManager.captureCurrentThumbnail(webView, 200, 300)
                         openSheet(Sheet.TABS)
@@ -599,6 +598,7 @@ class MainActivity : ComponentActivity(),
                             onOpenDeveloperTools = {
                                 sheetNavigation.push(entry, Sheet.DEVELOPER_TOOLS)
                             },
+                            onScanQr = { sheetNavigation.push(entry, Sheet.QR_SCANNER) },
                             onExit = { sheetAction(entry, ::exitBrowser) },
                             onDismiss = { dismissSheet(entry) },
                         )
@@ -830,6 +830,10 @@ class MainActivity : ComponentActivity(),
                         )
 
                         Sheet.SITE_SETTINGS -> CurrentSiteSettings(entry)
+                        Sheet.QR_SCANNER -> com.mybrowser.ui.QrScannerSheet(
+                            onOpenUrl = { url -> sheetAction(entry) { navigate(url) } },
+                            onDismiss = { dismissSheet(entry) },
+                        )
                         Sheet.DEVELOPER_TOOLS -> {
                             // Hidden tools keep their bounded history without invalidating browser UI.
                             val networkEntries by networkLogs.entries.collectAsState()
@@ -842,6 +846,12 @@ class MainActivity : ComponentActivity(),
                                 onClearConsole = consoleLogs::clear,
                                 onExplainFilter = { filterExplanation = it },
                                 pageUrl = state.currentUrl,
+                                pageGeneration = permissionEpoch,
+                                isCurrentDocument = { it == permissionEpoch },
+                                onLogVisibility = { network, console ->
+                                    networkLogs.setVisible(network)
+                                    consoleLogs.setVisible(console)
+                                },
                                 onDismiss = { dismissSheet(entry) }
                             )
                         }

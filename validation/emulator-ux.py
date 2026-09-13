@@ -362,8 +362,8 @@ def swipe(root, downward):
     time.sleep(0.6)
 
 
-def expect(label, present=True):
-    deadline = time.monotonic() + 4
+def expect(label, present=True, timeout=4):
+    deadline = time.monotonic() + timeout
     while True:
         root, _ = nodes()
         if (match(root, label) is not None) == present:

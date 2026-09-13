@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import com.mybrowser.R
 
 /** A sheet has its own window; its system bars must follow the app's chosen theme. */
 @Composable
@@ -24,10 +25,12 @@ internal fun ApplySheetSystemBars(fullscreen: Boolean = false) {
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
         val oldStatus = controller?.isAppearanceLightStatusBars
         val oldNavigation = controller?.isAppearanceLightNavigationBars
+        // Compose animates the incoming surface. The window manager retains the last
+        // frame for a short exit even when a close action immediately removes the route.
+        window?.setWindowAnimations(R.style.BrowserSheetAnimation)
         // The pinned Material3 version configures its dialog window after composition.
         // Apply the app preference after that update instead of following the OS theme.
         val apply = Runnable {
-            window?.setWindowAnimations(0)
             if (fullscreen && window != null) {
                 // Dialog initialization can reset the constructor's edge-to-edge
                 // flags. Apply them after attachment; content supplies safe insets.

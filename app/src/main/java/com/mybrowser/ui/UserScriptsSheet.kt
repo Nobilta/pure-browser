@@ -85,10 +85,7 @@ fun UserScriptsSheet(store: UserScriptStore, initialUrl: String?, onUrlConsumed:
 
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.ic_back), res.getString(R.string.cd_back)) }
-                Text(res.getString(R.string.script_title), style = MaterialTheme.typography.titleLarge)
-            }
+            BrowserSheetHeader(res.getString(R.string.script_title), onBack = onDismiss)
             Text(res.getString(R.string.script_summary), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
             if (!fullRuntime) Text(res.getString(R.string.script_old_webview), Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)

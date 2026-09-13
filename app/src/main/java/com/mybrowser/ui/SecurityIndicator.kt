@@ -304,7 +304,7 @@ fun SSLErrorDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(textResources.getString(R.string.ui_website_b7aba5, url), fontSize = 13.sp)
+                Text(textResources.getString(R.string.ui_website_b7aba5, url), style = MaterialTheme.typography.bodyMedium)
 
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -315,18 +315,18 @@ fun SSLErrorDialog(
                         Text(
                             text = textResources.getString(R.string.ui_possible_reasons),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(textResources.getString(R.string.ui_the_website_certificate_has_expired), fontSize = 12.sp)
-                        Text(textResources.getString(R.string.ui_the_website_certificate_is_not_trusted), fontSize = 12.sp)
-                        Text(textResources.getString(R.string.ui_someone_may_be_trying_to_steal_your_information), fontSize = 12.sp)
+                        Text(textResources.getString(R.string.ui_the_website_certificate_has_expired), style = MaterialTheme.typography.bodySmall)
+                        Text(textResources.getString(R.string.ui_the_website_certificate_is_not_trusted), style = MaterialTheme.typography.bodySmall)
+                        Text(textResources.getString(R.string.ui_someone_may_be_trying_to_steal_your_information), style = MaterialTheme.typography.bodySmall)
                     }
                 }
 
                 Text(
                     text = textResources.getString(R.string.ui_we_recommend_leaving_this_website),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error
                 )

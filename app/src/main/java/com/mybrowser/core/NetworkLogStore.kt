@@ -4,9 +4,7 @@ import com.mybrowser.R
 import android.content.res.Resources
 import android.os.SystemClock
 import android.webkit.WebResourceRequest
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.mybrowser.filter.NativeFilter.ResourceType
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -69,6 +67,11 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
 
     private val nextId = AtomicLong(1L)
     private val buffer = BufferedLog<NetworkRequestLog>(maxEntries)
+    // Protected by buffer.edit's lock. Chromium may deliver the main request and its
+    // subresources before the UI thread receives onPageStarted.
+    private var awaitingPageStart = false
+    private var syntheticMainFrameId: Long? = null
+    private var timelineUrl = ""
     val entries = buffer.entries
     fun setVisible(value: Boolean) = buffer.setVisible(value)
     fun snapshot(): List<NetworkRequestLog> = buffer.snapshot()
@@ -77,7 +80,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         require(maxEntries > 0) { "maxEntries must be positive" }
     }
 
-    /** Starts a new document timeline and adds its main-frame navigation. */
+    /** Confirms an intercepted navigation, or starts one with no request callback yet. */
     fun beginPage(url: String) {
         val normalized = url.trim().take(MAX_URL_LENGTH)
         if (normalized.isEmpty()) {
@@ -85,41 +88,60 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
             return
         }
         buffer.edit { ring ->
-            ring.clear()
-            ring.add(
-                NetworkRequestLog(
-                    id = nextId.getAndIncrement(),
-                    method = "GET",
-                    url = normalized,
-                    isForMainFrame = true,
-                    startedAtElapsedMs = SystemClock.elapsedRealtime(),
-                ),
+            val intercepted = awaitingPageStart
+            awaitingPageStart = false
+            syntheticMainFrameId = null
+            timelineUrl = normalized
+            if (!intercepted) ring.clear()
+            // Do not erase speculative resources just because the main-thread callback
+            // arrived later. A redirect may add a final document URL to the same timeline.
+            if (intercepted && ring.indexOfLast { it.isForMainFrame && it.url == normalized } >= 0) return@edit
+            val entry = NetworkRequestLog(
+                id = nextId.getAndIncrement(),
+                method = "GET",
+                url = normalized,
+                isForMainFrame = true,
+                documentUrl = normalized,
+                resourceType = ResourceType.DOCUMENT.ordinal,
+                startedAtElapsedMs = SystemClock.elapsedRealtime(),
             )
+            ring.add(entry)
+            syntheticMainFrameId = entry.id
         }
     }
 
     fun clear() {
-        buffer.clear()
+        buffer.edit {
+            awaitingPageStart = false
+            syntheticMainFrameId = null
+            timelineUrl = ""
+            buffer.clear()
+        }
     }
 
     /** Records a request before the filter gets a chance to return a replacement response. */
     fun recordRequest(request: WebResourceRequest, documentUrl: String = "",
-        type: com.mybrowser.filter.NativeFilter.ResourceType = com.mybrowser.filter.FilterController.classify(request)): Long {
+        type: ResourceType = com.mybrowser.filter.FilterController.classify(request)): Long {
         val url = request.url.toString().trim().take(MAX_URL_LENGTH)
         val method = request.method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
         val now = SystemClock.elapsedRealtime()
 
         return buffer.edit { ring ->
-            // beginPage() cannot see the WebResourceRequest itself. Coalesce the synthetic
-            // main-frame row with Chromium's corresponding callback when it arrives shortly
-            // afterwards, instead of showing the document twice.
             if (request.isForMainFrame) {
                 val existingIndex = ring.indexOfLast {
-                    it.isForMainFrame && it.method == method && it.url == url &&
-                        it.statusCode == null && !it.blocked &&
-                        now - it.startedAtElapsedMs in 0..MAIN_FRAME_COALESCE_MS
+                    it.id == syntheticMainFrameId && it.url == url
                 }
-                if (existingIndex >= 0) return@edit ring[existingIndex].id
+                syntheticMainFrameId = null
+                if (existingIndex >= 0) {
+                    val entry = ring[existingIndex].copy(method = method)
+                    ring[existingIndex] = entry
+                    return@edit entry.id
+                }
+                // The request starts the timeline when it wins the callback race. Each
+                // reload is a new navigation, even when the URL and method are identical.
+                ring.clear()
+                awaitingPageStart = true
+                timelineUrl = url
             }
 
             val entry = NetworkRequestLog(
@@ -128,7 +150,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
                 url = url,
                 isForMainFrame = request.isForMainFrame,
                 startedAtElapsedMs = now,
-                documentUrl = documentUrl.take(MAX_URL_LENGTH),
+                documentUrl = timelineUrl.ifEmpty { documentUrl.take(MAX_URL_LENGTH) },
                 resourceType = type.ordinal,
             )
             ring.add(entry)
@@ -227,6 +249,10 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     ) {
         val boundedUrl = url.trim().take(MAX_URL_LENGTH)
         return buffer.edit { ring ->
+            if (mainFrameOnly && timelineUrl == boundedUrl) {
+                syntheticMainFrameId = null
+                awaitingPageStart = false
+            }
             val index = ring.indexOfLast {
                 it.url == boundedUrl && (!mainFrameOnly || it.isForMainFrame) &&
                     it.statusCode == null && !it.blocked && it.errorCode == null
@@ -249,7 +275,6 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
 
     private companion object {
         const val DEFAULT_MAX_ENTRIES = 200
-        const val MAIN_FRAME_COALESCE_MS = 2_000L
         const val MAX_URL_LENGTH = 8_192
         const val MAX_METHOD_LENGTH = 16
         const val MAX_ERROR_LENGTH = 512

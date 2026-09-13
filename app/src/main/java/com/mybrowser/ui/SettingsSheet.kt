@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -367,20 +368,10 @@ private fun SettingsPage(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
-    val textResources = localizedResources()
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            windowInsets = WindowInsets(0, 0, 0, 0),
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = textResources.getString(R.string.ui_back))
-                }
-            },
-            actions = actions,
-        )
+        BrowserSheetHeader(title, onBack = onBack, actions = actions)
         Column(
-            Modifier.weight(1f).fillMaxWidth()
+            Modifier.weight(1f).fillMaxWidth().browserContentMotion(title)
                 .verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         ) { content() }
     }
@@ -412,7 +403,7 @@ private fun SearchEngineSettings(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable {
+                    .selectable(selected = engine.id == current.id, role = Role.RadioButton) {
                         onChange(engine)
                         onBack()
                     }
@@ -421,10 +412,7 @@ private fun SearchEngineSettings(
             ) {
                 RadioButton(
                     selected = engine.id == current.id,
-                    onClick = {
-                        onChange(engine)
-                        onBack()
-                    },
+                    onClick = null,
                 )
                 Spacer(Modifier.width(16.dp))
                 Text(
@@ -604,11 +592,11 @@ private fun DownloadDirectoryItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)
@@ -691,11 +679,11 @@ private fun HomepageModeItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)

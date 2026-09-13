@@ -595,4 +595,42 @@
     <string name="download_complete_notification">Download complete · Tap to view</string>
     <string name="site_enhanced_playback">Enhanced fullscreen playback</string>
     <string name="site_enhanced_playback_summary">Take over only in fullscreen on this website. Turn off to keep website controls; reset to use the browser default.</string>
+
+    <!-- Developer tools and QR scanner -->
+    <string name="dev_network_all">All</string>
+    <string name="dev_network_document">Document</string>
+    <string name="dev_network_fetch">Fetch/XHR</string>
+    <string name="dev_network_script">JavaScript</string>
+    <string name="dev_network_style">CSS</string>
+    <string name="dev_network_image">Images</string>
+    <string name="dev_network_media">Media</string>
+    <string name="dev_network_font">Fonts</string>
+    <string name="dev_network_other">Other</string>
+    <string name="dev_network_any_status">All statuses</string>
+    <string name="dev_network_blocked">Blocked</string>
+    <string name="dev_network_failed">Failed</string>
+    <string name="dev_network_search">Search URL, method or status</string>
+    <string name="dev_network_count">%1$d / %2$d requests</string>
+    <string name="dev_source_summary">HTML · %1$d characters</string>
+    <string name="dev_source_refresh">Refresh source</string>
+    <string name="dev_source_truncated_notice">This page is long. Showing the first %1$d characters.</string>
+    <string name="qr_scan">Scan QR code</string>
+    <string name="qr_scan_hint">Point the camera at a QR code</string>
+    <string name="qr_scan_privacy">Web links open directly. Other content is displayed as text.</string>
+    <string name="qr_pick_image">Choose image</string>
+    <string name="qr_permission_title">Allow camera access</string>
+    <string name="qr_permission_summary">Use the camera to scan a QR code, or choose an image.</string>
+    <string name="qr_allow_camera">Enable camera</string>
+    <string name="qr_camera_settings">Camera permission settings</string>
+    <string name="qr_camera_unavailable">Camera unavailable. Try again or choose an image.</string>
+    <string name="qr_image_no_code">No QR code found in this image.</string>
+    <string name="qr_image_failed">Unable to read this image.</string>
+    <string name="qr_reading_image">Reading image…</string>
+    <string name="qr_result_title">QR code content</string>
+    <string name="qr_scan_again">Scan again</string>
+    <string name="qr_copy">Copy text</string>
+    <string name="qr_copied">Text copied</string>
+    <string name="qr_flash_on">Turn on flashlight</string>
+    <string name="qr_flash_off">Turn off flashlight</string>
+    <string name="qr_retry">Try again</string>
 </resources>

@@ -112,12 +112,14 @@ public final class FastUiDump {
             }
             if (args.length == 2 && args[0].equals("setText")) {
                 AccessibilityNodeInfo input = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (input == null || !input.isEditable()) input = focusedEditable(root, 0);
                 if (input == null || !input.isEditable()) {
                     // A non-focusable suggestions Popup may be the active accessibility
                     // window while the actual editor keeps IME focus in the app window.
                     for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
                         AccessibilityNodeInfo candidateRoot = window.getRoot();
                         AccessibilityNodeInfo candidate = candidateRoot == null ? null : candidateRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                        if (candidate == null || !candidate.isEditable()) candidate = focusedEditable(candidateRoot, 0);
                         if (candidate != null && candidate.isEditable()) { input = candidate; break; }
                     }
                 }
@@ -184,6 +186,19 @@ public final class FastUiDump {
 
     private static AccessibilityNodeInfo activeRoot(UiAutomation automation) {
         return automation.getRootInActiveWindow();
+    }
+
+    private static AccessibilityNodeInfo focusedEditable(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 50 || !node.refresh()) return null;
+        // Compose can report the focused virtual editor in its tree while findFocus()
+        // still returns null after a tab remount. Inspect fresh focus, never an arbitrary
+        // EditText, so the probe cannot silently write into a different field.
+        if (node.isVisibleToUser() && node.isFocused() && node.isEditable()) return node;
+        for (int i = node.getChildCount() - 1; i >= 0; i--) {
+            AccessibilityNodeInfo found = focusedEditable(node.getChild(i), depth + 1);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private static AccessibilityNodeInfo playerRoot(AccessibilityNodeInfo node, int depth) {

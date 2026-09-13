@@ -69,6 +69,8 @@ fun Omnibar(
     currentUrl: String? = null,
     displayTitle: String = "",
     onSecurityClick: () -> Unit = {},
+    isHomePage: Boolean = false,
+    onScanQr: () -> Unit = {},
 ) {
     val textResources = localizedResources()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -120,7 +122,7 @@ fun Omnibar(
             ) {
                 // Hidden while focused: the indicator describes the loaded page, and keeping
                 // it visible next to a half-typed URL would be claiming something untrue.
-                if (!isFocused) {
+                if (!isFocused && !isHomePage) {
                     SecurityIndicator(
                         url = currentUrl,
                         certificateError = certificateError,
@@ -208,19 +210,19 @@ fun Omnibar(
                         )
                     }
                 } else {
-                    // Refresh/Stop button inside the address surface when not focused.
+                    // The navigation home has no page to reload. Its action scans a QR.
                     IconButton(
-                        onClick = onRefresh,
+                        onClick = if (isHomePage) onScanQr else onRefresh,
                         modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             painter = painterResource(
-                                if (isLoading) R.drawable.ic_stop else R.drawable.ic_reload,
+                                if (isHomePage) R.drawable.ic_qr_scan else if (isLoading) R.drawable.ic_stop else R.drawable.ic_reload,
                             ),
                             contentDescription = stringResource(
-                                if (isLoading) R.string.cd_stop else R.string.cd_reload,
+                                if (isHomePage) R.string.qr_scan else if (isLoading) R.string.cd_stop else R.string.cd_reload,
                             ),
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(24.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

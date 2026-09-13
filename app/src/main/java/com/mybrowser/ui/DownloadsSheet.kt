@@ -50,21 +50,7 @@ fun DownloadsSheet(
                 .fillMaxWidth()
                 .padding(bottom = 24.dp)
         ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BrowserIconAction(R.drawable.ic_back, textResources.getString(R.string.cd_back), onClick = onDismiss)
-                Text(
-                    text = textResources.getString(R.string.ui_download_manager),
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f),
-                )
-
+            BrowserSheetHeader(textResources.getString(R.string.ui_download_manager), onBack = onDismiss) {
                 if (downloads.isEmpty()) {
                     Text(
                         text = textResources.getString(R.string.ui_no_downloads),
@@ -106,7 +92,7 @@ fun DownloadsSheet(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_history),
+                            painter = painterResource(R.drawable.ic_download),
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -127,7 +113,7 @@ fun DownloadsSheet(
                         .fillMaxWidth()
                         // Keep the sheet header and actions visible when DownloadManager
                         // has accumulated many tasks.
-                        .heightIn(max = 600.dp),
+                        .weight(1f, fill = false),
                 ) {
                     items(downloads, key = { it.id }) { download ->
                         DownloadItemRow(

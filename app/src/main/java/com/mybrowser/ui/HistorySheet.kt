@@ -39,10 +39,7 @@ fun HistorySheet(
     val groups = history.groupBy { Instant.ofEpochMilli(it.visitTime).atZone(zone).toLocalDate() }
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
-                Text(stringResource(R.string.history_title), style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f))
+            BrowserSheetHeader(stringResource(R.string.history_title), onBack = onDismiss) {
                 BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)
             }
             LibrarySearchField(query, stringResource(R.string.history_search), onQueryChange)
@@ -57,7 +54,7 @@ fun HistorySheet(
                             today -> resources.getString(R.string.history_today)
                             today.minusDays(1) -> resources.getString(R.string.history_yesterday)
                             else -> dateFormatter.format(date)
-                        }, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                        }, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)
                             .padding(vertical = 12.dp), style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary)
                     }
