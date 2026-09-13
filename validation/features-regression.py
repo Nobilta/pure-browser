@@ -325,7 +325,9 @@ class Regression:
         self.input(1, self.base + "__filter-list")
         self.back()  # keyboard
         ux.tap("添加")
-        ux.expect("广告过滤设置")
+        # Adding a subscription also rebuilds the bundled native/CSS rules on a
+        # worker. Wait for completion, rather than the ordinary UI transition.
+        ux.expect("广告过滤设置", timeout=20)
         self.filter_idle()
         self.snapshot("filter-subscribed")
         self.page()

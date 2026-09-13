@@ -53,10 +53,7 @@ fun BookmarksSheet(
     BrowserFullscreenSheet(onDismissRequest = back) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(browserSheetInsets()).padding(horizontal = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = back)
-                Text(stringResource(R.string.bookmarks_title), style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f))
+            BrowserSheetHeader(stringResource(R.string.bookmarks_title), onBack = back) {
                 BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.bookmarks_clear), bookmarks.isNotEmpty(), onClearAll)
                 Box {
                     BrowserIconAction(R.drawable.ic_more, stringResource(R.string.bookmarks_transfer), !transferBusy) { actions = true }

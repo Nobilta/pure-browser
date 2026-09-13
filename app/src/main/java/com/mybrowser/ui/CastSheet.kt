@@ -1,5 +1,7 @@
 package com.mybrowser.ui
 
+import androidx.compose.foundation.layout.Box
+
 import android.content.res.Resources
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -187,7 +189,10 @@ fun CastSheet(
 /** Fullscreen playback supplies its own anchored surface and never opens a dialog. */
 @Composable
 private fun CastContainer(embedded: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    if (embedded) content() else BrowserBottomSheet(onDismissRequest = onDismiss) { content() }
+    if (embedded) content() else BrowserBottomSheet(onDismissRequest = onDismiss) {
+        BrowserSheetHeader(stringResource(R.string.menu_cast), onBack = onDismiss)
+        Box(Modifier.weight(1f, fill = false)) { content() }
+    }
 }
 
 @Composable

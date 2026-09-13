@@ -178,10 +178,25 @@ class FilterController(private val appContext: Context) {
         const val MAX_URL_LENGTH = 8_192
 
         fun classify(request: WebResourceRequest): NativeFilter.ResourceType {
-            val accept = request.requestHeaders.entries
-                .firstOrNull { it.key.equals("Accept", ignoreCase = true) }
-                ?.value.orEmpty()
-                .lowercase()
+            if (request.isForMainFrame) return NativeFilter.ResourceType.DOCUMENT
+            val headers = request.requestHeaders
+            fun header(name: String) = headers.entries.firstOrNull { it.key.equals(name, true) }
+                ?.value.orEmpty().lowercase(java.util.Locale.ROOT)
+            // Chromium's destination is more reliable than file extensions (CDNs and
+            // APIs often have none). Missing Fetch Metadata on older WebViews falls back.
+            when (header("Sec-Fetch-Dest")) {
+                "document", "iframe", "frame" -> return NativeFilter.ResourceType.SUBDOCUMENT
+                "script", "worker", "sharedworker", "serviceworker" -> return NativeFilter.ResourceType.SCRIPT
+                "style" -> return NativeFilter.ResourceType.STYLESHEET
+                "image" -> return NativeFilter.ResourceType.IMAGE
+                "font" -> return NativeFilter.ResourceType.FONT
+                "audio", "video", "track" -> return NativeFilter.ResourceType.MEDIA
+                "empty" -> when (header("Sec-Fetch-Mode")) {
+                    "cors", "same-origin" -> return NativeFilter.ResourceType.XML_HTTP_REQUEST
+                }
+            }
+            if (header("X-Requested-With") == "xmlhttprequest") return NativeFilter.ResourceType.XML_HTTP_REQUEST
+            val accept = header("Accept")
             when {
                 accept.startsWith("text/css") -> return NativeFilter.ResourceType.STYLESHEET
                 accept.startsWith("image/") -> return NativeFilter.ResourceType.IMAGE
@@ -190,6 +205,8 @@ class FilterController(private val appContext: Context) {
                 accept.startsWith("font/") || accept.contains("font/woff") ->
                     return NativeFilter.ResourceType.FONT
                 accept.contains("text/html") -> return NativeFilter.ResourceType.SUBDOCUMENT
+                accept.contains("application/json") || accept.contains("+json") || accept.contains("application/graphql") ->
+                    return NativeFilter.ResourceType.XML_HTTP_REQUEST
             }
 
             val ext = request.url.path.orEmpty().substringAfterLast('.', "").lowercase()
