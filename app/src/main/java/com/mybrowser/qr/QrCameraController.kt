@@ -4,9 +4,9 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
-import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
+import android.hardware.display.DisplayManager
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
@@ -24,6 +24,7 @@ internal class QrCameraController(context: Context, private val onResult: (Strin
     val preview = TextureView(context)
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(CameraManager::class.java)
+    private val displayManager = appContext.getSystemService(DisplayManager::class.java)
     private val main = Handler(Looper.getMainLooper())
     private val thread = HandlerThread("qr-camera").apply { start() }
     private val worker = Handler(thread.looper)
@@ -45,9 +46,17 @@ internal class QrCameraController(context: Context, private val onResult: (Strin
     private var luminance = ByteArray(0)
     @Volatile private var previewSize = Size(640, 480)
     @Volatile private var sensorOrientation = 90
-    @Volatile private var frontFacing = false
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            // A 180-degree turn does not resize the TextureView or its surface.
+            if (!closed && displayId == preview.display?.displayId) updateTransform()
+        }
+    }
 
     init {
+        displayManager.registerDisplayListener(displayListener, main)
         preview.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
                 worker.post { texture = surface; openIfReady() }
@@ -88,7 +97,6 @@ internal class QrCameraController(context: Context, private val onResult: (Strin
             previewSize = map.getOutputSizes(SurfaceTexture::class.java).orEmpty()
                 .minByOrNull { abs(it.width * it.height - analysisSize.width * analysisSize.height) } ?: analysisSize
             sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-            frontFacing = characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
             val hasFlash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
             main.post { if (!closed) { onFlashAvailable(hasFlash); updateTransform() } }
             surfaceTexture.setDefaultBufferSize(previewSize.width, previewSize.height)
@@ -174,22 +182,8 @@ internal class QrCameraController(context: Context, private val onResult: (Strin
     }
 
     private fun updateTransform() {
-        val width = preview.width.toFloat()
-        val height = preview.height.toFloat()
-        if (width <= 0 || height <= 0) return
-        val displayDegrees = when (preview.display?.rotation) { Surface.ROTATION_90 -> 90; Surface.ROTATION_180 -> 180; Surface.ROTATION_270 -> 270; else -> 0 }
-        val rotation = (sensorOrientation + (if (frontFacing) displayDegrees else -displayDegrees) + 360) % 360
-        val bufferWidth = previewSize.width.toFloat()
-        val bufferHeight = previewSize.height.toFloat()
-        val rotated = rotation % 180 != 0
-        val scale = maxOf(width / if (rotated) bufferHeight else bufferWidth, height / if (rotated) bufferWidth else bufferHeight)
-        preview.setTransform(Matrix().apply {
-            setScale(bufferWidth / width, bufferHeight / height)
-            postTranslate(-bufferWidth / 2, -bufferHeight / 2)
-            postRotate(rotation.toFloat())
-            postScale(scale * if (frontFacing) -1 else 1, scale)
-            postTranslate(width / 2, height / 2)
-        })
+        preview.setTransform(qrPreviewTransform(preview.width, preview.height, previewSize,
+            sensorOrientation, preview.display?.rotation ?: Surface.ROTATION_0))
     }
 
     private fun stopCapture() {
@@ -217,6 +211,7 @@ internal class QrCameraController(context: Context, private val onResult: (Strin
     override fun close() {
         if (closed) return
         closed = true
+        displayManager.unregisterDisplayListener(displayListener)
         preview.surfaceTextureListener = null
         worker.post { active = false; stopCapture(); texture = null; luminance = ByteArray(0); finishWorkerIfClosed() }
     }

@@ -1,6 +1,6 @@
 # 架构与维护边界
 
-2026-09-13，0.8.0。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
+2026-09-13，0.8.1。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
 [回归报告](EMULATOR_TEST_REPORT.md)。本文件集中记录代码职责、复用方式和语言选择。
 当前实施与验证边界见 [实施记录](design/implementation-status.md)。
 
@@ -19,6 +19,12 @@
 | `qr` | Android Camera2 生命周期、工作线程帧分析、ZXing QR 解码与网页/纯文本分流；关闭或后台释放相机 |
 | `rust/adblock` | 网络规则解析/匹配、元素隐藏域名索引及有界 CSS 缓存 |
 | `rust/url_utils` | URL/搜索分类和有界 Netscape HTML 书签解析 |
+
+Camera2 的 `TextureView` 已处理传感器方向和默认前摄镜像。`qrPreviewTransform` 按旋转后的缓冲区宽高
+撤销拉伸，仅补偿屏幕旋转，再等比例居中裁切；不得重复套用传感器角度或镜像。
+`QrCameraController` 监听当前显示器变化，覆盖宽高不变的 180° 旋转，关闭时注销监听；分析帧与解码路径不受预览矩阵影响。
+依据：[Android Camera2 预览](https://developer.android.com/media/camera/camera2/camera-preview)、
+[可调整尺寸的预览教程](https://developer.android.com/codelabs/android-camera2-preview)。
 
 `MainActivity` 承担 Android 回调编排。存储、计算与独立状态机已下沉；`BrowserSessionState`
 保留单浏览会话的标签与私密状态，没有跨窗口注册表。

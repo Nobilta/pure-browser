@@ -1,11 +1,10 @@
 # Pure 浏览器
 
 面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.8.0（versionCode 16）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+当前版本 **0.8.1（versionCode 17）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
 
-本版修复开发工具源码无高亮及长文档卡顿，增加网络请求分类、状态筛选与搜索。
-浏览器自带页面统一使用 Material 3 标题、间距、主题和轻量过渡，菜单标题固定在滚动内容上方。
-新增离线二维码扫描：首页地址栏移除左侧主页占位图标，右侧扫码替代刷新；网页仍保留安全信息与刷新/停止。
+本版修复二维码相机预览被拉伸、方向错误及 180° 转屏未及时更新的问题，使用等比例居中裁切。
+保留离线相机/图片扫码、开发工具源码高亮与网络分类，以及统一的 Material 3 界面。
 全屏播放器继续使用 Material 3 控件与同窗口倍速/投屏浮层，非全屏保留网页原播放器。
 保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
 
@@ -48,6 +47,7 @@
 
 - 首页地址栏右侧和菜单均可扫码，支持相机、手电筒及从系统文件选择器读取图片；无需 Google 服务或在线识别。
   横屏采用分栏布局，取景框按预览短边限制尺寸，大字体下操作区可滚动。
+  预览按相机图像比例居中裁切，随屏幕方向更新；不重复应用系统已处理的传感器旋转与前摄镜像。
 - 有效 HTTP(S) 网页链接直接在当前标签打开，无协议的有效域名补 HTTPS；其余内容按纯文本原样展示，可选择、复制或继续扫描。
   文本、Wi-Fi 内容、自定义应用协议、脚本和本地文件地址不自动执行、跳转或送往搜索引擎。
 - 相机只在扫码界面前台运行，退出、切后台、展示结果或选图时释放；拒绝相机权限后仍可选图识别。
@@ -161,7 +161,7 @@
 
 Android UI、生命周期、SQLite、下载、SAF/MediaStore、权限与系统集成保留 Kotlin；
 网络过滤、元素隐藏、PSL/IDNA、URL/搜索和书签 HTML 解析使用 Rust JNI；DOM 控制使用 JavaScript。
-源码高亮在 Kotlin 工作线程线性扫描，扫码使用 Camera2 与 ZXing Core 3.5.3；本轮优化集中于避免 UI 同步大文本排版和无效刷新。
+源码高亮在 Kotlin 工作线程线性扫描，扫码使用 Camera2 与 ZXing Core 3.5.3；预览缩放与屏幕旋转独立处理，解码仍在工作线程完成。
 `Application` 持有下载、过滤、网站设置和 DLNA 仓库；Activity ViewModel 保留单浏览会话。
 详见 [架构说明](ARCHITECTURE_REVIEW.md) 和 [系统能力边界](design/system-integration.md)。
 
@@ -192,7 +192,7 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 
 ```bash
 ./build-and-test.sh
-./install_and_test.sh PureBrowser-v0.8.0-release.apk
+./install_and_test.sh PureBrowser-v0.8.1-release.apk
 ./diagnose.sh
 ```
 
@@ -200,11 +200,11 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 lint、R8 和签名验证。当前交付的实际结果、设备覆盖和文件校验值以本节及 [回归报告](EMULATOR_TEST_REPORT.md) 为准。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.8.0-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.8.1-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.0-release.apk \
-  --label release-080 --stages developer-tools menu-navigation settings-back settings site layout browser productivity home-shortcut
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.1-release.apk \
+  --label release-081 --stages developer-tools menu-navigation settings-back settings site layout browser productivity home-shortcut
 # 只有 APK、AVD、阶段选择相同时才能加 --resume
 ```
 
@@ -217,16 +217,17 @@ QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读�
 
 ### 交付包
 
-签名 APK 为 [`PureBrowser-v0.8.0-release.apk`](PureBrowser-v0.8.0-release.apk)，Android 10+、arm64-v8a，versionCode 15 → 16。
-大小 **4,688,330 bytes（约 4.47 MiB）**，SHA-256：
-`7d384d68084d754b904e63a2c703669b60e60cc82cc466e5c7d763cb903ee924`。
+签名 APK 为 [`PureBrowser-v0.8.1-release.apk`](PureBrowser-v0.8.1-release.apk)，Android 10+、arm64-v8a，versionCode 16 → 17。
+大小 **4,689,026 bytes（约 4.47 MiB）**，SHA-256：
+`15a1e0bb3bd67d602850248956e8b33d014e10125a5eda8430dec977906a26ff`。
 与上一版使用同一签名，可覆盖安装；v2 签名、16 KiB zipalign、三份 native 库 ELF LOAD 对齐和两个运行时脚本一致性检查通过。
 
-本轮 330 项 Android/Robolectric、58 项 Rust、55 项 Node 测试通过；29 项临时专项验证后已删除测试源码。
-622 项三语言资源校验通过；lint 为 0 errors、19 warnings、1 hint。界面、扫码、性能与设备覆盖的实际结果见 [回归报告](EMULATOR_TEST_REPORT.md)。
-最终包通过 Android 17 的 18 阶段回归和 Android 10 的 3 阶段兼容回归，以及两版系统的相机/图片扫码专项。
-Android 10 从 0.7.4 覆盖升级后，已有数据库与偏好文件校验值保持一致。百万字符源码可显示和滚动；
-帧统计仅是模拟器采样，不作为真机性能提升百分比。
+本轮 330 项 Android/Robolectric、58 项 Rust、55 项 Node 测试通过；另有 7 项临时几何测试覆盖 288 组方向与尺寸组合，测试源码已删除。
+622 项三语言资源校验通过；lint 为 0 errors、19 warnings、1 hint。扫码专项与设备覆盖的实际结果见 [回归报告](EMULATOR_TEST_REPORT.md)。
+最终包验证 Android 17 后摄/前摄回退、Android 10 后摄的四个预览方向、圆形比例，以及宽高不变时的 180° 转屏。
+两版各通过 13 项生命周期/选图检查及实时相机网页码验证。两版模拟器均从 0.8.0 覆盖升级，
+安装前后原有数据库和偏好文件校验值保持一致。
+用户反馈涉及多台 OPPO / ColorOS 设备；本轮未连接 ColorOS 真机，实际机型效果仍待复测。
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。
 本地交付只保留最新 APK 及必要验证记录；完整源码使用 `master` 普通提交维护，不创建备份或回滚分支。
 
