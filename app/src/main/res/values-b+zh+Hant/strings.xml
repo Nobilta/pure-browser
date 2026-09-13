@@ -89,7 +89,6 @@
     <string name="menu_cast_none">當前頁面無可投送視頻</string>
     <string name="menu_cast_no_direct_source">未偵測到此視頻可直接投送的媒體地址</string>
     <string name="playback_speed_title">播放速度</string>
-    <string name="playback_speed_normal">%1$s（正常）</string>
     <string name="playback_speed_applied">播放速度已設為 %1$s</string>
     <string name="playback_speed_failed">未找到正在播放的視頻</string>
     <string name="menu_adblock">廣告攔截</string>

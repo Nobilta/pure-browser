@@ -70,6 +70,7 @@ fun CastSheet(
     onRefreshStatus: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     lastError: String? = null,
+    embedded: Boolean = false,
 ) {
     val textResources = localizedResources()
     // A player often requests the same manifest more than once with a cache-busting or
@@ -91,7 +92,7 @@ fun CastSheet(
         }
     }
 
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
+    CastContainer(embedded, onDismiss) {
         // Keep both sections in one lazy list. Two sibling LazyColumns inside a sheet
         // compete for the same bounded height: the first can consume the entire viewport,
         // making renderer devices unreachable. A single list gives every item one scroll
@@ -181,6 +182,12 @@ fun CastSheet(
             }
         }
     }
+}
+
+/** Fullscreen playback supplies its own anchored surface and never opens a dialog. */
+@Composable
+private fun CastContainer(embedded: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    if (embedded) content() else BrowserBottomSheet(onDismissRequest = onDismiss) { content() }
 }
 
 @Composable

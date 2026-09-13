@@ -142,8 +142,15 @@ class BrowserMediaSession(private val context: Context) {
         }.getOrDefault(false)
     }
     private fun stopService() {
+        val requested = serviceRequested
         serviceRequested = false
-        context.stopService(Intent(context, MediaPlaybackService::class.java))
+        if (requested) {
+            // stopService can cancel a queued foreground start before the service
+            // can acknowledge it, which Android treats as a fatal startup failure.
+            // Deliver shutdown in start order; stopSelfResult keeps newer starts alive.
+            context.startService(Intent(context, MediaPlaybackService::class.java)
+                .setAction(MediaPlaybackService.ACTION_FINISH))
+        }
         notifications.cancel(NOTIFICATION_ID)
     }
     fun serviceStopped() { serviceRequested = false }

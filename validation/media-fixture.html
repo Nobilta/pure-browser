@@ -14,8 +14,8 @@
   <h1>媒体检测测试页</h1>
   <p>页面故意暴露多个候选，并让第一个循环播放。</p>
   <p id="rate" aria-live="polite">当前倍速：1.00×</p>
-  <button onclick="secondary.pause();primary.play()">Play primary</button>
-  <button onclick="primary.pause();secondary.src='/player-sample.mp4?token=secondary-play';secondary.muted=true;secondary.loop=true;secondary.play()">Play secondary</button>
+  <button id="play-primary" onclick="secondary.pause();primary.play()">Play primary</button>
+  <button id="play-secondary" onclick="primary.pause();secondary.src='/player-sample.mp4?token=secondary-play';secondary.muted=true;secondary.loop=true;secondary.play()">Play secondary</button>
   <video id="primary" controls autoplay muted loop playsinline
          src="/sample-default.mp4?token=primary"></video>
   <video id="secondary" controls playsinline
@@ -25,6 +25,22 @@
       var primary = document.getElementById('primary');
       var secondary = document.getElementById('secondary');
       var rate = document.getElementById('rate');
+      var caseId = new URLSearchParams(location.search).get('case');
+      function report() {
+        if (!caseId) return;
+        var buttons = {};
+        ['primary', 'secondary'].forEach(function (name) {
+          var rect = document.getElementById('play-' + name).getBoundingClientRect();
+          buttons['Play ' + name] = {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
+        });
+        fetch('/__state?case=' + encodeURIComponent(caseId), {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({capturedAt: Date.now(), mediaButtons: buttons,
+            viewport: {width: innerWidth, height: innerHeight, dpr: devicePixelRatio},
+            playing: !primary.paused ? 'primary' : !secondary.paused ? 'secondary' : null})
+        }).catch(function () {});
+      }
+      if (caseId) setInterval(report, 250);
       function updateRate() {
         rate.textContent = '当前倍速：' + Number(primary.playbackRate).toFixed(2) + '×';
       }

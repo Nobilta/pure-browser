@@ -5,6 +5,7 @@ Run qa-server.py first. Requires an arm64 emulator with the release APK installe
 Generated screenshots and JSON results are written below validation/results/.
 """
 import argparse
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import subprocess
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("ux", ROOT / "emulator-ux.py")
@@ -90,7 +92,7 @@ class Regression:
 
     def controls(self):
         for _ in range(3):
-            root, _ = ux.nodes()
+            root, _ = self.player_nodes(reveal=True)
             if ux.match(root, "退出全屏") is not None:
                 removed = {"Rewind 10 seconds", "Forward 10 seconds", "Switch to web controls", "Switch to enhanced controls",
                            "快退10秒", "快进10秒", "快進10秒", "切换到网页控件", "切换到增强控件", "切換到網頁控件", "切換到增強控件"}
@@ -100,6 +102,20 @@ class Regression:
             self.touch()
             time.sleep(.4)
         raise AssertionError("A single tap did not reveal fullscreen controls")
+
+    def player_nodes(self, reveal=False):
+        action = ["playerReveal", str(self.width // 2), str(self.height // 2)] if reveal else ["playerDump"]
+        raw = ux.adb("shell", "env", "CLASSPATH=" + ux.UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
+                     "com.mybrowser.validation.FastUiDump", *action)
+        raw = raw[raw.index("<?xml"):raw.index("</hierarchy>") + len("</hierarchy>")]
+        return ET.fromstring(raw), raw
+
+    def player_tap(self, label):
+        encoded = base64.b64encode(json.dumps(sorted(ux.labels(label))).encode()).decode()
+        result = ux.adb("shell", "env", "CLASSPATH=" + ux.UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
+                        "com.mybrowser.validation.FastUiDump", "playerTap", encoded,
+                        str(self.width // 2), str(self.height // 2))
+        return "Tapped" in result
 
     def button(self, label, reveal=True):
         if label == "Web play/pause" and self.variant.startswith("custom"):
@@ -114,8 +130,8 @@ class Regression:
             return
         for _ in range(3):
             # Controls can auto-hide between a hierarchy dump and a separate shell
-            # input process. Resolve visibility and inject this tap together.
-            if ux.tap_now(label):
+            # process. Reveal, resolve and tap inside one connected service.
+            if (self.player_tap(label) if reveal else ux.tap_now(label)):
                 time.sleep(.4)
                 return
             if reveal:
@@ -138,6 +154,50 @@ class Regression:
         dump = ux.adb("shell", "dumpsys", "window", "windows")
         start = dump.index("package=com.mybrowser")
         return dump[start:dump.find("Window #", start)]
+
+    def player_windows(self):
+        dump = ux.adb("shell", "dumpsys", "window", "windows")
+        tokens = re.findall(r'Window #\d+ Window\{(\S+) [^}\n]*com\.mybrowser/com\.mybrowser\.MainActivity', dump)
+        assert tokens, "The fullscreen Activity window is missing"
+        return sorted(tokens)
+
+    def popup_baseline(self):
+        root = self.controls()
+        bar = ux.match(root, "player_control_bar")
+        assert bar is not None, "Material player control bar missing"
+        return {"video": self.wait(lambda s: s["fullscreen"] and s["enhanced"]),
+                "bar": ux.bounds(bar), "windows": self.player_windows()}
+
+    def stable_player(self, baseline):
+        before = baseline["video"]
+        latest = self.wait(lambda s: s["capturedAt"] > before["capturedAt"] + 600 and s["fullscreen"])
+        events = [s for s in self.events() if before["capturedAt"] < s["capturedAt"] <= latest["capturedAt"]]
+        assert events, "No telemetry received while the menu was open"
+        for state in events:
+            assert state["fullscreen"] and state["sameElement"] and state["source"] == before["source"]
+            assert state["viewport"] == before["viewport"], "Menu resized the video viewport"
+            for key in ("x", "y", "width", "height"):
+                assert abs(state["videoRect"][key] - before["videoRect"][key]) < .1, "Menu moved the video: " + key
+        assert self.player_windows() == baseline["windows"], "Player menu opened another window"
+
+    def floating_menu(self, kind, baseline):
+        root, _ = self.player_nodes()
+        popup = ux.match(root, "player_" + kind + "_menu")
+        bar = ux.match(root, "player_control_bar")
+        assert popup is not None and bar is not None, "Floating menu or player controls disappeared"
+        rect, controls = ux.bounds(popup), ux.bounds(bar)
+        assert controls == baseline["bar"], "Opening the menu moved the control bar"
+        assert abs(rect[2] - controls[2]) <= 2 and rect[3] < controls[1], "Menu is not anchored above the right corner"
+        scale = baseline["video"]["viewport"]["dpr"]
+        assert 0 <= rect[0] < rect[2] <= self.width and 0 <= rect[1] < rect[3] <= self.height
+        assert rect[2] - rect[0] <= (288 if kind == "speed" else 336) * scale + 2
+        assert rect[3] - rect[1] <= 360 * scale + 2
+        if self.width > self.height:
+            assert rect[0] > self.width * .45, "Menu covers most of the landscape video"
+        self.stable_player(baseline)
+        self.snapshot(kind + ("-landscape" if self.width > self.height else "-portrait") + "-floating")
+        self.record(kind + " menu stays in the lower right without moving video or opening a window",
+                    menuBounds=rect, controlBounds=controls, windowTokens=baseline["windows"])
 
     def brightness(self):
         match = re.search(r"sbrt=([\d.-]+)", self.app_window())
@@ -198,9 +258,13 @@ class Regression:
             paused = self.wait(lambda s: s["paused"])
             self.double_tap(.83)
             self.wait(lambda s: s["paused"] and s["currentTime"] >= paused["currentTime"] + 9)
+            baseline = self.popup_baseline()
             self.button("播放速度 1×")
+            self.floating_menu("speed", baseline)
             self.button("1.5×", reveal=False)
             self.wait(lambda s: s["paused"] and s["rate"] == 1.5)
+            ux.expect("player_speed_menu", present=False)
+            self.stable_player(baseline)
             self.record("native pause, seek and speed control the original custom video")
 
             self.button("播放视频")
@@ -321,12 +385,12 @@ class Regression:
             return
 
         time.sleep(4)
-        root, _ = ux.nodes()
+        root, _ = self.player_nodes()
         assert ux.match(root, "退出全屏") is None, "Telemetry repeatedly revealed native controls"
         self.record("native controls auto-hide while telemetry continues")
         self.touch()
         time.sleep(.4)
-        root, _ = ux.nodes()
+        root, _ = self.player_nodes()
         assert ux.match(root, "退出全屏") is not None, "Single tap confirmation was cancelled"
         enhanced = ux.match(root, "锁定屏幕") is not None
         self.record("single tap reveals controls", enhanced=enhanced)
@@ -334,10 +398,22 @@ class Regression:
         if self.variant == "square":
             assert enhanced and self.width < self.height
             self.record("square video preserves portrait orientation")
+            for kind in ("speed", "cast"):
+                baseline = self.popup_baseline()
+                self.button("player_" + kind + "_action")
+                self.floating_menu(kind, baseline)
+                self.button("关闭", reveal=False)
+                ux.expect("player_" + kind + "_menu", present=False)
             self.button("切换横竖屏")
             time.sleep(1)
             self.snapshot("rotated")
             assert self.width > self.height
+            for kind in ("speed", "cast"):
+                baseline = self.popup_baseline()
+                self.button("player_" + kind + "_action")
+                self.floating_menu(kind, baseline)
+                self.button("关闭", reveal=False)
+                ux.expect("player_" + kind + "_menu", present=False)
             self.button("退出全屏")
             self.wait(self.restored_inline)
             time.sleep(1)
@@ -354,14 +430,18 @@ class Regression:
         self.record("landscape video rotates automatically")
 
         if cast_buttons:
+            baseline = self.popup_baseline()
             self.button("投屏")
             ux.expect("选择要投送的内容")
             self.wait(lambda s: s["fullscreen"])
-            self.snapshot("cast-sheet")
+            self.floating_menu("cast", baseline)
+            time.sleep(4)
+            self.floating_menu("cast", baseline)
             dismiss_started = time.time()
             ux.adb("shell", "input", "keyevent", "4")
             self.wait(lambda s: s["receivedAt"] > dismiss_started + .5 and s["fullscreen"] and not s["controls"])
             ux.expect("选择要投送的内容", present=False)
+            self.stable_player(baseline)
             self.record("cast picker opens and dismisses without leaving fullscreen")
         else:
             assert inline["source"].startswith("blob:")
@@ -374,10 +454,19 @@ class Regression:
         self.wait(lambda s: not s["paused"])
         self.record("pause and resume retain control target")
 
+        baseline = self.popup_baseline()
+        self.button("播放速度 1×")
+        self.floating_menu("speed", baseline)
+        # Dismissal consumes this touch; it must not pause or seek the video below it.
+        self.touch(.2, .3)
+        ux.expect("player_speed_menu", present=False)
+        self.wait(lambda s: s["fullscreen"] and not s["paused"] and s["rate"] == 1)
+        self.stable_player(baseline)
         self.button("播放速度 1×")
         self.button("1.5×", reveal=False)
         self.wait(lambda s: s["rate"] == 1.5)
-        ux.expect("1.5×", present=False)
+        ux.expect("player_speed_menu", present=False)
+        self.stable_player(baseline)
         started = time.time()
         self.swipe((.5, .5), (.5, .5), 1500)
         deadline = time.monotonic() + 8

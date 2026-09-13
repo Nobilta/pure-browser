@@ -12,7 +12,7 @@ import androidx.compose.runtime.setValue
 /** The route stack owns navigation; a presentation owns callbacks from one mounted sheet. */
 internal class BrowserSheetNavigation {
     enum class Destination {
-        MENU, CAST, PLAYBACK_SPEED, TABS, BOOKMARKS, HISTORY, DOWNLOADS, SETTINGS,
+        MENU, CAST, TABS, BOOKMARKS, HISTORY, DOWNLOADS, SETTINGS,
         SITE_SETTINGS, DEVELOPER_TOOLS,
     }
 

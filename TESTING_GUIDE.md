@@ -18,9 +18,9 @@ lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实�
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.7.3-release.apk
-shasum -a 256 PureBrowser-v0.7.3-release.apk
-./install_and_test.sh PureBrowser-v0.7.3-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.7.4-release.apk
+shasum -a 256 PureBrowser-v0.7.4-release.apk
+./install_and_test.sh PureBrowser-v0.7.4-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
@@ -32,11 +32,11 @@ shasum -a 256 PureBrowser-v0.7.3-release.apk
 本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.3-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.4-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.3-release.apk \
-  --label release-073 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.4-release.apk \
+  --label release-074 --stages menu-navigation settings-back site layout browser productivity
 ```
 
 不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
@@ -46,11 +46,22 @@ Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/
 键盘和无障碍树读取；动态网页使用 DOM 遥测与播放/文件内容核对操作结果，不能只判断按钮存在。
 WebView 漏报可见网页节点时，先核对当前网址与新鲜夹具几何，再执行真实触摸；网站夹具不在导航后立即追加刷新。
 权限窗口和全屏控件须在同一次辅助会话中定位并触摸，防止窗口动画/自动隐藏造成坐标过期。
+播放器检查通过 `playerDump` / `playerReveal` / `playerTap` 只查询前景原生控件，跳过后台 WebView 子树，并主动刷新暂停视频的 Compose 节点缓存。
+全屏宿主按原生结构识别，不能假定无障碍树的子节点顺序等于窗口前后顺序；媒体选择夹具会回传按钮坐标与实际播放来源。
 全部窗口的只读采集遇到 Android 10 辅助进程 SIGSEGV 时仅重试一次；不重放触摸或返回输入，连续失败仍终止回归。
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.7.3 重点验收
+## 0.7.4 重点验收
+
+### 全屏浮层与 Material 3 控件
+
+- 倍速和投屏只在播放器右下角弹出；窗口标识、原视频 DOM 坐标、视口、进度及控制条位置在打开和关闭时保持。
+- 七档倍速可选择，投屏媒体/设备列表可滚动；点击面板外、关闭按钮和系统返回都只关闭浮层。
+- 面板停留超过 3.5 秒仍可操作，关闭后恢复控件自动隐藏；切后台、进入 PiP 和退出全屏不残留面板。
+- 横屏、竖屏、放大字体下检查控件配色、圆角、滑块、文字和 48dp 触摸区域；暂停视频，在浮层打开、滚动与关闭前后比对画面像素，核对无整体平移。
+- 播放、双击、拖动滑块、音量/亮度/进度手势、连续临时加速、锁定、旋转、系统媒体及 PiP 使用原视频继续工作。
+- 后台播放开启时连续三次离开正在播放的页面，系统媒体会话、通知与服务均结束，浏览器进程保持不变。
 
 ### 菜单、标签、设置返回与滚动
 

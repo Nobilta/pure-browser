@@ -227,11 +227,12 @@ def main():
                 result['limitations'].append('This WebView cannot observe the cross-origin fixture; iframe session expiry was not exercised here')
                 record('Unsupported cross-origin playback keeps website controls and leaves no browser session after removal')
 
-            page('navigation')
-            play()
-            ux.launch(BASE + 'browser-ux.html?case=no-media')
-            assert_released('navigation')
-            record('Navigating away from a playing document releases its system media owner')
+            for attempt in range(3):
+                page('navigation-' + str(attempt))
+                play()
+                ux.launch(BASE + 'browser-ux.html?case=no-media')
+                assert_released('navigation-' + str(attempt))
+            record('Three consecutive playing-page departures release media and pending foreground starts without restarting the browser')
 
             page('close-tab')
             play()

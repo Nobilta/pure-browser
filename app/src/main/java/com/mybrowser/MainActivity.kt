@@ -50,7 +50,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
@@ -135,7 +134,6 @@ import com.mybrowser.ui.BookmarksSheet
 import com.mybrowser.ui.HistorySheet
 import com.mybrowser.ui.CastSheet
 import com.mybrowser.ui.MenuSheet
-import com.mybrowser.ui.PlaybackSpeedSheet
 import com.mybrowser.ui.TabsSheet
 import com.mybrowser.ui.DownloadsSheet
 import com.mybrowser.ui.SettingsSheet
@@ -233,7 +231,6 @@ class MainActivity : ComponentActivity(),
     private val mediaTrackers = WeakHashMap<WebView, MediaPlaybackTracker>()
     private var mediaProbeJob: Job? = null
     private var hasVideo by mutableStateOf(false)
-    private var playbackSpeed by mutableFloatStateOf(PlaybackSpeed.DEFAULT)
     private val networkLogs = NetworkLogStore()
     private val consoleLogs = ConsoleLogStore()
     private val cast: CastController get() = (application as App).castController
@@ -606,41 +603,7 @@ class MainActivity : ComponentActivity(),
                             onDismiss = { dismissSheet(entry) },
                         )
 
-                        Sheet.CAST -> {
-                            val castSnapshot by cast.state.collectAsState()
-                            CastSheet(
-                                candidates = mediaSnapshot.candidates,
-                                devices = castSnapshot.devices,
-                                isSearching = castSnapshot.isSearching,
-                                onSearch = cast::search,
-                                onCast = { candidate, device ->
-                                    cast.cast(candidate, device, ::toast)
-                                },
-                                onCopyUrl = { copyToClipboard(it.url) },
-                                onDismiss = { dismissSheet(entry) },
-                                preferredCandidate = mediaSnapshot.preferredCandidate,
-                                playingCandidateUrls = mediaSnapshot.playingCandidateUrls,
-                                isCasting = castSnapshot.isCasting,
-                                pendingDevice = castSnapshot.pendingDevice,
-                                connectedDevice = castSnapshot.connected,
-                                lastError = castSnapshot.lastError,
-                                playback = castSnapshot.playback,
-                                statusUnavailable = castSnapshot.statusUnavailable,
-                                isControlling = castSnapshot.isControlling,
-                                onPause = { cast.pause(::toast) }, onResume = { cast.resume(::toast) },
-                                onStop = { cast.stop(::toast) }, onVolume = { cast.setVolume(it, ::toast) },
-                                onSeek = { cast.seek(it, ::toast) }, onRefreshStatus = cast::refreshStatus,
-                                onDisconnect = cast::disconnect,
-                            )
-                        }
-
-                        Sheet.PLAYBACK_SPEED -> PlaybackSpeedSheet(
-                            currentSpeed = playbackSpeed,
-                            onSelect = { speed ->
-                                sheetAction(entry) { applyPlaybackSpeed(speed) }
-                            },
-                            onDismiss = { dismissSheet(entry) },
-                        )
+                        Sheet.CAST -> CurrentCastPicker(onDismiss = { dismissSheet(entry) })
 
                         Sheet.TABS -> TabsSheet(
                             residentIds = residentIds,
@@ -971,6 +934,42 @@ class MainActivity : ComponentActivity(),
     }
 
     @androidx.compose.runtime.Composable
+    private fun CurrentCastPicker(onDismiss: () -> Unit, embedded: Boolean = false) {
+        val mediaSnapshot by media.state.collectAsState()
+        val castSnapshot by cast.state.collectAsState()
+        if (embedded) {
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                cast.setVisible(true)
+                cast.search()
+                onDispose { cast.setVisible(false); cast.cancel() }
+            }
+        }
+        CastSheet(
+            candidates = mediaSnapshot.candidates,
+            devices = castSnapshot.devices,
+            isSearching = castSnapshot.isSearching,
+            onSearch = cast::search,
+            onCast = { candidate, device -> cast.cast(candidate, device, ::toast) },
+            onCopyUrl = { copyToClipboard(it.url) },
+            onDismiss = onDismiss,
+            preferredCandidate = mediaSnapshot.preferredCandidate,
+            playingCandidateUrls = mediaSnapshot.playingCandidateUrls,
+            isCasting = castSnapshot.isCasting,
+            pendingDevice = castSnapshot.pendingDevice,
+            connectedDevice = castSnapshot.connected,
+            lastError = castSnapshot.lastError,
+            playback = castSnapshot.playback,
+            statusUnavailable = castSnapshot.statusUnavailable,
+            isControlling = castSnapshot.isControlling,
+            onPause = { cast.pause(::toast) }, onResume = { cast.resume(::toast) },
+            onStop = { cast.stop(::toast) }, onVolume = { cast.setVolume(it, ::toast) },
+            onSeek = { cast.seek(it, ::toast) }, onRefreshStatus = cast::refreshStatus,
+            onDisconnect = cast::disconnect,
+            embedded = embedded,
+        )
+    }
+
+    @androidx.compose.runtime.Composable
     private fun CurrentSiteSettings(siteOwner: BrowserSheetNavigation.Presentation? = null) {
         val origin = showSiteOrigin ?: return
         val sites by activeSites.entries.collectAsState()
@@ -1117,7 +1116,6 @@ class MainActivity : ComponentActivity(),
                 hasVideo = signal.hasVideo
                 (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden =
                     signal.isPlaying && browserPreferences.video.backgroundPlayback && !privacy.isIncognito
-                playbackSpeed = signal.playbackRate ?: PlaybackSpeed.DEFAULT
                 media.updatePlayback(signal)
                 systemMedia.update(this, signal, state.pageTitle.orEmpty(), privacy.isIncognito, browserPreferences.video.backgroundPlayback)
                 pipController.update()
@@ -1142,7 +1140,6 @@ class MainActivity : ComponentActivity(),
             leaveFullscreen()
             rememberedVideo = null
             hasVideo = false
-            playbackSpeed = PlaybackSpeed.DEFAULT
         }
         mediaTrackers.remove(view)?.close()
     }
@@ -1158,7 +1155,6 @@ class MainActivity : ComponentActivity(),
             runOnUiThread {
                 if (webViewOrNull !== view || mediaTrackers[view] !== tracker) return@runOnUiThread
                 if (applied) {
-                    playbackSpeed = speed
                     rememberPlaybackSpeed(speed)
                     toast(
                         getString(
@@ -1422,7 +1418,6 @@ class MainActivity : ComponentActivity(),
         mediaProbeJob?.cancel()
         media.clear()
         hasVideo = false
-        playbackSpeed = PlaybackSpeed.DEFAULT
         rememberedVideo = null
         if (oldId != null && oldId != tab.id) {
             webViewOrNull?.let { old ->
@@ -2199,16 +2194,8 @@ class MainActivity : ComponentActivity(),
             titleProvider = { state.pageTitle ?: getString(R.string.ui_video_playback) },
             canCast = { media.count > 0 },
             onExit = ::leaveFullscreen,
-            onCast = {
-                fullscreenView?.cancelTransientControls()
-                tracker.probe()
-                openSheet(Sheet.CAST)
-                cast.search()
-            },
-            onChooseSpeed = {
-                tracker.probe()
-                openSheet(Sheet.PLAYBACK_SPEED)
-            },
+            onChooseSpeed = ::applyPlaybackSpeed,
+            castContent = { CurrentCastPicker(onDismiss = {}, embedded = true) },
             onPictureInPicture = if (pipController.isAvailable) ({ pipController.enter(); Unit }) else null,
         )
         fullscreenView = host
@@ -2444,7 +2431,7 @@ class MainActivity : ComponentActivity(),
             override fun handleOnBackPressed() {
                 when {
                     fullscreenView != null -> {
-                        if (fullscreenView?.unlockOnBack() != true) leaveFullscreen()
+                        if (fullscreenView?.handleBack() != true) leaveFullscreen()
                     }
                     sheetNavigation.current != null -> dismissSheet(sheetNavigation.current!!)
                     webView.canGoBack() -> { exitConfirmation.reset(); webView.goBack() }
