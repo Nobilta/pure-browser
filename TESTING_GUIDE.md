@@ -18,9 +18,9 @@ lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实�
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.7.2-release.apk
-shasum -a 256 PureBrowser-v0.7.2-release.apk
-./install_and_test.sh PureBrowser-v0.7.2-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.7.3-release.apk
+shasum -a 256 PureBrowser-v0.7.3-release.apk
+./install_and_test.sh PureBrowser-v0.7.3-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
@@ -32,11 +32,11 @@ shasum -a 256 PureBrowser-v0.7.2-release.apk
 本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.2-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.3-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.2-release.apk \
-  --label release-072 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.3-release.apk \
+  --label release-073 --stages menu-navigation settings-back site layout browser productivity
 ```
 
 不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
@@ -50,7 +50,7 @@ WebView 漏报可见网页节点时，先核对当前网址与新鲜夹具几何
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.7.2 重点验收
+## 0.7.3 重点验收
 
 ### 菜单、标签、设置返回与滚动
 
@@ -60,12 +60,12 @@ python3 validation/settings-back-regression.py --serial emulator-5554
 python3 validation/capabilities-regression.py --serial emulator-5554 --section site
 ```
 
-- 菜单没有分享网页、复制链接和打印/PDF；标签列表和操作菜单没有最近关闭、恢复或清理记录入口。
+- 菜单没有页面播放速度、分享网页、复制链接和打印/PDF；书签与添加/取消书签、网站设置与设置有不同图标。
 - 单个/批量关闭、最后一个标签关闭、普通/无痕切换仍正常，重启不恢复已关闭的标签。
 - 验证滚动收起/展开地址栏时，滑动起终点均位于当前 WebView 边界内，避免底部地址栏拦截按整屏比例定位的触摸。
 - 菜单 → 设置 → 菜单 → 浏览器；左上角、系统 Back、左右边缘手势、连续快速返回、重建和宽屏行为一致。
-  设置与菜单各自只有一个弹层窗口；返回菜单后，所有窗口中均不存在旧设置内容，最终浏览器只剩主窗口且可触摸。
-- 网站设置上下边界分别连续执行快/慢滑动；标题和保存按钮坐标不变，停止后连续三帧表单像素一致，设置仍可修改、取消和保存。
+  菜单与全部子页复用一个弹层窗口；逐帧检查切换期间不露出网页。返回菜单后没有旧设置内容，最终只剩主窗口且可触摸。
+- 网站设置、过滤订阅、用户脚本、管理网站、下载、历史、标签等页面上下边界连续执行快/慢滑动；标题及固定操作栏不移动，边界不拉伸，停止后像素稳定。
 - 管理网站列表使用固定弹层，通过左上角返回关闭；横屏和放大字体下同样可到达全部操作。
 - 开发者工具仅在菜单出现，关于和设置搜索不再包含该入口。
 
@@ -105,20 +105,19 @@ python3 validation/capabilities-regression.py --serial emulator-5554 --section d
 QA 的 APK 下载路由直接读取 `--apk` 指定的文件，应与回归套件使用同一安装包；不保存 APK 夹具副本，
 清理构建缓存后仍可使用根目录的交付 APK。省略该参数时兼容读取 `app/build/outputs/apk/release/app-release.apk`。
 
-### 内嵌和全屏视频
+### 非全屏原控件与全屏增强播放
 
 ```bash
-python3 validation/inline-video-regression.py --serial emulator-5554 \
-  --output validation/results/inline-video
+python3 validation/video-regression.py --serial emulator-5554 --variant standard
 python3 validation/video-regression.py --serial emulator-5554 --variant custom
 python3 validation/system-media-regression.py --serial emulator-5554 --package com.mybrowser \
   --output validation/results/system-media
 ```
 
-- 标准、自定义、Blob、160×90 小视频及跨域 frame；按钮必须在画面内，原视频节点和来源不变。
-- 真正触摸播放/暂停、倍速、跳转、静音，核对遥测与网站事件次数，避免两个控制层同时生效。
-- 动态网站控件、尺寸变化、滚动离屏、页面弹窗遮挡、控件样式丢失和视频替换。
-- 主动恢复网页后保持恢复，失败回退不反复抢占；全屏进出撤下/恢复对应控制层。
+- 非全屏标准、自定义、Blob 和 frame 视频保留原控件与布局；没有新增控制层或临时属性。
+- 网站设置关闭增强全屏播放后使用网页控件，重启仍保留；重新开启只在全屏接管。重置后继承全局默认值。
+- 全屏只有一套控件，不含快进/后退按钮与模式切换；实际触摸播放、倍速和双击跳转，核对原视频及进度。
+- 网站追加控件、样式丢失、目标变化与失败回退；退出后原始属性与网站控制层恢复。
 - 原生全屏双击、亮度/音量/进度手势、长按临时倍速、锁定返回、旋转、控件自动隐藏、弹层取消。
 - 旧 Provider 跨域不可控制时保留网页；样式受 CSP 限制时仍能使用原播放器。
 - Home/PiP、MediaSession 暂停、可选后台媒体、标签切换及无痕隐藏暂停。

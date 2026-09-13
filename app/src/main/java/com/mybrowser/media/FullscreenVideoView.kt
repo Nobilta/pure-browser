@@ -42,6 +42,7 @@ class FullscreenVideoView(
     private val activity: Activity,
     private val videoView: View,
     private val preferences: VideoPreferences,
+    enhancedPlayback: Boolean,
     private val tracker: MediaPlaybackTracker,
     private val titleProvider: () -> String,
     private val canCast: () -> Boolean,
@@ -63,7 +64,7 @@ class FullscreenVideoView(
     private var state = tracker.current.copy(isFullscreen = false)
     private var released = false
     private var enhanced = false
-    private var wantEnhanced = preferences.enhancedControls
+    private var wantEnhanced = enhancedPlayback
     private var connecting = false
     private var controlIdentity: String? = null
     private var controlGeneration = 0
@@ -80,7 +81,6 @@ class FullscreenVideoView(
     private val seek = SeekBar(activity)
     private val play = imageButton(R.drawable.ic_pause, activity.getString(R.string.ui_pause_video)) { togglePlayback() }
     private val speed = textButton("1×", activity.getString(R.string.menu_playback_speed)) { showSpeedPicker() }
-    private val mode = textButton(activity.getString(R.string.ui_web_controls), activity.getString(R.string.ui_switch_to_web_controls)) { switchMode() }
     private val lock = imageButton(R.drawable.ic_lock, activity.getString(R.string.ui_lock_screen)) { setLocked(!locked) }
     private val cast = imageButton(R.drawable.ic_cast, activity.getString(R.string.cd_cast)) { onCast() }
     private val hud = TextView(activity)
@@ -116,7 +116,6 @@ class FullscreenVideoView(
         title.ellipsize = TextUtils.TruncateAt.END
         top.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
         title.gravity = Gravity.CENTER_VERTICAL
-        top.addView(mode, LinearLayout.LayoutParams(-2, dp(48)))
         onPictureInPicture?.let { action ->
             top.addView(imageButton(R.drawable.ic_pip, activity.getString(R.string.picture_in_picture), action), LinearLayout.LayoutParams(dp(48), dp(48)))
         }
@@ -147,8 +146,6 @@ class FullscreenVideoView(
         })
         val row = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
         row.addView(play, LinearLayout.LayoutParams(dp(48), dp(48)))
-        row.addView(imageButton(R.drawable.ic_replay_10, activity.getString(R.string.ui_rewind_10_seconds)) { skip(-10.0) }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        row.addView(imageButton(R.drawable.ic_forward_10, activity.getString(R.string.ui_forward_10_seconds)) { skip(10.0) }, LinearLayout.LayoutParams(dp(48), dp(48)))
         row.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(speed, LinearLayout.LayoutParams(-2, dp(48)))
         row.addView(cast, LinearLayout.LayoutParams(dp(48), dp(48)))
@@ -240,24 +237,8 @@ class FullscreenVideoView(
         tracker.setFullscreenControls(false)
     }
 
-    private fun switchMode() {
-        gestures.cancelGesture()
-        if (enhanced || connecting) {
-            wantEnhanced = false
-            disconnectControls()
-        } else if (state.canUseEnhancedControls) {
-            wantEnhanced = true
-            connectControls()
-        } else if (state.hasVideo) {
-            showHud(activity.getString(R.string.ui_enhanced_controls_are_unavailable_for_this_webpage), 2200)
-        } else showHud(activity.getString(R.string.ui_start_playing_a_video_on_the_webpage_first), 2000)
-    }
-
     private fun refreshMode() {
         gestures.visibility = if (enhanced && !pictureInPicture) VISIBLE else GONE
-        mode.text = if (enhanced) activity.getString(R.string.ui_web_controls) else activity.getString(R.string.ui_enhanced_controls)
-        mode.contentDescription = if (enhanced) activity.getString(R.string.ui_switch_to_web_controls) else activity.getString(R.string.ui_switch_to_enhanced_controls)
-        mode.tooltipText = mode.contentDescription
         if (!enhanced) ui.removeCallbacks(hideControls)
         renderControls()
     }
@@ -274,7 +255,7 @@ class FullscreenVideoView(
             return
         }
         // State telemetry must not reveal controls or restart the user's hide timer.
-        top.visibility = if (state.canUseEnhancedControls && !locked && (controlsVisible || !enhanced)) VISIBLE else GONE
+        top.visibility = if (enhanced && !locked && controlsVisible) VISIBLE else GONE
         bottom.visibility = if (enhanced && !locked && controlsVisible) VISIBLE else GONE
         lock.visibility = if (enhanced && (controlsVisible || locked)) VISIBLE else GONE
     }

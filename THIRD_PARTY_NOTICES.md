@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-The fullscreen `ic_replay_10`, `ic_forward_10`, `ic_lock`, `ic_lock_open`, and browser
+The fullscreen `ic_lock`, `ic_lock_open`, and browser
 `ic_copy`, `ic_share`, `ic_edit`, `ic_add`, `ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_print`, `ic_pip`
 drawables are adapted from [Google Material Icons](https://github.com/google/material-design-icons),
 licensed under the [Apache License 2.0](third_party/material-icons-LICENSE.txt).

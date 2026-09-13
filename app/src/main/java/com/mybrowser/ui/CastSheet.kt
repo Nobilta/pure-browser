@@ -16,10 +16,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
@@ -74,7 +72,6 @@ fun CastSheet(
     lastError: String? = null,
 ) {
     val textResources = localizedResources()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // A player often requests the same manifest more than once with a cache-busting or
     // rotating-auth query.  Those URLs must remain selectable (dropping the query can make
     // a cast fail), but identical labels make the picker look like it contains duplicates.
@@ -94,8 +91,7 @@ fun CastSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         // Keep both sections in one lazy list. Two sibling LazyColumns inside a sheet
         // compete for the same bounded height: the first can consume the entire viewport,
         // making renderer devices unreachable. A single list gives every item one scroll

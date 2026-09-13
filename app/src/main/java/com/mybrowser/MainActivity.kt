@@ -335,7 +335,6 @@ class MainActivity : ComponentActivity(),
     private lateinit var downloadDirectoryLauncher: ActivityResultLauncher<Uri?>
 
     // Developer tools state
-    private val showDeveloperTools get() = sheet == Sheet.DEVELOPER_TOOLS
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -544,7 +543,7 @@ class MainActivity : ComponentActivity(),
                     certificateError = hasCertificateWarning,
                 )
 
-                BrowserSheetHost(sheetNavigation, visible = !(sheet == Sheet.BOOKMARKS && bookmarkDraft != null)) { entry ->
+                BrowserSheetHost(sheetNavigation) { entry ->
                     when (entry.destination) {
                         Sheet.MENU -> MenuSheet(
                             isIncognito = privacy.isIncognito,
@@ -553,7 +552,6 @@ class MainActivity : ComponentActivity(),
                             mediaCount = mediaSnapshot.count,
                             hasCastSession = cast.state.collectAsState().value.connected != null,
                             hasVideo = hasVideo,
-                            playbackSpeed = playbackSpeed,
                             isDesktopMode = state.isDesktopMode,
                             isCurrentPageBookmarked = currentPageBookmarked,
                             canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
@@ -570,9 +568,6 @@ class MainActivity : ComponentActivity(),
                             onToggleFilter = { if (sheetNavigation.isCurrent(entry)) filter.setEnabled(it) },
                             onToggleDesktopMode = { sheetAction(entry, ::toggleDesktopMode) },
                             onOpenFind = { sheetAction(entry) { state.showFindBar() } },
-                            onOpenPlaybackSpeed = {
-                                if (sheetNavigation.push(entry, Sheet.PLAYBACK_SPEED)) mediaTrackers[webView]?.probe()
-                            },
                             onOpenMedia = {
                                 if (sheetNavigation.push(entry, Sheet.CAST)) {
                                     mediaTrackers[webView]?.probe()
@@ -862,7 +857,6 @@ class MainActivity : ComponentActivity(),
                             preferences = browserPreferences,
                             onPreferencesChange = {
                                 browserPreferences = preferencesRepository.save(it)
-                                mediaTrackers.values.toList().forEach { tracker -> tracker.setEnhancedControls(browserPreferences.video.enhancedControls) }
                             },
                             isFilterEnabled = filter.enabled.collectAsState().value,
                             onFilterEnabledChange = filter::setEnabled,
@@ -872,8 +866,22 @@ class MainActivity : ComponentActivity(),
                             onDismiss = { dismissSheet(entry) },
                         )
 
-                        // These surfaces also have entry points outside the browser menu.
-                        Sheet.SITE_SETTINGS, Sheet.DEVELOPER_TOOLS -> Unit
+                        Sheet.SITE_SETTINGS -> CurrentSiteSettings(entry)
+                        Sheet.DEVELOPER_TOOLS -> {
+                            // Hidden tools keep their bounded history without invalidating browser UI.
+                            val networkEntries by networkLogs.entries.collectAsState()
+                            val consoleEntries by consoleLogs.entries.collectAsState()
+                            com.mybrowser.ui.DeveloperTools(
+                                webView = webView,
+                                networkEntries = networkEntries,
+                                consoleEntries = consoleEntries,
+                                onClearNetwork = networkLogs::clear,
+                                onClearConsole = consoleLogs::clear,
+                                onExplainFilter = { filterExplanation = it },
+                                pageUrl = state.currentUrl,
+                                onDismiss = { dismissSheet(entry) }
+                            )
+                        }
                     }
                 }
 
@@ -947,63 +955,49 @@ class MainActivity : ComponentActivity(),
                     val sites by activeSites.entries.collectAsState()
                     ManagedSitesSheet(sites, onSelect = { showSiteOrigin = it }, onDismiss = { showManagedSites = false })
                 }
-                androidx.compose.runtime.key(activeSheetEntry?.route?.key, showSiteOrigin) {
-                    showSiteOrigin?.let { origin ->
-                        val sites by activeSites.entries.collectAsState()
-                        val settings = androidx.compose.runtime.remember(sites, origin) { activeSites.get(origin) }
-                        val siteOwner = activeSheetEntry?.takeIf { it.destination == Sheet.SITE_SETTINGS }
-                        SiteSettingsSheet(origin, settings, privacy.isIncognito, siteSettingsBusy,
-                            temporaryFilteringOff = origin in temporaryFilterOrigins,
-                            onTemporaryFilteringChange = {
-                                temporaryFilterOrigins = if (origin in temporaryFilterOrigins) temporaryFilterOrigins - origin
-                                    else (temporaryFilterOrigins + origin).toList().takeLast(128).toSet()
-                                if (SiteOrigin.of(state.currentUrl) == origin) {
-                                    workerDocument = documentFor(state.currentUrl)
-                                    webView.reload()
-                                }
-                            },
-                            onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin, SiteSettings()) },
-                            onClearSiteData = { confirmClearSite(origin) },
-                            onConnectionInfo = if (origin == SiteOrigin.of(state.currentUrl)) ({
-                                securityCertificate = SecurityChecker.certificateDetails(webView.certificate)
-                                showSecurityDialog = true
-                            }) else null,
-                            onDismiss = {
-                                if (siteOwner == null || sheetNavigation.isCurrent(siteOwner)) {
-                                    showSiteOrigin = null
-                                    siteOwner?.let(::dismissSheet)
-                                }
-                            })
-                    }
+                if (sheet != Sheet.SITE_SETTINGS) {
+                    androidx.compose.runtime.key(showSiteOrigin) { CurrentSiteSettings() }
                 }
                 bookmarkDocuments.preview?.let {
                     BookmarkImportDialog(it, bookmarkDocuments.busy, bookmarkDocuments::confirmImport, bookmarkDocuments::dismissPreview)
                 }
                 websitePermissions.prompt?.let { WebsitePermissionDialog(it, websitePermissions::respond) }
-
-                androidx.compose.runtime.key(activeSheetEntry?.route?.key) {
-                    if (showDeveloperTools && activeSheetEntry != null) {
-                        // Hidden tools keep their bounded history without invalidating browser UI.
-                        val networkEntries by networkLogs.entries.collectAsState()
-                        val consoleEntries by consoleLogs.entries.collectAsState()
-                        com.mybrowser.ui.DeveloperTools(
-                            webView = webView,
-                            networkEntries = networkEntries,
-                            consoleEntries = consoleEntries,
-                            onClearNetwork = networkLogs::clear,
-                            onClearConsole = consoleLogs::clear,
-                            onExplainFilter = { filterExplanation = it },
-                            pageUrl = state.currentUrl,
-                            onDismiss = { dismissSheet(activeSheetEntry) }
-                        )
-                    }
-                }
             }
         }
 
         if (savedInstanceState == null) {
             handleIntent(intent)
         }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun CurrentSiteSettings(siteOwner: BrowserSheetNavigation.Presentation? = null) {
+        val origin = showSiteOrigin ?: return
+        val sites by activeSites.entries.collectAsState()
+        val settings = androidx.compose.runtime.remember(sites, origin) { activeSites.get(origin) }
+        SiteSettingsSheet(origin, settings, privacy.isIncognito, siteSettingsBusy,
+            defaultEnhancedPlayback = browserPreferences.video.enhancedControls,
+            temporaryFilteringOff = origin in temporaryFilterOrigins,
+            onTemporaryFilteringChange = {
+                temporaryFilterOrigins = if (origin in temporaryFilterOrigins) temporaryFilterOrigins - origin
+                    else (temporaryFilterOrigins + origin).toList().takeLast(128).toSet()
+                if (SiteOrigin.of(state.currentUrl) == origin) {
+                    workerDocument = documentFor(state.currentUrl)
+                    webView.reload()
+                }
+            },
+            onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin, SiteSettings()) },
+            onClearSiteData = { confirmClearSite(origin) },
+            onConnectionInfo = if (origin == SiteOrigin.of(state.currentUrl)) ({
+                securityCertificate = SecurityChecker.certificateDetails(webView.certificate)
+                showSecurityDialog = true
+            }) else null,
+            onDismiss = {
+                if (siteOwner == null || sheetNavigation.isCurrent(siteOwner)) {
+                    showSiteOrigin = null
+                    siteOwner?.let(::dismissSheet)
+                }
+            })
     }
 
     private fun registerActivityLaunchers() {
@@ -1113,7 +1107,7 @@ class MainActivity : ComponentActivity(),
     private fun installMediaPlaybackTracker(view: WebView) {
         mediaTrackers.remove(view)?.close()
         lateinit var tracker: MediaPlaybackTracker
-        tracker = MediaPlaybackTracker(view, browserPreferences.video.enhancedControls) { signal ->
+        tracker = MediaPlaybackTracker(view) { signal ->
             runOnUiThread {
                 // A popup installs its tracker before the previous tab is released.
                 // Disposing that other WebView must not invalidate this view's signals.
@@ -2200,6 +2194,7 @@ class MainActivity : ComponentActivity(),
             activity = this,
             videoView = view,
             preferences = browserPreferences.video,
+            enhancedPlayback = activeSites.get(state.currentUrl).useEnhancedPlayback(browserPreferences.video.enhancedControls),
             tracker = tracker,
             titleProvider = { state.pageTitle ?: getString(R.string.ui_video_playback) },
             canCast = { media.count > 0 },

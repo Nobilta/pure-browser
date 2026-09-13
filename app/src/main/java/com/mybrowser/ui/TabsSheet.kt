@@ -52,11 +52,10 @@ fun TabsSheet(
     val filtered = tabs.filter { (groupFilter == null || it.group == groupFilter) &&
         (it.title.contains(query, true) || it.url.contains(query, true)) }
     val currentId = tabs.getOrNull(currentIndex)?.id
-    ModalBottomSheet(onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.tabs_count, tabs.size), style = MaterialTheme.typography.titleLarge)
                     if (isIncognito) Text(stringResource(R.string.incognito_badge),

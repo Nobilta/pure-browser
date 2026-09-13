@@ -75,11 +75,10 @@ class Regression:
 
     @staticmethod
     def restored_inline(state):
-        # Exiting fullscreen may hand the same video back to the inline enhanced
-        # layer. Exactly one of it and HTML controls must own the visible player.
+        # The original webpage controls are restored after fullscreen.
         return (not state["fullscreen"] and state["sameElement"]
                 and state["transientMarkers"] == 0
-                and bool(state["controls"]) != bool(state.get("inlineEnhanced", False)))
+                and state["controls"] and not state["enhanced"])
 
     def touch(self, x=.5, y=.5):
         ux.adb("shell", "input", "tap", str(int(self.width * x)), str(int(self.height * y)))
@@ -93,6 +92,10 @@ class Regression:
         for _ in range(3):
             root, _ = ux.nodes()
             if ux.match(root, "退出全屏") is not None:
+                removed = {"Rewind 10 seconds", "Forward 10 seconds", "Switch to web controls", "Switch to enhanced controls",
+                           "快退10秒", "快进10秒", "快進10秒", "切换到网页控件", "切换到增强控件", "切換到網頁控件", "切換到增強控件"}
+                assert not any(ux.visible(n) and (n.get("content-desc") in removed or n.get("text") in removed)
+                               for n in root.iter("node")), "Removed fullscreen buttons are still visible"
                 return root
             self.touch()
             time.sleep(.4)
@@ -193,22 +196,16 @@ class Regression:
             self.snapshot("custom-enhanced")
             self.button("暂停视频")
             paused = self.wait(lambda s: s["paused"])
-            self.button("快进10秒")
+            self.double_tap(.83)
             self.wait(lambda s: s["paused"] and s["currentTime"] >= paused["currentTime"] + 9)
             self.button("播放速度 1×")
             self.button("1.5×", reveal=False)
             self.wait(lambda s: s["paused"] and s["rate"] == 1.5)
             self.record("native pause, seek and speed control the original custom video")
 
-            self.button("切换到网页控件")
-            self.wait(lambda s: s["fullscreen"] and not s["enhanced"] and not s["controls"]
-                      and s["webControlsVisible"] and s["dynamicControlVisible"] and s["transientMarkers"] == 0)
-            self.button("Web play/pause", reveal=False)
+            self.button("播放视频")
             self.wait(lambda s: not s["paused"] and s["rate"] == 1.5)
-            self.snapshot("custom-web-controls")
-            self.button("切换到增强控件")
-            self.wait(lambda s: s["enhanced"] and not s["webControlsVisible"] and s["source"] == before["source"])
-            self.record("switching back restores working website controls and preserves playback state")
+            self.record("enhanced toolbar omits mode switching and skip buttons; side double tap still seeks")
             self.button("锁定屏幕")
             ux.adb("shell", "input", "keyevent", "4")
             self.wait(lambda s: s["fullscreen"] and s["enhanced"])
@@ -225,6 +222,8 @@ class Regression:
         time.sleep(1)
         assert self.snapshot("exited") == original_size
         self.record("repeated custom fullscreen exits restore the original controls and orientation")
+        if self.variant == "custom":
+            self.website_preference()
 
     def run(self):
         # UiAutomation restores a frozen rotation on disconnect; use the sensor so
@@ -251,13 +250,17 @@ class Regression:
         if self.variant == "popup-cross":
             query += "&cross=1"
         launch_started = time.monotonic()
-        ux.launch("http://127.0.0.1:8875/" + page + query)
+        self.page_url = "http://127.0.0.1:8875/" + page + query
+        ux.launch(self.page_url)
         if popup:
             ux.tap("Open video in new tab", timeout=25)
         # A cold emulator must build the bundled filter engine and start the media
         # process. Measure that separately; interaction assertions still use 8 seconds.
         inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"], timeout=25)
         self.record("cold page reaches playable metadata", seconds=round(time.monotonic() - launch_started, 2))
+        assert not inline["enhanced"] and inline["transientMarkers"] == 0
+        assert inline["controls"] == (not custom), "Non-fullscreen controls were replaced"
+        self.record("non-fullscreen playback keeps the original webpage controls")
         if popup:
             for attempt in range(2):
                 after = int(ux.adb("shell", "date", "+%s%3N"))
@@ -267,6 +270,9 @@ class Regression:
             self.record("three consecutive popup tabs load without reusing a navigated WebView")
         if self.expect_enhanced:
             assert inline.get("probe"), "Document-start media probe missing from the popup frame"
+        # Each case owns its local fixture origin, including after a failed opt-out check.
+        self.set_website_playback(True)
+        inline = self.wait(lambda s: s["duration"] > 0 and not s["fullscreen"])
         original_brightness = self.brightness()
         original_size = self.snapshot("inline")
         root, _ = ux.nodes()
@@ -322,7 +328,7 @@ class Regression:
         time.sleep(.4)
         root, _ = ux.nodes()
         assert ux.match(root, "退出全屏") is not None, "Single tap confirmation was cancelled"
-        enhanced = ux.match(root, "切换到网页控件") is not None
+        enhanced = ux.match(root, "锁定屏幕") is not None
         self.record("single tap reveals controls", enhanced=enhanced)
         self.snapshot("controls")
         if self.variant == "square":
@@ -501,24 +507,73 @@ class Regression:
             assert ux.match(self.controls(), "锁定屏幕") is not None, "System Back did not unlock the player"
             self.record("system edge Back gesture unlocks without exiting the fullscreen video")
 
-        self.button("切换到网页控件")
-        self.wait(lambda s: s["controls"])
-        self.button("切换到增强控件")
-        self.wait(lambda s: not s["controls"])
-        self.record("webpage and enhanced controls can be switched")
         self.button("退出全屏")
         self.wait(self.restored_inline)
         time.sleep(1)
         size = self.snapshot("exited")
         assert size == original_size, (size, original_size)
         assert self.brightness() == original_brightness
-        self.record("exit restores orientation, brightness and one working inline control layer")
+        self.record("exit restores orientation, brightness and the original webpage controls")
+        if self.variant == "standard":
+            self.website_preference()
+
+    def set_website_playback(self, enabled):
+        ux.menu_item("网站设置")
+        for _ in range(8):
+            root, _ = ux.nodes()
+            label = ux.match(root, "增强全屏播放")
+            if label is not None:
+                break
+            regions = [n for n in root.iter("node") if n.get("scrollable") == "true" and ux.visible(n)]
+            assert regions, "Website playback setting is not scrollable into view"
+            x1, y1, x2, y2 = ux.bounds(max(regions, key=lambda n: ux.bounds(n)[3] - ux.bounds(n)[1]))
+            ux.adb("shell", "input", "swipe", str((x1+x2)//2), str(y1+(y2-y1)*4//5),
+                   str((x1+x2)//2), str(y1+(y2-y1)//4), "350")
+        assert label is not None, "Website playback switch is missing"
+        containers = [n for n in root.iter("node") if ux.match(n, "增强全屏播放") is not None
+                      and any(c.get("checkable") == "true" for c in n.iter("node"))]
+        row = min(containers, key=lambda n: len(list(n.iter("node"))))
+        switch = next(n for n in row.iter("node") if n.get("checkable") == "true")
+        if switch.get("checked") != str(enabled).lower():
+            ux.tap_node(switch)
+        saved_at = time.time()
+        ux.tap("保存并刷新")
+        # Save/reload intentionally closes the full menu path; Cancel returns one level.
+        ux.expect("编辑网址")
+        self.wait(lambda state: state["receivedAt"] > saved_at and not state["fullscreen"] and state["duration"] > 0, timeout=25)
+
+    def website_preference(self):
+        self.set_website_playback(False)
+        for attempt in range(2):
+            if attempt:
+                ux.adb("shell", "am", "force-stop", ux.PACKAGE)
+                ux.launch(self.page_url)
+                self.wait(lambda state: not state["fullscreen"] and state["duration"] > 0, timeout=25)
+            self.enter_fullscreen()
+            self.wait(lambda state: state["fullscreen"] and not state["enhanced"]
+                      and state["controls"] == (not self.variant.startswith("custom")))
+            self.snapshot("website-controls-disabled-" + str(attempt))
+            root, _ = ux.nodes()
+            assert ux.match(root, "锁定屏幕") is None, "Disabled website still has enhanced controls"
+            if self.variant.startswith("custom"):
+                self.button("Web play/pause", reveal=False)
+                self.wait(lambda state: state["paused"])
+            ux.adb("shell", "input", "keyevent", "4")
+            self.wait(lambda state: not state["fullscreen"] and state["transientMarkers"] == 0)
+        self.record("website opt-out preserves fullscreen web controls and survives process restart")
+        self.set_website_playback(True)
+        self.enter_fullscreen()
+        self.wait(lambda state: state["fullscreen"] and state["enhanced"])
+        self.snapshot("website-enhanced-enabled")
+        self.button("退出全屏")
+        self.wait(lambda state: not state["fullscreen"] and state["transientMarkers"] == 0)
+        self.record("website opt-in enables takeover again only in fullscreen")
 
     def save(self, error=None):
         value = {"serial": self.serial, "sdk": self.sdk, "case": self.case,
                  "apkSha256": self.apk_hash,
                  "checks": self.checks, "error": error, "lastPlayback": self.events()[-1:]}
-        (self.output / ("api" + self.sdk + "-" + self.variant + ".json")).write_text(
+        (self.output / (self.case + ".json")).write_text(
             json.dumps(value, ensure_ascii=False, indent=2))
 
 

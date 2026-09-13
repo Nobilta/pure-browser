@@ -103,11 +103,11 @@ try:
     screenshot("downloads")
     back()
     ux.tap("视频播放")
-    ux.expect("增强视频控件")
+    ux.expect("默认启用增强播放")
     screenshot("video")
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.3")
     time.sleep(1)
-    ux.expect("增强视频控件")
+    ux.expect("默认启用增强播放")
     screenshot("large-font")
     record("video settings remain accessible at 1.3 font scale")
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.0")
@@ -118,7 +118,7 @@ try:
     screenshot("landscape")
     if int(sdk) >= 34:
         ux.expect("浏览与启动")
-        ux.expect("增强视频控件")
+        ux.expect("默认启用增强播放")
         record("wide settings show category navigation beside the detail pane")
 finally:
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.0")

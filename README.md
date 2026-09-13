@@ -1,10 +1,11 @@
 # Pure 浏览器
 
 面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.7.2（versionCode 13）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+当前版本 **0.7.3（versionCode 14）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
 
-本版移除菜单中的分享网页、复制链接、打印/PDF，以及最近关闭标签和撤销关闭；精简对应代码、资源和过时测试。
-设置使用独立全屏窗口处理返回，网站设置固定弹层位置并关闭边界拉伸，修复返回残留和滚动抖动。
+本版增强播放器仅在全屏时尝试接管，支持在网站设置中单独开启或关闭；移除网页内播放器接管代码。
+菜单移除页面播放速度入口，书签与添加书签、网站设置与设置使用不同图标。
+菜单及子页面共享窗口，弹层固定位置并关闭边界拉伸，避免页面切换闪出网页及滚动到边界时抖动。
 保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
 
 ## 功能
@@ -19,7 +20,8 @@
   Android 13+ 支持系统应用语言设置，旧系统跟随系统语言。
 - 设置按浏览与启动、外观、隐私与过滤、下载、视频、关于分类，支持搜索定位；宽屏可显示分类与详情两栏。
   菜单和设置逐级返回，保留滚动与分类；Activity 重建保留当前来路，外部网址导航关闭临时面板。
-  菜单只保留一个子页面，设置的画面与返回回调由同一个独立全屏窗口持有，退出时一起释放；开发者工具仅在菜单提供入口。
+  菜单只保留一个子页面，在同一个窗口内直接替换内容，保留父级滚动状态；设置与书签使用全屏布局。
+  所有同类弹层、表单和列表关闭拖动与滚动边界拉伸，支持按钮、系统返回及外部区域关闭；开发者工具仅在菜单提供入口。
 - 链接长按支持新标签、后台打开、复制和分享；图片支持打开、保存和复制地址，普通文字保留原生选区。
 - 标签搜索、排序、命名分组、缩略图和批量关闭确认；关闭标签后释放其记录，最后一个标签关闭后回到新标签。
   升级时清理旧版最近关闭存档。
@@ -64,18 +66,20 @@
 
 ### 视频播放器、系统媒体与 DLNA
 
-- **增强控件默认尝试接管网页内和全屏视频**，网站自带播放器不再直接排除。
-  控制原来已加载的 `<video>`，不复制媒体、不改写 `src`、不再启动一份解码器。
-- 网页内提供播放/暂停、进度、倍速、静音、全屏和恢复网页控件；适配小至 160×90 CSS px 的可见视频。
-  临时控制层随滚动、缩放和布局移动；屏幕外的视频释放控制层，每个文档最多同时接管 8 个。
-- 接管时限定隐藏当前播放器范围内的原控件，验证原画面边界、样式和遮挡。
-  无法隔离、样式受限/丢失、命令失败或目标失效时恢复网页；用户主动恢复后不反复抢回同一视频。
-  新视频/新来源可以重新尝试。进入全屏先撤下内嵌层，退出后再恢复单个内嵌层。
-- 全屏有播放、进度、0.5×–3× 倍速、旋转、锁定、网页控件和投屏入口。单击显隐；双击中央播放/暂停、
-  两侧跳转 10 秒；横滑预览进度，左右竖滑分别调亮度/音量；长按临时 2×/3×，松开恢复。
+- **只在全屏播放时尝试接管**。非全屏视频始终使用网页原有控件，不注入网页内控制层，不隐藏原播放器。
+  增强播放控制已加载的 `<video>`，不复制媒体、不改写 `src`、不另开解码器；网站自定义全屏容器也可尝试接管。
+- 网站设置提供“增强全屏播放”开关，按当前页面的完整 origin 保存，适用于该页内可访问的同源/跨域播放器。
+  尚未单独设置的网站跟随设置 → 视频播放中的“默认启用增强播放”；已有全局偏好保留，网站明确选择优先。
+  保存并刷新后生效；重置网站设置恢复默认。无痕修改仅在当前私密会话生效。
+- 全屏保留播放/暂停、进度、0.5×–3× 倍速、旋转、锁定、画中画和投屏入口。
+  删除左下角快进/后退按钮和右上角网页/增强控件切换按钮；单击显隐，双击中央播放/暂停、两侧跳转 10 秒。
+  横滑预览进度，左右竖滑分别调亮度/音量；长按临时 2×/3×，松开恢复。
   锁定后返回先解锁，退出恢复方向、亮度和常亮状态；闲置自动隐藏不被遥测刷新打断。
+- 接管时只隔离当前全屏播放器的控件。无法隔离、样式受限/丢失、命令失败或目标失效时恢复网页控件；
+  退出全屏恢复原始 DOM 属性、控件和布局，网页内不再次接管。
 - HTTP(S)、签名链接和 Blob 视频使用相同原视频控制路径；MSE 仍由网站/WebView 管理。
-  清晰度、弹幕、网站 DOM 字幕等专属操作可切回网页控件。没有可访问视频元素或无法隔离的播放器仍使用网页原控件。
+  需要网站清晰度、弹幕、DOM 字幕等专属操作时，可在网站设置关闭增强全屏播放。
+  没有可访问视频元素或无法隔离的播放器仍使用网页原控件。
 - 支持逐 frame 消息和文档开始脚本的 WebView 可以控制跨域视频；旧 Provider 仅支持主文档及可访问同源 frame，
   无法控制的跨域播放器保留原状。能力由 WebView 特性决定，不只看 Android 版本。
   仅缺文档开始注入、仍支持消息桥的 Provider 在页面加载后注入并保留实时播放状态回传，避免快速切后台时因轮询延迟误暂停。
@@ -94,7 +98,7 @@
 
 ### 网站、隐私与系统能力
 
-- 网站可单独设置 JavaScript、过滤、图片、第三方 Cookie、桌面模式、网页暗色、50%–200% 字号，
+- 网站可单独设置 JavaScript、过滤、图片、第三方 Cookie、桌面模式、网页暗色、增强全屏播放、50%–200% 字号，
   桌面视口支持网页原值及 980/1024/1280/1440。其他设置按完整 origin 管理；
   桌面模式只在同站同协议/端口的裸域、m./mobile./www. 展示入口间共享，避免移动站重定向循环。
   网站表单与管理列表保持固定位置；滚动到上下边界不会拖动弹层，使用返回或取消关闭。
@@ -165,20 +169,20 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 
 ```bash
 ./build-and-test.sh
-./install_and_test.sh PureBrowser-v0.7.2-release.apk
+./install_and_test.sh PureBrowser-v0.7.3-release.apk
 ./diagnose.sh
 ```
 
 完整构建执行三语言资源校验、Node 协议测试、Rust fmt/test/clippy、真实 host JNI 的 Android/Robolectric 测试、
-lint、R8 和签名验证。当前自动检查通过 **328 项 Android、58 项 Rust、55 项 Node 测试及 603 项三语言资源校验**。
-lint 为 0 errors、10 warnings、1 hint。构建记录：`validation/results/release-0.7.2/build-final.json` 与同名日志。
+lint、R8 和签名验证。当前自动检查通过 **330 项 Android、58 项 Rust、55 项 Node 测试及 587 项三语言资源校验**。
+lint 为 0 errors、10 warnings、1 hint。构建记录：`validation/results/release-0.7.3/build-final.json` 与同名日志。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.2-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.3-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.2-release.apk \
-  --label release-072 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.3-release.apk \
+  --label release-073 --stages menu-navigation settings-back site layout browser productivity
 # 只有 APK、AVD、阶段选择相同时才能加 --resume
 ```
 
@@ -186,16 +190,17 @@ QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、�
 若本机启用了 HTTP 代理，运行回归时为 `127.0.0.1,localhost` 设置 `NO_PROXY` 与 `no_proxy`，确保遥测请求直连本机。
 QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件，清理构建缓存后仍可复现。
 辅助程序仅置于 `/data/local/tmp`，Release 不开放 WebView 调试。runner 按实际安装 APK SHA-256 记录阶段，
-保留失败尝试，不把局部验证计作全部设备/网站覆盖。最终包在 Android 17 / WebView 145 上通过 8 个阶段，
-Android 10 / WebView 91 上通过 5 个阶段、网站表单边界专项及覆盖升级；旧 WebView 的完整站点切换阶段出现渲染进程崩溃，未计为通过。
+保留失败尝试，不把局部验证计作全部设备/网站覆盖。当前交付包在 Android 17 / WebView 145 上通过 14 个阶段，
+Android 10 / WebView 91 上通过 7 个兼容阶段及 0.7.2 → 0.7.3 覆盖升级。
+另完成菜单切换录像逐帧检测与脚本、过滤、网站列表边界滑动检查。
 阶段、升级链和失败记录见 [回归报告](EMULATOR_TEST_REPORT.md)，
 复现与手工验收见 [测试指南](TESTING_GUIDE.md)。
 
 ### 交付包
 
-- `PureBrowser-v0.7.2-release.apk`：Android 10+、arm64-v8a，4,661,251 bytes（约 4.45 MiB）。
-- SHA-256：`c738eb6c2d19e963ee0d1f00ec2a8d401d74df366e343eee1bd6b32c0180cbc2`。
-- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 12 → 13。
+- `PureBrowser-v0.7.3-release.apk`：Android 10+、arm64-v8a，4,599,770 bytes（约 4.39 MiB）。
+- SHA-256：`d10dc92ec6a16fce41ee7a18cc399eaca8bbf046bc97484629eddbd88d9f4600`。
+- APK Signature Scheme v2 与 16 KiB 对齐检查通过，与上一版证书相同；versionCode 13 → 14。
 - 证书 SHA-256：`7d468e8b3a9be385a2386b27ef548e83cb55206e67911d81b721b5adbe1e8236`。
 
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。
