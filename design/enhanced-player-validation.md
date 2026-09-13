@@ -1,6 +1,6 @@
 # 增强播放器接管与验证
 
-当前版本：0.7.3。安装包、自动检查及实际设备覆盖以 [README](../README.md) 和
+当前版本：0.7.4。安装包、自动检查及实际设备覆盖以 [README](../README.md) 和
 [模拟器报告](../EMULATOR_TEST_REPORT.md) 为准。
 
 ## 接管原则
@@ -19,6 +19,8 @@
 - CSP、布局失效或不可访问的跨域 frame 保留网页播放器。
 - 标准与自定义播放器在网站设置关闭增强播放后使用网页全屏控件，进程重启后选择仍保留；重新开启仅在全屏接管。
 - 手势跳转、亮度/音量/进度调节、长按临时加速、锁定返回、旋转、控件自动隐藏及倍速/投屏弹层关闭。
+- 倍速与投屏面板限定在控制条右上方；打开、停留、选择及关闭期间窗口标识、视频视口和元素坐标不变。
+  横屏与方形视频的竖屏均检查面板边界，验证控件不随菜单上移；外部点击只关闭面板，不触发播放或跳转。
 
 `system-media-regression.py` 检查 PiP、系统媒体暂停和显式后台播放；私密生命周期阶段检查无痕隐藏暂停。
 `media-lifecycle-regression.py` 另核对视频结束/删除/卸载/隐藏/替换、页面导航、关闭标签和关闭 PiP 后，
@@ -33,8 +35,8 @@ Node 协议测试覆盖签名来源、多个视频目标固定、布局失效、
 ```bash
 python3 validation/setup-ui-probe.py emulator-5554
 python3 validation/run-regressions.py --serial emulator-5554 \
-  --apk PureBrowser-v0.7.3-release.apk --label player-073 \
-  --stages system-media video-standard video-custom video-custom-blob video-custom-cross video-custom-csp
+  --apk PureBrowser-v0.7.4-release.apk --label player-074 \
+  --stages media-lifecycle system-media features-media video-standard video-custom video-custom-blob video-custom-cross video-custom-csp video-square
 ```
 
 只在专用模拟器串行执行，构建时停止模拟器。只有 APK、AVD 与阶段选择完全一致时可以 `--resume`。

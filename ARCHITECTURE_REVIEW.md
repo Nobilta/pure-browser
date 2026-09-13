@@ -1,6 +1,6 @@
 # 架构与维护边界
 
-2026-09-13，0.7.3。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
+2026-09-13，0.7.4。当前功能和安装包以 [README](README.md) 为准，实际检查结果见
 [回归报告](EMULATOR_TEST_REPORT.md)。本文件集中记录代码职责、复用方式和语言选择。
 当前实施与验证边界见 [实施记录](design/implementation-status.md)。
 
@@ -15,7 +15,7 @@
 | `filter`、`userscript` | 过滤订阅更新与引擎切换、用户脚本元数据/存储及逐 frame 注入；共享有界读取和原子 UTF-8 写入 |
 | `site` | 网站偏好、站点/系统权限状态机；仓库由 Application 单实例持有 |
 | `privacy`、`security` | WebView Profile 或退出清理、证书错误状态、外部协议限制 |
-| `media`、`dlna` | 媒体候选、播放元素追踪、内嵌和全屏控件、SSDP 与 AVTransport；投屏会话由进程级控制器管理 |
+| `media`、`dlna` | 媒体候选、播放元素追踪、全屏 Material 3 控件及浮层、SSDP 与 AVTransport；投屏会话由进程级控制器管理 |
 | `rust/adblock` | 网络规则解析/匹配、元素隐藏域名索引及有界 CSS 缓存 |
 | `rust/url_utils` | URL/搜索分类和有界 Netscape HTML 书签解析 |
 
@@ -25,7 +25,7 @@
 ## 菜单、输入和异步结果
 
 - 菜单进入设置、书签、历史、下载、网站设置、开发工具或媒体选择时保存来路。
-  返回只弹出一级；打开网页、应用倍速等操作关闭整个菜单路径。
+  返回只弹出一级；打开网页等操作关闭整个菜单路径。
   只允许“菜单 → 一个子页面”，恢复时拒绝反向或过深的来路。设置分类与选项由设置自身管理。
 - 路由 key 用于恢复滚动位置/分类，每次显示的 `Presentation` 用于校验回调身份。
   旧动画的完成回调和重复点击不能关闭后来显示的页面；返回父级也会换新回调身份。
@@ -45,9 +45,14 @@
 完整菜单回归与根因见 [菜单导航设计](design/menu-navigation-20260910.md)。
 
 系统媒体所有权与视频元素是否仍可继续播放分别追踪。停止或离开时发布 STOPPED、清除元数据并 release 系统 token，
-不能只设为 inactive；独立定时任务清除消失 frame 的旧状态。暂停标签/PiP 时立即归一为暂停，丢弃迟到的播放状态。
+不能只设为 inactive；独立定时任务清除消失 frame 的旧状态。
+后台媒体服务在每次 `onStartCommand` 先应答前台启动，停止请求作为同一服务的有序命令处理；
+`stopSelfResult(startId)` 不终止较新的启动，避免直接 `stopService` 抢先撤销待处理的前台请求导致进程崩溃。暂停标签/PiP 时立即归一为暂停，丢弃迟到的播放状态。
 全屏视频挂载在 Activity content 容器内以跟随 PiP 尺寸变化；PiP 过渡使用进入前的窗口内画面区域，
 不把浮窗的屏幕位置在每次播放状态更新时反复写回。
+`FullscreenVideoView` 保留 Chromium 视频视图和原生手势，`PlayerControls` 用 Compose Material 3 渲染控件。
+倍速和投屏面板在同一个控件层中锚定右下角，不创建独立窗口；安全边距只应用于控件，视频视图保持全尺寸。
+投屏面板复用 `CastSheet` 内容与进程级控制器，可见时发现设备/轮询，关闭后停止；返回先关闭面板，再解锁或退出。
 
 ## 数据、并发与复用
 
@@ -78,7 +83,7 @@
 | URL 与书签 HTML | 现有 `url_utils` JNI 库 | 输入/输出边界清晰，有界线性解析；书签保留 Android SAF、预览与 SQLite 单事务 |
 | UI、WebView、权限和生命周期 | Kotlin/Android | 平台负责渲染和生命周期；增加 JNI 不能替代平台语义 |
 | 数据库、下载、文件名和存储 | Kotlin/Android | 主要依赖 SQLite、HTTP、SAF、MediaStore、通知和 Cookie；没有另引 Rust 数据库/HTTP/TLS 的端到端收益证据 |
-| 网页探针、脚本运行时、视频控件 | JavaScript | 直接访问 DOM 与网站播放器，不将整页跨语言复制 |
+| 网页探针、脚本运行时、DOM 控制权交接 | JavaScript | 直接访问 DOM 与网站播放器，不将整页跨语言复制 |
 | DLNA/SSDP/SOAP | Kotlin | 有界网络/XML 和低频命令；收益来自状态一致性及设备兼容 |
 
 0.5.1 删除了没有产品或测试调用的旧 `NativeCache`、`NativeDownloader`、

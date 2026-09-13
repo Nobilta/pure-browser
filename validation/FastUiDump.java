@@ -96,10 +96,20 @@ public final class FastUiDump {
             Thread.sleep(150);
             AccessibilityNodeInfo root = null;
             for (int i = 0; i < 30 && root == null; i++) {
-                root = automation.getRootInActiveWindow();
+                root = activeRoot(automation);
                 if (root == null) Thread.sleep(50);
             }
             if (root == null) throw new IllegalStateException("No active UI root");
+            boolean player = args.length > 0 && args[0].startsWith("player");
+            if (player) root = playerRoot(root, 0);
+            if (player && root == null) throw new IllegalStateException("No fullscreen player root");
+            if (args.length == 3 && args[0].equals("playerReveal")) {
+                if (findVisible(root, new JSONArray("[\"player_control_bar\"]"), 0, true) == null) {
+                    tap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
+                    SystemClock.sleep(350);
+                    root = playerRoot(activeRoot(automation), 0);
+                }
+            }
             if (args.length == 2 && args[0].equals("setText")) {
                 AccessibilityNodeInfo input = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
                 if (input == null || !input.isEditable()) {
@@ -118,18 +128,26 @@ public final class FastUiDump {
                 if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, values))
                     throw new IllegalStateException("Text input rejected");
                 System.out.println("Text entered");
-            } else if (args.length == 2 && (args[0].equals("tap") || args[0].equals("visible"))) {
+            } else if ((args.length == 2 && (args[0].equals("tap") || args[0].equals("visible")))
+                    || (args.length == 4 && args[0].equals("playerTap"))) {
                 JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
-                AccessibilityNodeInfo target = findVisible(root, labels, 0);
+                AccessibilityNodeInfo target = findVisible(root, labels, 0, player);
+                if (target == null && player) {
+                    tap(automation, Float.parseFloat(args[2]), Float.parseFloat(args[3]));
+                    SystemClock.sleep(350);
+                    root = playerRoot(activeRoot(automation), 0);
+                    target = root == null ? null : findVisible(root, labels, 0, true);
+                }
                 // Keep one service connection alive while Chromium creates virtual
                 // descendants; reconnecting for each snapshot can restart that work.
                 long deadline = SystemClock.uptimeMillis() + 2000;
                 while (target == null && SystemClock.uptimeMillis() < deadline) {
                     SystemClock.sleep(100);
-                    root = automation.getRootInActiveWindow();
+                    root = activeRoot(automation);
+                    if (player) root = playerRoot(root, 0);
                     if (root != null) {
                         root.refresh();
-                        target = findVisible(root, labels, 0);
+                        target = findVisible(root, labels, 0, player);
                     }
                 }
                 if (target != null && args[0].equals("visible")) {
@@ -151,7 +169,7 @@ public final class FastUiDump {
                     AccessibilityNodeInfo windowRoot = window.getRoot();
                     if (windowRoot != null) dump(windowRoot, xml, 0);
                 }
-            } else dump(root, xml, 0);
+            } else dump(root, xml, 0, player);
             xml.endTag("", "hierarchy");
             xml.endDocument();
             System.out.println(output);
@@ -164,8 +182,34 @@ public final class FastUiDump {
         System.exit(0);
     }
 
-    private static AccessibilityNodeInfo findVisible(AccessibilityNodeInfo node, JSONArray labels, int depth) {
-        if (depth > 50) return null;
+    private static AccessibilityNodeInfo activeRoot(UiAutomation automation) {
+        return automation.getRootInActiveWindow();
+    }
+
+    private static AccessibilityNodeInfo playerRoot(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 6) return null;
+        node.refresh();
+        if ("android:id/content".equals(node.getViewIdResourceName())) {
+            // API 29 can expose the foreground host before the background Compose
+            // root. Accessibility child order is not the native window's z-order.
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null && "android.widget.FrameLayout".contentEquals(child.getClassName())) return child;
+            }
+            return null;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo found = playerRoot(node.getChild(i), depth + 1);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static AccessibilityNodeInfo findVisible(AccessibilityNodeInfo node, JSONArray labels, int depth, boolean nativeOnly) {
+        if (depth > 50 || (nativeOnly && "android.webkit.WebView".contentEquals(node.getClassName()))) return null;
+        // Paused video emits no changing accessibility events. Re-reading only the
+        // window root can retain the Compose subtree from before controls appeared.
+        if (nativeOnly && !node.refresh()) return null;
         if (node.isVisibleToUser()) {
             for (int i = 0; i < labels.length(); i++) {
                 String label = labels.optString(i);
@@ -183,7 +227,7 @@ public final class FastUiDump {
         for (int i = node.getChildCount() - 1; i >= 0; i--) {
             AccessibilityNodeInfo child = node.getChild(i);
             if (child != null) {
-                AccessibilityNodeInfo found = findVisible(child, labels, depth + 1);
+                AccessibilityNodeInfo found = findVisible(child, labels, depth + 1, nativeOnly);
                 if (found != null) return found;
             }
         }
@@ -223,6 +267,12 @@ public final class FastUiDump {
     }
 
     private static void dump(AccessibilityNodeInfo node, XmlSerializer xml, int depth) throws Exception {
+        dump(node, xml, depth, false);
+    }
+
+    private static void dump(AccessibilityNodeInfo node, XmlSerializer xml, int depth, boolean nativeOnly) throws Exception {
+        if (nativeOnly && "android.webkit.WebView".contentEquals(node.getClassName())) return;
+        if (nativeOnly && !node.refresh()) return;
         if (depth > 50 || ++count > 4000) return;
         xml.startTag("", "node");
         attribute(xml, "text", node.getText());
@@ -244,9 +294,10 @@ public final class FastUiDump {
         Rect bounds = new Rect();
         node.getBoundsInScreen(bounds);
         attribute(xml, "bounds", bounds.toShortString());
-        for (int i = 0; i < node.getChildCount(); i++) {
+        for (int index = 0; index < node.getChildCount(); index++) {
+            int i = nativeOnly ? node.getChildCount() - 1 - index : index;
             AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) dump(child, xml, depth + 1);
+            if (child != null) dump(child, xml, depth + 1, nativeOnly);
         }
         xml.endTag("", "node");
     }

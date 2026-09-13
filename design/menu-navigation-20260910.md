@@ -1,11 +1,12 @@
-# 菜单返回与弹层生命周期（0.7.3）
+# 菜单返回与弹层生命周期（0.7.4）
 
 ## 当前导航规则
 
 菜单只能进入一个子页面：设置、书签、历史、下载、网站设置、开发工具或媒体选择。
 设置内部返回路径为“选项 → 分类 → 设置首页 → 菜单 → 浏览器”。左上角、系统返回及边缘手势规则一致。
-直接打开的标签、投屏和全屏倍速没有菜单父级；菜单中的页面播放速度入口已删除。
-打开网页、切换模式或应用倍速关闭当前路径。普通后台切回保留界面，外部网址导航清空临时页面，配置重建保存来路。
+直接打开的标签、网页投屏没有菜单父级；菜单中的页面播放速度入口已删除。
+全屏倍速与投屏由播放器窗口内的右下角浮层处理，不属于菜单路由；倍速选择只关闭当前浮层。
+打开网页或切换模式关闭当前路径。普通后台切回保留界面，外部网址导航清空临时页面，配置重建保存来路。
 
 ## 一个窗口内切换内容
 
@@ -37,10 +38,10 @@
   无障碍坐标不变不能单独证明渲染稳定。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.3-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.7.4-release.apk
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.3-release.apk \
-  --label release-073-ui --stages menu-navigation settings-back site layout browser developer-tools features-scripts features-filters
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.4-release.apk \
+  --label release-074-ui --stages menu-navigation settings-back site layout browser developer-tools features-scripts features-filters
 ```
 
 实际设备、安装包及失败记录见 README 和 EMULATOR_TEST_REPORT；临时验证脚本完成后删除。
