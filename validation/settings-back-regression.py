@@ -71,7 +71,7 @@ def settings_root():
     root, _ = ux.nodes()
     assert any(ux.match(root, name) is not None for name in categories), "Category list is missing"
     assert len(toolbar_buttons(root)) == 1, "A detail pane remained open"
-    assert ux.match(root, "增强视频控件") is None, "Detail page remained open"
+    assert ux.match(root, "默认启用增强播放") is None, "Detail page remained open"
 
 
 def browser_root():
@@ -162,7 +162,7 @@ try:
     category("视频播放")
     ux.adb("shell", "input", "keyevent", "3")
     ux.launch()
-    ux.expect("增强视频控件")
+    ux.expect("默认启用增强播放")
     back()
     settings_root()
     record("returning from the background preserves the category Back handler")
@@ -213,7 +213,7 @@ try:
 
     category("视频播放")
     orient("1")
-    ux.expect("增强视频控件")
+    ux.expect("默认启用增强播放")
     screenshot("landscape-detail")
     toolbar_back()
     settings_root()
@@ -228,12 +228,12 @@ try:
 
     category("视频播放")
     orient("0")
-    ux.expect("增强视频控件")
+    ux.expect("默认启用增强播放")
     back()
     settings_root()
     back()
     ux.expect_menu()
-    ux.expect("增强视频控件", present=False)
+    ux.expect("默认启用增强播放", present=False)
     back()
     browser_root()
     ux.open_settings()

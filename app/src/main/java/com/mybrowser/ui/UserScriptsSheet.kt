@@ -83,8 +83,7 @@ fun UserScriptsSheet(store: UserScriptStore, initialUrl: String?, onUrlConsumed:
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.ic_back), res.getString(R.string.cd_back)) }

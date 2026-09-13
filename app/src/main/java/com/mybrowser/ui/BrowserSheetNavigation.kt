@@ -78,11 +78,10 @@ internal class BrowserSheetNavigation {
     }
 }
 
-/** Only the top sheet is mounted. Parents retain UI state without retaining a dialog window. */
+/** One dialog survives route changes; only the visible page and its Back callback are mounted. */
 @Composable
 internal fun BrowserSheetHost(
     navigation: BrowserSheetNavigation,
-    visible: Boolean = true,
     content: @Composable (BrowserSheetNavigation.Presentation) -> Unit,
 ) {
     val savedState = rememberSaveableStateHolder()
@@ -93,11 +92,13 @@ internal fun BrowserSheetHost(
         knownKeys.clear()
         knownKeys.addAll(activeKeys)
     }
-    navigation.current?.takeIf { visible }?.let { owner ->
-        // A route boundary disposes the outgoing window and its Back callback.
-        // Stable route keys restore UI state without retaining hidden windows.
-        key(owner.route.key) {
-            savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+    navigation.current?.let { owner ->
+        BrowserSheetWindow(onDismissRequest = { navigation.current?.let(navigation::back) }) {
+            // Replace content atomically inside the existing window. Stable keys
+            // restore parent state without hidden dialogs or stale Back callbacks.
+            key(owner.route.key) {
+                savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+            }
         }
     }
 }

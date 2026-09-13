@@ -1,11 +1,11 @@
-(function installPureVideo(win, options, createInline) {
+(function installPureVideo(win) {
   'use strict';
   if (win.__pureBrowserVideoV2) return win.__pureBrowserVideoV2;
   var doc = win.document, bridge = win.mybrowserMediaProbe;
   var frameId = Date.now().toString(36) + Math.random().toString(36).slice(2);
   var ids = new WeakMap(), speeds = new WeakMap(), nextId = 0;
   var selected = null, boost = null, nativeControls = null, disposed = false, suspended = false;
-  var scheduled = null, pulse = null, observer = null, inline = null;
+  var scheduled = null, pulse = null, observer = null;
   var controlsAttribute = 'data-pure-browser-controls', stageAttribute = 'data-pure-browser-stage';
   var rootAttribute = 'data-pure-browser-fullscreen', rejectedControls = null;
   var rates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
@@ -78,7 +78,6 @@
     } catch (_) {}
   }
   function snapshot() {
-    if (inline) inline.refresh();
     if (nativeControls && !controlsIntact(nativeControls)) {
       rejectedControls = { video: nativeControls.video, root: nativeControls.root };
       restoreBoost(); restoreControls();
@@ -202,7 +201,6 @@
     } catch (_) { return false; }
   }
   function hideControls(video) {
-    if (inline) inline.release();
     var root = fullscreenRoot(video), path = controlPath(video, root);
     if (!path) return false;
     if (!nativeControls || nativeControls.video !== video || nativeControls.root !== root) {
@@ -282,9 +280,7 @@
     var video = videos().find(function(item) { return id(item) === message.videoId; });
     var ok = false;
     try {
-      if (message.type === 'configure') {
-        configure(message.enabled); ok = true;
-      } else if (message.type === 'suspend') {
+      if (message.type === 'suspend') {
         suspend(!!message.value); ok = true;
       } else if (message.type === 'pauseAll') {
         pauseAll(); ok = true;
@@ -303,8 +299,6 @@
           video.defaultPlaybackRate = rate; video.playbackRate = rate;
           ok = Math.abs(video.playbackRate - rate) < 0.001;
         }
-      } else if (message.type === 'setMuted') {
-        video.muted = !!message.value; ok = video.muted === !!message.value;
       } else if (message.type === 'beginBoost') {
         var boostRate = Number(message.rate);
         if ((boostRate === 2 || boostRate === 3) && !video.paused && !video.ended) {
@@ -348,10 +342,9 @@
     schedule();
   }
   var events = ['play', 'playing', 'timeupdate', 'loadedmetadata', 'pause', 'ended', 'emptied', 'durationchange', 'ratechange'];
-  function visibilityChanged() { if (doc.hidden) { restoreBoost(); if (inline) inline.release(); } schedule(); }
-  function pageHide() { restoreBoost(); restoreControls(); if (inline) inline.release(); }
+  function visibilityChanged() { if (doc.hidden) restoreBoost(); schedule(); }
+  function pageHide() { restoreBoost(); restoreControls(); }
   function fullscreenChanged() {
-    if (inline) inline.release();
     if (rejectedControls && fullscreenRoot(rejectedControls.video) !== rejectedControls.root) rejectedControls = null;
     if (nativeControls && !canUseNativeControls(nativeControls.video)) {
       restoreBoost(); restoreControls();
@@ -379,22 +372,14 @@
   function suspend(value) {
     suspended = !!value;
     if (suspended) {
-      if (inline) inline.release();
       restoreBoost();
       Array.prototype.slice.call(doc.querySelectorAll('video,audio'), 0, 128).forEach(function(media) { media.pause(); });
     }
   }
-  function configure(enabled) { if (inline) inline.configure(enabled); }
-  if (createInline) inline = createInline(win, options || {}, {
-    suspended: function() { return suspended || !!nativeControls; }, changed: schedule,
-    command: function(video, type, values, complete) {
-      command(Object.assign({}, values, { type: type, frameId: frameId, videoId: id(video) }), complete);
-    }
-  });
   var api = {
-    snapshot: snapshot, post: post, command: command, suspend: suspend, pauseAll: pauseAll, configure: configure,
+    snapshot: snapshot, post: post, command: command, suspend: suspend, pauseAll: pauseAll,
     dispose: function() {
-      restoreBoost(); restoreControls(); if (inline) inline.dispose(); disposed = true;
+      restoreBoost(); restoreControls(); disposed = true;
       win.clearTimeout(scheduled); win.clearTimeout(pulse);
       if (observer) observer.disconnect();
       events.forEach(function(name) { doc.removeEventListener(name, mediaEvent, true); });

@@ -14,6 +14,36 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SiteSettingsTest {
+    @Test fun enhancedPlaybackOverridesTheDefaultOnlyForTheSavedOrigin() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val repo = SiteSettingsRepository(context)
+        assertTrue(repo.get("https://example.com").useEnhancedPlayback(true))
+        assertFalse(repo.get("https://example.com").useEnhancedPlayback(false))
+        repo.update("https://example.com/watch") { it.copy(enhancedPlayback = false) }
+        repo.update("https://enabled.example") { it.copy(enhancedPlayback = true) }
+        val restored = SiteSettingsRepository(context)
+        assertFalse(restored.get("https://example.com:443/other").useEnhancedPlayback(true))
+        assertTrue(restored.get("https://enabled.example").useEnhancedPlayback(false))
+        listOf("http://example.com", "https://example.com:444", "https://www.example.com").forEach {
+            assertNull(restored.get(it).enhancedPlayback)
+        }
+        restored.clearPermissions()
+        assertFalse(restored.get("https://example.com").useEnhancedPlayback(true))
+        restored.reset("https://example.com")
+        assertNull(SiteSettingsRepository(context).get("https://example.com").enhancedPlayback)
+    }
+
+    @Test fun privatePlaybackOverridesDoNotChangeTheSavedWebsiteChoice() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val repo = SiteSettingsRepository(context)
+        repo.update("https://example.com") { it.copy(enhancedPlayback = false) }
+        val private = repo.privateSession()
+        assertFalse(private.get("https://example.com").useEnhancedPlayback(true))
+        private.update("https://example.com") { it.copy(enhancedPlayback = true) }
+        assertTrue(private.get("https://example.com").useEnhancedPlayback(false))
+        assertFalse(SiteSettingsRepository(context).get("https://example.com").useEnhancedPlayback(true))
+    }
+
     @Test fun originsNormalizeDefaultPortsAndInternationalHostsWithoutSharingGrants() {
         assertEquals("https://example.com", SiteOrigin.of("HTTPS://Example.com:443/path?q=1"))
         assertEquals("http://example.com", SiteOrigin.of("http://example.com:80/"))

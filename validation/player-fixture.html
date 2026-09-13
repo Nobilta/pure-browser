@@ -14,7 +14,7 @@ addEventListener('message',event=>{if(event.source===parent&&event.data&&event.d
 function visible(element){if(!element)return false;const style=getComputedStyle(element),rect=element.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&rect.width>0&&rect.height>0;}
 function state(event){return {event,caseId,capturedAt:performance.timeOrigin+performance.now(),nativeBridge:!!window.mybrowserMediaProbe,paused:player.paused,rate:player.playbackRate,defaultRate:player.defaultPlaybackRate,
  currentTime:player.currentTime,duration:Number.isFinite(player.duration)?player.duration:0,controls:player.controls,
- enhanced:player.hasAttribute('data-pure-browser-controls'),inlineEnhanced:player.hasAttribute('data-pure-inline-video')&&document.querySelectorAll('[data-pure-inline-player]').length===1,
+ enhanced:player.hasAttribute('data-pure-browser-controls'),
  sameElement:document.getElementById('player')===player,videoRect:player.getBoundingClientRect().toJSON(),
  rootRect:document.getElementById('player-shell').getBoundingClientRect().toJSON(),webControlsVisible:visible(document.getElementById('web-play')),
  dynamicControlAdded:!!document.getElementById('dynamic-control'),dynamicControlVisible:visible(document.getElementById('dynamic-control')),

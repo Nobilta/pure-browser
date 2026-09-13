@@ -213,6 +213,11 @@ test('inline video stays with the page and fullscreen does not require a control
   const f = fixture(), v = f.videos[0];
   assert.equal(f.api.snapshot().nativeControlsAvailable, false);
   assert.equal(f.command('nativeControls'), false);
+  assert.equal(v.controls, true);
+  assert.equal(f.styles.length, 0);
+  for (let i = 0; i < 5; i++) f.api.snapshot();
+  assert.equal(v.controls, true);
+  assert.equal(f.styles.length, 0);
   f.doc.fullscreenElement = v;
   v.controls = false;
   assert.equal(f.command('nativeControls'), true);

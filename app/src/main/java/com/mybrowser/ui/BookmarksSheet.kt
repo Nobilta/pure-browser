@@ -5,7 +5,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,11 +50,9 @@ fun BookmarksSheet(
         else if (library.folderId != 0L) library.openFolder(parentId)
         else onDismiss()
     }
-    BackHandler(onBack = back)
-    // A navigable library owns Back like Settings. A ModalBottomSheet's platform
-    // dialog consumes Back before the folder stack on several Material versions.
+    BrowserFullscreenSheet(onDismissRequest = back) {
     Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp)) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(browserSheetInsets()).padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = back)
                 Text(stringResource(R.string.bookmarks_title), style = MaterialTheme.typography.titleLarge,
@@ -152,6 +149,7 @@ fun BookmarksSheet(
                 item { LibraryFooter(loading, hasMore, onLoadMore, error) }
             }
         }
+    }
     }
     if (folderEditor) AlertDialog(onDismissRequest = { folderEditor = false },
         title = { Text(stringResource(if (editingFolder == null) R.string.bookmarks_new_folder else R.string.bookmarks_rename_folder)) },

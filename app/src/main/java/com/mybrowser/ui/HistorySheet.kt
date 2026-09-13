@@ -37,11 +37,10 @@ fun HistorySheet(
     val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
     val timeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
     val groups = history.groupBy { Instant.ofEpochMilli(it.visitTime).atZone(zone).toLocalDate() }
-    ModalBottomSheet(onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        ApplySheetSystemBars()
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onDismiss)
                 Text(stringResource(R.string.history_title), style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f))
                 BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)

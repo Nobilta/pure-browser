@@ -28,8 +28,6 @@
     <string name="menu_remove_bookmark">從書簽移除</string>
     <string name="menu_cast">投屏</string>
     <string name="menu_playback_speed">播放速度</string>
-    <string name="menu_playback_speed_current">當前 %1$s</string>
-    <string name="menu_playback_speed_unavailable">播放視頻後可用</string>
     <string name="menu_find">在頁面中查找</string>
     <string name="menu_desktop_site">桌面版網站</string>
     <string name="menu_settings">設置</string>
@@ -280,8 +278,8 @@
     <string name="ui_confirm_before_clearing_cache_cookies_and_history">選擇後確認清除緩存、Cookie 和歷史記錄</string>
     <string name="ui_open_incognito_mode_from_the_browser_menu_supported">無痕入口保留在瀏覽菜單。支持獨立存儲的 WebView 會隔離登錄數據；舊 WebView 使用退出清除模式，可能同時清除普通模式的登錄狀態。書簽與下載文件會保留。</string>
     <string name="ui_fullscreen_experience">全屏體驗</string>
-    <string name="ui_enhanced_video_controls">增強影片控件</string>
-    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">自動接管相容的網頁內影片和全螢幕影片，無法接管時還原網頁控制項</string>
+    <string name="ui_enhanced_video_controls">預設啟用增強播放</string>
+    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">僅在全螢幕時嘗試接管，可在網站設定中單獨開啟或關閉</string>
     <string name="ui_rotate_landscape_videos_automatically">橫向視頻自動橫屏</string>
     <string name="ui_portrait_videos_stay_upright_orientation_is_restored_on">竪向視頻保持竪屏，退出後恢復方向</string>
     <string name="ui_fullscreen_gestures">全屏手勢</string>
@@ -296,7 +294,7 @@
     <string name="ui_remember_playback_speed">記住播放速度</string>
     <string name="ui_use_the_selected_speed_for_future_videos_temporary">將選擇的速度用於之後播放的視頻；臨時倍速不保存</string>
     <string name="ui_default_playback_speed">默認播放速度</string>
-    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">網站自訂播放器保留原有控件。</string>
+    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">非全螢幕影片一律使用網頁原有控制項。</string>
     <string name="ui_pure_browser">Pure 瀏覽器</string>
     <string name="ui_version_android_10_or_later_64_bit_arm">版本 %1$s\n支持 Android 10 及以上 · 64 位 ARM 設備</string>
     <string name="ui_browsing_and_startup">瀏覽與啓動</string>
@@ -338,22 +336,15 @@
     <string name="ui_light">淺色</string>
     <string name="ui_dark">深色</string>
     <string name="ui_pause_video">暫停視頻</string>
-    <string name="ui_web_controls">網頁控件</string>
-    <string name="ui_switch_to_web_controls">切換到網頁控件</string>
     <string name="ui_lock_screen">鎖定屏幕</string>
     <string name="ui_exit_fullscreen">退出全屏</string>
     <string name="ui_rotate_screen">切換橫竪屏</string>
     <string name="ui_video_progress">視頻進度</string>
-    <string name="ui_rewind_10_seconds">快退10秒</string>
-    <string name="ui_forward_10_seconds">快進10秒</string>
     <string name="ui_play_video">播放視頻</string>
     <string name="ui_playback_speed">播放速度 %1$s</string>
     <string name="ui_live">直播 · %1$s</string>
     <string name="ui_waiting_for_webpage_video">等待網頁視頻</string>
     <string name="ui_enhanced_controls_are_unavailable_for_this_webpage">使用網頁控件</string>
-    <string name="ui_start_playing_a_video_on_the_webpage_first">請先播放影片</string>
-    <string name="ui_enhanced_controls">增強控件</string>
-    <string name="ui_switch_to_enhanced_controls">切換到增強控件</string>
     <string name="ui_unlock_screen">解鎖屏幕</string>
     <string name="ui_the_webpage_could_not_change_playback">網頁未能執行播放操作</string>
     <string name="ui_seeking_is_unavailable_for_this_video">當前視頻不能調整進度</string>
@@ -602,13 +593,6 @@
     <string name="download_not_complete">請等候下載完成後再開啟。</string>
     <string name="download_progress_unknown">已下載 %1$s · %2$d 個連線 · 總大小未知</string>
     <string name="download_complete_notification">下載完成 · 點按查看</string>
-    <string name="inline_player">增強影片播放器</string>
-    <string name="inline_play">播放影片</string>
-    <string name="inline_pause">暫停影片</string>
-    <string name="inline_mute">靜音</string>
-    <string name="inline_unmute">取消靜音</string>
-    <string name="inline_speed">影片倍速</string>
-    <string name="inline_seek">影片進度</string>
-    <string name="inline_fullscreen">全螢幕播放</string>
-    <string name="inline_web_controls">還原網頁控制項</string>
+    <string name="site_enhanced_playback">增強全螢幕播放</string>
+    <string name="site_enhanced_playback_summary">僅在此網站全螢幕播放時嘗試接管。關閉後使用網頁控制項，重設網站設定後跟隨瀏覽器預設值。</string>
 </resources>
