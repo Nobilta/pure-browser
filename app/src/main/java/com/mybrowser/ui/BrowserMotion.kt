@@ -13,8 +13,8 @@ import androidx.compose.ui.unit.dp
 /** MD3 standard easing; layer transforms avoid remeasuring a page on every frame. */
 internal object BrowserMotion {
     val Easing = CubicBezierEasing(.2f, 0f, 0f, 1f)
-    const val ENTER_MS = 300
-    const val CONTENT_MS = 200
+    const val ENTER_MS = 240
+    const val CONTENT_MS = 120
 }
 
 @Composable

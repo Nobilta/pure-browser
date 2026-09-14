@@ -30,7 +30,7 @@ classes.mkdir(parents=True, exist_ok=True)
 dex.mkdir(parents=True, exist_ok=True)
 subprocess.run(["javac", "--release", "8", "-classpath", str(android), "-d", str(classes),
                 str(ROOT / "validation/FastUiDump.java")], check=True)
-subprocess.run([str(d8), "--min-api", "29", "--lib", str(android), "--output", str(dex),
+subprocess.run([str(d8), "--min-api", "30", "--lib", str(android), "--output", str(dex),
                 *map(str, classes.rglob("*.class"))], check=True)
 jar = output / "pure-ui-dump.jar"
 with zipfile.ZipFile(jar, "w") as archive:

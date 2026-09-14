@@ -10,7 +10,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], application = Application::class)
+@Config(sdk = [34], application = Application::class)
 class VideoControlsTest {
     private fun signal() = JSONObject().put("frameId", "frame").put("videoId", "v1")
         .put("hasVideo", true).put("duration", 120).put("seekStart", 5).put("seekEnd", 120)

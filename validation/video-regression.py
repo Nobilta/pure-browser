@@ -204,7 +204,7 @@ class Regression:
         return float(match[1]) if match else -1.0
 
     def volume(self):
-        command = ["media", "volume"] if int(self.sdk) < 30 else ["cmd", "media_session", "volume"]
+        command = ["cmd", "media_session", "volume"]
         output = ux.adb("shell", *command, "--stream", "3", "--get")
         match = re.search(r"volume is (\d+)", output)
         if not match:
@@ -565,7 +565,7 @@ class Regression:
         after_volume = self.volume()
         assert after_volume != before_volume, (before_volume, after_volume)
         self.record("right vertical swipe changes media volume", before=before_volume, after=after_volume)
-        command = ["media", "volume"] if int(self.sdk) < 30 else ["cmd", "media_session", "volume"]
+        command = ["cmd", "media_session", "volume"]
         ux.adb("shell", *command, "--stream", "3", "--set", str(before_volume))
 
         self.button("锁定屏幕")

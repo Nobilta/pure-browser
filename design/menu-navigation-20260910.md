@@ -1,4 +1,4 @@
-# 菜单返回与弹层生命周期（0.7.4）
+# 菜单返回与弹层生命周期（0.9.0）
 
 ## 当前导航规则
 
@@ -14,7 +14,8 @@
 路由 key 用于恢复父级滚动与分类，每次显示创建新的回调身份，迟到关闭和重复点击不能影响新页面。
 
 `BrowserSheetHost` 在整条路径存续期间只创建一个 `BrowserSheetWindow`。切换路由仅替换窗口内内容，
-不销毁旧窗口后再弹出新窗口，也不播放让底层网页短暂露出的滑入/滑出动画。
+不销毁旧窗口后再弹出新窗口；子页面切换保持不透明底板，只动画内容。
+首次打开菜单/标签时，不透明 Surface 以 240ms 上滑，遮罩单独淡入；关闭使用 120ms 过渡，避免整块面板半透明叠在网页上。
 设置及书签使用全屏 Surface，其余页面使用 `BrowserBottomSheet`；书签编辑弹窗打开时保留书签页。
 
 `SheetWindowContent` 将窗口的返回请求交给当前页面，设置分类、书签目录及选择模式各自处理内部返回。
@@ -38,10 +39,10 @@
   无障碍坐标不变不能单独证明渲染稳定。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.7.4-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.9.0-release.apk
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.7.4-release.apk \
-  --label release-074-ui --stages menu-navigation settings-back site layout browser developer-tools features-scripts features-filters
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.0-release.apk \
+  --label release-090-ui --stages menu-navigation settings-back site layout browser developer-tools features-scripts features-filters
 ```
 
 实际设备、安装包及失败记录见 README 和 EMULATOR_TEST_REPORT；临时验证脚本完成后删除。

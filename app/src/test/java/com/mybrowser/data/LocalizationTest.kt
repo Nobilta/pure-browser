@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], application = Application::class)
+@Config(sdk = [34], application = Application::class)
 class LocalizationTest {
     private fun resources(language: String): Resources {
         val context = RuntimeEnvironment.getApplication()

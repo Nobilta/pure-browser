@@ -6,21 +6,22 @@
 ## 自动检查和签名构建
 
 ```bash
-./build-and-test.sh
+./build-and-test.sh --quick
+./build-and-test.sh --release
 # 单独执行 Android 测试与静态检查：
 ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
 # 需要 x86_64 模拟器时另行构建 debug；交付 Release 为 arm64：
 ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 ```
 
-完整脚本执行三语言占位符检查、Node 播放/脚本协议测试、Rust fmt/test/clippy、Android/Robolectric、
+发布模式执行三语言占位符检查、Node 播放/脚本协议测试、Rust fmt/test/clippy、Android/Robolectric、
 lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实跨语言契约。Node 使用内置测试运行器。
 SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.8.1-release.apk
-shasum -a 256 PureBrowser-v0.8.1-release.apk
-./install_and_test.sh PureBrowser-v0.8.1-release.apk
+apksigner verify --verbose --print-certs PureBrowser-v0.9.0-release.apk
+shasum -a 256 PureBrowser-v0.9.0-release.apk
+./install_and_test.sh PureBrowser-v0.9.0-release.apk
 ```
 
 安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
@@ -32,14 +33,16 @@ shasum -a 256 PureBrowser-v0.8.1-release.apk
 本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.8.1-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.9.0-release.apk
 # 另一个终端：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.1-release.apk \
-  --label release-081 --stages menu-navigation settings-back site layout browser productivity
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.0-release.apk \
+  --label release-090 --profile tabs
 ```
 
-不指定 `--stages` 时选择该设备可运行的全部阶段。只有 APK、AVD、阶段选择完全相同时可以 `--resume`；
+默认 `--profile smoke` 只执行地址栏、标签驻留、基础浏览和网页对话框；`--profile tabs` 验证驻留、普通/无痕媒体生命周期、菜单与弹窗视频。
+`--profile full` 才执行该设备的完整阶段矩阵，`--stages` 可以指定自定义范围。交付回归使用 API 37，API 29 专项路径已移除。
+只有 APK、AVD、测试源码、阶段选择完全相同时可以 `--resume`；
 退出码、耗时、日志和包哈希写入 suite JSON，失败保留到 `priorAttempts`。改变源码/包后使用新的 suite，不能复用旧包通过项。
 
 Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/pure-ui-dump.jar`，提供真实触摸、
@@ -48,14 +51,25 @@ WebView 漏报可见网页节点时，先核对当前网址与新鲜夹具几何
 权限窗口和全屏控件须在同一次辅助会话中定位并触摸，防止窗口动画/自动隐藏造成坐标过期。
 播放器检查通过 `playerDump` / `playerReveal` / `playerTap` 只查询前景原生控件，跳过后台 WebView 子树，并主动刷新暂停视频的 Compose 节点缓存。
 全屏宿主按原生结构识别，不能假定无障碍树的子节点顺序等于窗口前后顺序；媒体选择夹具会回传按钮坐标与实际播放来源。
-全部窗口的只读采集遇到 Android 10 辅助进程 SIGSEGV 时仅重试一次；不重放触摸或返回输入，连续失败仍终止回归。
 Compose 页签切换后的输入先核对当前窗口实际聚焦的可编辑节点。添加过滤订阅使用有界完成等待，
-覆盖后台规则重建；普通界面切换仍使用较短等待。Android 10 手动旋转使用 `wm set-user-rotation`，
-新版使用 `wm user-rotation`，并以实际截图尺寸核对方向。
+覆盖后台规则重建；普通界面切换仍使用较短等待。手动旋转使用 `wm user-rotation`，并以实际截图尺寸核对方向。
 PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
 两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
 
-## 0.8.1 扫码预览验收
+## 标签与应用更新验收
+
+- 在驻留夹具中填写表单、修改 SPA 状态并滚动，分别手动新建标签、`window.open`、`target=_blank` 后返回。
+  核对原文档 token、表单、JavaScript 状态和滚动位置，不能只核对 URL；离开页的视频保持暂停。
+- 子页有自身历史时先返回该历史，再关闭子标签返回来源；系统返回、底栏返回、“×”和 `window.close` 分别检查。
+  来源标签已关闭时返回最近使用的存活标签；关闭后台页不改变当前选择，最后一个“×”返回新标签。
+- 更新检查使用匿名的 Releases `latest/download/update.json`，缓存 5 分钟；核对正式版本、无版本、离线、限流、大小和版本号。
+  拒绝外站/HTTP 重定向、异常清单、错误大小/哈希/包名/版本/签名/ABI；取消下载删除未完成文件。
+- 使用相同签名的较旧验证包，从真实 GitHub Release 下载，经系统授权后覆盖更新。
+  记录安装前后版本、包哈希和数据保留结果；没有通过实际安装的环节单独标注。
+- 更新安装与相机文件分享分别验证：单元检查两个 Provider 的组件独立和目录边界，模拟器确认系统安装器可以读取 APK，
+  并用 `capture` 阶段确认系统拍照/录像仍能将完整 JPEG/MP4 返回网页。只出现安装器启动提示不算安装成功。
+
+## 扫码预览验收
 
 - 使用带 TOP、LEFT、RIGHT、不同角标、方格和正圆的非对称测试图；核对文字方向、左右顺序、圆形比例及居中裁切。
   模拟器 `imagefile` 先通过独立 Camera2 采集记录原始帧与传感器方向，区分夹具投影和应用预览变换；扫码成功不能代替画面验证。
@@ -116,7 +130,7 @@ python3 validation/media-lifecycle-regression.py --serial emulator-5554 --output
 
 - 普通暂停仍可系统继续；Stop、播放结束、隐藏并暂停、卸载、移除、替换、关闭标签和导航后释放系统会话。
 - 用 dumpsys 核对 session token、服务和活动通知消失，浏览器 PID 不变；迟到消息不能重新创建旧会话。
-- Android 10 从通知转储的 `Notification List` 段读取活动通知；归档记录不代表通知仍在显示。
+- 通过 `cmd notification list` 核对活动通知；归档记录不代表通知仍在显示。
 - 删除最后一个跨域 frame 后仍独立失效；不支持跨域观察的旧 WebView 记录实际限制，不冒充已验证该路径。
 - 开启后台播放后持续播放超过两个 frame 失效周期；正常播放不会被错误退休。
 - PiP 必须实际显示视频，等待 DOM 尺寸匹配小窗实际边界，不能只断言 pinned 或 PLAYING；系统关闭后恢复浏览器，视频仍暂停。

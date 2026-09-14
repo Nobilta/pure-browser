@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Create a reviewable draft; publishing and repository visibility stay explicit.
+set -euo pipefail
+RELEASE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$RELEASE_ROOT"
+if [[ $# != 2 ]]; then
+    echo "Usage: bash release/publish.sh <signed-release.apk> <release-notes.md>" >&2
+    exit 1
+fi
+release_apk="$1"
+release_notes="$2"
+release_gh="${GH:-gh}"
+[[ -f "$release_notes" ]] || { echo "Release notes file not found" >&2; exit 1; }
+git diff --quiet
+git diff --cached --quiet
+[[ -z "$(git ls-files --others --exclude-standard)" ]] || { echo "Commit the source before drafting a release" >&2; exit 1; }
+python3 release/prepare.py --apk "$release_apk" --notes "$release_notes"
+release_tag="$(python3 -c 'import json; print(json.load(open("outputs/release/package-info.json"))["tag"])')"
+release_commit="$(git rev-parse HEAD)"
+release_remote="$("$release_gh" api repos/Nobilta/pure-browser/commits/main --jq .sha)"
+[[ "$release_remote" == "$release_commit" ]] || { echo "Push the validated commit to remote main first" >&2; exit 1; }
+"$release_gh" release create "$release_tag" "$release_apk" outputs/release/update.json outputs/release/SHA256SUMS \
+    --repo Nobilta/pure-browser --target "$release_commit" --title "Pure Browser $release_tag" \
+    --notes-file "$release_notes" --draft

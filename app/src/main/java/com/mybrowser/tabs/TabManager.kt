@@ -31,6 +31,11 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     }
 
     private val _tabs = mutableStateListOf<TabState>()
+    private val activationOrder = mutableListOf<String>()
+
+    private fun rememberSelection() {
+        currentTab?.id?.let { activationOrder.remove(it); activationOrder.add(it) }
+    }
 
     var currentIndex by mutableIntStateOf(-1)
         private set
@@ -56,12 +61,12 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     }
 
     /** Background tabs remain metadata until selected. At the cap, returns the current id. */
-    fun createTab(url: String = "", select: Boolean = true, title: String = ""): String {
+    fun createTab(url: String = "", select: Boolean = true, title: String = "", openerTabId: String? = null): String {
         if (_tabs.size >= maxTabs) return currentTab?.id.orEmpty()
         val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url), title = title.take(MAX_TAB_TITLE_LENGTH),
-            group = currentTab?.group.orEmpty())
+            group = currentTab?.group.orEmpty(), openerTabId = openerTabId?.takeIf { id -> _tabs.any { it.id == id } })
         _tabs += tab
-        if (select || currentIndex < 0) currentIndex = _tabs.lastIndex
+        if (select || currentIndex < 0) { currentIndex = _tabs.lastIndex; rememberSelection() }
         changed()
         return tab.id
     }
@@ -69,6 +74,7 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     fun switchToIndex(index: Int): TabState? {
         if (index !in _tabs.indices) return null
         currentIndex = index
+        rememberSelection()
         changed()
         return _tabs[index]
     }
@@ -91,16 +97,22 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
 
     fun closeTab(index: Int): TabState? {
         if (index !in _tabs.indices) return currentTab
+        val selectedId = currentTab?.id
         val removed = _tabs.removeAt(index)
         releaseBitmaps(removed)
-
-        when {
-            _tabs.isEmpty() -> {
-                currentIndex = -1
-                createTab()
+        activationOrder.remove(removed.id)
+        _tabs.forEach { if (it.openerTabId == removed.id) it.openerTabId = null }
+        if (_tabs.isEmpty()) {
+            currentIndex = -1
+            createTab()
+        } else {
+            val nextId = if (removed.id != selectedId) selectedId else {
+                removed.openerTabId?.takeIf { id -> _tabs.any { it.id == id } }
+                    ?: activationOrder.lastOrNull { id -> _tabs.any { it.id == id } }
+                    ?: _tabs[index.coerceAtMost(_tabs.lastIndex)].id
             }
-            index < currentIndex -> currentIndex -= 1
-            index == currentIndex && currentIndex >= _tabs.size -> currentIndex = _tabs.lastIndex
+            currentIndex = _tabs.indexOfFirst { it.id == nextId }.coerceAtLeast(0)
+            rememberSelection()
         }
         changed()
         return currentTab
@@ -115,8 +127,11 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
             }
         }
         _tabs.clear()
+        activationOrder.clear()
+        current.openerTabId = null
         _tabs += current
         currentIndex = 0
+        rememberSelection()
         changed()
     }
 
@@ -124,6 +139,7 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     fun clearAllTabs() {
         _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
+        activationOrder.clear()
         currentIndex = -1
         createTab()
         changed()
@@ -240,6 +256,8 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
         _tabs.clear()
         _tabs += restored.take(maxTabs)
         currentIndex = snapshot.getInt(KEY_CURRENT, 0).coerceIn(_tabs.indices)
+        activationOrder.clear()
+        rememberSelection()
         changed()
         return true
     }
@@ -248,6 +266,7 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
         pendingSave?.run()
         _tabs.forEach(::releaseBitmaps)
         _tabs.clear()
+        activationOrder.clear()
         currentIndex = -1
     }
 

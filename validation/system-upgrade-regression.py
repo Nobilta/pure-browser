@@ -60,6 +60,13 @@ def main():
         ux.adb('push', str(ROOT / 'organization-bookmarks.html'), '/sdcard/Download/organization-bookmarks.html')
         ux.choose_download_document('organization-bookmarks.html')
         confirm('bookmarks_import')
+        # The library can come back from the import flow at a restored scroll
+        # position, leaving the imported folder row above the viewport. Flings
+        # toward the top are inert boundary swipes once the list is already
+        # there, so this only rescues the scrolled state.
+        for _ in range(4):
+            ux.adb('shell', 'input', 'swipe', '540', '900', '540', '1900', '200')
+            time.sleep(.5)
         ux.tap('QA folder', timeout=12)
         ux.expect('QA empty folder')
         ux.tap('Docs')
