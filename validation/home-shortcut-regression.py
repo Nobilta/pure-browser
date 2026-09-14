@@ -171,10 +171,6 @@ try:
     record('long press opens one editor containing title, address, icon and removal')
     edit('Uncommitted Draft', 0)
     edit('javascript:alert(1)', 1, hide_keyboard=False)
-    # The old API 29 IME can report the save control before delivering the final text
-    # callback. Hide it before asserting the validation result; the editor itself still
-    # keeps the save action inset above the keyboard on current providers.
-    back()
     ux.tap('Save')
     ux.expect('Enter a valid HTTP or HTTPS address')
     ux.tap('Cancel')

@@ -3,9 +3,19 @@
 <h1 id="heading"></h1><label>Unsubmitted draft<input id="draft" autocomplete="off"></label>
 <button id="prepare">Prepare form and SPA</button><button id="scroll">Scroll article</button>
 <video id="movie" src="sample.mp4" controls loop playsinline></video><button id="play">Play video</button>
+<nav id="popup-controls" style="position:fixed;bottom:12px;right:8px;background:white;border:1px solid #999;z-index:2;font-size:14px">
+<button id="popup">Open popup child</button><a id="link" target="_blank">Open link child</a>
+<button id="next">Navigate within tab</button><button id="close">Close popup window</button></nav>
 <main id="article"></main><script>
 const params=new URLSearchParams(location.search),name=params.get('name')||'A',key=params.get('case')||'resident';
 document.title='Resident '+name;heading.textContent=document.title;
+const popupControls=document.getElementById('popup-controls');
+function revealPopupControls(){popupControls.hidden=(name==='A'||name==='B')&&scrollY<500}
+addEventListener('scroll',revealPopupControls);revealPopupControls();
+const childUrl=child=>'resident-fixture.html?case='+encodeURIComponent(key)+'&name='+child;
+popup.onclick=()=>window.open(childUrl('Popup'),'_blank');link.href=childUrl('Linked');
+document.getElementById('next').onclick=()=>location.href=childUrl(name+'Next');
+document.getElementById('close').onclick=()=>window.close();
 const token=crypto.getRandomValues(new Uint32Array(4)).join('-'),started=Date.now();let spa=0;
 article.innerHTML=Array.from({length:90},(_,i)=>'<p>Article paragraph '+i+' — 中文长文章与代码阅读位置验证。</p>').join('');
 prepare.onclick=()=>{draft.value='Unsubmitted '+name;spa++;history.pushState({spa},'',location.pathname+location.search+'#step'+spa);report()};

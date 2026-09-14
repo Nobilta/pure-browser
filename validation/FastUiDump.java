@@ -205,8 +205,7 @@ public final class FastUiDump {
         if (node == null || depth > 6) return null;
         node.refresh();
         if ("android:id/content".equals(node.getViewIdResourceName())) {
-            // API 29 can expose the foreground host before the background Compose
-            // root. Accessibility child order is not the native window's z-order.
+            // Identify the native fullscreen host by structure, not child z-order.
             for (int i = 0; i < node.getChildCount(); i++) {
                 AccessibilityNodeInfo child = node.getChild(i);
                 if (child != null && "android.widget.FrameLayout".contentEquals(child.getClassName())) return child;

@@ -9,11 +9,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-BUILD_TASKS=(
-    :app:testDebugUnitTest
-    :app:lintDebug
-    :app:assembleRelease
-)
+build_mode="${1:---quick}"
+case "$build_mode" in
+    --quick|--release) ;;
+    --help|-h)
+        echo "Usage: ./build-and-test.sh [--quick|--release]"
+        echo "  --quick (default): localization, Node, Rust and Android unit tests"
+        echo "  --release: also run clippy, lint, signing checks and generate release assets"
+        exit 0 ;;
+    *) echo "Unknown build mode: $build_mode" >&2; exit 1 ;;
+esac
+[[ $# -le 1 ]] || { echo "Use one build mode" >&2; exit 1; }
+BUILD_TASKS=(:app:testDebugUnitTest)
+if [[ "$build_mode" == "--release" ]]; then
+    BUILD_TASKS+=(:app:lintDebug :app:assembleRelease)
+elif [[ "${INSTALL:-0}" == "1" ]]; then
+    echo "INSTALL=1 requires --release" >&2
+    exit 1
+fi
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -27,15 +40,13 @@ require_command cargo
 require_command rustup
 require_command shasum
 require_command node
-require_command npm
 require_command python3
 
 echo "检查中英文提示资源..."
 python3 validation/check-localization.py
 
 echo "运行网页视频控制及用户脚本协议测试..."
-npm --prefix validation ci --ignore-scripts --no-audit --no-fund
-npm --prefix validation test
+node --test validation/*.test.cjs
 
 java_version="$(java -version 2>&1 | sed -n '1s/.*version \"\([^\"]*\)\".*/\1/p')"
 echo "Java: ${java_version:-unknown}"
@@ -45,8 +56,8 @@ ndk_path="$(bash "$SCRIPT_DIR/rust/resolve-android-ndk.sh" "$SCRIPT_DIR")"
 export ANDROID_NDK_HOME="$ndk_path"
 echo "NDK: $ANDROID_NDK_HOME"
 
-if [[ "${SKIP_RUST_TARGET_CHECK:-0}" != "1" ]]; then
-    rustup target add aarch64-linux-android >/dev/null 2>&1 || true
+if [[ "${SKIP_RUST_TARGET_CHECK:-0}" != "1" ]] && ! rustup target list --installed | grep -qx 'aarch64-linux-android'; then
+    rustup target add aarch64-linux-android
 fi
 
 echo "运行 Rust 格式/测试/clippy..."
@@ -55,10 +66,16 @@ echo "运行 Rust 格式/测试/clippy..."
     cargo fmt --all -- --check
 )
 cargo test --locked --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --all
-cargo clippy --locked --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --workspace --all-targets -- -D warnings
+if [[ "$build_mode" == "--release" ]]; then
+    cargo clippy --locked --manifest-path "$SCRIPT_DIR/rust/Cargo.toml" --workspace --all-targets -- -D warnings
+fi
 
-echo "运行 Android 单元测试、Lint 并构建 Release APK..."
+echo "运行 Android 检查（${build_mode}）..."
 ./gradlew "${BUILD_TASKS[@]}" --console=plain
+if [[ "$build_mode" == "--quick" ]]; then
+    echo "快速检查完成。交付前运行 ./build-and-test.sh --release。"
+    exit 0
+fi
 
 apk="$SCRIPT_DIR/app/build/outputs/apk/release/app-release.apk"
 if [[ ! -f "$apk" ]]; then
@@ -101,6 +118,7 @@ hash="$(shasum -a 256 "$delivery" | awk '{print $1}')"
 echo "Release APK: $delivery"
 echo "大小: ${size} bytes"
 echo "SHA-256: $hash"
+python3 release/prepare.py --apk "$delivery" --notes release/notes.md
 
 if [[ "${INSTALL:-0}" == "1" ]]; then
     require_command adb

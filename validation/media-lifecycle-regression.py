@@ -74,14 +74,7 @@ def main():
         return ux.adb('shell', 'dumpsys', 'activity', 'services', ux.PACKAGE)
 
     def active_notifications():
-        if sdk >= 30:
-            return ux.adb('shell', 'cmd', 'notification', 'list')
-        # Android 10 has no notification-list shell command. Restrict its dump
-        # to active records; archived notifications are expected after Stop.
-        raw = ux.adb('shell', 'dumpsys', 'notification', '--noredact')
-        active = re.search(r'(?ms)^  Notification List:\r?\n(.*?)(?=^  \S|\Z)', raw)
-        assert active is not None, 'Cannot locate active Android notifications'
-        return active[1]
+        return ux.adb('shell', 'cmd', 'notification', 'list')
 
     def assert_released(name, stable=False):
         wait(lambda: not has_session(session_text()), timeout=9, message='Closed media retained a session')

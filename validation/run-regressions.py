@@ -23,6 +23,8 @@ def main():
     parser.add_argument('--label', default='capabilities')
     parser.add_argument('--resume', action='store_true', help='Reuse passed stages only for the same APK and emulator')
     parser.add_argument('--stages', nargs='+', help='Run named stages only; recorded in the suite manifest')
+    parser.add_argument('--profile', choices=['smoke', 'tabs', 'full'], default='smoke',
+                        help='smoke (default), focused tab lifecycle, or the complete release matrix; --stages overrides it')
     args = parser.parse_args()
     assert args.serial.startswith('emulator-'), 'Use a dedicated emulator: regressions seed test data'
     assert re.fullmatch(r'[a-z0-9-]+', args.label), 'Use a short filename-safe label'
@@ -37,6 +39,8 @@ def main():
         return device('shell', 'sha256sum', path).split()[0]
 
     sdk = device('shell', 'getprop', 'ro.build.version.sdk')
+    if int(sdk) < 30:
+        parser.error('API 29 regression support has been removed; use the API 37 emulator.')
     expected = (hashlib.sha256(args.apk.read_bytes()).hexdigest() if args.apk
                 else json.loads(args.build_manifest.read_text())['sha256'])
     assert apk_hash() == expected, 'Installed APK does not match the build manifest'
@@ -52,6 +56,11 @@ def main():
             result = old
         else:
             summary.rename(OUT / (prefix + '-suite-' + str(time.time_ns()) + '.json'))
+    scripts = sorted((ROOT / 'validation').glob('*.py')) + sorted((ROOT / 'validation').glob('*.java')) + sorted((ROOT / 'validation').glob('*.html'))
+    test_hash = hashlib.sha256(b''.join(p.name.encode() + b'\0' + p.read_bytes() for p in scripts)).hexdigest()
+    if args.resume:
+        assert result.get('testSourcesSha256') == test_hash, 'Test definitions changed; start a new suite'
+    result['testSourcesSha256'] = test_hash
     result['device'] = {'avd': avd, 'android': device('shell', 'getprop', 'ro.build.version.release'),
                         'webView': device('shell', 'dumpsys', 'webviewupdate')}
 
@@ -89,10 +98,17 @@ def main():
         unknown = set(args.stages) - {name for name, _ in stages}
         assert not unknown, 'Unknown regression stages: ' + ', '.join(sorted(unknown))
         stages = [(name, command) for name, command in stages if name in args.stages]
+    elif args.profile != 'full':
+        profiles = {
+            'smoke': {'omnibar', 'resident', 'browser', 'features-dialogs'},
+            'tabs': {'resident', 'media-lifecycle', 'private-lifecycle', 'menu-navigation', 'video-popup', 'video-popup-cross'},
+        }
+        stages = [(name, command) for name, command in stages if name in profiles[args.profile]]
     selected = [name for name, _ in stages]
     if args.resume:
         assert result.get('selectedStages', selected) == selected, 'Cannot resume with a different regression scope'
     result['selectedStages'] = selected
+    result['profile'] = 'custom' if args.stages else args.profile
 
     def save():
         summary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')

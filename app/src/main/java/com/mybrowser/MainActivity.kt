@@ -277,6 +277,16 @@ class MainActivity : ComponentActivity(),
     private var readyWebViewTabId: String? = null
     private var viewOwnerId: String? = null
     private data class ParkedPage(val view: WebView, val settings: SiteSettings, val filtering: Boolean)
+    private data class PendingOpener(val tabId: String, val page: ParkedPage, var retain: Boolean)
+    private val pendingOpeners = mutableMapOf<WebView, PendingOpener>()
+
+    private fun suspendPage(view: WebView) {
+        (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
+        mediaTrackers[view]?.setSuspended(true)
+        view.onPause()
+        view.webViewClient = com.mybrowser.tabs.ParkedWebViewClient { gone -> onRenderProcessGone(gone, true) }
+        (view.parent as? ViewGroup)?.removeView(view)
+    }
     private var residentIds by mutableStateOf<Set<String>>(emptySet())
     private val recentViews by lazy {
         val memory = getSystemService(android.app.ActivityManager::class.java)
@@ -286,7 +296,11 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun clearResidentTabs() { recentViews.clear(); residentIds = emptySet() }
+    private fun clearResidentTabs() {
+        // Pending Chromium transports still own their opener until the hand-off callback.
+        pendingOpeners.values.forEach { it.retain = false }
+        recentViews.clear(); residentIds = emptySet()
+    }
     private fun pruneResidentTabs() {
         recentViews.retain(normalTabManager.tabs.map { it.id }.toSet())
         residentIds = recentViews.ids
@@ -479,7 +493,7 @@ class MainActivity : ComponentActivity(),
                     state = state,
                     webView = webView,
                     onNavigate = ::navigate,
-                    onBack = { if (webView.canGoBack()) webView.goBack() },
+                    onBack = { navigateBackAcrossTabs() },
                     onBackLongPress = ::showBackHistory,
                     onForward = { if (webView.canGoForward()) webView.goForward() },
                     onHome = ::goHome,
@@ -1309,22 +1323,36 @@ class MainActivity : ComponentActivity(),
     private fun createPopupTab(isUserGesture: Boolean): WebView? {
         if (!isUserGesture || !tabManager.canCreateTab) return null
         val old = webViewOrNull ?: return null
+        val openerId = tabManager.currentTab?.id ?: return null
+        val opener = PendingOpener(openerId, ParkedPage(old, activeSites.get(state.currentUrl),
+            workerDocument.filtering && filter.enabled.value),
+            !privacy.isIncognito && readyWebViewTabId == openerId && !state.isLoading && state.pageFailure == null)
         saveCurrentTab()
         // Chromium rejects a popup transport whose target has ever navigated, including
         // about:blank used when returning an old instance to the pool.
         val popup = runCatching { pool.acquireFresh(this).also(::configure) }.getOrNull() ?: return null
         mediaTrackers[popup]?.prepareForPopup()
         scriptRuntimes[popup]?.prepareForPopup()
-        tabManager.createTab()
+        cancelWebsitePermissions()
+        cancelPendingSslError()
+        dismissPageContext()
+        leaveFullscreen()
+        systemMedia.detach(this)
+        mediaProbeJob?.cancel()
+        media.clear(); hasVideo = false; rememberedVideo = null
+        tabManager.createTab(openerTabId = openerId)
+        exitConfirmation.reset()
         viewOwnerId = tabManager.currentTab?.id
         readyWebViewTabId = null
+        clearHistoryOnNextFinish = true
+        pendingOpeners[old] = opener
         webViewOrNull = popup
-        // Keep the opener's native contents alive until Chromium transfers its pending
-        // popup. Clearing or destroying it here can cancel that transfer.
-        removeMediaPlaybackTracker(old)
-        old.webViewClient = DetachedWebViewClient
-        old.webChromeClient = null
-        (old.parent as? ViewGroup)?.removeView(old)
+        // Pause without blanking/destroying: Chromium still needs the opener to transfer
+        // the pending contents. Retain trackers so a return restores the original DOM.
+        suspendPage(old)
+        state.onPageStarted(ABOUT_BLANK)
+        state.onTitleChanged("")
+        persistNormalSession()
         return popup
     }
 
@@ -1433,18 +1461,13 @@ class MainActivity : ComponentActivity(),
             webViewOrNull?.let { old ->
                 val keep = !privacy.isIncognito && wasReady == oldId && state.pageFailure == null &&
                     !state.isLoading && normalTabManager.tabs.any { it.id == oldId }
-                if (keep) {
-                    (old as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
-                    mediaTrackers[old]?.setSuspended(true)
-                    old.stopLoading(); old.onPause()
-                    old.webViewClient = com.mybrowser.tabs.ParkedWebViewClient { gone ->
-                        onRenderProcessGone(gone, true)
-                    }
-                    (old.parent as? ViewGroup)?.removeView(old)
-                    // Remove the selected entry before adding the departing one, otherwise
-                    // a one-entry LRU would evict the very page we are switching back to.
-                }
-                val parked = if (!privacy.isIncognito) recentViews.take(tab.id) else null
+                if (keep) { old.stopLoading(); suspendPage(old) }
+                // Take the destination first: inserting the departing page into a single
+                // cache slot must not evict the destination. A very fast Back can precede
+                // the transport callback; transfer ownership out of pendingOpeners too.
+                val pending = pendingOpeners.entries.firstOrNull { it.value.tabId == tab.id && it.value.retain }
+                    ?.let { pendingOpeners.remove(it.key) }
+                val parked = if (!privacy.isIncognito) recentViews.take(tab.id) ?: pending?.page else null
                 if (keep) recentViews.put(oldId, ParkedPage(old, priorSettings, priorFiltering))
                 else { removeMediaPlaybackTracker(old); pool.discard(old) }
                 webViewOrNull = parked?.view ?: pool.acquireFresh(this).also(::configure)
@@ -1452,6 +1475,7 @@ class MainActivity : ComponentActivity(),
                 residentIds = recentViews.ids
                 if (parked != null) {
                     webView.webViewClient = BrowserWebViewClient(this)
+                    webView.webChromeClient = BrowserChromeClient(this, webView)
                     webView.onResume()
                     mediaTrackers[webView]?.setSuspended(false)
                     currentCertificateError = false
@@ -1530,6 +1554,8 @@ class MainActivity : ComponentActivity(),
 
     private fun closeTab(index: Int) {
         if (index !in tabManager.tabs.indices) return
+        exitConfirmation.reset()
+        pendingOpeners.values.filter { it.tabId == tabManager.tabs[index].id }.forEach { it.retain = false }
         val wasCurrent = index == tabManager.currentIndex
         tabManager.closeTab(index)
         pruneResidentTabs()
@@ -1552,7 +1578,8 @@ class MainActivity : ComponentActivity(),
         if (!UrlUtils.isHttpUrl(url)) { navigate(url); return }
         if (!tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); return }
         if (!background) saveCurrentTab()
-        tabManager.createTab(url, select = !background, title = UrlUtils.hostOf(url).orEmpty())
+        tabManager.createTab(url, select = !background, title = UrlUtils.hostOf(url).orEmpty(),
+            openerTabId = tabManager.currentTab?.id)
         if (background) {
             persistNormalSession()
             toast(getString(R.string.context_opened_background))
@@ -2074,6 +2101,7 @@ class MainActivity : ComponentActivity(),
         // A late callback from a view that has already been detached must not replace the
         // currently visible tab. It is still safe to discard that corpse.
         if (webViewOrNull !== webView) {
+            pendingOpeners.remove(webView)
             recentViews.removeWhere { it.view === webView }
             residentIds = recentViews.ids
             removeMediaPlaybackTracker(webView)
@@ -2260,8 +2288,17 @@ class MainActivity : ComponentActivity(),
                 scriptRuntimes[view]?.onPopupContentsAttached()
             }
         } finally {
-            // Tab history is already saved; this used instance cannot host another popup.
-            pool.discard(opener)
+            val pending = pendingOpeners.remove(opener)
+            if (pending != null) {
+                if (pending.retain && !isDestroyed && !isFinishing && !privacy.isIncognito &&
+                    normalTabManager.tabs.any { it.id == pending.tabId } && webViewOrNull !== opener) {
+                    recentViews.put(pending.tabId, pending.page)
+                    residentIds = recentViews.ids
+                } else if (webViewOrNull !== opener) {
+                    removeMediaPlaybackTracker(opener)
+                    pool.discard(opener)
+                }
+            }
         }
     }
 
@@ -2444,11 +2481,25 @@ class MainActivity : ComponentActivity(),
                         if (fullscreenView?.handleBack() != true) leaveFullscreen()
                     }
                     sheetNavigation.current != null -> dismissSheet(sheetNavigation.current!!)
-                    webView.canGoBack() -> { exitConfirmation.reset(); webView.goBack() }
+                    navigateBackAcrossTabs() -> Unit
                     else -> confirmExit()
                 }
             }
         })
+    }
+
+    /** A child tab is not a root task: exhaust its own history before closing it. */
+    private fun navigateBackAcrossTabs(): Boolean {
+        if (webView.canGoBack()) {
+            exitConfirmation.reset()
+            webView.goBack()
+            return true
+        }
+        if (tabManager.count > 1) {
+            closeTab(tabManager.currentIndex)
+            return true
+        }
+        return false
     }
 
     private fun confirmExit() {

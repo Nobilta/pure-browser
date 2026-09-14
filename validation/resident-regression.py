@@ -41,9 +41,10 @@ def main():
         ux.adb('shell','am','force-stop',args.package)
         ux.launch(base+'resident-fixture.html?case='+key+'&name=A')
         wait('A',lambda r:r['ready']=='complete')
-        ux.tap('Prepare form and SPA'); ux.tap('Play video')
+        web_tap=ux.tap
+        web_tap('Prepare form and SPA'); web_tap('Play video')
         wait('A',lambda r:r['spa']==1 and not r['paused'] and r['time']>0)
-        ux.tap('Scroll article')
+        web_tap('Scroll article')
         before = wait('A',lambda r:r['scroll']>=1000)
         ux.adb('shell','input','keycombination','113','48')  # Ctrl+T
         time.sleep(.7)
@@ -67,6 +68,61 @@ def main():
         ux.adb('shell','input','text','QAgroup'); ux.adb('shell','input','keyevent','4'); ux.tap('Confirm')
         ux.expect('QAgroup')
         checks.append('Tab group can be assigned and selected in the visible tab list')
+        ux.adb('shell', 'input', 'keyevent', '4')
+
+        def unchanged_source():
+            returned = wait('A', lambda r: r['ready'] == 'complete', since=time.time())
+            for field in ('token', 'started', 'draft', 'spa', 'state'):
+                assert returned[field] == before[field], (field, before, returned)
+            assert abs(returned['scroll'] - before['scroll']) < 5, (before, returned)
+            assert returned['paused'], 'Returning to the source resumed its background media'
+            return returned
+
+        opened = time.time()
+        ux.tap('Open popup child')
+        wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
+        ux.adb('shell', 'input', 'keyevent', '4')
+        unchanged_source()
+        checks.append('window.open child closes with system Back and returns to the original DOM, form, SPA and scroll')
+
+        opened = time.time()
+        ux.tap('Open link child')
+        wait('Linked', lambda r: r['ready'] == 'complete', since=opened)
+        ux.tap('Navigate within tab')
+        wait('LinkedNext', lambda r: r['ready'] == 'complete', since=opened)
+        back_at = time.time()
+        ux.adb('shell', 'input', 'keyevent', '4')
+        wait('Linked', lambda r: r['ready'] == 'complete', since=back_at)
+        ux.adb('shell', 'input', 'keyevent', '4')
+        unchanged_source()
+        checks.append('target=_blank child exhausts its own history before Back returns to the retained opener')
+
+        opened = time.time()
+        ux.tap('Open popup child')
+        wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
+        ux.tap('Close popup window')
+        unchanged_source()
+        checks.append('window.close returns to the retained opener instead of exiting the browser')
+
+        opened = time.time()
+        ux.tap('Open popup child')
+        wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
+        ux.tap('Back')
+        unchanged_source()
+        checks.append('Toolbar Back closes a child with no page history and preserves the opener')
+
+        opened = time.time()
+        ux.tap('Open popup child')
+        wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
+        tabs()
+        root, _ = ux.nodes()
+        rows = [n for n in root.iter('node') if ux.match(n, 'Resident Popup') is not None and ux.match(n, 'Close tab') is not None]
+        row = min(rows, key=lambda n: len(list(n.iter('node'))))
+        ux.tap_node(ux.match(row, 'Close tab'))
+        assert ux.match(ux.nodes()[0], 'Resident Popup') is None
+        ux.adb('shell', 'input', 'keyevent', '4')
+        unchanged_source()
+        checks.append('The tab list close button returns to the opener and leaves no exit prompt')
         (args.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'before':before,'after':after},indent=2))
         print(json.dumps(checks),flush=True)
     finally:

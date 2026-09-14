@@ -324,7 +324,7 @@ fun BrowserScreen(
             }
 
             BrowserToolbar(
-                canGoBack = state.canGoBack,
+                canGoBack = state.canGoBack || tabCount > 1,
                 canGoForward = state.canGoForward,
                 onBack = { if (state.isOmnibarFocused) finishEditing() else onBack() },
                 onBackLongPress = { finishEditing(); onBackLongPress() },
