@@ -104,14 +104,23 @@ class Regression:
     def set_switch(self, label, checked):
         card = self.card(label)
         switch = next(n for n in card.iter("node") if n.get("checkable") == "true")
-        if switch.get("checked") != str(checked).lower():
+        for _ in range(3):
+            if switch.get("checked") == str(checked).lower():
+                break
             assert switch.get("enabled") == "true", "Switch disabled: " + label
             self.click(switch)
+            # A swallowed tap must not silently continue: re-read the switch
+            # and retry, so the following navigation always tests the
+            # requested state.
+            time.sleep(.8)
+            card = self.card(label)
+            switch = next(n for n in card.iter("node") if n.get("checkable") == "true")
+        assert switch.get("checked") == str(checked).lower(), "Switch did not apply: " + label
 
     def card_action(self, label, action):
         # LazyColumn only exposes visible card content. Looking for an action in a
         # parent container can accidentally select a neighboring card when the
-        # target card's buttons are just below the viewport (more common on API 29).
+        # target card's buttons are just below the viewport.
         variants = ux.labels(label)
         action_variants = ux.labels(action)
         for forward in (True, False):

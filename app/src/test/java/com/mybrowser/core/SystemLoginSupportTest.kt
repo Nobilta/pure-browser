@@ -31,7 +31,7 @@ class SystemLoginSupportTest {
             SystemLoginSupport.webAuthnMode(context, true))
     }
 
-    @Test @Config(sdk = [29]) fun oldAndroidDoesNotRequireTheNewPlatformPermission() {
+    @Test @Config(sdk = [33]) fun preCredentialManagerAndroidDoesNotRequireTheNewPlatformPermission() {
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context).denyPermissions(Manifest.permission.CREDENTIAL_MANAGER_SET_ORIGIN)
         assertEquals(WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER,

@@ -1,9 +1,10 @@
 # Pure 浏览器
 
 面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.8.1（versionCode 17）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+当前版本 **0.9.0（versionCode 18）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
 
-本版修复二维码相机预览被拉伸、方向错误及 180° 转屏未及时更新的问题，使用等比例居中裁切。
+本版修复网页新窗口导致来源页重载、子标签返回时提示退出的问题，优化菜单与标签面板过渡，加入 GitHub Releases 应用更新。
+开发检查、定向回归与完整发布验证分开执行；移除 API 29 专项测试，保留 Android 10 的安装兼容性。
 保留离线相机/图片扫码、开发工具源码高亮与网络分类，以及统一的 Material 3 界面。
 全屏播放器继续使用 Material 3 控件与同窗口倍速/投屏浮层，非全屏保留网页原播放器。
 保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
@@ -22,12 +23,16 @@
   菜单和设置逐级返回，保留滚动与分类；Activity 重建保留当前来路，外部网址导航关闭临时面板。
   菜单只保留一个子页面，在同一个窗口内直接替换内容，保留父级滚动状态；设置与书签使用全屏布局。
   所有同类弹层、表单和列表使用统一标题与安全边距，关闭拖动与滚动边界拉伸，支持按钮、系统返回及外部区域关闭。
-  入场仅动画变换/透明度，关闭使用短退出过渡；切子页保持窗口与不透明底板，支持系统关闭动画设置。开发者工具仅在菜单提供入口。
+  菜单和标签面板以不透明表面在 240ms 内上滑，遮罩单独淡入；关闭使用 120ms 短过渡。
+  切子页保持窗口与不透明底板，只对内容做轻量过渡，支持系统关闭动画设置。开发者工具仅在菜单提供入口。
 - 链接长按支持新标签、后台打开、复制和分享；图片支持打开、保存和复制地址，普通文字保留原生选区。
 - 标签搜索、排序、命名分组、缩略图和批量关闭确认；关闭标签后释放其记录，最后一个标签关闭后回到新标签。
   升级时清理旧版最近关闭存档。
-  后台新标签延迟加载；普通标签最多保留最近一个后台页面的 DOM/表单/SPA/滚动，低内存设备不驻留。
+  后台新标签延迟加载；普通标签（包括 `window.open` / `target=_blank` 的来源页）最多保留最近一个后台页面的 DOM/表单/SPA/滚动，低内存设备不驻留。
   切换标签暂停旧页媒体；进程结束后只恢复元数据，不承诺恢复 JavaScript 或未提交表单。
+- 返回键先返回当前网页历史；历史耗尽且还有其他标签时关闭当前标签，优先回到来源页，其次回到最近使用的存活标签。
+  底栏返回与系统返回遵循同一标签规则；“×”关闭当前标签也优先返回来源页，关闭后台标签不改变当前页。
+  来源关系只保存在当前会话内，不跨普通/无痕标签组或进程重启；最后一个标签的系统返回才进入退出确认。
 - 冷启动默认打开主页；可开启恢复普通标签的地址、标题与选中项。无痕标签不写入恢复文件。
   同进程的配置重建由单 Activity 的 `BrowserSessionState` 保留标签和临时私密状态。
 - 长按返回查看当前标签历史，长按标签按钮新建标签，可选底栏滑动切换；支持 Ctrl+L/T/W/R/F/Tab。
@@ -59,7 +64,7 @@
 - 列表显示下载进度、已下载/总大小、速度、预计剩余时间、排队、等待网络及保存状态。
   总大小未知时显示已下载字节和不定进度，列表及通知都不伪报百分比。
 - **点击已完成的下载条目，直接调用 Android 打开文件。** 浏览器不增加“打开/安装”按钮，
-  不判断是否为 APK，也不提供自己的安装确认或来源授权流程。使用可读 `content:` URI、`ACTION_VIEW`
+  普通网页下载不判断是否为 APK，也不提供额外安装确认或来源授权流程。使用可读 `content:` URI、`ACTION_VIEW`
   和临时读取授权，由系统根据内容提供方解析 MIME、选择查看器或安装器。
   系统仍可能显示应用选择、来源授权或安装确认。文件丢失、目录授权失效或没有可用应用时给出对应提示。
 - HTTP Range 分段，线程设置 1–16（默认 4）；最多同时运行 3 个任务、每主机 2 个任务，
@@ -74,6 +79,17 @@
   点击通知也能从冷启动进入下载列表；打开或删除记录会清理对应完成通知。
 - 下载使用网页 User-Agent/Referer 及当前 Profile 的 Cookie；Cookie 只驻留内存，重定向只向原 origin 发送，
   最多 5 次跳转并拒绝 HTTPS 降级。保留旧 Android DownloadManager 记录的查询、打开和删除兼容。
+
+### 应用更新
+
+- 入口为 **设置 → 关于 → 检查更新**。只在用户操作时检查，不在启动时联网或自动安装。
+- 从 [Nobilta/pure-browser 的最新正式 Release](https://github.com/Nobilta/pure-browser/releases/latest) 读取 `update.json`。
+  使用 Releases 公开下载直链，不依赖 GitHub REST API 的匿名配额；成功结果缓存 5 分钟，服务端限流按响应退避。
+- 按整数 `versionCode` 判断新版，显示版本、包大小和发布说明。用户确认后下载到专用内部目录，关闭对话框取消下载并清理未完成文件。
+- 只允许 HTTPS 和 GitHub 资产域名，最多 5 次重定向；文件大小上限 128 MiB，不携带网页 Cookie、Referer 或 GitHub Token。
+  安装前复核 SHA-256、实际包名/版本、最低 SDK、ABI 和当前安装应用的签名；校验失败不交给安装器。
+- 下载、安装分开确认；必要时打开系统“允许此来源安装”设置，返回后再点击安装。最终由 Android 安装器确认覆盖更新，不卸载旧应用。
+  未发布正式版本、离线、限流、空间不足和校验失败均显示对应状态。Debug 包不通过此入口升级为正式包。
 
 ### 视频播放器、系统媒体与 DLNA
 
@@ -171,9 +187,11 @@ app/src/main/java/com/mybrowser/
   download/ filter/ userscript/    下载、过滤订阅及用户脚本
   privacy/ site/ security/         Profile、网站权限与安全
   media/ dlna/ qr/                视频、系统媒体、DLNA 与离线二维码
+  update/                         独立的 GitHub Releases 检查、下载与校验
 app/src/main/assets/               播放控制、脚本运行时和内置规则
 rust/                             adblock、site_identity、url_utils
 validation/                       可复现页面、自动检查及模拟器工具
+release/                          签名 APK 的更新清单生成和 Release 草稿发布
 ```
 
 开发环境：macOS、JDK 17+、Android SDK Platform/Build Tools 37、NDK、Rust stable（arm64 Android target）、
@@ -191,21 +209,24 @@ Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`�
 ## 构建、验证与安装
 
 ```bash
-./build-and-test.sh
-./install_and_test.sh PureBrowser-v0.8.1-release.apk
+./build-and-test.sh --quick       # 默认：快速自动检查，不打包
+./build-and-test.sh --release     # 交付：完整自动检查、签名 APK 和 update.json
+./install_and_test.sh PureBrowser-v0.9.0-release.apk
 ./diagnose.sh
 ```
 
-完整构建执行三语言资源校验、Node 协议测试、Rust fmt/test/clippy、真实 host JNI 的 Android/Robolectric 测试、
-lint、R8 和签名验证。当前交付的实际结果、设备覆盖和文件校验值以本节及 [回归报告](EMULATOR_TEST_REPORT.md) 为准。
+快速检查执行三语言资源校验、Node 协议测试、Rust fmt/test 和真实 host JNI 的 Android/Robolectric 测试。
+发布模式另外执行 clippy、lint、R8、签名与 zipalign 验证，并生成 `outputs/release/update.json`、`SHA256SUMS` 和包信息。
+Node 测试没有第三方运行依赖，不再每次执行 `npm ci`。当前交付的实际结果、设备覆盖和文件校验值以本节及 [回归报告](EMULATOR_TEST_REPORT.md) 为准。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.8.1-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v0.9.0-release.apk
 # 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.8.1-release.apk \
-  --label release-081 --stages developer-tools menu-navigation settings-back settings site layout browser productivity home-shortcut
-# 只有 APK、AVD、阶段选择相同时才能加 --resume
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.0-release.apk \
+  --label release-090 --profile tabs
+# 默认 --profile smoke；--profile full 执行完整矩阵；--stages 可选择具体阶段。
+# 只有 APK、AVD、测试源码及阶段选择相同时才能加 --resume。
 ```
 
 QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、下载和文件。
@@ -215,19 +236,30 @@ QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读�
 保留失败尝试，不把局部验证计作全部设备/网站覆盖。输入辅助核对可见窗口中实际聚焦的控件，兼容 Compose 页签切换。
 复现与扫码/大源码手工验收见 [测试指南](TESTING_GUIDE.md)。
 
+### GitHub 发布
+
+仓库为 [Nobilta/pure-browser](https://github.com/Nobilta/pure-browser)，远程主分支为 `main`；此工作区的 `master` 推送到 `origin/main`。
+每次发布先提升 `app/build.gradle.kts` 的版本与整数版本号，更新 `release/notes.md`，完成构建和模拟器验证后提交、推送源码。
+
+```bash
+git push origin HEAD:main
+bash release/publish.sh PureBrowser-v0.9.0-release.apk release/notes.md
+```
+
+发布脚本通过已登录的 GitHub CLI 创建草稿，上传签名 APK、自动生成的 `update.json` 和 `SHA256SUMS`，
+绑定已推送的源码提交。审核后在 GitHub 发布为正式版本，并设置为 latest；标签必须是 `v` 加版本名（例如 `v0.9.0`）。
+草稿和预发布版本不进入应用的稳定更新入口。后续版本必须沿用同一正式签名；签名密钥、口令和本机登录凭据不提交或上传。
+
 ### 交付包
 
-签名 APK 为 [`PureBrowser-v0.8.1-release.apk`](PureBrowser-v0.8.1-release.apk)，Android 10+、arm64-v8a，versionCode 16 → 17。
-大小 **4,689,026 bytes（约 4.47 MiB）**，SHA-256：
-`15a1e0bb3bd67d602850248956e8b33d014e10125a5eda8430dec977906a26ff`。
-与上一版使用同一签名，可覆盖安装；v2 签名、16 KiB zipalign、三份 native 库 ELF LOAD 对齐和两个运行时脚本一致性检查通过。
-
-本轮 330 项 Android/Robolectric、58 项 Rust、55 项 Node 测试通过；另有 7 项临时几何测试覆盖 288 组方向与尺寸组合，测试源码已删除。
-622 项三语言资源校验通过；lint 为 0 errors、19 warnings、1 hint。扫码专项与设备覆盖的实际结果见 [回归报告](EMULATOR_TEST_REPORT.md)。
-最终包验证 Android 17 后摄/前摄回退、Android 10 后摄的四个预览方向、圆形比例，以及宽高不变时的 180° 转屏。
-两版各通过 13 项生命周期/选图检查及实时相机网页码验证。两版模拟器均从 0.8.0 覆盖升级，
-安装前后原有数据库和偏好文件校验值保持一致。
-用户反馈涉及多台 OPPO / ColorOS 设备；本轮未连接 ColorOS 真机，实际机型效果仍待复测。
+签名 APK 为 `PureBrowser-v0.9.0-release.apk`，Android 10+、arm64-v8a，versionCode 17 → 18。
+公开下载位于 [v0.9.0 Release](https://github.com/Nobilta/pure-browser/releases/tag/v0.9.0)，包大小 **4,714,826 bytes（约 4.50 MiB）**。
+SHA-256：`dd65ed4d44d91a6c48d830da7ffcc3348551b0fed317d867a1afb89ad896e5f4`。
+本版通过 **333 项 Android/Robolectric、58 项 Rust、55 项 Node 测试**及 646 项三语言资源校验；lint 为 0 errors、24 warnings、1 hint。
+API 37 上通过来源页/子标签、普通与无痕媒体生命周期、相机文件回传、菜单导航、两类全屏视频弹层七个定向阶段。
+完成 0.8.1 → 0.9.0 原签名覆盖升级，并使用临时旧版与预置更新缓存验证系统来源授权、安装器更新、包哈希和书签保留。
+详细证据和覆盖范围见 [回归报告](EMULATOR_TEST_REPORT.md)，发布后 GitHub 更新验收单独记录在 Release 的 `github-update.json` 附件中。
+API 29 专项测试已移除，不将历史 Android 10 测试记录视为本版验证结果；本轮也不宣称已覆盖 OPPO / ColorOS 等实体设备。
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。
 本地交付只保留最新 APK 及必要验证记录；完整源码使用 `master` 普通提交维护，不创建备份或回滚分支。
 

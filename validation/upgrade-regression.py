@@ -18,7 +18,20 @@ ux.menu_item('Add bookmark')
 field = next(n for n in ux.nodes()[0].iter('node') if n.get('class') == 'android.widget.EditText' and ux.visible(n))
 ux.tap_node(field)
 ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false', '/system/bin', 'com.mybrowser.validation.FastUiDump', 'selectAll')
-ux.adb('shell', 'input', 'text', title.replace(' ', '%s')); ux.adb('shell', 'input', 'keyevent', '4'); ux.tap('Save')
+ux.adb('shell', 'input', 'text', title.replace(' ', '%s')); ux.adb('shell', 'input', 'keyevent', '4')
+# The IME exit moves the centered dialog; a visible Save node can still have its
+# pre-animation bounds. Wait for the button geometry to settle before one tap.
+deadline, last_bounds, stable_reads = time.monotonic() + 5, None, 0
+while time.monotonic() < deadline:
+    save = ux.match(ux.nodes()[0], 'Save')
+    current_bounds = ux.bounds(save) if save is not None else None
+    stable_reads = stable_reads + 1 if current_bounds is not None and current_bounds == last_bounds else 0
+    if stable_reads >= 2:
+        break
+    last_bounds = current_bounds
+    time.sleep(.2)
+assert stable_reads >= 2, 'Bookmark dialog did not settle after dismissing the keyboard'
+ux.tap('Save')
 ux.menu_item('Bookmarks'); ux.expect(title)
 (a.output / 'before.xml').write_text(ux.nodes()[1])
 before = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'before-package.txt').write_text(before)

@@ -16,7 +16,29 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadFilesTest {
+    private fun assertCameraAndUpdateUrisStayIsolated() {
+        val context = RuntimeEnvironment.getApplication()
+        val cameraAuthority = context.packageName + ".captures"
+        val updateAuthority = context.packageName + ".updates"
+        val camera = context.packageManager.resolveContentProvider(cameraAuthority, 0)!!
+        val update = context.packageManager.resolveContentProvider(updateAuthority, 0)!!
+        // Android's provider registry keys the component by class name, even when
+        // the manifest declares different authorities. Aliasing breaks URI grants.
+        assertNotEquals(camera.name, update.name)
+        val photo = File(context.cacheDir, "web-capture/photo.jpg").apply { parentFile!!.mkdirs(); writeText("camera") }
+        val apk = File(context.cacheDir, "updates/update.apk").apply { parentFile!!.mkdirs(); writeText("update") }
+        try {
+            val photoUri = FileProvider.getUriForFile(context, cameraAuthority, photo)
+            val apkUri = FileProvider.getUriForFile(context, updateAuthority, apk)
+            assertEquals("camera", context.contentResolver.openInputStream(photoUri)!!.bufferedReader().use { it.readText() })
+            assertEquals("update", context.contentResolver.openInputStream(apkUri)!!.bufferedReader().use { it.readText() })
+            assertThrows(IllegalArgumentException::class.java) { FileProvider.getUriForFile(context, cameraAuthority, apk) }
+            assertThrows(IllegalArgumentException::class.java) { FileProvider.getUriForFile(context, updateAuthority, photo) }
+        } finally { photo.delete(); apk.delete() }
+    }
+
     @Test fun readableFilesCarryContentUriAndTemporaryReadGrantWithoutAutomaticallyStartingAnActivity() {
+        assertCameraAndUpdateUrisStayIsolated()
         val context = RuntimeEnvironment.getApplication()
         val file = File(context.cacheDir, "web-capture/open-test.apk").apply { parentFile!!.mkdirs(); writeText("fixture") }
         val uri = FileProvider.getUriForFile(context, context.packageName + ".captures", file)

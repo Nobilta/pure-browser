@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -88,7 +88,7 @@ internal fun BrowserBottomSheet(
         val safeInsets = browserSheetInsets()
         val entrance = rememberBrowserEntrance()
         val animateSurface = LocalSheetFirstPresentation.current
-        val offset = with(LocalDensity.current) { 32.dp.toPx() }
+        var surfaceHeight by remember { mutableIntStateOf(0) }
         val scrim = MaterialTheme.colorScheme.scrim
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.matchParentSize().drawBehind { drawRect(scrim.copy(alpha = .32f * if (animateSurface) entrance.value else 1f)) }
@@ -102,9 +102,12 @@ internal fun BrowserBottomSheet(
                 .imePadding().padding(top = 16.dp)) {
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
+                        .onSizeChanged { surfaceHeight = it.height }
                         .graphicsLayer {
-                            alpha = if (animateSurface) entrance.value else 1f
-                            translationY = if (animateSurface) (1f - entrance.value) * offset else 0f
+                            // A sheet is a solid surface, not a translucent page floating
+                            // over the website. Only translate its layer; never its scrim.
+                            alpha = if (animateSurface && surfaceHeight == 0) 0f else 1f
+                            translationY = if (animateSurface) (1f - entrance.value) * surfaceHeight else 0f
                         }.then(modifier),
                     shape = MaterialTheme.shapes.extraLarge.copy(bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp),
                         bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp)),
@@ -115,7 +118,7 @@ internal fun BrowserBottomSheet(
                             // Route changes keep an opaque surface under the incoming
                             // content, so a submenu never flashes the underlying webpage.
                             alpha = if (animateSurface) 1f else entrance.value
-                            translationY = if (animateSurface) 0f else (1f - entrance.value) * offset * .375f
+                            translationY = 0f
                         }, content = content)
                 }
             }

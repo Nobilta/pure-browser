@@ -62,9 +62,7 @@ def adb(*args):
 
 
 def media_dispatch(action):
-    sdk = int(adb("shell", "getprop", "ro.build.version.sdk"))
-    command = ["media"] if sdk < 30 else ["cmd", "media_session"]
-    return adb("shell", *command, "dispatch", action)
+    return adb("shell", "cmd", "media_session", "dispatch", action)
 
 
 def nodes():
@@ -98,18 +96,9 @@ def nodes():
 
 def window_nodes():
     """Read every window, including the IME, without replaying any input action."""
-    for attempt in range(2):
-        try:
-            raw = adb("shell", "env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false",
-                      "/system/bin", "com.mybrowser.validation.FastUiDump", "windows")
-            return ET.fromstring(raw), raw
-        except subprocess.CalledProcessError as error:
-            # Android 10's shell ART can crash in its JIT worker during a snapshot.
-            # One fresh read is safe; input commands must never be retried here.
-            if error.returncode != 139 or attempt:
-                raise
-            print("UI snapshot helper exited 139; retrying one read", flush=True)
-            time.sleep(.15)
+    raw = adb("shell", "env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false",
+              "/system/bin", "com.mybrowser.validation.FastUiDump", "windows")
+    return ET.fromstring(raw), raw
 
 
 def bounds(node):

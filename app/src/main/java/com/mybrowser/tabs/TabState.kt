@@ -17,4 +17,6 @@ data class TabState(
     var thumbnail: Bitmap? = null,
     var savedState: Bundle? = null,
     var group: String = "",
+    /** Session-only navigation relationship; never crosses normal/private stacks. */
+    var openerTabId: String? = null,
 )

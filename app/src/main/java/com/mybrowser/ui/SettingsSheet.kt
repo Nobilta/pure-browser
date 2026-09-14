@@ -118,6 +118,8 @@ fun SettingsSheet(
     val textResources = localizedResources()
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showSystemLogin by remember { mutableStateOf(false) }
+    var showUpdate by remember { mutableStateOf(false) }
+    if (showUpdate) UpdatePanel { showUpdate = false }
     var highlightTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
@@ -125,7 +127,7 @@ fun SettingsSheet(
     val openPicker: (String) -> Unit = { pickerGeneration++; picker = it }
     val selected = SettingsCategory.entries.firstOrNull { it.name == sectionName }
     val back = {
-        if (!childOpen && picker == null && !showSystemLogin) {
+        if (!childOpen && picker == null && !showSystemLogin && !showUpdate) {
             if (selected != null) sectionName = null else onDismiss()
         }
     }
@@ -268,6 +270,8 @@ fun SettingsSheet(
                                             val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
                                             Text(textResources.getString(R.string.ui_pure_browser), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
                                             SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
+                                            SettingsItem(textResources.getString(R.string.update_check),
+                                                "GitHub · Nobilta/pure-browser", { showUpdate = true }, R.drawable.ic_download)
                                         }
                                         SettingsCategory.DOWNLOADS -> Unit
                                     }

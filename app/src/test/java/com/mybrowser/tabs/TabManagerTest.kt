@@ -14,6 +14,78 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class TabManagerTest {
     @Test
+    fun childReturnsToItsOpenerEvenAfterOtherTabsWereSelectedOrReordered() {
+        val manager = TabManager()
+        try {
+            val opener = manager.currentTab!!.id
+            val child = manager.createTab("https://child.example", openerTabId = opener)
+            manager.createTab("https://other.example")
+            manager.move(opener, 1)
+            manager.switchToIndex(manager.tabs.indexOfFirst { it.id == child })
+            manager.closeTab(manager.currentIndex)
+            assertEquals(opener, manager.currentTab!!.id)
+            assertEquals(2, manager.count)
+        } finally { manager.cleanup() }
+    }
+
+    @Test
+    fun nestedChildrenReturnOneOpenerAtATime() {
+        val manager = TabManager()
+        try {
+            val root = manager.currentTab!!.id
+            val child = manager.createTab("https://child.example", openerTabId = root)
+            manager.createTab("https://grandchild.example", openerTabId = child)
+            manager.closeTab(manager.currentIndex)
+            assertEquals(child, manager.currentTab!!.id)
+            manager.closeTab(manager.currentIndex)
+            assertEquals(root, manager.currentTab!!.id)
+        } finally { manager.cleanup() }
+    }
+
+    @Test
+    fun closingOpenerClearsReferencesAndFallsBackToTheMostRecentlyVisitedTab() {
+        val manager = TabManager()
+        try {
+            val opener = manager.currentTab!!.id
+            val child = manager.createTab("https://child.example", openerTabId = opener)
+            val recent = manager.createTab("https://recent.example")
+            manager.createTab("https://never-visited.example", select = false)
+            manager.switchToIndex(manager.tabs.indexOfFirst { it.id == child })
+            manager.closeTab(manager.tabs.indexOfFirst { it.id == opener })
+            assertEquals(child, manager.currentTab!!.id)
+            assertNull(manager.currentTab!!.openerTabId)
+            manager.closeTab(manager.currentIndex)
+            assertEquals(recent, manager.currentTab!!.id)
+        } finally { manager.cleanup() }
+    }
+
+    @Test
+    fun unknownOpenerCannotCrossTabManagersAndClosingOthersClearsRelationships() {
+        val normal = TabManager()
+        val privateTabs = TabManager()
+        try {
+            privateTabs.createTab("https://private.example", openerTabId = normal.currentTab!!.id)
+            assertNull(privateTabs.currentTab!!.openerTabId)
+            val root = normal.currentTab!!.id
+            val child = normal.createTab("https://child.example", openerTabId = root)
+            normal.closeOtherTabs()
+            assertEquals(child, normal.currentTab!!.id)
+            assertNull(normal.currentTab!!.openerTabId)
+        } finally { normal.cleanup(); privateTabs.cleanup() }
+    }
+
+    @Test
+    fun restoringMetadataDoesNotPersistSessionOnlyOpenerRelationships() {
+        val original = TabManager()
+        val restored = TabManager()
+        try {
+            original.createTab("https://child.example", openerTabId = original.currentTab!!.id)
+            assertTrue(restored.restoreMetadata(original.snapshotMetadata()))
+            assertTrue(restored.tabs.all { it.openerTabId == null })
+        } finally { original.cleanup(); restored.cleanup() }
+    }
+
+    @Test
     fun backgroundTabsStayUnloadedAndKeepCurrentSelection() {
         val manager = TabManager(maxTabs = 2)
         val currentId = manager.currentTab!!.id
