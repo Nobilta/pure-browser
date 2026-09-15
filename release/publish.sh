@@ -19,6 +19,9 @@ release_tag="$(python3 -c 'import json; print(json.load(open("outputs/release/pa
 release_commit="$(git rev-parse HEAD)"
 release_remote="$("$release_gh" api repos/Nobilta/pure-browser/commits/main --jq .sha)"
 [[ "$release_remote" == "$release_commit" ]] || { echo "Push the validated commit to remote main first" >&2; exit 1; }
+# Gates: the commit must have passed CI, and the APK must match the source, be newer than the
+# published release and carry the same signing certificate (see release/gate.py).
+python3 release/gate.py --repo Nobilta/pure-browser --commit "$release_commit" --apk "$release_apk"
 "$release_gh" release create "$release_tag" "$release_apk" outputs/release/update.json outputs/release/SHA256SUMS \
     --repo Nobilta/pure-browser --target "$release_commit" --title "Pure Browser $release_tag" \
     --notes-file "$release_notes" --draft

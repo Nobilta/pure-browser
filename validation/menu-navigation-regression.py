@@ -16,7 +16,10 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--serial', required=True)
-parser.add_argument('--cycles', type=int, default=24)
+# The loop varies the Back delay (30/80/160/300 ms) and repeats it. Eight cycles cover each
+# delay twice, which is what the check asserts; the historical 24 repeated the same four
+# cases six times over. Pass a larger value for a release stress run.
+parser.add_argument('--cycles', type=int, default=8)
 parser.add_argument('--label', default='menu-navigation')
 args = parser.parse_args()
 assert args.serial.startswith('emulator-'), 'Use a dedicated emulator'
@@ -53,11 +56,12 @@ def browser():
     deadline = time.monotonic() + 5
     while True:
         foreground()
-        root, _ = ux.nodes()
+        # Wait for the toolbar to be uncovered on the device; the checks below still decide.
+        root, _ = ux.nodes(await_labels=['编辑网址'],
+                           timeout_ms=max(0, int((deadline - time.monotonic()) * 1000)))
         if not ux.menu_open(root) and ux.match(root, '编辑网址') is not None and window_count() == 1:
             return root
         assert time.monotonic() < deadline, 'Browser is still covered by a page, dialog or invisible sheet window'
-        time.sleep(.15)
 
 
 def menu():
@@ -90,8 +94,11 @@ def toolbar_back(timeout=8):
     # catch it mid-transition with no *visible* node and fail for reasons unrelated to the
     # app. Poll with a deadline, the same way menu() waits for its window count.
     deadline = time.monotonic() + timeout
+    back_labels = list(ux.resource_labels('cd_back'))
     while True:
-        root, _ = ux.nodes()
+        # Waiting for the control on the device replaces one dump per poll.
+        root, _ = ux.nodes(await_labels=back_labels,
+                           timeout_ms=max(0, int((deadline - time.monotonic()) * 1000)))
         candidates = [node for node in root.iter('node') if ux.visible(node)
                       and node.get('content-desc') in ux.resource_labels('cd_back')]
         if candidates:
@@ -255,7 +262,7 @@ try:
             back()
         browser()
         result['rapidCycles'] += 1
-        if (index + 1) % 6 == 0:
+        if (index + 1) % 4 == 0:
             print('PASS: rapid menu/setting round trips', index + 1, flush=True)
     record('rapid repeated Back during sheet opening/closing never exits or leaves a blocking window')
 

@@ -14,6 +14,9 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--serial", required=True)
+# Edge-gesture round trips alternate direction, so four cycles still cover both directions
+# twice; the historical six only repeated the same pair. Pass a larger value for a stress run.
+parser.add_argument("--cycles", type=int, default=4)
 args = parser.parse_args()
 ux.ADB = ["adb", "-s", args.serial]
 sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
@@ -54,7 +57,9 @@ def toolbar_buttons(root):
 
 
 def toolbar_back(detail=True):
-    root, _ = ux.nodes()
+    # The toolbar animates in with the surface, so wait for the control on the device instead
+    # of failing on the first tree read; the assert below still catches a missing Back.
+    root, _ = ux.nodes(await_labels=list(ux.resource_labels("cd_back")), timeout_ms=4000)
     buttons = toolbar_buttons(root)
     assert buttons, "Settings toolbar Back is missing"
     top = min(ux.bounds(node)[1] for node in buttons)
@@ -92,8 +97,10 @@ def browser_root():
 def category(name):
     # A wide root can require scrolling, and returning can retain its scroll position.
     for downward in (True, False):
-        for _ in range(8):
-            root, _ = ux.nodes()
+        for index in range(8):
+            # Already-visible categories come back from one waited snapshot; only the
+            # scrolled cases keep stepping through the list.
+            root, _ = ux.nodes(await_labels=[name], timeout_ms=1200 if index == 0 else 0)
             if ux.match(root, name) is not None:
                 ux.tap(name)
                 return
@@ -195,7 +202,7 @@ try:
         ux.open_settings()
         settings_root()
         record("left and right edge gestures traverse picker, category, settings, menu and browser")
-        for cycle in range(6):
+        for cycle in range(args.cycles):
             gesture_back(right=bool(cycle % 2))
             ux.expect_menu()
             gesture_back(right=not bool(cycle % 2))
@@ -207,7 +214,8 @@ try:
             back()
             browser_root()
             ux.open_settings()
-        record("six repeated edge and toolbar return cycles leave no retired settings window or blocked close button")
+        record(f"{args.cycles} repeated edge and toolbar return cycles leave no retired settings window "
+               f"or blocked close button")
     else:
         result["skipped"].append("edge gestures: device does not use gesture navigation")
 

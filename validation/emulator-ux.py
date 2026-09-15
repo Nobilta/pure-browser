@@ -72,14 +72,15 @@ def tap_resource(name, timeout=6):
     wanted = resource_labels(name)
     deadline = time.monotonic() + timeout
     while True:
-        root, _ = nodes()
+        # Wait for the control on the device: one connection instead of one dump per poll.
+        remaining = deadline - time.monotonic()
+        root, _ = nodes(await_labels=[name], timeout_ms=max(0, int(remaining * 1000)))
         node = next((n for n in root.iter("node") if visible(n)
                      and n.get("content-desc") in wanted), None)
         if node is not None:
             tap_node(node)
             return
         assert time.monotonic() < deadline, "Control for resource missing: " + name
-        time.sleep(.15)
 
 
 def adb(*args):
@@ -91,17 +92,36 @@ def media_dispatch(action):
     return adb("shell", "cmd", "media_session", "dispatch", action)
 
 
-def nodes():
+def nodes(await_labels=None, await_absent=False, timeout_ms=4000):
+    """Tree of the current window.
+
+    With `await_labels` the helper polls for those labels (or for their absence) before taking
+    the snapshot, so a caller's condition is waited on inside one service connection instead of
+    one dump per poll. The tree comes back either way — callers still decide — which keeps this
+    usable as a plain snapshot and keeps the uiautomator fallback below (which cannot wait) valid.
+    """
     device = tuple(ADB)
     if device not in _probe_available:
         _probe_available[device] = subprocess.run(
             ADB + ["shell", "test", "-r", UI_PROBE], stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, timeout=10).returncode == 0
     if _probe_available[device]:
+        arguments = []
+        # Measurement/fallback switch: PURE_UX_NO_AWAIT=1 turns every waited snapshot back
+        # into a plain one, so the two behaviours can be compared under the same load.
+        if await_labels and not os.environ.get("PURE_UX_NO_AWAIT"):
+            variants = set()
+            for label in await_labels:
+                variants |= labels(label)
+            variants |= {value.upper() for value in variants}
+            encoded = base64.b64encode(json.dumps(sorted(variants)).encode()).decode()
+            arguments = ["await", encoded, str(max(0, int(timeout_ms)))]
+            if await_absent:
+                arguments.append("absent")
         for _ in range(2):
             try:
                 raw = adb("shell", "env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
-                          "com.mybrowser.validation.FastUiDump")
+                          "com.mybrowser.validation.FastUiDump", *arguments)
                 raw = raw[raw.index("<?xml"):raw.index("</hierarchy>") + len("</hierarchy>")]
                 return ET.fromstring(raw), raw
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError, ValueError):
@@ -342,13 +362,16 @@ def menu_open(root):
 
 
 def expect_menu():
+    # Any of the labels the sheet itself exposes is enough to stop waiting; menu_open() below
+    # is still what decides, including the three-row fallback the await cannot express.
     deadline = time.monotonic() + 4
     while True:
-        root, _ = nodes()
+        remaining = deadline - time.monotonic()
+        root, _ = nodes(await_labels=['browser_menu', '浏览器菜单', '设置', '开发者工具', '退出浏览器'],
+                        timeout_ms=max(0, int(remaining * 1000)))
         if menu_open(root):
             return root
         assert time.monotonic() < deadline, 'Browser menu sheet is missing (a toolbar Menu button is not a menu)'
-        time.sleep(.15)
 
 
 def close_menu():
@@ -365,10 +388,12 @@ def menu_item(label):
     root, _ = nodes()
     if not menu_open(root):
         tap("菜单")
-    # Returning from a child keeps the menu's previous scroll position.
+    # Returning from a child keeps the menu's previous scroll position. The first read of
+    # each pass waits for the row on the device, so an already-reachable row costs one
+    # connection and only a row that needs scrolling keeps stepping through the list.
     for downward in (False, True):
-        for _ in range(8):
-            root, _ = nodes()
+        for index in range(8):
+            root, _ = nodes(await_labels=[label], timeout_ms=1200 if index == 0 else 0)
             if match(root, label) is not None:
                 tap(label)
                 return
@@ -385,13 +410,16 @@ def swipe(root, downward):
 
 
 def expect(label, present=True, timeout=4):
+    # The device waits on the condition; the loop stays so the uiautomator fallback, which
+    # cannot wait, behaves exactly as before.
     deadline = time.monotonic() + timeout
     while True:
-        root, _ = nodes()
+        remaining = deadline - time.monotonic()
+        root, _ = nodes(await_labels=[label], await_absent=not present,
+                        timeout_ms=max(0, int(remaining * 1000)))
         if (match(root, label) is not None) == present:
             break
         assert time.monotonic() < deadline, (label, present)
-        time.sleep(.15)
     print("PASS:", label, "visible" if present else "absent", flush=True)
 
 
