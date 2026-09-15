@@ -1,297 +1,139 @@
 # Pure 浏览器
 
-面向 Android 10 及以上设备的轻量浏览器，使用 Kotlin、Jetpack Compose、Android WebView 和 Rust。
-当前版本 **0.9.0（versionCode 18）**，安装包仅支持 `arm64-v8a`，applicationId 保持 `com.mybrowser`，可覆盖升级。
+[中文](README.md) · [English](README.en.md)
 
-本版修复网页新窗口导致来源页重载、子标签返回时提示退出的问题，优化菜单与标签面板过渡，加入 GitHub Releases 应用更新。
-开发检查、定向回归与完整发布验证分开执行；移除 API 29 专项测试，保留 Android 10 的安装兼容性。
-保留离线相机/图片扫码、开发工具源码高亮与网络分类，以及统一的 Material 3 界面。
-全屏播放器继续使用 Material 3 控件与同窗口倍速/投屏浮层，非全屏保留网页原播放器。
-保留普通多标签、书签 HTML 导入导出、DLNA、系统密码集成、画中画及后台媒体。翻译和跨设备同步暂不实现。
+[![CI](https://github.com/Nobilta/pure-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/Nobilta/pure-browser/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Nobilta/pure-browser)](https://github.com/Nobilta/pure-browser/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%2010%2B%20%C2%B7%20arm64--v8a-3ddc84)](#安装)
 
-## 功能
+**一个开源的 Android 轻量浏览器**：Jetpack Compose 界面 + 系统 WebView 内核 + Rust 广告过滤，
+不依赖 Google 服务——注册登录、扫码识别、广告过滤与下载都在本地完成。
 
-### 浏览、界面与标签
+它把"够用"做扎实：标签与返回符合直觉、页面状态尽量不丢、能装能升级，而且每个版本都用可复现的检查
+与模拟器回归自证结果（见[回归报告](EMULATOR_TEST_REPORT.md)），不把"没验证"说成"已完成"。
+支持 Android 10（API 29）及以上，只发布 `arm64-v8a`，applicationId 为 `com.mybrowser`。
 
-- WebView 浏览、前进/后退、刷新/停止、主页、网页弹窗、页内查找、文件上传和全屏视频。
-- 地址栏识别网址与搜索词，可放在顶部或底部；支持搜索引擎选择、历史/书签建议、补全与明确搜索动作。
-  未编辑时显示标题和站点，点击后编辑完整 URL；页面滚动时自动收起/展开顶部地址栏。
-  建议与编辑器共用窗口，点击软键盘、清除或建议补全保持编辑；横竖屏切换保留草稿，提交、点击页面或返回结束编辑。
-- Material 3 界面、系统/浅色/深色主题、Android 12+ 动态配色；简体中文、繁体中文和英文。
-  Android 13+ 支持系统应用语言设置，旧系统跟随系统语言。
-- 设置按浏览与启动、外观、隐私与过滤、下载、视频、关于分类，支持搜索定位；宽屏可显示分类与详情两栏。
-  菜单和设置逐级返回，保留滚动与分类；Activity 重建保留当前来路，外部网址导航关闭临时面板。
-  菜单只保留一个子页面，在同一个窗口内直接替换内容，保留父级滚动状态；设置与书签使用全屏布局。
-  所有同类弹层、表单和列表使用统一标题与安全边距，关闭拖动与滚动边界拉伸，支持按钮、系统返回及外部区域关闭。
-  菜单和标签面板以不透明表面在 240ms 内上滑，遮罩单独淡入；关闭使用 120ms 短过渡。
-  切子页保持窗口与不透明底板，只对内容做轻量过渡，支持系统关闭动画设置。开发者工具仅在菜单提供入口。
-- 链接长按支持新标签、后台打开、复制和分享；图片支持打开、保存和复制地址，普通文字保留原生选区。
-- 标签搜索、排序、命名分组、缩略图和批量关闭确认；关闭标签后释放其记录，最后一个标签关闭后回到新标签。
-  升级时清理旧版最近关闭存档。
-  后台新标签延迟加载；普通标签（包括 `window.open` / `target=_blank` 的来源页）最多保留最近一个后台页面的 DOM/表单/SPA/滚动，低内存设备不驻留。
-  切换标签暂停旧页媒体；进程结束后只恢复元数据，不承诺恢复 JavaScript 或未提交表单。
-  同一标签内跨文档返回由 WebView 重新创建文档（WebView 不提供后退缓存）：未提交表单与 SPA 内存丢失，滚动偏移由历史项恢复；
-  文档内历史（`pushState`、锚点）的返回则完整保留。该行为由 `validation/resident-regression.py` 的同标签用例记录并断言。
-- 返回键先返回当前网页历史；历史耗尽且还有其他标签时关闭当前标签，优先回到来源页，其次回到最近使用的存活标签。
-  底栏返回与系统返回遵循同一标签规则；“×”关闭当前标签也优先返回来源页，关闭后台标签不改变当前页。
-  来源关系只保存在当前会话内，不跨普通/无痕标签组或进程重启；最后一个标签的系统返回才进入退出确认。
-- 冷启动默认打开主页；可开启恢复普通标签的地址、标题与选中项。无痕标签不写入恢复文件。
-  同进程的配置重建由单 Activity 的 `BrowserSessionState` 保留标签和临时私密状态。
-- 长按返回查看当前标签历史，长按标签按钮新建标签，可选底栏滑动切换；支持 Ctrl+L/T/W/R/F/Tab。
-- 系统默认浏览器设置、分享网址接收、手机桌面网站快捷方式；退出浏览器会移除最近任务。
+## 截图
 
-### 首页、书签与历史
+| 浏览 | 菜单 | 标签面板 | 设置 | 无痕 |
+|---|---|---|---|---|
+| <img src="docs/screenshots/browsing.png" width="155" alt="浏览网页"> | <img src="docs/screenshots/menu.png" width="155" alt="浏览器菜单"> | <img src="docs/screenshots/tabs.png" width="155" alt="标签面板"> | <img src="docs/screenshots/settings.png" width="155" alt="设置"> | <img src="docs/screenshots/incognito.png" width="155" alt="无痕模式"> |
 
-- 导航首页或固定网址主页；快捷入口可改标题、网址、文字图标或导入图片，长按统一编辑和删除确认。
-  图片缩至最长边 96px，经系统文件选择器读取；编辑/删除快捷入口不修改书签。
-- 书签增删改、文件夹、排序、移动和批量操作；最多 256 个目录、16 层，删除目录将内容移到父目录。
-- 系统文件选择器导入/导出 UTF-8 Netscape HTML，最多 5,000 条/8 MiB；导入先预览，保留层级与空目录，
-  跳过非法与重复地址，保留已有条目 ID/标题，整个批次使用 SQLite 事务。
-- 书签、历史按数据库分页搜索，每页 50 条；历史合并重复访问、按日期分组，支持新标签打开、复制和删除。
-  旧查询不能覆盖新搜索；写入成功才更新界面，失败可重试。
+## 特性概览
 
-### 二维码
+- **浏览与标签**：多标签、标签分组与搜索、来源标签返回、网页弹窗、页内查找、长按查看历史。
+  后台页面按实际打开的标签数保留，切回时表单、SPA 状态和滚动位置都还在。
+- **地址栏**：顶部/底部可选，网址与搜索词识别、历史/书签建议、滚动时自动收起。
+- **首页、书签与历史**：快捷入口可自定义；书签与历史支持分页搜索，Netscape HTML 导入/导出。
+- **离线扫码**：Camera2 + ZXing，支持相机、手电筒和从图片识别，不需要 Google 服务或联网识别。
+- **下载**：HTTP Range 分段、暂停/继续、断点续传与进程重启恢复；点击条目直接交给 Android 打开文件。
+- **应用更新**：启动时自动检查 GitHub Releases，确认后下载并校验安装包，再交给系统安装器。
+- **视频与投屏**：全屏增强播放器（倍速、亮暗音量手势、画中画）、后台媒体、DLNA 投屏。
+- **隐私与安全**：无痕模式（支持 `MULTI_PROFILE` 时使用独立 Profile）、按站权限、隐私清理、
+  系统 Autofill/WebAuthn。
+- **广告过滤与脚本**：内置 EasyList/EasyPrivacy/EasyList China 快照，支持自定义订阅与用户脚本。
+- **开发者工具**：有界控制台与网络日志、规则命中解释、源码高亮与页面信息。
+- **界面**：Material 3、动态配色、深色模式、简体中文/繁体中文/英文；面板动效统一为一套节奏。
 
-- 首页地址栏右侧和菜单均可扫码，支持相机、手电筒及从系统文件选择器读取图片；无需 Google 服务或在线识别。
-  横屏采用分栏布局，取景框按预览短边限制尺寸，大字体下操作区可滚动。
-  预览按相机图像比例居中裁切，随屏幕方向更新；不重复应用系统已处理的传感器旋转与前摄镜像。
-- 有效 HTTP(S) 网页链接直接在当前标签打开，无协议的有效域名补 HTTPS；其余内容按纯文本原样展示，可选择、复制或继续扫描。
-  文本、Wi-Fi 内容、自定义应用协议、脚本和本地文件地址不自动执行、跳转或送往搜索引擎。
-- 相机只在扫码界面前台运行，退出、切后台、展示结果或选图时释放；拒绝相机权限后仍可选图识别。
-  图片按最长边 1600px 采样，实时帧在工作线程以有限频率识别，不保存相机画面或扫码历史。
+完整的能力清单与行为边界（含已知限制）见[功能与行为边界](FEATURES.md)。
 
-### 下载与系统打开文件
+## 安装
 
-- 系统 Download 目录或经 Storage Access Framework 授权的自定义目录；同名文件自动编号。
-- 列表显示下载进度、已下载/总大小、速度、预计剩余时间、排队、等待网络及保存状态。
-  总大小未知时显示已下载字节和不定进度，列表及通知都不伪报百分比。
-- **点击已完成的下载条目，直接调用 Android 打开文件。** 浏览器不增加“打开/安装”按钮，
-  普通网页下载不判断是否为 APK，也不提供额外安装确认或来源授权流程。使用可读 `content:` URI、`ACTION_VIEW`
-  和临时读取授权，由系统根据内容提供方解析 MIME、选择查看器或安装器。
-  系统仍可能显示应用选择、来源授权或安装确认。文件丢失、目录授权失效或没有可用应用时给出对应提示。
-- HTTP Range 分段，线程设置 1–16（默认 4）；最多同时运行 3 个任务、每主机 2 个任务，
-  连接总预算 8 个、每个实际连接主机 4 个，重定向也计入预算。
-- 支持暂停/继续、取消、失败重试，以及仅删除记录或同时删除文件；文件删除失败时保留记录。
-  正在运行的普通下载可在进程重启后恢复，主动暂停的任务保持暂停，无痕下载不跨进程自动恢复。
-- 续传校验 ETag/Last-Modified、总长、最终实体 URL 与分段边界；无法确认同一实体则完整重下。
-  不接受错误的 206/范围/长度，也不会把单流的未经请求部分响应作为完整文件。
-- 网络中断等待恢复，临时错误有限退避重试；可设为仅不计流量网络下载。后台使用 `dataSync` 前台服务。
-  MediaStore/SAF 发布完成后才显示完成，取消/删除等待写入结束再清理分段。
-- Android 13+ 首次下载请求通知权限，拒绝不影响下载；普通任务完成后通知可返回对应条目。
-  点击通知也能从冷启动进入下载列表；打开或删除记录会清理对应完成通知。
-- 下载使用网页 User-Agent/Referer 及当前 Profile 的 Cookie；Cookie 只驻留内存，重定向只向原 origin 发送，
-  最多 5 次跳转并拒绝 HTTPS 降级。保留旧 Android DownloadManager 记录的查询、打开和删除兼容。
+从 [Releases](https://github.com/Nobilta/pure-browser/releases) 下载 `PureBrowser-v<版本>-release.apk`
+安装即可。升级请**直接覆盖安装**（同一签名，保留数据），不要先卸载。
 
-### 应用更新
+```bash
+shasum -a 256 PureBrowser-v<版本>-release.apk                     # 校验下载
+apksigner verify --verbose --print-certs PureBrowser-v<版本>-release.apk
+./install_and_test.sh PureBrowser-v<版本>-release.apk             # 安装到已连接设备
+```
 
-- 入口为 **设置 → 关于 → 检查更新**。只在用户操作时检查，不在启动时联网或自动安装。
-- 从 [Nobilta/pure-browser 的最新正式 Release](https://github.com/Nobilta/pure-browser/releases/latest) 读取 `update.json`。
-  使用 Releases 公开下载直链，不依赖 GitHub REST API 的匿名配额；成功结果缓存 5 分钟，服务端限流按响应退避。
-- 按整数 `versionCode` 判断新版，显示版本、包大小和发布说明。用户确认后下载到专用内部目录，关闭对话框取消下载并清理未完成文件。
-- 只允许 HTTPS 和 GitHub 资产域名，最多 5 次重定向；文件大小上限 128 MiB，不携带网页 Cookie、Referer 或 GitHub Token。
-  安装前复核 SHA-256、实际包名/版本、最低 SDK、ABI 和当前安装应用的签名；校验失败不交给安装器。
-- 下载、安装分开确认；必要时打开系统“允许此来源安装”设置，返回后再点击安装。最终由 Android 安装器确认覆盖更新，不卸载旧应用。
-  未发布正式版本、离线、限流、空间不足和校验失败均显示对应状态。Debug 包不通过此入口升级为正式包。
+## 从源码构建
 
-### 视频播放器、系统媒体与 DLNA
+环境要求：macOS、JDK 17+、Android SDK Platform/Build Tools 37、NDK、Rust stable（含 `aarch64-linux-android`
+target）、Node.js 18+、Python 3.9+。SDK 从 `local.properties` 或环境变量读取，NDK 由
+`rust/resolve-android-ndk.sh` 解析，不需要修改全局 shell 或 Cargo 配置。
 
-- **只在全屏播放时尝试接管**。非全屏视频始终使用网页原有控件，不注入网页内控制层，不隐藏原播放器。
-  增强播放控制已加载的 `<video>`，不复制媒体、不改写 `src`、不另开解码器；网站自定义全屏容器也可尝试接管。
-- 网站设置提供“增强全屏播放”开关，按当前页面的完整 origin 保存，适用于该页内可访问的同源/跨域播放器。
-  尚未单独设置的网站跟随设置 → 视频播放中的“默认启用增强播放”；已有全局偏好保留，网站明确选择优先。
-  保存并刷新后生效；重置网站设置恢复默认。无痕修改仅在当前私密会话生效。
-- 全屏保留播放/暂停、进度、0.5×–3× 倍速、旋转、锁定、画中画和投屏入口。
-  删除左下角快进/后退按钮和右上角网页/增强控件切换按钮；单击显隐，双击中央播放/暂停、两侧跳转 10 秒。
-  横滑预览进度，左右竖滑分别调亮度/音量；长按临时 2×/3×，松开恢复。
-  锁定后返回先解锁，退出恢复方向、亮度和常亮状态；闲置自动隐藏不被遥测刷新打断。
-- 播放器使用 Material 3 按钮、滑块和字型，底部圆角控制条区分主播放操作与倍速/投屏操作；触摸目标至少 48dp；中央手势提示透传触摸，不阻挡连续操作。
-  倍速七档以紧凑网格选择，投屏沿用媒体、设备及远端控制列表；面板锚定右下角，长内容在面板内滚动。
-  面板开启时控件保持可见，返回、关闭或首次点击面板外只关闭面板；切后台、进入画中画或退出全屏时清理面板。
-  系统安全边距只影响控件，不再施加到视频本身，避免弹层和临时系统栏令画面上移或缩放。
-- 接管时只隔离当前全屏播放器的控件。无法隔离、样式受限/丢失、命令失败或目标失效时恢复网页控件；
-  退出全屏恢复原始 DOM 属性、控件和布局，网页内不再次接管。
-- HTTP(S)、签名链接和 Blob 视频使用相同原视频控制路径；MSE 仍由网站/WebView 管理。
-  需要网站清晰度、弹幕、DOM 字幕等专属操作时，可在网站设置关闭增强全屏播放。
-  没有可访问视频元素或无法隔离的播放器仍使用网页原控件。
-- 支持逐 frame 消息和文档开始脚本的 WebView 可以控制跨域视频；旧 Provider 仅支持主文档及可访问同源 frame，
-  无法控制的跨域播放器保留原状。能力由 WebView 特性决定，不只看 Android 版本。
-  仅缺文档开始注入、仍支持消息桥的 Provider 在页面加载后注入并保留实时播放状态回传，避免快速切后台时因轮询延迟误暂停。
-- 普通全屏视频支持 Android 画中画；系统媒体按钮可播放、暂停、停止、跳转。后台播放默认关闭，
-  开启后当前普通页通过媒体前台服务继续播放；无痕隐藏时暂停且不发布系统媒体标题。
-- 当前视频普通暂停可继续播放；结束、隐藏并暂停、卸载、移除、替换为待播视频、关闭标签或导航时，
-  释放旧系统媒体会话、标题、通知和媒体前台服务。消失的跨域 frame 即使没有最后一条消息，也会在 4 秒未更新后失效。
-  关闭系统画中画会暂停视频并释放会话，开启后台播放也不会让已关闭的小窗继续播放。
-  快速暂停、停止或离开播放页面时按序结束后台服务，避免服务启动与停止交错造成闪退。
-- 网络请求及已加载 `currentSrc` 提供有界媒体候选，保留完整签名参数，并标记实际匹配的当前播放来源。
-  页面只有一个投屏入口，全屏时在控制栏内提供；缺少候选会明确说明。
-- DLNA 支持 SSDP 发现、发送地址、播放/暂停/停止、进度及设备音量，区分命令被接受和设备报告正在播放。
-  候选地址由接收器直接读取，不代理 Cookie/Referer、不转码；Blob、DRM 和鉴权媒体不保证能直投。
-  本版未用实体接收器确认画面，也未宣称所有在线网站兼容。
+```bash
+./diagnose.sh                    # 环境自检
+./build-and-test.sh --quick      # 三语言资源校验、Node 协议测试、Rust fmt/test、Android 单元测试
+./build-and-test.sh --release    # 追加 clippy、lint、R8、签名与 zipalign 验证，产出签名 APK
+```
 
-具体控制权、回退和投屏边界见 [播放器说明](design/video-playback-and-casting.md)。
+Release 构建需要本地 `keystore.properties` 指定签名信息；**签名密钥、口令、`local.properties`、
+构建输出、APK 与验证结果都不提交 Git**（原因与 CI 取舍见[发布与交付](RELEASING.md)）。
 
-### 网站、隐私与系统能力
+模拟器回归（写入测试书签、下载与站点数据，只在一台专用模拟器上串行运行，构建期间不要同时跑）：
 
-- 网站可单独设置 JavaScript、过滤、图片、第三方 Cookie、桌面模式、网页暗色、增强全屏播放、50%–200% 字号，
-  桌面视口支持网页原值及 980/1024/1280/1440。其他设置按完整 origin 管理；
-  桌面模式只在同站同协议/端口的裸域、m./mobile./www. 展示入口间共享，避免移动站重定向循环。
-  网站表单与管理列表保持固定位置；滚动到上下边界不会拖动弹层，使用返回或取消关闭。
-- 相机、麦克风、定位、受保护媒体标识和外部应用跳转分别管理；网站决定与系统授权分开，导航取消旧请求。
-  单文件图片/视频 `input capture` 调用系统相机，普通文件上传使用系统选择器；取消或旧文档回执不会误上传。
-- HTTPS 证书信息、忽略证书后的持续警告、Safe Browsing、外部协议限制与 renderer 崩溃恢复。
-  同一标签 60 秒内最多自动恢复 renderer 两次，之后提供手动重试、主页和网站设置。
-- 按当前/普通/全部 Profile、数据类型及历史时间段清理；单站清理显示实际可注册域范围。
-  现代 WebView 支持 Cookie/IndexedDB/CacheStorage 等删除；旧 Provider 如实提示能力范围。
-- 普通网页接入系统 Autofill；满足 WebView 能力和来源权限时启用 WebAuthn。无痕关闭这两项。
-  密码/passkey 由系统提供方保管；提供方信任审核和真实账号登录未在本版模拟器测试中验证。
+```bash
+python3 validation/qa-server.py --apk PureBrowser-v<版本>-release.apk
+# 另一个终端：
+python3 validation/setup-ui-probe.py emulator-5554
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v<版本>-release.apk \
+  --label <标签> --profile tabs
+```
 
-无痕边界取决于 WebView：支持 `MULTI_PROFILE` 时每次无痕会话使用新的独立 Profile，退出先清理其站点数据与 Cookie；
-已载入内存的 Profile 可能无法当场删除，浏览器不再复用其名称，下次进程启动时按专用前缀清理遗留目录。
-清理尚未完成时禁止重新进入无痕，避免新旧会话交错。
-不支持时使用临时标签、不写历史、禁用 HTTP 缓存并在退出时清理共享站点存储。
-降级模式浏览期间可能共享普通登录态，退出也会清除普通 Cookie，界面会持续提示实际模式。
-无痕默认屏蔽截图，最近任务预览始终隐藏；显式创建的书签和下载仍会保留。无痕不隐藏公网 IP。
+`--profile smoke`（默认）覆盖基础浏览，`tabs` 覆盖标签与媒体生命周期，`full` 是完整矩阵；
+阶段划分、失败重试与耗时说明见[测试指南](TESTING_GUIDE.md)。
 
-### 广告过滤、脚本与开发工具
+## 架构
 
-- 默认内置 EasyList、EasyPrivacy、EasyList China 的 2026-09-09 完整快照，首次运行即可使用。
-  支持来源启停、自定义 HTTP(S) 订阅、手动/每 7 天不计流量网络自动更新、ETag/Last-Modified 条件请求。
-  无效/空/过大/HTML/离线响应保留上次有效规则，引擎在后台构建并原子切换。
-- Rust 支持网络规则子集、基础 `##` 元素隐藏和 `#@#` 例外，使用索引与有界 CSS 缓存。
-  `$third-party` 使用含 PRIVATE 的 PSL/IDNA 站点身份；不宣称完整 uBlock/AdGuard/scriptlet 兼容。
-  来源、哈希与许可见 [第三方说明](THIRD_PARTY_NOTICES.md)。
-- 用户脚本可通过网址、粘贴、文件或网页链接预览安装、启停、删除、查看和手动更新。
-  支持 `@match/include/exclude/exclude-match/noframes`、start/end/idle、常用 GM 值存储、addStyle、log、openInTab、info，
-  最多 8 个 `@require` 及 8 个各 256 KiB 的 `@resource`（文本和二进制资源 API）。
-  单脚本 1 MiB、最多 24 个、源码/依赖/资源共 12 MiB，单脚本值存储 64 KiB/256 键。
-- 无痕不执行脚本；旧 WebView 只执行页面加载后的 DOM 脚本，跳过依赖原生存储桥的脚本。
-  脚本运行于网页环境，不是完整 Tampermonkey 或隔离世界；不提供 `GM_xmlhttpRequest` 和任意原生网络/文件接口。
-- 开发工具提供有界控制台/网络日志、规则命中解释、命令执行、源码及页面信息；只有当前选中的日志页批量刷新。
-  控制台与源码使用按需列表，命令草稿、筛选和阅读位置在页签切换间保留；导航代次变化丢弃旧源码、命令和信息回执。
-- 源码后台解码并对 HTML、内嵌 JavaScript/CSS 着色；长行拆为有界文本块，最多读取 100 万字符/4096 块，截断明确提示。
-  切回源码复用已读结果，可手动刷新；遵循浅色、深色和动态配色，支持选择可见文本。
-- 网络按文档、Fetch/XHR、脚本、样式、图片、媒体、字体及其他分类，可同时筛选拦截/失败，并按网址、方法、状态或错误搜索。
-  优先使用 Chromium 请求目的头，旧 WebView 回退到 Accept、XHR 头及扩展名；类别判断受 WebView 可见信息限制。
-  主文档与子资源按同一次导航归档，保留早于页面开始回调的请求，连续刷新不会混入上一页记录。
-  不接管成功响应的传输，无法获得的子资源状态、大小和耗时继续显示未知。
-
-## 架构与开发
-
-Android UI、生命周期、SQLite、下载、SAF/MediaStore、权限与系统集成保留 Kotlin；
-网络过滤、元素隐藏、PSL/IDNA、URL/搜索和书签 HTML 解析使用 Rust JNI；DOM 控制使用 JavaScript。
-源码高亮在 Kotlin 工作线程线性扫描，扫码使用 Camera2 与 ZXing Core 3.5.3；预览缩放与屏幕旋转独立处理，解码仍在工作线程完成。
-`Application` 持有下载、过滤、网站设置和 DLNA 仓库；Activity ViewModel 保留单浏览会话。
-详见 [架构说明](ARCHITECTURE_REVIEW.md) 和 [系统能力边界](design/system-integration.md)。
+平台语义留在 Kotlin，纯计算下沉到 Rust JNI，网页内控制交给注入的 JavaScript：
 
 ```text
 app/src/main/java/com/mybrowser/
   core/ data/ home/ tabs/ search/  WebView 与导航、SQLite、快捷入口、标签、搜索引擎
   ui/                              Compose 界面，按功能分子包
-    shell/      外壳、弹层框架、对话框与输入
-    menu/       菜单与标签面板
-    settings/   设置、网站设置、过滤与脚本管理、更新面板
-    library/    书签与历史
-    devtools/   开发者工具、网络与源码
-    player/     全屏播放器浮层与投屏
-    home/ download/ qr/            首页、下载、扫码
+    shell/ 菜单 menu/ 设置 settings/ 书签与历史 library/
+    devtools/ 播放器与投屏 player/ 首页·下载·扫码 home/ download/ qr/
   download/ filter/ userscript/   下载、过滤订阅及用户脚本
   privacy/ site/ security/        Profile、网站权限与安全
   media/ dlna/ qr/                视频、系统媒体、DLNA 与离线二维码
-  update/                         独立的 GitHub Releases 检查、下载与校验
+  update/                         GitHub Releases 检查、下载与校验
 app/src/main/assets/              播放控制、脚本运行时和内置规则
 rust/                             adblock、site_identity、url_utils
 validation/                       可复现页面、自动检查及模拟器工具
-release/                          签名 APK 的更新清单生成和 Release 草稿发布
 ```
 
-分层约定：`core` 持有跨层共享的词汇（`ResourceType`、`PlaybackSpeed`）与平台管线，
-业务包只依赖 `core` 及更低的包，不反向依赖。`filter` 与 `data` 曾各自被 `core` 反向引用，
-已通过下沉共享类型消除，详见 [架构说明](ARCHITECTURE_REVIEW.md)。
+分层约定：`core` 持有跨层共享的词汇与平台管线，业务包只依赖 `core` 及更低的包，不反向依赖。
+依赖版本由 `app/gradle.lockfile`、`gradle/verification-metadata.xml` 与 `rust/Cargo.lock` 固定，
+正常构建不会自动刷新锁与校验值。设计细节见[架构说明](ARCHITECTURE_REVIEW.md)与
+[系统能力边界](design/system-integration.md)。
 
-开发环境：macOS、JDK 17+、Android SDK Platform/Build Tools 37、NDK、Rust stable（arm64 Android target）、
-Node.js 18+、Python 3.9+。`minSdk=29`、`compileSdk/targetSdk=37`；Rust 使用 API 29 NDK 链接器。
-SDK 从 `local.properties` 或环境变量查找，NDK 由 `rust/resolve-android-ndk.sh` 解析；不修改全局 shell/Cargo 配置。
-Gradle 堆上限 2 GiB、Metaspace 768 MiB；低内存机器需停止模拟器再构建。
+## 参与贡献
 
-Compose UI/Foundation/Runtime 1.9.4、Material 3 1.4.0、Activity 1.13.0、WebKit 1.17.0、ZXing Core 3.5.3。
-依赖图由 `app/gradle.lockfile`、`gradle/verification-metadata.xml`、`rust/Cargo.lock` 固定；
-正常构建不自动刷新锁和校验值。验证用 Node 脚本无需第三方运行依赖。
+Issue 与 Pull Request 都欢迎，完整说明见[贡献指南](CONTRIBUTING.md)。要点：提交前跑
+`./build-and-test.sh --quick`，涉及界面或生命周期的改动另外跑相关模拟器阶段；用户可见行为变化同步到
+[功能与行为边界](FEATURES.md)；不要提交签名材料、`local.properties`、构建输出或 APK。
 
-Release 需要本地 `keystore.properties` 指定 `storeFile`、`storePassword`、`keyAlias` 和 `keyPassword`。
-签名密钥、配置、`local.properties`、构建输出、APK 及验证结果均不提交 Git。
+请遵守[行为准则](CODE_OF_CONDUCT.md)。
 
-## 构建、验证与安装
+## 支持与反馈
 
-```bash
-./build-and-test.sh --quick       # 默认：快速自动检查，不打包
-./build-and-test.sh --release     # 交付：完整自动检查、签名 APK 和 update.json
-./install_and_test.sh PureBrowser-v0.9.0-release.apk
-./diagnose.sh
-```
+- **缺陷与功能请求**：走 [Issue](https://github.com/Nobilta/pure-browser/issues)，模板会提示需要的信息
+  （应用版本、Android 与 WebView 版本、复现步骤、浏览模式）。
+- **安全漏洞**：请不要开公开 Issue，按[安全策略](SECURITY.md)私下报告。
+- **已知限制**：[功能与行为边界](FEATURES.md)与[回归报告](EMULATOR_TEST_REPORT.md)逐条列出了能力边界
+  与"已验证 / 未验证"范围，报缺陷前可以先对照。
 
-快速检查执行三语言资源校验、Node 协议测试、Rust fmt/test 和真实 host JNI 的 Android/Robolectric 测试。
-发布模式另外执行 clippy、lint、R8、签名与 zipalign 验证，并生成 `outputs/release/update.json`、`SHA256SUMS` 和包信息。
-Node 测试没有第三方运行依赖，不再每次执行 `npm ci`。当前交付的实际结果、设备覆盖和文件校验值以本节及 [回归报告](EMULATOR_TEST_REPORT.md) 为准。
+## 路线图
 
-```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.9.0-release.apk
-# 另一个终端；专用模拟器只串行运行 UI 回归，构建期间不要同时运行：
-python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.0-release.apk \
-  --label release-090 --profile tabs
-# 默认 --profile smoke；--profile full 执行完整矩阵；--stages 可选择具体阶段。
-# 只有 APK、AVD、测试源码及阶段选择相同时才能加 --resume。
-```
+以下明确**不在当前计划内**，需要时再评估：翻译与跨设备同步；完整 uBlock/AdGuard 兼容（当前是网络规则
+子集 + 基础元素隐藏）；完整 Tampermonkey 兼容（无 `GM_xmlhttpRequest` 与任意原生网络/文件接口）；
+非 arm64 设备、非 Android 平台与商店分发渠道。
 
-QA 仅监听本机，通过 ADB reverse 连接；回归会创建夹具书签、下载和文件。
-若本机启用了 HTTP 代理，运行回归时为 `127.0.0.1,localhost` 设置 `NO_PROXY` 与 `no_proxy`，确保遥测请求直连本机。
-QA 的 `--apk` 与回归参数使用同一个安装包，下载夹具直接读取交付文件。
-辅助程序仅置于 `/data/local/tmp`，Release 不开放 WebView 调试。runner 按实际安装 APK SHA-256 记录阶段，
-保留失败尝试，不把局部验证计作全部设备/网站覆盖。输入辅助核对可见窗口中实际聚焦的控件，兼容 Compose 页签切换。
-复现与扫码/大源码手工验收见 [测试指南](TESTING_GUIDE.md)。
+近期变更见[更新日志](CHANGELOG.md)，版本计划以 [Release](https://github.com/Nobilta/pure-browser/releases) 为准。
 
-### GitHub 发布
+## 许可与第三方
 
-仓库为 [Nobilta/pure-browser](https://github.com/Nobilta/pure-browser)，远程主分支为 `main`；此工作区的 `master` 推送到 `origin/main`。
-每次发布先提升 `app/build.gradle.kts` 的版本与整数版本号，更新 `release/notes.md`，完成构建和模拟器验证后提交、推送源码。
+本项目使用 [MIT 许可](LICENSE)。过滤规则、Rust 依赖与第三方组件的来源和许可见
+[第三方说明](THIRD_PARTY_NOTICES.md)。
 
-```bash
-git push origin HEAD:main
-bash release/publish.sh PureBrowser-v0.9.0-release.apk release/notes.md
-```
+## 相关文档
 
-发布脚本通过已登录的 GitHub CLI 创建草稿，上传签名 APK、自动生成的 `update.json` 和 `SHA256SUMS`，
-绑定已推送的源码提交。审核后在 GitHub 发布为正式版本，并设置为 latest；标签必须是 `v` 加版本名（例如 `v0.9.0`）。
-草稿和预发布版本不进入应用的稳定更新入口。后续版本必须沿用同一正式签名；签名密钥、口令和本机登录凭据不提交或上传。
-
-### 交付包
-
-**已发布：0.9.0。** 签名 APK 为 `PureBrowser-v0.9.0-release.apk`，Android 10+、arm64-v8a，versionCode 17 → 18。
-公开下载位于 [v0.9.0 Release](https://github.com/Nobilta/pure-browser/releases/tag/v0.9.0)，包大小 **4,714,826 bytes（约 4.50 MiB）**。
-SHA-256：`dd65ed4d44d91a6c48d830da7ffcc3348551b0fed317d867a1afb89ad896e5f4`。
-该版通过 **333 项 Android/Robolectric、58 项 Rust、55 项 Node 测试**及 646 项三语言资源校验；lint 为 0 errors、24 warnings、1 hint。
-API 37 上通过来源页/子标签、普通与无痕媒体生命周期、相机文件回传、菜单导航、两类全屏视频弹层七个定向阶段。
-完成 0.8.1 → 0.9.0 原签名覆盖升级，并使用临时旧版与预置更新缓存验证系统来源授权、安装器更新、包哈希和书签保留。
-
-**本地构建：0.9.1（尚未发布）。** `PureBrowser-v0.9.1-release.apk`，versionCode 19，**4,711,682 bytes**，
-SHA-256：`056bd05d80797092b7877f6c1b07792e84edd5869750a202148a32bd4d9ae710`，签名者 SHA-256 与 0.9.0 相同，可覆盖升级。
-当前源码通过 **333 项 Android/Robolectric、57 项 Rust、55 项 Node 测试**及 640 项三语言资源校验；
-lint 为 0 errors、18 warnings、1 hint，clippy 与 R8 全模式构建通过。
-本轮为结构重构，不改变用户可见行为；回归中定位并修复了三个测试代码缺陷（固定 sleep 竞态、控件选择依赖翻译文本、
-探针超时未降级），修复后 `resident`/`omnibar`/`menu-navigation`/`settings-back`/`media-lifecycle`/`private-lifecycle`
-六个定向阶段单独运行均通过；本机负载不足以稳定跑完 `--profile tabs` 全套，详见 [回归报告](EMULATOR_TEST_REPORT.md)。
-
-详细证据和覆盖范围见 [回归报告](EMULATOR_TEST_REPORT.md)，发布后 GitHub 更新验收单独记录在 Release 的 `github-update.json` 附件中。
-API 29 专项测试已移除，不将历史 Android 10 测试记录视为本版验证结果；本轮也不宣称已覆盖 OPPO / ColorOS 等实体设备。
-使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。
-本地交付只保留最新 APK 及必要验证记录；完整源码使用 `master` 普通提交维护，不创建备份或回滚分支。
-
-## 维护资料
-
-- [实施记录](design/implementation-status.md)、[更新日志](CHANGELOG.md)
-- [播放器与 DLNA](design/video-playback-and-casting.md)、[播放器验证](design/enhanced-player-validation.md)
-- [菜单返回](design/menu-navigation-20260910.md)、[Material 3 审查](design/md3-ui-audit.md)
-- [系统能力边界](design/system-integration.md)、[架构说明](ARCHITECTURE_REVIEW.md)
-
-README 是当前能力、构建与交付入口，后续行为、依赖、验证和产物变化须同步更新。
-历史优化数字只说明当时的固定样本；低端真机的性能/功耗、实体 DLNA 画面、真实账号登录和所有在线视频站点不在本次已验证范围。
+- 能力与边界：[功能与行为边界](FEATURES.md) · [架构说明](ARCHITECTURE_REVIEW.md)
+- 验证：[测试指南](TESTING_GUIDE.md) · [回归报告](EMULATOR_TEST_REPORT.md)
+- 设计与维护：[系统能力边界](design/system-integration.md) · [播放器与投屏](design/video-playback-and-casting.md) ·
+  [菜单返回](design/menu-navigation-20260910.md) · [弹层动效](design/sheet-motion-consistency.md) ·
+  [后退缓存](design/back-navigation-without-reload.md) · [发布与交付](RELEASING.md) · [更新日志](CHANGELOG.md)

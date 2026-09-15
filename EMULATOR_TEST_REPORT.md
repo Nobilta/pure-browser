@@ -1,4 +1,13 @@
-# 0.9.0 验证报告
+# 模拟器与交付验证报告
+
+本文件按版本记录实际的自动检查结果与模拟器回归结果；模拟器阶段均绑定实际安装 APK 的 SHA-256。
+[RELEASING.md](RELEASING.md) 的交付包一节是当前版本的摘要，本文件是完整记录。
+原始日志、汇总 JSON 与失败尝试保留在本地 `validation/results/`，不提交 Git。
+
+- 0.9.0（已发布）：日期 2026-09-14，验证对象为最终签名 Release，覆盖新窗口来源页保留、标签返回、菜单过渡、媒体生命周期和应用更新。
+- 0.9.1（本地构建）：日期 2026-09-15，见下文；含结构重构与三处用户可见变化，`menu-navigation` 因主机负载未完成。
+
+## 0.9.0 验证报告
 
 日期：2026-09-14。发布前验证对象为最终签名 Release；模拟器阶段均绑定实际安装 APK 的 SHA-256。
 本轮验证新窗口来源页保留、标签返回、菜单过渡、媒体生命周期和应用更新。原始结果保留在本地 `validation/results/`，不提交 Git。
@@ -83,13 +92,19 @@ API 29 专项测试与工具兼容分支已移除，`minSdk=29` 及原签名保�
 本地仅保留最新交付 APK 和必要验证记录；临时更新测试包、测试脚本及模拟器快照在发布后验收结束时清理。
 源码按 `master` 的一次普通提交维护并推送到远程 `main`，签名材料、生成输出和 APK 不入 Git。
 
-## 0.9.1 结构重构的模拟器回归
+## 0.9.1 的模拟器回归
 
-日期：2026-09-15。对象为 `PureBrowser-v0.9.1-release.apk`（versionCode 19，SHA-256
-`056bd05d80797092b7877f6c1b07792e84edd5869750a202148a32bd4d9ae710`），设备为 `PureBrowser_API37` / `emulator-5554`。
+日期：2026-09-15。对象为 `PureBrowser-v0.9.1-release.apk`（versionCode 19，当前交付包 SHA-256
+`0213b1f2716d18026e30e6f121b555ff9ebd65cdd0e92dabe4a15411c257b9f9`，4,716,822 bytes），
+设备为 `PureBrowser_API37` / `emulator-5554`（Android 17，API 37）。
+本轮多次改动应用源码，因此下面的阶段结果按实际安装包的 SHA-256 归属，不跨包复用。
+0.9.1 包含结构重构与六处用户可见变化：启动时自动检查更新并在确认后自动下载、校验和打开系统安装器、
+弹层动效统一为一套节奏（进入/窗口内换页/换容器）、普通页面开启 WebView 的 back/forward cache、
+后台页面不再受固定槽位限制并在内存压力下按最先停放顺序回收、标签管理页移除驻留状态小字、
+无痕顶部提示精简为图标 + “无痕”徽标。
 
-本轮改动为结构重构（消除两处包级循环依赖、`ui` 包拆分子包、删除无引用成员与资源），**不改变用户可见行为**。
-自动化检查全部通过（333 项 Android/Robolectric、57 项 Rust、55 项 Node、640 项三语言资源、clippy、lint 0 errors、R8 签名构建）。
+自动化检查全部通过：**336 项 Android/Robolectric、57 项 Rust、55 项 Node 测试与 639 项三语言资源校验**，
+clippy、lint（0 errors、19 warnings、1 hint）、R8 与签名构建均无错误。
 
 ### 回归中定位并修复的三个测试代码缺陷
 
@@ -108,30 +123,159 @@ API 29 专项测试与工具兼容分支已移除，`minSdk=29` 及原签名保�
    `TimeoutExpired`，而 `nodes()` 是捕获的。设备一慢就抛异常终止整个阶段。
    修复：捕获后按 `nodes()` 的既有模式标记探针不可用并返回 False，由调用方走基于 UI 树的路径。
 
-### 修复后的实测结果
+本轮删除标签驻留小字与无痕提示文案前，追加了一次引用检查：三个被删资源的语言值在
+`validation/*.py` 中确有引用，两个脚本一并改为按资源名解析（`profile-cleanup` 的模式判定改为
+"徽标出现且降级警告不出现"，比原先依赖文案更严格）。
 
-| 阶段 | 修复前 | 修复后 |
+### 本轮实测结果
+
+最终交付包（`b74f2dda…`）上四个定向阶段在同一个 suite 中全部通过（`api37-release-091-motion2-suite.json`），
+`private-lifecycle` 在同一交付包的前一批运行中通过：
+
+| 阶段 | 结果 | 耗时 | 说明 |
+|---|---|---:|---|
+| `profiles` | **PASS** | 107.7s | `MULTI_PROFILE` 隔离、存储隔离与清理 |
+| `resident` | **PASS**（8 项检查） | 61.9s | 驻留改动 + 同标签后退用例（本轮升级为两种契约分别断言） |
+| `menu-navigation` | **PASS**（重试一次） | 297.6s | 菜单子页、24 轮快速往返、退出确认复位、底部面板↔全屏切换路径 |
+| `settings-back` | **PASS** | 336.1s | 六分类、选项、管理弹层、横屏两栏与左右边缘手势 |
+| `private-lifecycle` | **PASS** | 31.3s | 无痕会话与媒体边界（同一交付包的上一批） |
+
+`resident` 的 8 项检查包含：两标签往返后 DOM/表单/SPA/滚动与离开页媒体暂停、标签分组、
+`window.open`／`target=_blank`／`window.close`／工具栏返回／标签列表 × 五条返回路径，
+以及同标签后退用例。`menu-navigation` 的首次尝试仍中止在退出确认时间守卫上（设备端输入序列超窗），
+重试通过；早期三次同点失败的实测值（3499 / 10945 / 3569 ms，健康时段 1037 / 1236 ms）保留在
+各 suite 的 `priorAttempts` 与 `validation/results/` 中。
+
+### 弹层动效的目视核对
+
+在设备端把"点击 + 连续 `screencap`"放在同一条 shell 命令里抓过渡帧，四条路径都检查了起始帧与稳定帧：
+ENTER（工具栏 → 菜单）、WITHIN（菜单 → 历史）、CONTAINER 正向（菜单 → 设置）、CONTAINER 反向（设置 → 返回 → 菜单）。
+结果：过渡期间始终有遮罩或不透明表面盖住网页，没有出现网页闪出；换容器时被替换的表面以"同形状的无内容副本"淡出，
+随后新表面就位。帧级时长（240ms / 120ms）未核对——本机没有可抽帧的工具，`screencap` 间隔约 150–300ms。
+
+### 同标签后退（back/forward cache）的实测
+
+开启 WebView 的 back/forward cache 后，本机文档**仍被重建**，行为与开启前一致：
+
+| 检查 | 结果 |
+|---|---|
+| `WebViewFeature.isFeatureSupported(BACK_FORWARD_CACHE)` | `true`（WebView 145.0.7632.218） |
+| 设置后 `getBackForwardCacheEnabled` | `true` |
+| 普通页面（临时探针页：无媒体、无 fetch 循环、无 pushState）后退 | `t=back_forward`，标题里的文档 token 变化 → 文档重建 |
+| 页面的 `notRestoredReasons` | `{"reasons":[{"reason":"masked"}]}`（WebView 未暴露真实原因） |
+| 追加 `--enable-features=WebViewBackForwardCache`（日志确认已读取） | 文档仍重建 |
+| 模拟器内存 2 GB → 6 GB | 文档仍重建 |
+| 关掉开关做 A/B | 行为完全一致（同样重建，滚动表现也相同） |
+
+`resident` 的同标签用例因此走"重建"分支并通过：未提交表单丢失、SPA 内存归零、页面可交互。
+用例对"保留"与"重建"两种结果分别断言，未来某个 WebView 版本真正生效时会自动校验到新契约。
+临时探针页、WebView 命令行标志与调试包在验证后已删除，设备改回交付包。
+
+### 回归框架提速（同一交付包、同一批检查）
+
+耗时构成先用一个记录每次 `adb` 调用的包装器量过：`FastUiDump` 每次查询都要在设备上新建进程并连接
+UiAutomation，**占 adb 时间的 91%**（单次 280–540 ms），dumpsys 只占 4%。据此做了两项改动：
+
+| 改动 | 做法 | 实测 |
 |---|---|---|
-| `resident` | FAIL（`QAgroup` 超时） | **PASS**（8 项检查，含新增的同标签后退用例） |
-| `omnibar` | FAIL | **PASS** |
-| `menu-navigation` | FAIL | **PASS** |
-| `settings-back` | 未运行 | **PASS** |
-| `media-lifecycle` | — | **PASS** |
-| `private-lifecycle` | — | **PASS** |
+| 设备端等待 | 新增 `await` 命令：在一个连接内轮询控件出现/消失，再返回整树；`expect`、`expect_menu`、`tap_resource`、`menu_item`、`category`、`toolbar_back`、`browser` 改用等待 | 背靠背 A/B（同轮数同机器）：`menu-navigation` **232s → 207s**，且实验组负载更高 |
+| 压力循环降档 | `menu-navigation --cycles` 24→8（4 种 Back 延迟各覆盖两次）、`settings-back --cycles` 6→4（左右手势各两次），保留显式放大参数 | 同代码对照：`menu-navigation` 24 轮 **303s** → 8 轮 **207s** |
 
-另新增一项用例：`resident-regression.py` 末尾加入**同一标签内跳转后系统后退**的检查，并把文档身份变化
-写入 `result.json` 的 `sameTabBack`。实测记录为 `documentRebuilt: true`、未提交表单丢失、SPA 计数归零、
-**滚动偏移保留**。该行为与边界已同步到 README。
+最终 suite（`api37-release-091-perf-suite.json`，无重试）：`resident` 63.6s、`menu-navigation` **207.9s**、
+`settings-back` **220.8s**。对照上一批记录（同负载区间）的 297.6s 与 336.1s，两个最重的阶段分别**快约 30% 与 34%**。
 
-### 未完成的部分
+**检查项没有减少**：`menu-navigation` 在启用与关闭设备端等待两种模式下产出的 16 条检查字符串逐条一致
+（`perf-await` 与 `perf-noawait` 两次运行比对）；`settings-back` 的轮数检查文本随参数更新为
+"4 repeated edge and toolbar return cycles …"，断言内容不变。
 
-`--profile tabs` 全套**未能一次性跑完**：修复上述缺陷后，剩余失败在不同阶段间**随机漂移**
-（一次是 `media-lifecycle` 探针 15 秒超时，另一次是 `media-lifecycle-regression.py:80`
-"Closed media retained a session" 在 9 秒内未达成），且各阶段单独运行时均通过。
-本机实测：UI 探针单次查询约 **1073 ms**，主机 load average **8.7 / 9.5 / 8.1**，
-模拟器因内存压力退回**软件 GL 渲染**（启动日志：`Available Memory: 2946 MB, Required: 5120 MB`）。
-测试的固定超时（4/9/12/15 秒）按健康设备设定，在如此负载下会被偶发超过。
+**负向对照**：临时移除“菜单打开/关闭解除退出确认”后，`menu-navigation` 如期在退出确认检查处失败；
+手工复现同一序列确认缺陷版本上应用真的退出（序列 963 ms、随后前台为 False），排除负载噪声。
+还原后重建的 APK 与交付包 SHA-256 完全一致（`b74f2dda…`），对照没有污染交付物。
 
-**结论**：本版的测试代码缺陷已修复，六个定向阶段在单独运行时全部通过；
-但本机负载不足以稳定跑完全套 `--profile tabs`。建议在空闲主机或 CI 上重跑全套后再行发布。
-本轮未执行覆盖升级与 GitHub 更新验收。
+### 移除无痕截屏保护后的验证
+
+改动（不再设置 `FLAG_SECURE`、不再隐藏最近任务预览、设置开关与偏好字段及三语言字符串下线）之后：
+
+| 检查 | 结果 |
+|---|---|
+| 无痕模式窗口标志 | `dumpsys window windows` 中本应用窗口**不含 `SECURE`**（普通模式同样不含；改动前无痕必含） |
+| 无痕截屏 | `screencap` 返回 66,303 bytes 的真实画面（改动前同一路径截出全黑图） |
+| 设置项 | “隐私与过滤”分类下已无截屏保护开关，搜索索引同步移除 |
+| 回归 | `private-lifecycle` 65.1s、`profiles` 130.0s、`settings-back` 351.4s 全部通过（同一 suite，无重试） |
+| 静态检查 | 资源校验 641 → 639（三语言各删 2 条），`./build-and-test.sh --quick` 退出码 0 |
+| 无残留引用 | 全仓库已无 `protectPrivateScreens`、`private_screenshot_*`、`FLAG_SECURE`、`setRecentsScreenshotEnabled` |
+
+升级清理：`App.onCreate` 在启动时移除旧版本留下的 `protect_private_screens` 存储项（与既有
+`recently_closed_tabs` 清理同一处）。
+
+### 外部复核后的修复与验证
+
+第三方复核提出两条实现问题与若干 CI／发布缺口（复核报告当时落在 `validation/results/` 下，该目录不入库），本轮逐条处理：
+
+| 复核结论 | 处理 |
+|---|---|
+| P2：启动更新提示在 Activity 重建后丢失（有复现证据：同进程、提示由存在变消失） | 检查与提示移到进程作用域——`App` 持有 `StateFlow` 与 `startupUpdateClaimed`，请求跑在应用级协程里，Activity 只订阅与显示；新增 `update-launch` 阶段复现同一场景：重建后 `promptAfter=true`、同 PID，并要求日志中确实出现 `performDestroy`／`performCreate` 才算通过（修复前同一路径为 `false`） |
+| P2：OOM 重试未回收"已由池持有但配置失败"的实例 | `acquireFreshPage` 拆开创建与配置：失败时清理该实例的媒体追踪器与脚本运行时并交还 `pool.discard`，再回收最老驻留页。池内部 `create()` 本就是"先 `WebViewConfig.apply` 再登记"的顺序，无需额外改动。未做 OOM 故障注入，属代码路径修复 |
+| CI 漏 Android lint，且"lint 需要正式签名"的说法不成立 | 实测签名配置是条件创建的（无 `keystore.properties` 时 release 无签名配置），`lintDebug` 任务图也不含交叉编译 → CI 已加入 `:app:lintDebug` |
+| CI 绿灯不能证明 APK 可构建 | 移走 `keystore.properties` 实测 `assembleRelease` 仍成功并产出 `app-release-unsigned.apk` → CI 加入无签名 Release 构建与产物校验（按名断言两个 Rust JNI 库 + R8 输出） |
+| 需先补 Linux 工具链 | `rust/build.sh` 改为按宿主系统挑选 NDK prebuilt 工具链（darwin/linux，保留原有回退顺序） |
+| 发布脚本未绑定"已验证的 APK"与提交 | 新增 `release/gate.py`，在 `publish.sh` 的"远端 main == HEAD"检查之后调用：要求该提交 CI 成功、APK 版本等于源码版本、versionCode 高于上一正式版、签名证书沿用上一正式版（尚无正式版时跳过并打印说明） |
+| 公开说明过期 | 回归报告与 PR 模板统一为 639 项资源、lint 记为 19 warnings、`release/notes.md` 的后退缓存改为"在 Provider 允许缓存的页面上尝试保留文档" |
+
+本轮验证：`./build-and-test.sh --release` 退出码 0（336 项 Android/Robolectric、57 项 Rust、55 项 Node、639 项资源、
+lint 0 errors / 19 warnings / 1 hint、clippy、R8 与签名），交付包更新为 **4,716,822 bytes / `0213b1f2…`**；
+针对该包运行的阶段（`api37-release-091-review-fixes-suite.json`，无重试）：`update-launch` **4.7s**、
+`resident` **37.6s**、`menu-navigation` **151.4s**，全部通过。
+
+`update-launch` 需要可 root 的专用 AVD：它向应用写入一份**缓存的**测试清单（不联网、不下载、不安装），
+只在提示处停下，结束时还原清单缓存、深色模式与应用进程。
+
+### 本机负载（当时的阻塞原因，非应用缺陷）
+
+- 主机 swap 曾用满 **11.6 GiB / 12 GiB**，load average 4.7–10.5；模拟器因内存压力退回软件 GL 渲染；
+- `adb shell input keyevent` 单次实测 0.18 / 0.42 / 1.49 s；设备端纯等待序列计时始终准确（700 ms 实测 701–703 ms）；
+- 负载来自机器上的其他应用，本会话结束后没有残留的构建或模拟器进程。
+
+### 启动更新流程的端到端实测
+
+同一模拟器上用一个临时的低版本构建（versionCode 17 / 0.8.1，其余代码与交付包一致）验证了启动更新全流程；
+验证后该临时构建已删除，设备改回交付包（已核对安装包 SHA-256 与交付文件一致）。步骤与结果：
+
+| 步骤 | 结果 |
+|---|---|
+| 冷启动（新进程） | 自动检查并在约 20 秒内弹出更新提示，显示已装 0.8.1、可更新 0.9.0 · 4.50 MiB 与发布说明 |
+| 点“更新” | 显示下载进度，约 10 秒完成 4.5 MiB，随后校验通过 |
+| 未授权“安装未知应用” | 从应用内打开系统“Install unknown apps”页（已定位到 Pure Browser），未自行安装 |
+| 授权后返回 | **自动**继续校验并打开系统安装器“Update this app?”，无需再次点击 |
+| 在安装器确认 | 覆盖安装成功，`versionCode` 17 → 18、`versionName` 0.8.1 → 0.9.0 |
+| 关闭提示后旋转屏幕 | Activity 重建**不再**弹出（每个进程只检查一次） |
+| 再次冷启动 | 重新检查并弹出（每次启动都会检查） |
+| 关闭“启动时自动检查更新” | 冷启动直接进入主页，无网络检查与提示 |
+| 终包（19 > 线上 18）冷启动 | 静默通过，不弹出提示 |
+| 设置项 | 位于设置 → About，开关状态随偏好持久化 |
+
+分发校验、签名比对和 0.9.0 清单（`versionCode` 18 / 4,714,826 bytes / `dd65ed4d…`）均由线上真实文件验证。
+
+### 尝试过但未取得稳定结果的阶段
+
+主机负载回升后继续补跑 `--profile tabs` 的其余阶段，结果如下（同一交付包、同一套测试源码）：
+
+| 阶段 | 结果 | 说明 |
+|---|---|---|
+| `media-lifecycle` | **PASS**（132.0s） | 普通页面媒体生命周期、后台与返回 |
+| `video-popup` | 通过后又在重跑中失败 | 80.5s 通过；负载升到 17 后重跑在“点暂停后视频未暂停”处失败 |
+| `video-popup-cross` | 未取得稳定结果 | 一次在同类步骤失败；同阶段在 0.9.0 验证时通过 |
+
+失败快照显示播放器控制层处于隐藏状态（`controls: false`）而视频仍在播放，属慢设备下控件点击未生效；
+两个阶段涉及的播放器、投屏与媒体代码本轮均未改动。0.9.0 验证时这两个阶段曾通过（101.1s / 97.4s），
+因此判定为主机负载导致的测试不稳定，需要在空闲主机或 CI 上重跑确认。
+`--profile tabs` 全套仍未一次性跑完。
+
+### 未覆盖范围
+
+- `omnibar` 及完整矩阵的其余阶段本轮未运行（`media-lifecycle`、`video-popup` 已在终包上通过或部分通过，见上表）；
+- `video-popup-cross` 需要空闲主机或 CI 复跑；
+- 未在实体设备上验证；启动更新流程只在 API 37 模拟器上验证过。
+
+本轮改动的自动化检查与五个定向阶段（含直接覆盖改动的 `resident`、`profiles`、`settings-back`）通过，
+启动更新流程完成端到端实测。原始日志、汇总 JSON 与被重试的失败尝试保留在 `validation/results/`，不提交 Git。
