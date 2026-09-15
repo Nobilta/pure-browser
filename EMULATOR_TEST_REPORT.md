@@ -230,6 +230,27 @@ lint 0 errors / 19 warnings / 1 hint、clippy、R8 与签名），交付包更�
 `update-launch` 需要可 root 的专用 AVD：它向应用写入一份**缓存的**测试清单（不联网、不下载、不安装），
 只在提示处停下，结束时还原清单缓存、深色模式与应用进程。
 
+### CI 首次运行的三个问题（已修）
+
+CI 首次真正在 Ubuntu 上运行后暴露的问题，都在本地复现并修好后才再次推送：
+
+| 现象 | 根因与修复 |
+|---|---|
+| `Set up Android SDK` 步骤失败 | `android-actions/setup-android` 的默认包列表仍含早已下线的 `tools` 包；改为只装 `platform-tools`，项目需要的包由下一步显式安装 |
+| 依赖校验失败（3 个构件） | 冷缓存解析会读取 `.module` 与父 POM 文件，而元数据只记录了暖缓存解析过的部分；用 `--refresh-dependencies` 在本地完整复现后，以 `--write-verification-metadata sha256` 补齐 6 条 |
+| 依赖校验失败（`aapt2-…-linux.jar`） | Android 按平台解析 aapt2，macOS 永远不会产出 Linux 变体的校验值；由一次 CI 运行写出、**并从 Google Maven 重新下载同一构件独立核对了 SHA-256** 后再提交 |
+
+最终提交 `1bc501a` 上的 CI 全绿，且不含任何临时旁路步骤。
+
+### 发布验证（v0.9.1）
+
+- `releases/latest` 指向 v0.9.1（非草稿、非预发布），三个附件摘要与本地一致；
+- 应用实际读取的 `releases/latest/download/update.json` 返回 `versionCode 19 / 0.9.1`，其中 APK 的 sha256 与交付包一致；
+- tag `v0.9.1` 指向发布提交 `1bc501a`；
+- **端到端**：模拟器上安装 0.9.0，经它的真实入口（设置 → 关于 → 检查更新）发现线上 0.9.1，
+  面板显示 "An update is available"、"Version 0.9.1 · 4.50 MiB" 与发布说明。
+  下载→校验→自动打开系统安装器这一段此前已在 0.9.1 代码上端到端验证过（见上文"启动更新流程的端到端实测"）。
+
 ### 本机负载（当时的阻塞原因，非应用缺陷）
 
 - 主机 swap 曾用满 **11.6 GiB / 12 GiB**，load average 4.7–10.5；模拟器因内存压力退回软件 GL 渲染；

@@ -56,9 +56,10 @@ SHA-256 `dd65ed4d44d91a6c48d830da7ffcc3348551b0fed317d867a1afb89ad896e5f4`，
 58 项 Rust、55 项 Node 测试与 646 项三语言资源校验；API 37 模拟器上通过七个定向阶段，并完成
 0.8.1 → 0.9.0 原签名覆盖升级。
 
-**本地构建：0.9.1（尚未发布）** —— `PureBrowser-v0.9.1-release.apk`，versionCode 19，**4,716,822 bytes（约 4.50 MiB）**，
+**已发布：0.9.1** —— `PureBrowser-v0.9.1-release.apk`，versionCode 19，**4,716,822 bytes（约 4.50 MiB）**，
 SHA-256 `0213b1f2716d18026e30e6f121b555ff9ebd65cdd0e92dabe4a15411c257b9f9`，
-签名者 SHA-256 与 0.9.0 相同，可覆盖升级。通过 **336 项 Android/Robolectric、57 项 Rust、55 项 Node 测试
+签名者 SHA-256 与 0.9.0 相同，可覆盖升级，[Release](https://github.com/Nobilta/pure-browser/releases/tag/v0.9.1)
+于 2026-09-15 发布（tag 指向 `1bc501a`）。通过 **336 项 Android/Robolectric、57 项 Rust、55 项 Node 测试
 与 639 项三语言资源校验**，lint 为 0 errors、19 warnings、1 hint，clippy 与 R8 全模式构建通过。
 
 相对 0.9.0 的用户可见变化：
@@ -74,6 +75,6 @@ SHA-256 `0213b1f2716d18026e30e6f121b555ff9ebd65cdd0e92dabe4a15411c257b9f9`，
 外部复核提出两条实现问题的修复（启动更新提示在配置重建后丢失、OOM 重试留下半配置实例）与回归框架提速。
 API 37 模拟器定向阶段的结果、未覆盖范围与失败记录见 [回归报告](EMULATOR_TEST_REPORT.md)。
 
-本地交付只保留最新 APK 及必要的验证记录；验证产物留在 `validation/results/`，不入库。
+本地交付只保留最新 APK 及必要的验证记录（0.9.0 的本地副本已在 0.9.1 发布后删除）；验证产物留在 `validation/results/`，不入库。
 历史优化数字只说明当时的固定样本；低端真机的性能与功耗、实体 DLNA 画面、真实账号登录与全部在线视频站点
 都不在已验证范围内。
