@@ -235,9 +235,6 @@ fun SettingsSheet(
                                         SettingsCategory.PRIVACY -> {
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_lock)
-                                            SettingsToggle(textResources.getString(R.string.private_screenshot_protection),
-                                                textResources.getString(R.string.private_screenshot_summary), preferences.protectPrivateScreens,
-                                                { onPreferencesChange(preferences.copy(protectPrivateScreens = it)) })
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
                                             SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
@@ -280,6 +277,10 @@ fun SettingsSheet(
                                             SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
                                             SettingsItem(textResources.getString(R.string.update_check),
                                                 "GitHub · Nobilta/pure-browser", { showUpdate = true }, R.drawable.ic_download)
+                                            SettingsToggle(textResources.getString(R.string.update_auto_check),
+                                                textResources.getString(R.string.update_auto_check_summary),
+                                                preferences.autoCheckUpdates,
+                                                { onPreferencesChange(preferences.copy(autoCheckUpdates = it)) })
                                         }
                                         SettingsCategory.DOWNLOADS -> Unit
                                     }
@@ -766,7 +767,6 @@ private val SETTINGS_SEARCH = listOf(
     R.string.ui_app_theme to SettingsCategory.APPEARANCE,
     R.string.bottom_address_bar to SettingsCategory.APPEARANCE,
     R.string.swipe_tab_switch to SettingsCategory.APPEARANCE,
-    R.string.private_screenshot_protection to SettingsCategory.PRIVACY,
     R.string.ui_ad_filtering to SettingsCategory.PRIVACY,
     R.string.ui_custom_ad_filter_rules to SettingsCategory.PRIVACY,
     R.string.script_title to SettingsCategory.PRIVACY,
@@ -780,4 +780,6 @@ private val SETTINGS_SEARCH = listOf(
     R.string.ui_hold_speed to SettingsCategory.VIDEO,
     R.string.ui_remember_playback_speed to SettingsCategory.VIDEO,
     R.string.ui_default_playback_speed to SettingsCategory.VIDEO,
+    R.string.update_check to SettingsCategory.ABOUT,
+    R.string.update_auto_check to SettingsCategory.ABOUT,
 )

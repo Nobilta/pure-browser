@@ -25,9 +25,10 @@ data class VideoPreferences(
 data class BrowserPreferences(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val video: VideoPreferences = VideoPreferences(),
-    val protectPrivateScreens: Boolean = true,
     val bottomAddressBar: Boolean = false,
     val swipeTabs: Boolean = false,
+    /** Check the public release manifest once per process start and offer a newer build. */
+    val autoCheckUpdates: Boolean = true,
 )
 
 /** UI preferences only; URLs, cookies and temporary playback state never enter this store. */
@@ -37,7 +38,7 @@ class BrowserPreferencesRepository(context: Context) {
     fun load(): BrowserPreferences = BrowserPreferences(
         bottomAddressBar = prefs.getBoolean("bottom_address_bar", false),
         swipeTabs = prefs.getBoolean("swipe_tabs", false),
-        protectPrivateScreens = prefs.getBoolean("protect_private_screens", true),
+        autoCheckUpdates = prefs.getBoolean("auto_check_updates", true),
         theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM").orEmpty()) }
             .getOrDefault(ThemeMode.SYSTEM),
         video = VideoPreferences(
@@ -64,7 +65,7 @@ class BrowserPreferencesRepository(context: Context) {
             putBoolean("video_background", video.backgroundPlayback)
             putBoolean("bottom_address_bar", value.bottomAddressBar)
             putBoolean("swipe_tabs", value.swipeTabs)
-            putBoolean("protect_private_screens", value.protectPrivateScreens)
+            putBoolean("auto_check_updates", value.autoCheckUpdates)
             putString("theme", value.theme.name)
             .putBoolean("video_controls", video.enhancedControls)
             .putBoolean("video_vertical", video.verticalGestures)

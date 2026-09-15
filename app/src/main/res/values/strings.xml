@@ -377,7 +377,6 @@
     <string name="tabs_count">Tabs (%1$d)</string>
     <string name="tabs_actions">Tab actions</string>
     <string name="tabs_search">Search tabs</string>
-    <string name="tabs_current">Current</string>
     <string name="tabs_close_others">Close other tabs</string>
     <plurals name="tabs_close_confirm">
         <item quantity="one">Close %1$d tab?</item>
@@ -497,7 +496,6 @@
     <string name="back_history">Back history</string>
     <string name="back_history_empty">No previous pages in this tab</string>
     <string name="exit_current_site">Leave site and go home</string>
-    <string name="private_isolated">Incognito · isolated site storage</string>
     <string name="private_shared">Incognito · shared storage, cleared on exit</string>
     <string name="clear_scope">Storage scope</string>
     <string name="clear_current">Current browsing mode</string>
@@ -517,8 +515,6 @@
     <string name="clear_this_site">Clear this site’s data</string>
     <string name="clear_site_message">Clear cookies, cache and storage for %1$s and all its subdomains in the current mode? Other sites are kept.</string>
     <string name="clear_site_legacy">This WebView can only clear local WebStorage for %1$s. Cookies and other storage are kept.</string>
-    <string name="private_screenshot_protection">Protect incognito screenshots</string>
-    <string name="private_screenshot_summary">Block screenshots in incognito. Recent task previews stay hidden. Incognito suggestions never show normal history.</string>
     <string name="download_queued">Queued</string>
     <string name="download_waiting_network">Waiting for an allowed network</string>
     <string name="download_saving">Saving verified file…</string>
@@ -555,8 +551,6 @@
     <string name="tabs_group_hint">Leave empty to remove from a group.</string>
     <string name="tabs_move_previous">Move earlier</string>
     <string name="tabs_move_next">Move later</string>
-    <string name="tabs_resident">Page kept in memory</string>
-    <string name="tabs_sleeping">Sleeping · reloads when opened</string>
     <string name="pin_website">Add website to home screen</string>
     <string name="shortcut_unavailable">The launcher could not add this shortcut.</string>
     <string name="filter_explain">Explain filtering</string>
@@ -650,5 +644,10 @@
     <string name="update_download">Download update</string>
     <string name="update_allow_source">Allow installation</string>
     <string name="update_install">Install</string>
+    <string name="update_auto_check">Check for updates on startup</string>
+    <string name="update_auto_check_summary">Checks GitHub releases in the background at launch. You are only prompted when a newer version exists.</string>
+    <string name="update_prompt_body">A newer version is available. It is downloaded and verified, then the system installer opens.</string>
+    <string name="update_now">Update</string>
+    <string name="update_permission_needed_auto">Allow installs from this source in system settings. Installation continues automatically when you return.</string>
     <string name="update_release_page">View GitHub releases</string>
 </resources>
