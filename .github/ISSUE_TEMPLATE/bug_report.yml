@@ -1,0 +1,68 @@
+name: 缺陷报告
+description: 报告可复现的问题（安全漏洞请改用私密报告，见下方链接）
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先确认这个问题不在[已知限制](https://github.com/Nobilta/pure-browser/blob/main/FEATURES.md)
+        之内；安全漏洞请不要开公开 Issue，改用[私密漏洞报告](https://github.com/Nobilta/pure-browser/security/advisories/new)。
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 设置 → 关于 里的版本号，或 APK 的 versionCode
+      placeholder: 例如 0.9.0（versionCode 18）
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 设备与系统
+      description: 机型或模拟器、Android 版本、WebView 版本（可从 chrome://version 或系统设置查看）
+      placeholder: 例如 Pixel 7 / Android 15 / WebView 137.0.7151.61
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量给最小步骤；涉及特定网页时请说明网址或提供可离线复现的 HTML
+      placeholder: |
+        1. 打开 …
+        2. 点击 …
+        3. 观察 …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果与实际结果
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 浏览模式
+      options:
+        - 普通模式
+        - 无痕模式
+        - 两者都有
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 附加信息
+      description: 截图、录屏、日志（logcat）或崩溃堆栈。
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经在最新发布版本上确认过该问题
+          required: true
+        - label: 我确认这个问题不属于已知限制（能力边界见 FEATURES.md）
+          required: true

@@ -40,12 +40,28 @@ if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "$ANDROID_NDK_HOME" ]]; then
     exit 1
 fi
 
-toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64"
-if [[ ! -x "$toolchain/bin/$linker_name" ]]; then
-    toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-aarch64"
-fi
-if [[ ! -x "$toolchain/bin/$linker_name" ]]; then
-    echo "No Android clang toolchain found under $ANDROID_NDK_HOME" >&2
+# Pick the prebuilt toolchain for this host first, then fall back to the other known layouts, so
+# the same script works on macOS and on Linux CI.
+case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) host_tag=darwin-aarch64 ;;
+    Darwin-*) host_tag=darwin-x86_64 ;;
+    Linux-x86_64) host_tag=linux-x86_64 ;;
+    Linux-aarch64|Linux-arm64) host_tag=linux-aarch64 ;;
+    *) host_tag="" ;;
+esac
+prebuilt="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"
+candidates=()
+[[ -n "$host_tag" ]] && candidates+=("$prebuilt/$host_tag")
+candidates+=("$prebuilt/darwin-x86_64" "$prebuilt/darwin-aarch64" "$prebuilt/linux-x86_64" "$prebuilt/linux-aarch64")
+toolchain=""
+for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate/bin/$linker_name" ]]; then
+        toolchain="$candidate"
+        break
+    fi
+done
+if [[ -z "$toolchain" ]]; then
+    echo "No Android clang toolchain with $linker_name under $prebuilt (host: $(uname -s)-$(uname -m))" >&2
     exit 1
 fi
 

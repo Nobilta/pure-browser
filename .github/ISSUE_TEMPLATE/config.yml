@@ -1,0 +1,12 @@
+# 空白 Issue 与安全报告都从这里分流。
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞（私密报告）
+    url: https://github.com/Nobilta/pure-browser/security/advisories/new
+    about: 请勿用公开 Issue 报告安全问题，使用私密漏洞报告
+  - name: 能力边界与已知限制
+    url: https://github.com/Nobilta/pure-browser/blob/main/FEATURES.md
+    about: 报缺陷前先对照这里，很多行为是有意为之的边界
+  - name: 验证方式与实测结果
+    url: https://github.com/Nobilta/pure-browser/blob/main/EMULATOR_TEST_REPORT.md
+    about: 了解某个能力在什么设备上验证过、哪些范围未验证

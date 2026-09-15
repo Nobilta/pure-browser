@@ -47,7 +47,15 @@ def main():
         ux.menu_item('进入无痕模式')
         time.sleep(1)
         root, raw = ux.nodes()
-        assert any('isolated site storage' in n.get('text', '') or '独立隔离' in n.get('text', '') or '獨立隔離' in n.get('text', '') for n in root.iter('node')), 'MULTI_PROFILE was not obtained'
+        # The banner shows the plain badge when the profile really is isolated and its own
+        # warning when the session degraded to shared storage. Require both halves: the badge
+        # proves private mode is on at all, and the warning's absence proves MULTI_PROFILE was
+        # obtained. Resolve by resource name, since app copy may change.
+        badge = ux.resource_labels('incognito_badge')
+        degraded = ux.resource_labels('private_shared')
+        texts = [n.get('text') for n in root.iter('node')]
+        assert any(text in badge for text in texts), 'The incognito banner is missing'
+        assert not any(text in degraded for text in texts), 'MULTI_PROFILE was not obtained'
         ux.launch(url)
 
     def clear(scope):
@@ -62,7 +70,8 @@ def main():
 
     ux.launch(url)
     initial, _ = ux.nodes()
-    if ux.match(initial, 'Incognito · isolated site storage') is not None:
+    banner = ux.resource_labels('incognito_badge') | ux.resource_labels('private_shared')
+    if any(n.get('text') in banner for n in initial.iter('node')):
         exit_private()
     ux.tap('Write normal storage', timeout=15)
     read_storage('normal', 'normal profile contains synthetic website data')

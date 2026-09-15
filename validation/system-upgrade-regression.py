@@ -104,9 +104,11 @@ def main():
 
         ux.open_settings()
         tap('settings_search')
-        text('screenshot')
-        tap('private_screenshot_protection')
-        ux.expect(labels['private_screenshot_summary'])
+        # 'passkey' only appears in this privacy row's title, so the search result is unique
+        # and the tap cannot land on a different setting.
+        text('passkey')
+        tap('system_login')
+        ux.expect(labels['system_login_summary'])
         record('Settings search opens and highlights the matching privacy setting')
         back(); back(); back()
 

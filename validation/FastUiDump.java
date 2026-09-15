@@ -160,21 +160,28 @@ public final class FastUiDump {
                     tap(automation, bounds.exactCenterX(), bounds.exactCenterY());
                     System.out.println("Tapped");
                 } else System.out.println("Target not visible");
-            } else {
-            StringWriter output = new StringWriter();
-            XmlSerializer xml = Xml.newSerializer();
-            xml.setOutput(output);
-            xml.startDocument("UTF-8", true);
-            xml.startTag("", "hierarchy");
-            if (args.length == 1 && args[0].equals("windows")) {
-                for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
-                    AccessibilityNodeInfo windowRoot = window.getRoot();
-                    if (windowRoot != null) dump(windowRoot, xml, 0);
+            } else if (args.length >= 3 && args[0].equals("await")) {
+                // Wait for a labelled control (or for one to disappear) inside this process.
+                // A caller that polls from the host pays a service connection per attempt;
+                // waiting here keeps one connection and returns the settled tree either way.
+                JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                long deadline = SystemClock.uptimeMillis() + Long.parseLong(args[2]);
+                boolean absent = args.length > 3 && args[3].equals("absent");
+                long started = SystemClock.uptimeMillis();
+                AccessibilityNodeInfo current = root;
+                boolean matched = false;
+                while (true) {
+                    current = activeRoot(automation);
+                    matched = current != null && findVisible(current, labels, 0, player) != null;
+                    if (matched != absent || SystemClock.uptimeMillis() >= deadline) break;
+                    SystemClock.sleep(80);
                 }
-            } else dump(root, xml, 0, player);
-            xml.endTag("", "hierarchy");
-            xml.endDocument();
-            System.out.println(output);
+                String state = matched != absent ? (absent ? "Await absent in " : "Await matched in ")
+                        : "Await timeout after ";
+                System.out.println(state + (SystemClock.uptimeMillis() - started) + " ms");
+                printTree(automation, current, player, false);
+            } else {
+                printTree(automation, root, player, args.length == 1 && args[0].equals("windows"));
             }
             }
         } finally {
@@ -182,6 +189,25 @@ public final class FastUiDump {
             thread.quitSafely();
         }
         System.exit(0);
+    }
+
+    /** Serialize the current tree; every command that reads the UI ends here. */
+    private static void printTree(UiAutomation automation, AccessibilityNodeInfo root, boolean player, boolean windowsMode)
+            throws Exception {
+        StringWriter output = new StringWriter();
+        XmlSerializer xml = Xml.newSerializer();
+        xml.setOutput(output);
+        xml.startDocument("UTF-8", true);
+        xml.startTag("", "hierarchy");
+        if (windowsMode) {
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo windowRoot = window.getRoot();
+                if (windowRoot != null) dump(windowRoot, xml, 0);
+            }
+        } else if (root != null) dump(root, xml, 0, player);
+        xml.endTag("", "hierarchy");
+        xml.endDocument();
+        System.out.println(output);
     }
 
     private static AccessibilityNodeInfo activeRoot(UiAutomation automation) {
