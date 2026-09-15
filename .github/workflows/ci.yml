@@ -57,8 +57,13 @@ jobs:
           components: rustfmt, clippy
           targets: aarch64-linux-android
 
+      # The action's default package list still asks for "tools", which no longer exists in the
+      # SDK repository and makes the step fail; the packages this project needs are installed in
+      # the next step.
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
 
       # The NDK is what rust/build.sh links against for the Android target; the package ids are
       # the ones the verified local build uses.
