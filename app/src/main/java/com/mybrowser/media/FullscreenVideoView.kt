@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.mybrowser.R
+import com.mybrowser.core.PlaybackSpeed
 import com.mybrowser.data.VideoPreferences
 import com.mybrowser.ui.theme.MyBrowserTheme
 import kotlin.math.abs

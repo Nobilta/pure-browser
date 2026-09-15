@@ -85,12 +85,20 @@ def back(delay=.55):
     time.sleep(delay)
 
 
-def toolbar_back():
-    root, _ = ux.nodes()
-    candidates = [node for node in root.iter('node') if ux.visible(node)
-                  and node.get('content-desc') in ux.labels('返回')]
-    assert candidates, 'Page toolbar Back is missing'
-    ux.tap_node(min(candidates, key=lambda node: ux.bounds(node)[1]))
+def toolbar_back(timeout=8):
+    # The toolbar animates in with the settings surface, so a single immediate tree read can
+    # catch it mid-transition with no *visible* node and fail for reasons unrelated to the
+    # app. Poll with a deadline, the same way menu() waits for its window count.
+    deadline = time.monotonic() + timeout
+    while True:
+        root, _ = ux.nodes()
+        candidates = [node for node in root.iter('node') if ux.visible(node)
+                      and node.get('content-desc') in ux.resource_labels('cd_back')]
+        if candidates:
+            ux.tap_node(min(candidates, key=lambda node: ux.bounds(node)[1]))
+            return
+        assert time.monotonic() < deadline, 'Page toolbar Back is missing'
+        time.sleep(.15)
 
 
 def snapshot(name):

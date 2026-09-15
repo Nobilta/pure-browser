@@ -12,6 +12,7 @@ import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.mybrowser.core.PlaybackSpeed
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener

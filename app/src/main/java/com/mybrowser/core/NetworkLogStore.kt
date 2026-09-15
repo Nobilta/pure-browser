@@ -4,7 +4,6 @@ import com.mybrowser.R
 import android.content.res.Resources
 import android.os.SystemClock
 import android.webkit.WebResourceRequest
-import com.mybrowser.filter.NativeFilter.ResourceType
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -30,7 +29,7 @@ data class NetworkRequestLog(
     val durationMs: Long? = null,
     val sizeBytes: Long? = null,
     val documentUrl: String = "",
-    val resourceType: Int = com.mybrowser.filter.NativeFilter.ResourceType.OTHER.ordinal,
+    val resourceType: Int = ResourceType.OTHER.ordinal,
 ) {
     fun statusText(resources: Resources): String = when {
             blocked -> resources.getString(R.string.ui_blocked)
@@ -121,7 +120,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
 
     /** Records a request before the filter gets a chance to return a replacement response. */
     fun recordRequest(request: WebResourceRequest, documentUrl: String = "",
-        type: ResourceType = com.mybrowser.filter.FilterController.classify(request)): Long {
+        type: ResourceType = classifyResourceType(request)): Long {
         val url = request.url.toString().trim().take(MAX_URL_LENGTH)
         val method = request.method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
         val now = SystemClock.elapsedRealtime()

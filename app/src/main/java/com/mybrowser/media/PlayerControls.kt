@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.core.PlaybackSpeed
 
 internal enum class PlayerMenu { SPEED, CAST }
 

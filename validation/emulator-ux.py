@@ -56,6 +56,32 @@ def labels(label):
     return variants
 
 
+def resource_labels(name):
+    """Every localization of one string resource, looked up by resource name.
+
+    Selecting a control by a translated label is fragile: _label_variants keys a text to
+    whichever resource happens to carry it, so deleting an unrelated resource can silently
+    break the selector even though the control's own resource is untouched. Name the resource
+    the control actually uses instead.
+    """
+    return {values[name] for values in _translations if name in values}
+
+
+def tap_resource(name, timeout=6):
+    """Tap the first visible control whose content description comes from string resource."""
+    wanted = resource_labels(name)
+    deadline = time.monotonic() + timeout
+    while True:
+        root, _ = nodes()
+        node = next((n for n in root.iter("node") if visible(n)
+                     and n.get("content-desc") in wanted), None)
+        if node is not None:
+            tap_node(node)
+            return
+        assert time.monotonic() < deadline, "Control for resource missing: " + name
+        time.sleep(.15)
+
+
 def adb(*args):
     command = ["shell", shlex.join(args[1:])] if args and args[0] == "shell" else list(args)
     return subprocess.check_output(ADB + command, text=True, timeout=30).strip()
@@ -117,8 +143,15 @@ def _probe_action(label, action, receipt):
     encoded = base64.b64encode(json.dumps(sorted(variants)).encode()).decode()
     command = ["env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
                "com.mybrowser.validation.FastUiDump", action, encoded]
-    result = subprocess.run(ADB + ["shell", shlex.join(command)], text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+    try:
+        result = subprocess.run(ADB + ["shell", shlex.join(command)], text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+    except subprocess.TimeoutExpired:
+        # The helper starts a VM per action, which a loaded or software-rendered device can
+        # exceed. Degrade the same way nodes() does — mark it unavailable so callers take
+        # the tree-based path — instead of failing the whole stage on a transient stall.
+        _probe_available[tuple(ADB)] = False
+        return False
     # Some old ART versions can fail during helper shutdown after a successful tap.
     return receipt in result.stdout
 
@@ -410,8 +443,8 @@ def regress():
     root, _ = nodes()
     if match(root, "下次启动：主页") is not None:
         tap("启动时恢复上次网页")
-    tap("返回")
-    tap("返回")
+    tap_resource("cd_back")
+    tap_resource("cd_back")
     launch(probe_url)
     nodes()
     tap("刷新")
@@ -427,8 +460,8 @@ def regress():
     open_settings("浏览与启动")
     tap("启动时恢复上次网页")
     expect("下次启动：主页")
-    tap("返回")
-    tap("返回")
+    tap_resource("cd_back")
+    tap_resource("cd_back")
     # Reproduce a task whose surviving root is a system picker after process death.
     menu_item("书签")
     tap("导入或导出书签")

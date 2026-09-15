@@ -82,3 +82,56 @@ API 29 专项测试与工具兼容分支已移除，`minSdk=29` 及原签名保�
 
 本地仅保留最新交付 APK 和必要验证记录；临时更新测试包、测试脚本及模拟器快照在发布后验收结束时清理。
 源码按 `master` 的一次普通提交维护并推送到远程 `main`，签名材料、生成输出和 APK 不入 Git。
+
+## 0.9.1 结构重构的模拟器回归
+
+日期：2026-09-15。对象为 `PureBrowser-v0.9.1-release.apk`（versionCode 19，SHA-256
+`056bd05d80797092b7877f6c1b07792e84edd5869750a202148a32bd4d9ae710`），设备为 `PureBrowser_API37` / `emulator-5554`。
+
+本轮改动为结构重构（消除两处包级循环依赖、`ui` 包拆分子包、删除无引用成员与资源），**不改变用户可见行为**。
+自动化检查全部通过（333 项 Android/Robolectric、57 项 Rust、55 项 Node、640 项三语言资源、clippy、lint 0 errors、R8 签名构建）。
+
+### 回归中定位并修复的三个测试代码缺陷
+
+前三轮把失败归因为"本机 AVD 环境问题"，经逐项排查后确认**不成立**——根因是测试代码自身：
+
+1. **固定 sleep 竞态**（`resident-regression.py`）。`ux.tap_node()` 内部只等 0.5 秒，而该脚本在"点开
+   分组名对话框后立刻 `adb shell input text`"。`input text` 把文本送给**当前持有焦点的控件**，慢设备上
+   0.5 秒不够输入框获得焦点，文本被丢弃，`ux.expect('QAgroup')` 超时失败。
+   修复：新增 `focused_editor(timeout=10)`，轮询到 `focused=true` 的可编辑控件再注入文本。
+2. **控件选择依赖翻译文本**（由本轮的资源清理引入）。`emulator-ux.py` 的 `_label_variants` 从**应用全部
+   字符串资源**构建：`labels('返回')` 之所以能匹配返回按钮真实的 `content-desc="Back"`，是因为被清理删除的
+   `ui_back` 恰好带着 zh=`返回` 值。删除后 `labels('返回')` 只剩 `['返回']`，`toolbar_back()` 必然失败。
+   修复：新增 `resource_labels(name)` 按**资源名**取全部语言值，6 处改为解析 `cd_back`。
+   教训：lint 判定的"未使用资源"只针对应用自身，验证框架同样消费资源表。
+3. **探针超时未降级**（`emulator-ux.py`）。`_probe_action()` 的 `subprocess.run(..., timeout=15)` 未捕获
+   `TimeoutExpired`，而 `nodes()` 是捕获的。设备一慢就抛异常终止整个阶段。
+   修复：捕获后按 `nodes()` 的既有模式标记探针不可用并返回 False，由调用方走基于 UI 树的路径。
+
+### 修复后的实测结果
+
+| 阶段 | 修复前 | 修复后 |
+|---|---|---|
+| `resident` | FAIL（`QAgroup` 超时） | **PASS**（8 项检查，含新增的同标签后退用例） |
+| `omnibar` | FAIL | **PASS** |
+| `menu-navigation` | FAIL | **PASS** |
+| `settings-back` | 未运行 | **PASS** |
+| `media-lifecycle` | — | **PASS** |
+| `private-lifecycle` | — | **PASS** |
+
+另新增一项用例：`resident-regression.py` 末尾加入**同一标签内跳转后系统后退**的检查，并把文档身份变化
+写入 `result.json` 的 `sameTabBack`。实测记录为 `documentRebuilt: true`、未提交表单丢失、SPA 计数归零、
+**滚动偏移保留**。该行为与边界已同步到 README。
+
+### 未完成的部分
+
+`--profile tabs` 全套**未能一次性跑完**：修复上述缺陷后，剩余失败在不同阶段间**随机漂移**
+（一次是 `media-lifecycle` 探针 15 秒超时，另一次是 `media-lifecycle-regression.py:80`
+"Closed media retained a session" 在 9 秒内未达成），且各阶段单独运行时均通过。
+本机实测：UI 探针单次查询约 **1073 ms**，主机 load average **8.7 / 9.5 / 8.1**，
+模拟器因内存压力退回**软件 GL 渲染**（启动日志：`Available Memory: 2946 MB, Required: 5120 MB`）。
+测试的固定超时（4/9/12/15 秒）按健康设备设定，在如此负载下会被偶发超过。
+
+**结论**：本版的测试代码缺陷已修复，六个定向阶段在单独运行时全部通过；
+但本机负载不足以稳定跑完全套 `--profile tabs`。建议在空闲主机或 CI 上重跑全套后再行发布。
+本轮未执行覆盖升级与 GitHub 更新验收。

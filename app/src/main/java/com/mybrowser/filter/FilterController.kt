@@ -3,6 +3,8 @@ package com.mybrowser.filter
 import android.content.Context
 import android.webkit.WebResourceRequest
 import androidx.core.content.edit
+import com.mybrowser.core.ResourceType
+import com.mybrowser.core.classifyResourceType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -76,7 +78,7 @@ class FilterController(private val appContext: Context) {
     data class Explanation(val blocking: Pair<String, String>?, val exception: Pair<String, String>?)
 
     /** Re-evaluate with the current loaded lists. Called only when a user asks for details. */
-    fun explain(url: String, document: String, type: NativeFilter.ResourceType): Explanation {
+    fun explain(url: String, document: String, type: ResourceType): Explanation {
         val sources = lock.read { activeSources }
         val engine = checkNotNull(NativeFilter.createOrNull()) { "Filter engine unavailable" }
         var blocking: Pair<String, String>? = null
@@ -97,7 +99,7 @@ class FilterController(private val appContext: Context) {
         if (_enabled.value && siteEnabled) lock.read { filter?.cosmeticCss(url).orEmpty() } else ""
 
     fun shouldBlock(request: WebResourceRequest, documentUrl: String, siteEnabled: Boolean = true,
-        type: NativeFilter.ResourceType = classify(request)): Boolean {
+        type: ResourceType = classifyResourceType(request)): Boolean {
         if (!_enabled.value || !siteEnabled || request.isForMainFrame) return false
         val requestUrl = request.url.toString()
         if (requestUrl.length > MAX_URL_LENGTH || documentUrl.length > MAX_URL_LENGTH) return false
@@ -176,52 +178,5 @@ class FilterController(private val appContext: Context) {
 
     companion object {
         const val MAX_URL_LENGTH = 8_192
-
-        fun classify(request: WebResourceRequest): NativeFilter.ResourceType {
-            if (request.isForMainFrame) return NativeFilter.ResourceType.DOCUMENT
-            val headers = request.requestHeaders
-            fun header(name: String) = headers.entries.firstOrNull { it.key.equals(name, true) }
-                ?.value.orEmpty().lowercase(java.util.Locale.ROOT)
-            // Chromium's destination is more reliable than file extensions (CDNs and
-            // APIs often have none). Missing Fetch Metadata on older WebViews falls back.
-            when (header("Sec-Fetch-Dest")) {
-                "document", "iframe", "frame" -> return NativeFilter.ResourceType.SUBDOCUMENT
-                "script", "worker", "sharedworker", "serviceworker" -> return NativeFilter.ResourceType.SCRIPT
-                "style" -> return NativeFilter.ResourceType.STYLESHEET
-                "image" -> return NativeFilter.ResourceType.IMAGE
-                "font" -> return NativeFilter.ResourceType.FONT
-                "audio", "video", "track" -> return NativeFilter.ResourceType.MEDIA
-                "empty" -> when (header("Sec-Fetch-Mode")) {
-                    "cors", "same-origin" -> return NativeFilter.ResourceType.XML_HTTP_REQUEST
-                }
-            }
-            if (header("X-Requested-With") == "xmlhttprequest") return NativeFilter.ResourceType.XML_HTTP_REQUEST
-            val accept = header("Accept")
-            when {
-                accept.startsWith("text/css") -> return NativeFilter.ResourceType.STYLESHEET
-                accept.startsWith("image/") -> return NativeFilter.ResourceType.IMAGE
-                accept.startsWith("video/") || accept.startsWith("audio/") ->
-                    return NativeFilter.ResourceType.MEDIA
-                accept.startsWith("font/") || accept.contains("font/woff") ->
-                    return NativeFilter.ResourceType.FONT
-                accept.contains("text/html") -> return NativeFilter.ResourceType.SUBDOCUMENT
-                accept.contains("application/json") || accept.contains("+json") || accept.contains("application/graphql") ->
-                    return NativeFilter.ResourceType.XML_HTTP_REQUEST
-            }
-
-            val ext = request.url.path.orEmpty().substringAfterLast('.', "").lowercase()
-            return when (ext) {
-                "js", "mjs" -> NativeFilter.ResourceType.SCRIPT
-                "css" -> NativeFilter.ResourceType.STYLESHEET
-                "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif" ->
-                    NativeFilter.ResourceType.IMAGE
-                "woff", "woff2", "ttf", "otf", "eot" -> NativeFilter.ResourceType.FONT
-                "mp4", "webm", "m4v", "mov", "m3u8", "mpd", "mp3", "m4a", "aac", "ogg" ->
-                    NativeFilter.ResourceType.MEDIA
-                "json" -> NativeFilter.ResourceType.XML_HTTP_REQUEST
-                "html", "htm" -> NativeFilter.ResourceType.SUBDOCUMENT
-                else -> NativeFilter.ResourceType.OTHER
-            }
-        }
     }
 }
