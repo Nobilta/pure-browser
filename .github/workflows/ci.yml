@@ -90,6 +90,15 @@ jobs:
             rust/target
           key: cargo-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
 
+      # TEMPORARY: Android resolves platform-specific artifacts (aapt2 and friends), so a Linux
+      # resolution needs checksums a macOS machine never records. This step lets CI write them
+      # and publish the file for review; it is removed once the metadata covers Linux.
+      - name: Bootstrap Linux verification metadata
+        continue-on-error: true
+        run: |
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease \
+            --refresh-dependencies --write-verification-metadata sha256 --console=plain
+
       - name: Quick checks
         run: ./build-and-test.sh --quick
 
@@ -139,3 +148,4 @@ jobs:
             app/build/reports/**
             app/build/test-results/**
             app/build/outputs/apk/release/*.apk
+            gradle/verification-metadata.xml
