@@ -377,7 +377,6 @@
     <string name="tabs_count">分頁（%1$d）</string>
     <string name="tabs_actions">分頁操作</string>
     <string name="tabs_search">搜尋分頁</string>
-    <string name="tabs_current">目前</string>
     <string name="tabs_close_others">關閉其他分頁</string>
     <plurals name="tabs_close_confirm">
         <item quantity="other">關閉 %1$d 個分頁？</item>
@@ -496,7 +495,6 @@
     <string name="back_history">返回歷史</string>
     <string name="back_history_empty">此分頁沒有先前的頁面</string>
     <string name="exit_current_site">離開目前網站並回首頁</string>
-    <string name="private_isolated">無痕 · 網站儲存獨立隔離</string>
     <string name="private_shared">無痕 · 儲存共用，離開時清除</string>
     <string name="clear_scope">儲存範圍</string>
     <string name="clear_current">目前瀏覽模式</string>
@@ -516,8 +514,6 @@
     <string name="clear_this_site">清除此網站的資料</string>
     <string name="clear_site_message">清除目前模式中 %1$s 及其所有子網域的 Cookie、快取和儲存？其他網站的資料保留。</string>
     <string name="clear_site_legacy">此 WebView 僅能清除 %1$s 的本機 WebStorage，Cookie 和其他儲存會保留。</string>
-    <string name="private_screenshot_protection">保護無痕截圖</string>
-    <string name="private_screenshot_summary">無痕時禁止截圖，最近工作預覽保持隱藏；無痕網址建議不顯示一般歷史。</string>
     <string name="download_queued">排隊中</string>
     <string name="download_waiting_network">等待符合條件的網路</string>
     <string name="download_saving">正在儲存已驗證檔案…</string>
@@ -554,8 +550,6 @@
     <string name="tabs_group_hint">留空可移出群組。</string>
     <string name="tabs_move_previous">移到前面</string>
     <string name="tabs_move_next">移到後面</string>
-    <string name="tabs_resident">網頁保留於記憶體</string>
-    <string name="tabs_sleeping">已休眠 · 開啟時重新載入</string>
     <string name="pin_website">將網站加入主畫面</string>
     <string name="shortcut_unavailable">主畫面啟動器無法加入此捷徑。</string>
     <string name="filter_explain">查看過濾原因</string>
@@ -649,5 +643,10 @@
     <string name="update_download">下載更新</string>
     <string name="update_allow_source">允許安裝</string>
     <string name="update_install">安裝</string>
+    <string name="update_auto_check">啟動時自動檢查更新</string>
+    <string name="update_auto_check_summary">啟動時在背景下檢查 GitHub Releases，只有發現新版本才會提示。</string>
+    <string name="update_prompt_body">發現新版本。下載並校驗後會開啟系統安裝程式完成安裝。</string>
+    <string name="update_now">更新</string>
+    <string name="update_permission_needed_auto">請在系統設定中允許此來源安裝，返回後會自動繼續安裝。</string>
     <string name="update_release_page">檢視 GitHub 發佈頁</string>
 </resources>

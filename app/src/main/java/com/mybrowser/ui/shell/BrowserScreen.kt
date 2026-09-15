@@ -173,7 +173,7 @@ fun BrowserScreen(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = stringResource(if (hasPrivateIsolation) R.string.private_isolated else R.string.private_shared),
+                        text = stringResource(if (hasPrivateIsolation) R.string.incognito_badge else R.string.private_shared),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

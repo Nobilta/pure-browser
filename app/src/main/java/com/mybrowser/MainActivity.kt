@@ -13,6 +13,7 @@ import android.app.ActivityManager
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentCallbacks2
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -23,7 +24,6 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
 import android.webkit.JsResult
@@ -295,10 +295,13 @@ class MainActivity : ComponentActivity(),
         view.webViewClient = com.mybrowser.tabs.ParkedWebViewClient { gone -> onRenderProcessGone(gone, true) }
         (view.parent as? ViewGroup)?.removeView(view)
     }
-    private var residentIds by mutableStateOf<Set<String>>(emptySet())
+    /**
+     * Parked pages, one per tab the user actually opened. Retention follows the tab count
+     * rather than a fixed slot count, so memory is bounded by eviction instead: the oldest
+     * page goes first when the allocator runs out or the system reports pressure.
+     */
     private val recentViews by lazy {
-        val memory = getSystemService(android.app.ActivityManager::class.java)
-        com.mybrowser.tabs.RecentTabStore<ParkedPage>(if (memory.isLowRamDevice || memory.memoryClass < 192) 0 else 1) { page ->
+        com.mybrowser.tabs.RecentTabStore<ParkedPage> { page ->
             removeMediaPlaybackTracker(page.view)
             pool.discard(page.view)
         }
@@ -307,11 +310,42 @@ class MainActivity : ComponentActivity(),
     private fun clearResidentTabs() {
         // Pending Chromium transports still own their opener until the hand-off callback.
         pendingOpeners.values.forEach { it.retain = false }
-        recentViews.clear(); residentIds = emptySet()
+        recentViews.clear()
     }
     private fun pruneResidentTabs() {
         recentViews.retain(normalTabManager.tabs.map { it.id }.toSet())
-        residentIds = recentViews.ids
+    }
+
+    /** Frees the least recently parked page. False when there was nothing left to free. */
+    private fun evictOldestParkedPage(): Boolean = recentViews.evictOldest()
+
+    /**
+     * Creates an instance, evicting parked pages oldest-first if the allocator is out of
+     * memory. Unbounded retention needs this backstop: without it, opening one page too many
+     * would crash instead of dropping the page the user is least likely to return to.
+     *
+     * Configuration runs after the pool has taken ownership, so a failure there has to hand the
+     * instance back: it would otherwise sit in the pool attached to nothing and leak exactly the
+     * memory this retry is trying to free.
+     */
+    private fun acquireFreshPage(): WebView {
+        while (true) {
+            val view = pool.acquireFresh(this)
+            try {
+                configure(view)
+                return view
+            } catch (error: OutOfMemoryError) {
+                discardFailedPage(view)
+                if (!evictOldestParkedPage()) throw error
+            }
+        }
+    }
+
+    /** Releases a half-configured instance; its trackers and script runtime die with it. */
+    private fun discardFailedPage(view: WebView) {
+        removeMediaPlaybackTracker(view)
+        scriptRuntimes.remove(view)?.close()
+        pool.discard(view)
     }
 
     /**
@@ -434,6 +468,8 @@ class MainActivity : ComponentActivity(),
         normalSites = app.siteSettings
         preferencesRepository = BrowserPreferencesRepository(this)
         browserPreferences = preferencesRepository.load()
+        // The process owns the check and the offer; this Activity only displays it (see App).
+        (application as App).checkForStartupUpdate()
         pipController = com.mybrowser.media.PictureInPictureController(this,
             { webViewOrNull?.let(mediaTrackers::get) }, { !privacy.isIncognito }, { fullscreenView },
             { browserPreferences.video.automaticPip })
@@ -457,13 +493,21 @@ class MainActivity : ComponentActivity(),
             MyBrowserTheme(themeMode = browserPreferences.theme) {
                 val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
                 SideEffect {
-                    updatePrivateScreenProtection()
                     WindowCompat.getInsetsController(window, window.decorView).apply {
                         isAppearanceLightStatusBars = lightSystemBars
                         isAppearanceLightNavigationBars = lightSystemBars
                     }
                 }
                 dialogs.Render()
+                val startupApp = application as App
+                val startupOffer by startupApp.startupUpdateOffer.collectAsState()
+                startupOffer?.takeIf { !privacy.isIncognito }?.let { offered ->
+                    com.mybrowser.ui.settings.UpdatePanel(
+                        onDismiss = { startupApp.dismissStartupUpdateOffer() },
+                        offered = offered,
+                        installAfterDownload = true,
+                    )
+                }
                 filterExplanation?.let { com.mybrowser.ui.devtools.FilterExplanationDialog(it, filter) { filterExplanation = null } }
                 if (showClearData) ClearBrowsingDataDialog(privacy.isIncognito, privacy.hasRealIsolation,
                     dataCleaner.supportsCompleteDeletion, clearingData, ::clearBrowsingData, { showClearData = false })
@@ -628,7 +672,6 @@ class MainActivity : ComponentActivity(),
                         Sheet.CAST -> CurrentCastPicker(onDismiss = { dismissSheet(entry) })
 
                         Sheet.TABS -> TabsSheet(
-                            residentIds = residentIds,
                             onMoveTab = { id, delta -> tabManager.move(id, delta); persistNormalSession() },
                             onGroupTab = { id, group -> tabManager.setGroup(id, group); persistNormalSession() },
                             tabs = tabManager.tabs,
@@ -1124,6 +1167,9 @@ class MainActivity : ComponentActivity(),
         // session back onto persistent storage.
         privacy.applyTo(view)
         com.mybrowser.core.SystemLoginSupport.configure(view, privacy.isIncognito)
+        // Normal pages keep their departed document so Back does not rebuild it; private
+        // pages never do, because a cached document cannot be flushed when the session ends.
+        com.mybrowser.core.WebViewConfig.applyBackForwardCache(view, !privacy.isIncognito)
 
         // Apply desktop mode setting
         applySiteSettings(view, state.currentUrl)
@@ -1338,7 +1384,7 @@ class MainActivity : ComponentActivity(),
         saveCurrentTab()
         // Chromium rejects a popup transport whose target has ever navigated, including
         // about:blank used when returning an old instance to the pool.
-        val popup = runCatching { pool.acquireFresh(this).also(::configure) }.getOrNull() ?: return null
+        val popup = runCatching { acquireFreshPage() }.getOrNull() ?: return null
         mediaTrackers[popup]?.prepareForPopup()
         scriptRuntimes[popup]?.prepareForPopup()
         cancelWebsitePermissions()
@@ -1429,7 +1475,7 @@ class MainActivity : ComponentActivity(),
 
         // A profile-bound WebView must be completely unused before attachment. Never
         // borrow an idle normal-profile instance for a mode transition.
-        webViewOrNull = pool.acquireFresh(this).also(::configure)
+        webViewOrNull = acquireFreshPage()
         if (entering) {
             loadCurrentTab()
             toast(
@@ -1478,9 +1524,8 @@ class MainActivity : ComponentActivity(),
                 val parked = if (!privacy.isIncognito) recentViews.take(tab.id) ?: pending?.page else null
                 if (keep) recentViews.put(oldId, ParkedPage(old, priorSettings, priorFiltering))
                 else { removeMediaPlaybackTracker(old); pool.discard(old) }
-                webViewOrNull = parked?.view ?: pool.acquireFresh(this).also(::configure)
+                webViewOrNull = parked?.view ?: acquireFreshPage()
                 viewOwnerId = tab.id
-                residentIds = recentViews.ids
                 if (parked != null) {
                     webView.webViewClient = BrowserWebViewClient(this)
                     webView.webChromeClient = BrowserChromeClient(this, webView)
@@ -1510,7 +1555,7 @@ class MainActivity : ComponentActivity(),
             val old = webView
             removeMediaPlaybackTracker(old)
             pool.discard(old)
-            webViewOrNull = pool.acquireFresh(this).also(::configure)
+            webViewOrNull = acquireFreshPage()
         }
         webViewOrNull?.let { mediaTrackers[it]?.reset() }
         applySiteSettings(webView, tab.url)
@@ -1865,7 +1910,7 @@ class MainActivity : ComponentActivity(),
         removeMediaPlaybackTracker(old)
         pool.discard(old)
         tabManager.currentTab?.apply { savedState = null; url = ABOUT_BLANK; title = "" }
-        webViewOrNull = pool.acquireFresh(this).also(::configure)
+        webViewOrNull = acquireFreshPage()
         state.pageFailure = null
         state.onPageStarted(ABOUT_BLANK)
         webView.loadUrl(ABOUT_BLANK)
@@ -1895,12 +1940,6 @@ class MainActivity : ComponentActivity(),
                 }
             }
         }
-    }
-
-    private fun updatePrivateScreenProtection() {
-        if (privacy.isIncognito && browserPreferences.protectPrivateScreens) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!privacy.isIncognito)
     }
 
     // --- BrowserWebViewClient.Listener ---
@@ -2111,7 +2150,6 @@ class MainActivity : ComponentActivity(),
         if (webViewOrNull !== webView) {
             pendingOpeners.remove(webView)
             recentViews.removeWhere { it.view === webView }
-            residentIds = recentViews.ids
             removeMediaPlaybackTracker(webView)
             pool.discard(webView)
             return
@@ -2125,7 +2163,7 @@ class MainActivity : ComponentActivity(),
         leaveFullscreen()
         removeMediaPlaybackTracker(webView)
         pool.discard(webView)
-        webViewOrNull = pool.acquireFresh(this).also(::configure)
+        webViewOrNull = acquireFreshPage()
         if (lastUrl != ABOUT_BLANK && rendererRecovery.shouldReload(tabManager.currentTab?.id.orEmpty(), SystemClock.elapsedRealtime())) {
             this.webView.loadUrl(lastUrl)
         } else if (lastUrl != ABOUT_BLANK) {
@@ -2301,7 +2339,6 @@ class MainActivity : ComponentActivity(),
                 if (pending.retain && !isDestroyed && !isFinishing && !privacy.isIncognito &&
                     normalTabManager.tabs.any { it.id == pending.tabId } && webViewOrNull !== opener) {
                     recentViews.put(pending.tabId, pending.page)
-                    residentIds = recentViews.ids
                 } else if (webViewOrNull !== opener) {
                     removeMediaPlaybackTracker(opener)
                     pool.discard(opener)
@@ -2657,16 +2694,20 @@ class MainActivity : ComponentActivity(),
     @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // Preserve recent tabs on ordinary window switches; evict on actual pressure
-        // in older Android, or when the process becomes a background eviction candidate.
-        if (::pool.isInitialized && (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
-                level in android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW..android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)) {
-            clearResidentTabs()
+        if (!::pool.isInitialized) return
+        // Retention follows the tab count, so pressure is what bounds it. Each signal frees the
+        // page parked longest ago rather than all of them: an ordinary window switch should cost
+        // one page, not the whole session. Only the last level before the process is killed drops
+        // the rest, where keeping them would not survive anyway. UI_HIDDEN is "no longer visible",
+        // not "short on memory" — App.onTrimMemory handles it by trimming the idle pool.
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> clearResidentTabs()
+            level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> Unit
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> evictOldestParkedPage()
         }
     }
 
     override fun onPause() {
-        if (::privacy.isInitialized && privacy.isIncognito) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         cast.setVisible(false)
         dismissPageContext()
         fullscreenView?.cancelTransientControls()
@@ -2676,7 +2717,6 @@ class MainActivity : ComponentActivity(),
 
     override fun onResume() {
         if (::preferencesRepository.isInitialized) browserPreferences = preferencesRepository.load()
-        if (::privacy.isInitialized) updatePrivateScreenProtection()
         cast.setVisible(sheet == Sheet.CAST)
         super.onResume()
         if (!isInPictureInPictureMode) pictureInPictureSession = false

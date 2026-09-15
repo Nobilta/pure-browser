@@ -24,23 +24,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** Foreground, user-initiated updates. Leaving this dialog cancels the transfer. */
+/**
+ * Foreground updates. Leaving this dialog cancels the transfer.
+ *
+ * Two entries share the same steps: the settings panel finds a release itself, while the
+ * startup prompt hands in one that the launch check already found and, once the package is
+ * verified, opens the system installer without a second confirmation.
+ */
 @Composable
-internal fun UpdatePanel(onDismiss: () -> Unit) {
+internal fun UpdatePanel(
+    offered: UpdateRepository.Release? = null,
+    installAfterDownload: Boolean = false,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     val repository = remember { UpdateRepository(context) }
     val scope = rememberCoroutineScope()
     var job by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var release by remember { mutableStateOf<UpdateRepository.Release?>(null) }
+    var release by remember { mutableStateOf(offered) }
     var apk by remember { mutableStateOf<File?>(null) }
     var bytes by remember { mutableLongStateOf(0L) }
-    var message by remember { mutableIntStateOf(R.string.update_intro) }
+    var message by remember { mutableIntStateOf(if (offered == null) R.string.update_intro else R.string.update_prompt_body) }
     var allowed by remember { mutableStateOf(context.packageManager.canRequestPackageInstalls()) }
-    val authorization = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        allowed = context.packageManager.canRequestPackageInstalls()
-        message = if (allowed) R.string.update_ready else R.string.update_permission_needed
-    }
     fun failure(error: Exception) {
         if ((error as? UpdateRepository.Failure)?.problem in setOf(UpdateRepository.Problem.VERIFICATION, UpdateRepository.Problem.FILE)) {
             apk = null
@@ -62,6 +68,43 @@ internal fun UpdatePanel(onDismiss: () -> Unit) {
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { failure(e) }
             finally { busy = false }
+        }
+    }
+    /** Rechecks the package, then asks the system installer to take over. */
+    suspend fun handOff(file: File, item: UpdateRepository.Release) {
+        message = R.string.update_verifying
+        repository.verify(file, item)
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".updates", file)
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            message = R.string.update_install_handed_off
+        } catch (_: Exception) { message = R.string.update_install_error }
+    }
+    fun install(file: File, item: UpdateRepository.Release) = run { handOff(file, item) }
+    fun download(item: UpdateRepository.Release) = run {
+        bytes = 0
+        message = R.string.update_downloading
+        val file = repository.download(item) { downloaded -> withContext(Dispatchers.Main) { bytes = downloaded } }
+        apk = file
+        // The startup prompt already carries the user's confirmation, so a verified package
+        // goes straight to the installer. The settings panel keeps its separate Install step.
+        when {
+            !installAfterDownload -> message = R.string.update_ready
+            context.packageManager.canRequestPackageInstalls() -> handOff(file, item)
+            else -> message = permissionMessage(true)
+        }
+    }
+    val authorization = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        allowed = context.packageManager.canRequestPackageInstalls()
+        val file = apk
+        val item = release
+        when {
+            // Returning from the system permission screen continues the startup prompt
+            // without another tap; a false result keeps the message and leaves the button.
+            allowed && installAfterDownload && file != null && item != null -> install(file, item)
+            allowed -> message = R.string.update_ready
+            else -> message = permissionMessage(installAfterDownload)
         }
     }
     DisposableEffect(Unit) { onDispose { job?.cancel() } }
@@ -101,33 +144,19 @@ internal fun UpdatePanel(onDismiss: () -> Unit) {
                             release = repository.check()
                             message = if (release == null) R.string.update_latest else R.string.update_confirm_download
                         }
-                        file == null -> run {
-                            bytes = 0
-                            message = R.string.update_downloading
-                            apk = repository.download(item) { downloaded -> withContext(Dispatchers.Main) { bytes = downloaded } }
-                            message = R.string.update_ready
-                        }
+                        file == null -> download(item)
                         !context.packageManager.canRequestPackageInstalls() -> {
                             allowed = false
-                            message = R.string.update_permission_needed
+                            message = permissionMessage(installAfterDownload)
                             try { authorization.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                 Uri.parse("package:${context.packageName}"))) }
-                            catch (_: Exception) { message = R.string.update_permission_needed }
+                            catch (_: Exception) { message = permissionMessage(installAfterDownload) }
                         }
-                        else -> run {
-                            message = R.string.update_verifying
-                            repository.verify(file, item)
-                            val uri = FileProvider.getUriForFile(context, context.packageName + ".updates", file)
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                                message = R.string.update_install_handed_off
-                            } catch (_: Exception) { message = R.string.update_install_error }
-                        }
+                        else -> install(file, item)
                     }
                 }) { Text(stringResource(when {
                     item == null -> R.string.update_check
-                    file == null -> R.string.update_download
+                    file == null -> if (installAfterDownload) R.string.update_now else R.string.update_download
                     !allowed -> R.string.update_allow_source
                     else -> R.string.update_install
                 })) }
@@ -138,3 +167,6 @@ internal fun UpdatePanel(onDismiss: () -> Unit) {
         } },
     )
 }
+
+private fun permissionMessage(installAfterDownload: Boolean): Int =
+    if (installAfterDownload) R.string.update_permission_needed_auto else R.string.update_permission_needed
