@@ -8,9 +8,10 @@
 
 | 范围 | 职责与状态所有者 |
 |---|---|
-| `MainActivity`、`core` | WebView、ActivityResult、外部 Intent、导航及平台生命周期；池归还时解除监听，恢复历史使用尚未导航的新 WebView |
-| `ui` | Compose 界面、主题、输入及反馈；`BrowserSheetNavigation` 保存菜单来路，只挂载栈顶，父级只保存 UI 状态 |
+| `MainActivity`、`core` | WebView、ActivityResult、外部 Intent、导航及平台生命周期；池归还时解除监听，恢复历史使用尚未导航的新 WebView。`core` 同时持有跨层共享的词汇（`ResourceType`、`PlaybackSpeed`）与请求分类 |
+| `ui` | Compose 界面、主题、输入及反馈，按功能分 `shell`/`menu`/`settings`/`library`/`devtools`/`player`/`home`/`download`/`qr` 子包；`BrowserSheetNavigation` 保存菜单来路，只挂载栈顶，父级只保存 UI 状态 |
 | `data`、`home`、`tabs` | Android SQLite 书签/历史、快捷入口、标签元数据；后台标签延迟加载，缩略图只保留小尺寸 Bitmap |
+| `search` | 搜索引擎清单与持久化、地址栏文本的网址/搜索判定 |
 | `download` | HTTP Range 引擎、实体校验、分段恢复、SAF/MediaStore、前台服务和记录管理；兼容读取已存在的系统下载记录 |
 | `update`、`release` | GitHub 正式资产直链、缓存和退避、独立内部下载、APK/签名校验；专用 `UpdateFileProvider` 向系统安装器授予读取权；从实际签名包生成清单并发布草稿 |
 | `filter`、`userscript` | 过滤订阅更新与引擎切换、用户脚本元数据/存储及逐 frame 注入；共享有界读取和原子 UTF-8 写入 |
@@ -29,6 +30,20 @@ Camera2 的 `TextureView` 已处理传感器方向和默认前摄镜像。`qrPre
 
 `MainActivity` 承担 Android 回调编排。存储、计算与独立状态机已下沉；`BrowserSessionState`
 保留单浏览会话的标签与私密状态，没有跨窗口注册表。
+
+### 包依赖方向
+
+`core` 是最低的共享层：它持有跨层共用的词汇（`ResourceType`、`PlaybackSpeed`）与平台管线，
+业务包只依赖 `core` 及更低的包，不反向依赖。两条曾被违反的边已通过下沉共享类型消除：
+
+- `core → filter`：开发工具的网络日志需要资源类型枚举与请求分类，而 `filter` 本就依赖 `core`。
+  `ResourceType` 与 `classifyResourceType` 因此移到 `core`；JNI 符号名编码的是 `NativeFilter` 类名，
+  枚举位置变化不影响 JNI 解析，但枚举声明顺序仍是 JNI 契约的一部分。
+- `data → media`：持久化的播放速度偏好需要 `PlaybackSpeed`，而 `media` 本就依赖 `data` 的
+  `VideoPreferences`。`PlaybackSpeed` 因此移到 `core`。
+
+`media → ui` 是既有且有意的例外：`FullscreenVideoView` 在同一视图内用 Compose 渲染 Material 3
+控件，因此 `media` 不是纯领域层。改动播放器前需注意这层耦合。
 
 ## 菜单、输入和异步结果
 

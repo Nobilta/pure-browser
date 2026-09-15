@@ -1,6 +1,7 @@
 package com.mybrowser.filter
 
 import android.app.Application
+import com.mybrowser.core.ResourceType
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,8 +22,8 @@ class NativeContextTest {
                     repeat(512) { index ->
                         val page = listOf("https://www.example.co.uk/", "https://www.example.com/", "https://alice.github.io/")[index % 3] + "?doc=$worker-$index"
                         for (url in listOf("https://cdn.example.co.uk/a.js", "https://cdn.example.com/a.js", "https://bob.github.io/a.js")) {
-                            assertEquals(engine.shouldBlockUncached(url, page, NativeFilter.ResourceType.SCRIPT),
-                                engine.shouldBlock(url, page, NativeFilter.ResourceType.SCRIPT))
+                            assertEquals(engine.shouldBlockUncached(url, page, ResourceType.SCRIPT),
+                                engine.shouldBlock(url, page, ResourceType.SCRIPT))
                         }
                     }
                 } }).forEach { it.get() }
@@ -35,10 +36,10 @@ class NativeContextTest {
             val text = "||ads.example^\$script\n@@||ads.example/safe.js\$script\nexample.com##.ad\n||ads.example^\$redirect=noopjs"
             engine.addList(text)
             assertEquals(1, engine.unsupportedRuleCount)
-            val hit = engine.explainList(text, "https://ads.example/safe.js", "https://example.com", NativeFilter.ResourceType.SCRIPT)
+            val hit = engine.explainList(text, "https://ads.example/safe.js", "https://example.com", ResourceType.SCRIPT)
             assertEquals("||ads.example^\$script", hit.first)
             assertEquals("@@||ads.example/safe.js\$script", hit.second)
-            assertFalse(engine.shouldBlock("https://ads.example/safe.js", "https://example.com", NativeFilter.ResourceType.SCRIPT))
+            assertFalse(engine.shouldBlock("https://ads.example/safe.js", "https://example.com", ResourceType.SCRIPT))
         }
     }
 }

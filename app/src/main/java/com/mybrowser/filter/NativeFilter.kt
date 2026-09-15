@@ -1,6 +1,7 @@
 package com.mybrowser.filter
 
 import android.util.Log
+import com.mybrowser.core.ResourceType
 import java.io.Closeable
 
 /**
@@ -17,25 +18,6 @@ import java.io.Closeable
 class NativeFilter private constructor(private var handle: Long) : Closeable {
     private val documents = object : LinkedHashMap<String, Long>(32, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 32
-    }
-
-    /**
-     * Resource kinds the engine understands. Ordinals cross the JNI boundary as ints, so the
-     * declaration order here is load-bearing — it must match `resource_from_ordinal` in
-     * `lib.rs`. Append new kinds at the end.
-     */
-    enum class ResourceType {
-        DOCUMENT,
-        SUBDOCUMENT,
-        SCRIPT,
-        STYLESHEET,
-        IMAGE,
-        FONT,
-        MEDIA,
-        XML_HTTP_REQUEST,
-        PING,
-        WEB_SOCKET,
-        OTHER,
     }
 
     /** Number of network rules currently loaded. */

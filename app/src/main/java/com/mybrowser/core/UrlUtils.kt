@@ -136,25 +136,9 @@ object UrlUtils {
         }
     }
 
-    /**
-     * Extract domain from URL using native implementation if available.
-     */
-    fun extractDomain(url: String): String? {
-        if (nativeAvailable) {
-            runCatching { nativeExtractDomain(url) }
-                .getOrNull()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
-        }
-        return hostOf(url)
-    }
-
     // Native methods
     @JvmStatic
     private external fun nativeNormalize(input: String, searchTemplate: String): String?
-
-    @JvmStatic
-    private external fun nativeExtractDomain(url: String): String?
 
     /** PSL registrable domain including private suffixes; absence must never widen scope. */
     fun registrableDomain(host: String): String? = if (nativeAvailable)

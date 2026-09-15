@@ -48,7 +48,7 @@ def back():
 
 
 def toolbar_buttons(root):
-    labels = ux.labels("返回")
+    labels = ux.resource_labels("cd_back")
     return [node for node in root.iter("node") if ux.visible(node)
             and node.get("content-desc") in labels]
 

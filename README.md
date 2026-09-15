@@ -30,6 +30,8 @@
   升级时清理旧版最近关闭存档。
   后台新标签延迟加载；普通标签（包括 `window.open` / `target=_blank` 的来源页）最多保留最近一个后台页面的 DOM/表单/SPA/滚动，低内存设备不驻留。
   切换标签暂停旧页媒体；进程结束后只恢复元数据，不承诺恢复 JavaScript 或未提交表单。
+  同一标签内跨文档返回由 WebView 重新创建文档（WebView 不提供后退缓存）：未提交表单与 SPA 内存丢失，滚动偏移由历史项恢复；
+  文档内历史（`pushState`、锚点）的返回则完整保留。该行为由 `validation/resident-regression.py` 的同标签用例记录并断言。
 - 返回键先返回当前网页历史；历史耗尽且还有其他标签时关闭当前标签，优先回到来源页，其次回到最近使用的存活标签。
   底栏返回与系统返回遵循同一标签规则；“×”关闭当前标签也优先返回来源页，关闭后台标签不改变当前页。
   来源关系只保存在当前会话内，不跨普通/无痕标签组或进程重启；最后一个标签的系统返回才进入退出确认。
@@ -183,16 +185,28 @@ Android UI、生命周期、SQLite、下载、SAF/MediaStore、权限与系统�
 
 ```text
 app/src/main/java/com/mybrowser/
-  core/ data/ home/ tabs/ ui/       浏览、导航、SQLite、标签和界面
-  download/ filter/ userscript/    下载、过滤订阅及用户脚本
-  privacy/ site/ security/         Profile、网站权限与安全
+  core/ data/ home/ tabs/ search/  WebView 与导航、SQLite、快捷入口、标签、搜索引擎
+  ui/                              Compose 界面，按功能分子包
+    shell/      外壳、弹层框架、对话框与输入
+    menu/       菜单与标签面板
+    settings/   设置、网站设置、过滤与脚本管理、更新面板
+    library/    书签与历史
+    devtools/   开发者工具、网络与源码
+    player/     全屏播放器浮层与投屏
+    home/ download/ qr/            首页、下载、扫码
+  download/ filter/ userscript/   下载、过滤订阅及用户脚本
+  privacy/ site/ security/        Profile、网站权限与安全
   media/ dlna/ qr/                视频、系统媒体、DLNA 与离线二维码
   update/                         独立的 GitHub Releases 检查、下载与校验
-app/src/main/assets/               播放控制、脚本运行时和内置规则
+app/src/main/assets/              播放控制、脚本运行时和内置规则
 rust/                             adblock、site_identity、url_utils
 validation/                       可复现页面、自动检查及模拟器工具
 release/                          签名 APK 的更新清单生成和 Release 草稿发布
 ```
+
+分层约定：`core` 持有跨层共享的词汇（`ResourceType`、`PlaybackSpeed`）与平台管线，
+业务包只依赖 `core` 及更低的包，不反向依赖。`filter` 与 `data` 曾各自被 `core` 反向引用，
+已通过下沉共享类型消除，详见 [架构说明](ARCHITECTURE_REVIEW.md)。
 
 开发环境：macOS、JDK 17+、Android SDK Platform/Build Tools 37、NDK、Rust stable（arm64 Android target）、
 Node.js 18+、Python 3.9+。`minSdk=29`、`compileSdk/targetSdk=37`；Rust 使用 API 29 NDK 链接器。
@@ -252,12 +266,21 @@ bash release/publish.sh PureBrowser-v0.9.0-release.apk release/notes.md
 
 ### 交付包
 
-签名 APK 为 `PureBrowser-v0.9.0-release.apk`，Android 10+、arm64-v8a，versionCode 17 → 18。
+**已发布：0.9.0。** 签名 APK 为 `PureBrowser-v0.9.0-release.apk`，Android 10+、arm64-v8a，versionCode 17 → 18。
 公开下载位于 [v0.9.0 Release](https://github.com/Nobilta/pure-browser/releases/tag/v0.9.0)，包大小 **4,714,826 bytes（约 4.50 MiB）**。
 SHA-256：`dd65ed4d44d91a6c48d830da7ffcc3348551b0fed317d867a1afb89ad896e5f4`。
-本版通过 **333 项 Android/Robolectric、58 项 Rust、55 项 Node 测试**及 646 项三语言资源校验；lint 为 0 errors、24 warnings、1 hint。
+该版通过 **333 项 Android/Robolectric、58 项 Rust、55 项 Node 测试**及 646 项三语言资源校验；lint 为 0 errors、24 warnings、1 hint。
 API 37 上通过来源页/子标签、普通与无痕媒体生命周期、相机文件回传、菜单导航、两类全屏视频弹层七个定向阶段。
 完成 0.8.1 → 0.9.0 原签名覆盖升级，并使用临时旧版与预置更新缓存验证系统来源授权、安装器更新、包哈希和书签保留。
+
+**本地构建：0.9.1（尚未发布）。** `PureBrowser-v0.9.1-release.apk`，versionCode 19，**4,711,682 bytes**，
+SHA-256：`056bd05d80797092b7877f6c1b07792e84edd5869750a202148a32bd4d9ae710`，签名者 SHA-256 与 0.9.0 相同，可覆盖升级。
+当前源码通过 **333 项 Android/Robolectric、57 项 Rust、55 项 Node 测试**及 640 项三语言资源校验；
+lint 为 0 errors、18 warnings、1 hint，clippy 与 R8 全模式构建通过。
+本轮为结构重构，不改变用户可见行为；回归中定位并修复了三个测试代码缺陷（固定 sleep 竞态、控件选择依赖翻译文本、
+探针超时未降级），修复后 `resident`/`omnibar`/`menu-navigation`/`settings-back`/`media-lifecycle`/`private-lifecycle`
+六个定向阶段单独运行均通过；本机负载不足以稳定跑完 `--profile tabs` 全套，详见 [回归报告](EMULATOR_TEST_REPORT.md)。
+
 详细证据和覆盖范围见 [回归报告](EMULATOR_TEST_REPORT.md)，发布后 GitHub 更新验收单独记录在 Release 的 `github-update.json` 附件中。
 API 29 专项测试已移除，不将历史 Android 10 测试记录视为本版验证结果；本轮也不宣称已覆盖 OPPO / ColorOS 等实体设备。
 使用 R8 全模式、资源裁剪及压缩 DEX/native 库，只保留必要 JNI 规则。

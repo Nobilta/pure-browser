@@ -94,12 +94,6 @@ data class UserScriptMetadata(
         fun validPattern(pattern: String): Boolean = pattern == "<all_urls>" ||
             (pattern.length <= 1024 && PATTERN.matches(pattern))
 
-        fun matchPattern(pattern: String, url: String): Boolean {
-            val uri = runCatching { URI(url) }.getOrNull() ?: return false
-            if (uri.scheme !in listOf("http", "https") || uri.host == null) return false
-            return compilePattern(pattern)?.matches(uri) == true
-        }
-
         private data class MatchRule(val scheme: String, val host: String, val path: String) {
             fun matches(uri: URI): Boolean {
                 if (scheme != "*" && !scheme.equals(uri.scheme, true)) return false

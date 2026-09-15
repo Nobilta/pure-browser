@@ -102,22 +102,6 @@ pub extern "system" fn Java_com_mybrowser_core_UrlUtils_nativeNormalize(
         .unwrap_or(std::ptr::null_mut())
 }
 
-#[no_mangle]
-pub extern "system" fn Java_com_mybrowser_core_UrlUtils_nativeExtractDomain(
-    mut env: JNIEnv,
-    _class: JClass,
-    url: JString,
-) -> jstring {
-    let url: String = match env.get_string(&url) {
-        Ok(value) => value.into(),
-        Err(_) => return std::ptr::null_mut(),
-    };
-    let result = extract_domain(url.trim()).unwrap_or_default();
-    env.new_string(result)
-        .map(|value| value.into_raw())
-        .unwrap_or(std::ptr::null_mut())
-}
-
 fn normalize_or_search(input: &str, search_template: &str) -> String {
     if input.is_empty() {
         return "about:blank".to_string();
@@ -392,31 +376,6 @@ fn is_valid_http_url(value: &str) -> bool {
     }
 }
 
-fn extract_domain(url: &str) -> Option<String> {
-    let (scheme, rest) = url.split_once("://")?;
-    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
-        return None;
-    }
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.is_empty() {
-        return None;
-    }
-    let without_user = authority.rsplit('@').next().unwrap_or(authority);
-    let host = if without_user.starts_with('[') {
-        without_user
-            .find(']')
-            .map(|end| &without_user[..=end])
-            .unwrap_or(without_user)
-    } else {
-        without_user.split(':').next().unwrap_or_default()
-    };
-    if host.is_empty() {
-        None
-    } else {
-        Some(host.to_string())
-    }
-}
-
 fn percent_encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
@@ -464,15 +423,6 @@ mod tests {
             normalize_or_search("mailto:a@b.com", "https://x/?q=%s"),
             "mailto:a@b.com"
         );
-    }
-
-    #[test]
-    fn domains_are_extracted_without_ports() {
-        assert_eq!(
-            extract_domain("https://www.example.com:8443/a"),
-            Some("www.example.com".into())
-        );
-        assert_eq!(extract_domain("about:blank"), None);
     }
 
     #[test]
