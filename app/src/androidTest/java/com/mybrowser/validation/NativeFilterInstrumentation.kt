@@ -2,6 +2,7 @@ package com.mybrowser.validation
 
 import android.app.Instrumentation
 import android.os.Bundle
+import com.mybrowser.core.ResourceType
 import com.mybrowser.filter.NativeFilter
 import org.json.JSONArray
 import org.json.JSONObject
@@ -46,18 +47,18 @@ class NativeFilterInstrumentation : Instrumentation() {
                 }
                 val loadMs = (System.nanoTime() - started) / 1e6
                 val cases = listOf(
-                    Triple("https://www.example.org/", "https://www.example.org/", NativeFilter.ResourceType.DOCUMENT),
-                    Triple("https://cdn.example.org/assets/main.js", "https://www.example.org/", NativeFilter.ResourceType.SCRIPT),
-                    Triple("https://cdn.example.org/images/photo.webp", "https://www.example.org/", NativeFilter.ResourceType.IMAGE),
-                    Triple("https://fonts.gstatic.com/s/roboto/font.woff2", "https://www.example.org/", NativeFilter.ResourceType.FONT),
-                    Triple("https://m.youtube.com/youtubei/v1/player", "https://m.youtube.com/watch?v=aqz-KE-bpKQ", NativeFilter.ResourceType.XML_HTTP_REQUEST),
-                    Triple("https://rr1.googlevideo.com/videoplayback?id=123&mime=video/mp4", "https://m.youtube.com/", NativeFilter.ResourceType.MEDIA),
-                    Triple("https://media.example.org/live/vl.m3u8?token=ABC123", "https://m.jrs16.com/wlty.html", NativeFilter.ResourceType.MEDIA),
-                    Triple("https://media.example.org/live/segment-001.ts", "https://m.jrs16.com/wlty.html", NativeFilter.ResourceType.MEDIA),
-                    Triple("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", "https://www.example.org/", NativeFilter.ResourceType.SCRIPT),
-                    Triple("https://www.google-analytics.com/analytics.js", "https://www.example.org/", NativeFilter.ResourceType.SCRIPT),
-                    Triple("https://cdn.example.org/ads/banner.js", "https://www.example.org/", NativeFilter.ResourceType.SCRIPT),
-                    Triple("https://cdn.example.org/movie/segment.m4s?token=" + "abcdef0123456789".repeat(128), "https://www.example.org/", NativeFilter.ResourceType.MEDIA))
+                    Triple("https://www.example.org/", "https://www.example.org/", ResourceType.DOCUMENT),
+                    Triple("https://cdn.example.org/assets/main.js", "https://www.example.org/", ResourceType.SCRIPT),
+                    Triple("https://cdn.example.org/images/photo.webp", "https://www.example.org/", ResourceType.IMAGE),
+                    Triple("https://fonts.gstatic.com/s/roboto/font.woff2", "https://www.example.org/", ResourceType.FONT),
+                    Triple("https://m.youtube.com/youtubei/v1/player", "https://m.youtube.com/watch?v=aqz-KE-bpKQ", ResourceType.XML_HTTP_REQUEST),
+                    Triple("https://rr1.googlevideo.com/videoplayback?id=123&mime=video/mp4", "https://m.youtube.com/", ResourceType.MEDIA),
+                    Triple("https://media.example.org/live/vl.m3u8?token=ABC123", "https://m.jrs16.com/wlty.html", ResourceType.MEDIA),
+                    Triple("https://media.example.org/live/segment-001.ts", "https://m.jrs16.com/wlty.html", ResourceType.MEDIA),
+                    Triple("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", "https://www.example.org/", ResourceType.SCRIPT),
+                    Triple("https://www.google-analytics.com/analytics.js", "https://www.example.org/", ResourceType.SCRIPT),
+                    Triple("https://cdn.example.org/ads/banner.js", "https://www.example.org/", ResourceType.SCRIPT),
+                    Triple("https://cdn.example.org/movie/segment.m4s?token=" + "abcdef0123456789".repeat(128), "https://www.example.org/", ResourceType.MEDIA))
                 val expected = cases.map { (url, page, type) -> engine.shouldBlockUncached(url, page, type) }
                 // Alternate order across runs to avoid crediting warm caches to one path.
                 repeat(6) { run ->

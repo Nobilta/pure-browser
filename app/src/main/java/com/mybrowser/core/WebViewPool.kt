@@ -18,11 +18,10 @@ import android.webkit.WebView
  * views behind them.
  *
  * Second, context. A WebView needs an Activity Context for dialogs, fullscreen video
- * and file pickers, but holding one pins that Activity and prevents both pre-warming
- * before an Activity exists and reuse across Activity recreation. The fix is
- * [MutableContextWrapper]: construct against the Application context, then swap in the
- * Activity right before the view is attached. This is the standard technique for
- * pre-created and pooled WebViews.
+ * and file pickers, but holding one pins that Activity and prevents reuse across
+ * Activity recreation. The fix is [MutableContextWrapper]: construct against the
+ * Application context, then swap in the Activity right before the view is attached.
+ * This is the standard technique for pooled WebViews.
  *
  * Main-thread only. WebView requires it, so no locking here is deliberate rather than
  * an oversight.
@@ -42,17 +41,6 @@ class WebViewPool(
 
     /** Live instance count, for logging and idle admission. */
     private var created = 0
-
-    /**
-     * Builds one instance ahead of time so the first navigation does not pay Chromium
-     * startup. Call on the main thread when prewarming fits the startup budget.
-     */
-    fun preWarm() {
-        if (created > 0 || idle.isNotEmpty()) return
-        val webView = create()
-        idle.addLast(webView)
-        Log.d(TAG, "pre-warmed one instance")
-    }
 
     /**
      * A WebView bound to [activity], ready to attach.
@@ -133,14 +121,6 @@ class WebViewPool(
             destroy(idle.removeFirst())
         }
         if (n > 0) Log.d(TAG, "trimmed $n idle instances")
-    }
-
-    /** Full teardown. */
-    fun destroyAll() {
-        idle.forEach { destroy(it) }
-        idle.clear()
-        active.toList().forEach { destroy(it) }
-        active.clear()
     }
 
     // --- internals ---

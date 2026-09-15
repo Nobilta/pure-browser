@@ -1,12 +1,11 @@
 # Third-Party Notices
 
 The fullscreen `ic_lock`, `ic_lock_open`, and browser
-`ic_copy`, `ic_share`, `ic_edit`, `ic_add`, `ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_print`, `ic_pip`
+`ic_copy`, `ic_share`, `ic_edit`, `ic_add`, `ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_pip`
 drawables are adapted from [Google Material Icons](https://github.com/google/material-design-icons),
 licensed under the [Apache License 2.0](third_party/material-icons-LICENSE.txt).
-The SVG paths were converted to Android VectorDrawable resources; the replay icon
-uses the forward icon's zero glyph. These notices and the license accompany the
-source and local APK delivery.
+The SVG paths were converted to Android VectorDrawable resources. These notices and
+the license accompany the source and local APK delivery.
 
 AndroidX and other existing dependencies retain their upstream licenses.
 
@@ -29,6 +28,7 @@ one of the alternatives offered by the [upstream licence notice](https://easylis
 This licence covers the rule data. Source URLs, versions and SHA-256 hashes are
 recorded in [the bundled notice](app/src/main/assets/filters/NOTICE.txt).
 Both the notice and full licence text are included in the APK assets.
+
 # Public Suffix List and IDNA
 
 The `site_identity` Rust module uses `psl` 2.1.232 (MIT/Apache-2.0) and its compiled

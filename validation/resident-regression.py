@@ -36,6 +36,19 @@ def main():
         prefixes = [d['tabs_count'].split('%1$d')[0] for d in ux._translations]
         button = next(n for n in root.iter('node') if ux.visible(n) and any(n.get('content-desc','').startswith(p) for p in prefixes))
         ux.tap_node(button)
+    def focused_editor(timeout=10):
+        # `input text` is delivered to whatever holds focus. tap_node only sleeps 0.5s, which
+        # is not enough for a freshly opened dialog to take focus on a software-rendered or
+        # memory-pressured emulator, so the text would be dropped and the check would fail
+        # for reasons unrelated to the app.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            root, _ = ux.nodes()
+            node = next((n for n in root.iter('node') if n.get('class') == 'android.widget.EditText'
+                         and n.get('focused') == 'true' and ux.visible(n)), None)
+            if node is not None: return node
+            time.sleep(.2)
+        raise AssertionError('no editable field took focus')
     checks = []
     try:
         ux.adb('shell','am','force-stop',args.package)
@@ -65,6 +78,7 @@ def main():
         row=next(n for n in root.iter('node') if ux.match(n,'Resident A') is not None and
                  ux.match(n,'Item actions') is not None and len(list(n.iter('node')))<30)
         ux.tap_node(ux.match(row,'Item actions')); ux.tap('Tab group'); ux.tap('Group name')
+        focused_editor()
         ux.adb('shell','input','text','QAgroup'); ux.adb('shell','input','keyevent','4'); ux.tap('Confirm')
         ux.expect('QAgroup')
         checks.append('Tab group can be assigned and selected in the visible tab list')
@@ -123,7 +137,30 @@ def main():
         ux.adb('shell', 'input', 'keyevent', '4')
         unchanged_source()
         checks.append('The tab list close button returns to the opener and leaves no exit prompt')
-        (args.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'before':before,'after':after},indent=2))
+
+        # Same-tab navigation and Back. Every case above crosses a tab boundary; this one
+        # stays inside the tab, so Back is a real document navigation rather than a switch
+        # to a retained page. Android WebView has no back/forward cache, so the document is
+        # rebuilt and unsent form state is lost. Assert the contract the platform actually
+        # provides and record the identity delta, so any change here shows up in result.json
+        # instead of passing silently.
+        ux.tap('Navigate within tab')
+        same_tab_next = wait('ANext', lambda r: r['ready'] == 'complete', since=time.time())
+        assert same_tab_next['name'] == 'ANext', same_tab_next
+        same_tab_back_at = time.time()
+        ux.adb('shell', 'input', 'keyevent', '4')
+        same_tab_back = wait('A', lambda r: r['ready'] == 'complete', since=same_tab_back_at)
+        assert same_tab_back['name'] == 'A' and same_tab_back['ready'] == 'complete', same_tab_back
+        same_tab = {
+            'tokenBefore': before['token'], 'tokenAfter': same_tab_back['token'],
+            'documentRebuilt': same_tab_back['token'] != before['token'],
+            'draftBefore': before['draft'], 'draftAfter': same_tab_back['draft'],
+            'spaBefore': before['spa'], 'spaAfter': same_tab_back['spa'],
+            'scrollBefore': before['scroll'], 'scrollAfter': same_tab_back['scroll'],
+        }
+        checks.append('Same-tab Back returns to the previous page and leaves it interactive')
+        (args.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'before':before,
+            'after':after,'sameTabBack':same_tab},indent=2))
         print(json.dumps(checks),flush=True)
     finally:
         (args.output/'last-screen.png').write_bytes(subprocess.check_output(ux.ADB+['exec-out','screencap','-p'],timeout=20))

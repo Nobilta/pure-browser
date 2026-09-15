@@ -1,7 +1,6 @@
 package com.mybrowser.core
 
 import com.mybrowser.R
-import com.mybrowser.filter.NativeFilter.ResourceType
 
 internal enum class NetworkCategory(val label: Int) {
     ALL(R.string.dev_network_all), DOCUMENT(R.string.dev_network_document), FETCH(R.string.dev_network_fetch),

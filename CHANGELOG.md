@@ -1,5 +1,18 @@
 # 更新日志
 
+## 0.9.1 - 2026-09-15
+
+- 消除两处包级循环依赖：`ResourceType` 与请求分类下沉到 `core`，`PlaybackSpeed` 同样移入 `core`；
+  `core`/`filter` 与 `data`/`media` 不再互相反向引用。不改变任何用户可见行为。
+- `ui` 包按功能拆分为 `shell`/`menu`/`settings`/`library`/`devtools`/`player`/`home`/`download`/`qr` 子包，
+  原先 40 个文件堆在同一目录。
+- 删除无引用的公开成员：`WebViewPool.preWarm`/`destroyAll`、`UrlUtils.extractDomain`、
+  `HistoryManager.removeHistoryByUrl`/`getRecentHistory`、`UserScript.matchPattern`；
+  随 `extractDomain` 一并移除 Rust 侧 JNI 导出、私有实现及其单元测试，避免 clippy 因 dead_code 失败。
+- 删除 6 条未被引用的三语言字符串、5 个无引用的 validation 脚本与 3 个孤立夹具；
+  修正第三方说明中已不存在的图标引用。
+- versionCode 提升为 19，沿用原正式签名。
+
 ## 0.9.0 - 2026-09-14
 
 - 弹窗交接后按驻留预算保留来源 WebView，避免切回时丢失表单、SPA 状态和滚动位置；离开时暂停媒体。

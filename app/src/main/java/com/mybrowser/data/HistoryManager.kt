@@ -111,12 +111,6 @@ class HistoryManager(context: Context) {
     }
 
     @Synchronized
-    fun removeHistoryByUrl(url: String): Int {
-        if (closed) return 0
-        return db.writableDatabase.delete("history", "url = ?", arrayOf(url.trim()))
-    }
-
-    @Synchronized
     fun clearAll() {
         if (!closed) db.writableDatabase.delete("history", null, null)
     }
@@ -126,11 +120,6 @@ class HistoryManager(context: Context) {
         check(!closed) { "History database closed" }
         db.writableDatabase.delete("history", "visit_time >= ?", arrayOf(sinceMs.toString()))
     }
-
-    /** Gets the most recent history entries (useful for autocomplete). */
-    @Synchronized
-    fun getRecentHistory(limit: Int = 10): List<HistoryEntry> =
-        getAllHistory(limit.coerceAtLeast(0))
 
     @Synchronized
     fun suggestions(query: String): List<HistoryEntry> {

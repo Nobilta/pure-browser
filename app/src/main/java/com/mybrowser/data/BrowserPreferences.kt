@@ -3,7 +3,7 @@ package com.mybrowser.data
 import com.mybrowser.R
 import android.content.Context
 import androidx.core.content.edit
-import com.mybrowser.media.PlaybackSpeed
+import com.mybrowser.core.PlaybackSpeed
 
 enum class ThemeMode(val labelRes: Int) {
     SYSTEM(R.string.ui_system_default), LIGHT(R.string.ui_light), DARK(R.string.ui_dark),

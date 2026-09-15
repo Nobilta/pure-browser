@@ -3,11 +3,11 @@ package com.mybrowser
 import com.mybrowser.R
 import com.mybrowser.site.*
 import com.mybrowser.data.BookmarkDocuments
-import com.mybrowser.ui.BookmarkImportDialog
+import com.mybrowser.ui.library.BookmarkImportDialog
 import kotlin.coroutines.resume
-import com.mybrowser.ui.SiteSettingsSheet
-import com.mybrowser.ui.ManagedSitesSheet
-import com.mybrowser.ui.WebsitePermissionDialog
+import com.mybrowser.ui.settings.SiteSettingsSheet
+import com.mybrowser.ui.settings.ManagedSitesSheet
+import com.mybrowser.ui.settings.WebsitePermissionDialog
 import android.Manifest
 import android.app.ActivityManager
 import android.content.Intent
@@ -74,13 +74,14 @@ import com.mybrowser.core.ExternalNavigationGate
 import com.mybrowser.core.RendererRecovery
 import com.mybrowser.core.PageFailure
 import com.mybrowser.core.PageFailureKind
-import com.mybrowser.ui.ExternalAppDialog
-import com.mybrowser.ui.BackHistoryDialog
-import com.mybrowser.ui.BackHistoryEntry
+import com.mybrowser.ui.shell.ExternalAppDialog
+import com.mybrowser.ui.shell.BackHistoryDialog
+import com.mybrowser.ui.shell.BackHistoryEntry
 import com.mybrowser.core.NetworkLogStore
 import com.mybrowser.core.NavigationPolicy
 import com.mybrowser.core.NavigationTarget
 import com.mybrowser.core.UrlUtils
+import com.mybrowser.core.classifyResourceType
 import com.mybrowser.core.WebViewPool
 import com.mybrowser.core.WebViewConfig
 import com.mybrowser.core.DetachedWebViewClient
@@ -97,7 +98,7 @@ import com.mybrowser.media.MediaPlaybackTracker
 import com.mybrowser.media.FullscreenVideoView
 import com.mybrowser.data.BrowserPreferences
 import com.mybrowser.data.BrowserPreferencesRepository
-import com.mybrowser.media.PlaybackSpeed
+import com.mybrowser.core.PlaybackSpeed
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchEngineManager
 import com.mybrowser.search.UrlOrSearch
@@ -108,7 +109,7 @@ import com.mybrowser.privacy.ClearDataRequest
 import com.mybrowser.privacy.ClearDataType
 import com.mybrowser.privacy.ClearScope
 import com.mybrowser.privacy.DataProfile
-import com.mybrowser.ui.ClearBrowsingDataDialog
+import com.mybrowser.ui.shell.ClearBrowsingDataDialog
 import com.mybrowser.home.HomeRepository
 import com.mybrowser.home.HomeShortcut
 import com.mybrowser.home.ShortcutIconChange
@@ -124,28 +125,35 @@ import com.mybrowser.download.DownloadSettings
 import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.data.Bookmark
 import com.mybrowser.data.HistoryEntry
-import com.mybrowser.ui.BrowserScreen
-import com.mybrowser.ui.BrowserState
-import com.mybrowser.ui.BrowserSheetNavigation
-import com.mybrowser.ui.BrowserSheetNavigation.Destination as Sheet
-import com.mybrowser.ui.BrowserSheetHost
-import com.mybrowser.ui.BrowserExitConfirmation
-import com.mybrowser.ui.BookmarksSheet
-import com.mybrowser.ui.HistorySheet
-import com.mybrowser.ui.CastSheet
-import com.mybrowser.ui.MenuSheet
-import com.mybrowser.ui.TabsSheet
-import com.mybrowser.ui.DownloadsSheet
-import com.mybrowser.ui.SettingsSheet
-import com.mybrowser.ui.FilterSettingsSheet
-import com.mybrowser.ui.UserScriptsSheet
-import com.mybrowser.ui.BookmarkEditDialog
-import com.mybrowser.ui.LibraryPager
-import com.mybrowser.ui.PageContextSheet
+import com.mybrowser.ui.shell.BrowserScreen
+import com.mybrowser.ui.shell.BrowserState
+import com.mybrowser.ui.shell.BrowserSheetNavigation
+import com.mybrowser.ui.shell.BrowserSheetNavigation.Destination as Sheet
+import com.mybrowser.ui.shell.BrowserSheetHost
+import com.mybrowser.ui.shell.BrowserExitConfirmation
+import com.mybrowser.ui.library.BookmarksSheet
+import com.mybrowser.ui.library.HistorySheet
+import com.mybrowser.ui.player.CastSheet
+import com.mybrowser.ui.menu.MenuSheet
+import com.mybrowser.ui.menu.TabsSheet
+import com.mybrowser.ui.download.DownloadsSheet
+import com.mybrowser.ui.settings.SettingsSheet
+import com.mybrowser.ui.settings.FilterSettingsSheet
+import com.mybrowser.ui.settings.UserScriptsSheet
+import com.mybrowser.ui.shell.BookmarkEditDialog
+import com.mybrowser.ui.library.LibraryPager
+import com.mybrowser.ui.shell.PageContextSheet
 import com.mybrowser.ui.theme.MyBrowserTheme
-import com.mybrowser.ui.Dialogs
+import com.mybrowser.ui.shell.Dialogs
 import java.io.ByteArrayInputStream
 import java.util.WeakHashMap
+import com.mybrowser.ui.devtools.DeveloperTools
+import com.mybrowser.ui.devtools.FilterExplanationDialog
+import com.mybrowser.ui.library.BookmarkLibrary
+import com.mybrowser.ui.qr.QrScannerSheet
+import com.mybrowser.ui.shell.Omnibar
+import com.mybrowser.ui.shell.SSLErrorDialog
+import com.mybrowser.ui.shell.SecurityInfoDialog
 
 /**
  * Hosts the browser.
@@ -220,7 +228,7 @@ class MainActivity : ComponentActivity(),
     private var scriptImportUrl by mutableStateOf<String?>(null)
 
     private lateinit var bookmarkDocuments: BookmarkDocuments
-    private lateinit var bookmarkLibrary: com.mybrowser.ui.BookmarkLibrary
+    private lateinit var bookmarkLibrary: com.mybrowser.ui.library.BookmarkLibrary
     private lateinit var historyLibrary: LibraryPager<HistoryEntry>
     private var currentPageBookmarked by mutableStateOf(false)
 
@@ -414,7 +422,7 @@ class MainActivity : ComponentActivity(),
         // Initialize bookmarks and history managers
         bookmarkManager = BookmarkManager(this)
         historyManager = HistoryManager(this)
-        bookmarkLibrary = com.mybrowser.ui.BookmarkLibrary(lifecycleScope, bookmarkManager) {
+        bookmarkLibrary = com.mybrowser.ui.library.BookmarkLibrary(lifecycleScope, bookmarkManager) {
             toast(getString(R.string.library_update_failed))
         }
         historyLibrary = LibraryPager(lifecycleScope, HistoryEntry::id) { query, limit, offset ->
@@ -456,7 +464,7 @@ class MainActivity : ComponentActivity(),
                     }
                 }
                 dialogs.Render()
-                filterExplanation?.let { com.mybrowser.ui.FilterExplanationDialog(it, filter) { filterExplanation = null } }
+                filterExplanation?.let { com.mybrowser.ui.devtools.FilterExplanationDialog(it, filter) { filterExplanation = null } }
                 if (showClearData) ClearBrowsingDataDialog(privacy.isIncognito, privacy.hasRealIsolation,
                     dataCleaner.supportsCompleteDeletion, clearingData, ::clearBrowsingData, { showClearData = false })
                 externalPrompt?.let { prompt ->
@@ -844,7 +852,7 @@ class MainActivity : ComponentActivity(),
                         )
 
                         Sheet.SITE_SETTINGS -> CurrentSiteSettings(entry)
-                        Sheet.QR_SCANNER -> com.mybrowser.ui.QrScannerSheet(
+                        Sheet.QR_SCANNER -> com.mybrowser.ui.qr.QrScannerSheet(
                             onOpenUrl = { url -> sheetAction(entry) { navigate(url) } },
                             onDismiss = { dismissSheet(entry) },
                         )
@@ -852,7 +860,7 @@ class MainActivity : ComponentActivity(),
                             // Hidden tools keep their bounded history without invalidating browser UI.
                             val networkEntries by networkLogs.entries.collectAsState()
                             val consoleEntries by consoleLogs.entries.collectAsState()
-                            com.mybrowser.ui.DeveloperTools(
+                            com.mybrowser.ui.devtools.DeveloperTools(
                                 webView = webView,
                                 networkEntries = networkEntries,
                                 consoleEntries = consoleEntries,
@@ -903,7 +911,7 @@ class MainActivity : ComponentActivity(),
 
                 // Security Info Dialog
                 if (showSecurityDialog) {
-                    com.mybrowser.ui.SecurityInfoDialog(
+                    com.mybrowser.ui.shell.SecurityInfoDialog(
                         url = state.currentUrl,
                         certificate = securityCertificate,
                         certificateError = hasCertificateWarning,
@@ -918,7 +926,7 @@ class MainActivity : ComponentActivity(),
                 // SSL Error Dialog
                 if (showSSLErrorDialog) {
                     pendingSSLError?.let { (handler, url) ->
-                        com.mybrowser.ui.SSLErrorDialog(
+                        com.mybrowser.ui.shell.SSLErrorDialog(
                             url = url,
                             onProceed = {
                                 currentCertificateError = true
@@ -2136,7 +2144,7 @@ class MainActivity : ComponentActivity(),
     override fun onInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
         val mediaGeneration = media.pageGeneration
         val document = workerDocument
-        val resourceType = FilterController.classify(request)
+        val resourceType = classifyResourceType(request)
         val requestId = networkLogs.recordRequest(request, document.url, resourceType)
         val documentUrl = document.url
 
