@@ -15,7 +15,7 @@
 
 `BrowserSheetHost` 在整条路径存续期间只创建一个 `BrowserSheetWindow`。切换路由仅替换窗口内内容，
 不销毁旧窗口后再弹出新窗口；子页面切换保持不透明底板，只动画内容。
-首次打开菜单/标签时，不透明 Surface 以 240ms 上滑，遮罩单独淡入；关闭使用 120ms 过渡，避免整块面板半透明叠在网页上。
+面板动效在 0.9.1 收敛为一套语义（进入 / 窗口内换页 / 换容器），见 [弹层动效一致性](sheet-motion-consistency.md)；此处只保留路由与位置规则。
 设置及书签使用全屏 Surface，其余页面使用 `BrowserBottomSheet`；书签编辑弹窗打开时保留书签页。
 
 `SheetWindowContent` 将窗口的返回请求交给当前页面，设置分类、书签目录及选择模式各自处理内部返回。
@@ -39,10 +39,10 @@
   无障碍坐标不变不能单独证明渲染稳定。
 
 ```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.9.0-release.apk
+python3 validation/qa-server.py --apk PureBrowser-v<版本>-release.apk
 python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.0-release.apk \
-  --label release-090-ui --stages menu-navigation settings-back site layout browser developer-tools features-scripts features-filters
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v<版本>-release.apk \
+  --label <标签> --stages menu-navigation settings-back site layout browser developer-tools features-scripts features-filters
 ```
 
 实际设备、安装包及失败记录见 README 和 EMULATOR_TEST_REPORT；临时验证脚本完成后删除。

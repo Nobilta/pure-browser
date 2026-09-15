@@ -8,9 +8,12 @@
   Record actual results and any unverified device/version coverage.
 - After validation, update README and deliver a signed, directly installable release APK.
 
-- Keep `README.md` synchronized with every subsequent change to user-visible behavior,
-  architecture, dependencies, build or validation steps, and release artifacts.
-- Treat `README.md` as the canonical project entry point. Do not leave stale test counts,
-  requirements, paths, APK sizes, hashes, or capability claims in it.
+- Keep `README.md` synchronized with every subsequent change to dependencies, build or validation
+  steps, and with `README.en.md`; keep `FEATURES.md` synchronized with every user-visible behavior
+  or capability-boundary change; keep release steps, test counts, APK sizes and hashes in
+  `RELEASING.md`.
+- Treat `README.md` as the canonical project entry point, and keep `README.en.md` structurally in
+  sync with it (same sections and links, English prose). Do not leave stale requirements, paths,
+  test counts, APK sizes, hashes, or capability claims in any of them.
 - Never commit `local.properties`, signing credentials, keystores, generated build output,
   or delivery APK files.

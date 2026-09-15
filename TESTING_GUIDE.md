@@ -3,6 +3,9 @@
 当前功能、依赖与交付包以 [README](README.md) 为准，实际执行结果见 [模拟器报告](EMULATOR_TEST_REPORT.md)。
 本文件是复现方法和验收范围，不表示下列所有设备/网站都已验证。
 
+CI（`.github/workflows/ci.yml`）在每次 push 与 PR 上只执行 `--quick` 加 Rust clippy；
+它不跑模拟器阶段，也不做签名构建——那两部分仍按本文件在本地设备上执行并记录结果。
+
 ## 自动检查和签名构建
 
 ```bash
@@ -44,6 +47,37 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 `--profile full` 才执行该设备的完整阶段矩阵，`--stages` 可以指定自定义范围。交付回归使用 API 37，API 29 专项路径已移除。
 只有 APK、AVD、测试源码、阶段选择完全相同时可以 `--resume`；
 退出码、耗时、日志和包哈希写入 suite JSON，失败保留到 `priorAttempts`。改变源码/包后使用新的 suite，不能复用旧包通过项。
+
+被测 APK 的 `versionCode` 必须不低于线上最新正式版本：低于时应用的启动检查会弹出更新对话框，可能遮挡后续 UI 步骤。
+需要验证更旧的版本时，先在“设置 → 关于 → 启动时自动检查更新”里关闭该开关再跑回归。
+
+### 为什么慢，以及怎么跑得快
+
+UI 查询是这里最贵的操作：每次读取无障碍树都会在设备上**新起一个 `app_process`**（`FastUiDump`），
+再连一次 UiAutomation。实测单次 280–540 ms（主机负载高时可达 1 s 以上），所以阶段耗时基本等于
+“查询次数 × 单次成本”。据此做了三项改动，都用同一交付包与同一套检查项验证过：
+
+1. **设备端等待**：`nodes(await_labels=...)` 让 helper 在**一个连接内**轮询控件出现（或消失）后再取快照，
+   宿主侧不再“每隔 150 ms 抓一次整树”。`tap_resource`、`menu_item`、`category`、`toolbar_back`、
+   `browser`、`expect`、`expect_menu` 都改为这种等待；`uiautomator` 降级路径没有等待能力，
+   所以调用方的轮询循环仍保留，语义不变。背靠背 A/B（同一 APK、同一轮数、同一台机器）：
+   `menu-navigation` **232 s → 207 s**，而实验组是在更高负载下跑的。
+2. **压力循环降档**：`menu-navigation --cycles` 默认 24 → **8**，`settings-back --cycles` 默认 6 → **4**。
+   两个循环都是“用不同延迟重复同一路径”，8 轮已覆盖 4 种 Back 延迟各两次、4 轮已覆盖左右手势各两次，
+   **检查项与断言完全不变**。同代码对照：`menu-navigation` 24 轮 **303 s** → 8 轮 **207 s**。
+3. **按需选择范围**：日常改动用 `--profile smoke`，提版本前用 `--profile tabs`；`full` 只在发布前跑。
+   `full` 里 `video-*` 有 9 个变体，只改播放器相关代码时用 `--stages video-popup video-popup-cross` 即可。
+
+需要完整压力覆盖时显式放大：`menu-navigation-regression.py --cycles 24`、`settings-back-regression.py --cycles 6`。
+比较两种等待行为时可以设置 `PURE_UX_NO_AWAIT=1`（把等待快照退回普通快照），用于同负载 A/B。
+
+`update-launch` 阶段验证"启动更新提示"在配置重建后仍然存在：它需要**可 root 的 AVD**（`adb root`），
+向应用写入一份缓存的测试清单后只在提示处停下，不下载也不安装，结束时还原清单缓存、深色模式与进程。
+它也是这条缺陷的可复现检查——提示过去存放在 Activity 状态里，深色模式切换会让它在同一进程内消失。
+
+**改动验证框架后必须做一次负向对照**：故意破坏被测行为，确认目标阶段仍然失败。
+本轮的做法是临时移除“菜单打开/关闭解除退出确认”，`menu-navigation` 如期在退出确认检查处失败
+（实测该序列 963 ms 且浏览器真的退出，排除负载噪声），随后还原并确认交付包 SHA-256 未变。
 
 Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/pure-ui-dump.jar`，提供真实触摸、
 键盘和无障碍树读取；动态网页使用 DOM 遥测与播放/文件内容核对操作结果，不能只判断按钮存在。
