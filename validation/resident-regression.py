@@ -63,7 +63,9 @@ def main():
         time.sleep(.7)
         ux.launch(base+'resident-fixture.html?case='+key+'&name=B')
         wait('B',lambda r:r['ready']=='complete')
-        tabs(); ux.expect('Page kept in memory'); ux.tap('Resident A')
+        # The tab list no longer labels residency; the document comparison below is what
+        # actually proves the page was retained.
+        tabs(); ux.tap('Resident A')
         switched = time.time()
         after = wait('A',lambda r:r['ready']=='complete',since=switched)
         for field in ('token','started','draft','spa','state'):
@@ -141,9 +143,12 @@ def main():
         # Same-tab navigation and Back. Every case above crosses a tab boundary; this one
         # stays inside the tab, so Back is a real document navigation rather than a switch
         # to a retained page. Android WebView has no back/forward cache, so the document is
-        # rebuilt and unsent form state is lost. Assert the contract the platform actually
-        # provides and record the identity delta, so any change here shows up in result.json
-        # instead of passing silently.
+        # rebuilt and unsent form state is lost. Normal pages turn on the provider's
+        # back/forward cache when the installed WebView supports it, so the document — and
+        # with it the form draft and the SPA memory — survives the roundtrip. Pages the
+        # provider refuses to cache (unload listeners, no-store) still reload, and then only
+        # the platform's scroll restoration applies. Assert whichever contract the run
+        # actually produced, so neither can pass silently, and record the delta in result.json.
         ux.tap('Navigate within tab')
         same_tab_next = wait('ANext', lambda r: r['ready'] == 'complete', since=time.time())
         assert same_tab_next['name'] == 'ANext', same_tab_next
@@ -158,7 +163,17 @@ def main():
             'spaBefore': before['spa'], 'spaAfter': same_tab_back['spa'],
             'scrollBefore': before['scroll'], 'scrollAfter': same_tab_back['scroll'],
         }
-        checks.append('Same-tab Back returns to the previous page and leaves it interactive')
+        if same_tab['documentRebuilt']:
+            assert same_tab['draftAfter'] == '', same_tab
+            assert same_tab['spaAfter'] == 0, same_tab
+            # The scroll offset is recorded but not asserted: the platform restores it on
+            # some runs and not others (the fixture scrolls from script), and that variance
+            # is independent of whether the provider cached the document.
+            checks.append('Same-tab Back rebuilt the document; form draft and SPA memory were lost')
+        else:
+            assert same_tab['draftAfter'] == before['draft'], same_tab
+            assert same_tab['spaAfter'] == before['spa'], same_tab
+            checks.append('Same-tab Back reused the retained document; form draft and SPA memory survived')
         (args.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'before':before,
             'after':after,'sameTabBack':same_tab},indent=2))
         print(json.dumps(checks),flush=True)

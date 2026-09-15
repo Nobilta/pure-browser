@@ -1,0 +1,47 @@
+name: 功能请求
+description: 建议新能力或改进（本仓库范围与"暂不计划"清单见 README）
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提请求前请先看 [README 的路线图](https://github.com/Nobilta/pure-browser/blob/main/README.md#路线图)，
+        那里列出了明确不在当前计划内的方向（翻译与跨设备同步、完整 uBlock/Tampermonkey 兼容、非 arm64 设备等）。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题
+      description: 描述使用场景和当前的不便，而不是直接给实现方案
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的行为
+      description: 如果能想到实现思路也可以写，但不是必须
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+      description: 例如其他浏览器怎么做的、你目前如何绕过
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影响范围
+      options:
+        - 只影响我自己
+        - 少数特定网站或场景
+        - 通用行为
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我知道这个项目只在能自证验证结果的前提下合入功能，新增能力需要可验证的实现
+          required: false

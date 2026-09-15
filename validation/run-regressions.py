@@ -65,7 +65,8 @@ def main():
                         'webView': device('shell', 'dumpsys', 'webviewupdate')}
 
     # Exercise new capabilities and recent lifecycle fixes before the older feature matrix.
-    upgrade = [('system-media', 'system-media-regression.py'),
+    upgrade = [('update-launch', 'update-launch-regression.py'),
+               ('system-media', 'system-media-regression.py'),
                ('capture', 'capture-regression.py'), ('resources', 'script-resources-regression.py'),
                ('organization', 'system-upgrade-regression.py'), ('resident', 'resident-regression.py')]
     if int(sdk) >= 37:

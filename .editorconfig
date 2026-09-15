@@ -1,0 +1,31 @@
+# Editor defaults for this repository. .gitattributes already normalises line endings in Git;
+# this file only keeps editors from introducing their own conventions in new files.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{js,cjs,mjs,json,yml,yaml,toml,html,css,properties}]
+indent_size = 2
+
+[*.{kt,kts}]
+indent_size = 4
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false
+
+[*.bat]
+end_of_line = crlf
+
+# Upstream blocking rules keep trailing spaces; their published hashes include them.
+[app/src/main/assets/filters/*.txt]
+trim_trailing_whitespace = false
+
+[*.{png,jpg,jpeg,mp4,apk,jar,jks,keystore}]
+insert_final_newline = false
