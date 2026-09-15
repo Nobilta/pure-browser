@@ -377,7 +377,6 @@
     <string name="tabs_count">标签页（%1$d）</string>
     <string name="tabs_actions">标签页操作</string>
     <string name="tabs_search">搜索标签页</string>
-    <string name="tabs_current">当前</string>
     <string name="tabs_close_others">关闭其他标签页</string>
     <plurals name="tabs_close_confirm">
         <item quantity="other">关闭 %1$d 个标签页？</item>
@@ -496,7 +495,6 @@
     <string name="back_history">返回历史</string>
     <string name="back_history_empty">此标签没有之前的页面</string>
     <string name="exit_current_site">退出当前站点并回首页</string>
-    <string name="private_isolated">无痕 · 网站存储独立隔离</string>
     <string name="private_shared">无痕 · 存储共享，退出时清除</string>
     <string name="clear_scope">存储范围</string>
     <string name="clear_current">当前浏览模式</string>
@@ -516,8 +514,6 @@
     <string name="clear_this_site">清除此网站的数据</string>
     <string name="clear_site_message">清除当前模式中 %1$s 及其所有子域的 Cookie、缓存和存储？其他网站的数据保留。</string>
     <string name="clear_site_legacy">此 WebView 仅能清除 %1$s 的本地 WebStorage，Cookie 和其他存储会保留。</string>
-    <string name="private_screenshot_protection">保护无痕截图</string>
-    <string name="private_screenshot_summary">无痕时禁止截图，最近任务预览保持隐藏；无痕地址建议不显示普通历史。</string>
     <string name="download_queued">排队中</string>
     <string name="download_waiting_network">等待符合条件的网络</string>
     <string name="download_saving">正在保存已校验文件…</string>
@@ -554,8 +550,6 @@
     <string name="tabs_group_hint">留空可移出分组。</string>
     <string name="tabs_move_previous">移到前面</string>
     <string name="tabs_move_next">移到后面</string>
-    <string name="tabs_resident">页面保留在内存中</string>
-    <string name="tabs_sleeping">已休眠 · 打开时重新加载</string>
     <string name="pin_website">添加网站到手机桌面</string>
     <string name="shortcut_unavailable">桌面启动器无法添加此快捷方式。</string>
     <string name="filter_explain">查看过滤原因</string>
@@ -649,5 +643,10 @@
     <string name="update_download">下载更新</string>
     <string name="update_allow_source">允许安装</string>
     <string name="update_install">安装</string>
+    <string name="update_auto_check">启动时自动检查更新</string>
+    <string name="update_auto_check_summary">启动时在后台检查 GitHub Releases，只有发现新版本才会提示。</string>
+    <string name="update_prompt_body">发现新版本。下载并校验后会打开系统安装器完成安装。</string>
+    <string name="update_now">更新</string>
+    <string name="update_permission_needed_auto">请在系统设置中允许此来源安装，返回后会自动继续安装。</string>
     <string name="update_release_page">查看 GitHub 发布页</string>
 </resources>

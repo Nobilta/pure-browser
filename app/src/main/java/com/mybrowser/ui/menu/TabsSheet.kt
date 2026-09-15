@@ -41,7 +41,6 @@ fun TabsSheet(
     onCloseAll: () -> Unit,
     onCloseOthers: () -> Unit,
     onDismiss: () -> Unit,
-    residentIds: Set<String> = emptySet(),
     onMoveTab: (String, Int) -> Unit = { _, _ -> },
     onGroupTab: (String, String) -> Unit = { _, _ -> },
 ) {
@@ -99,10 +98,6 @@ fun TabsSheet(
                                     style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(tab.url, style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (tab.id == currentId) Text(stringResource(R.string.tabs_current),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                else Text(stringResource(if (tab.id in residentIds) R.string.tabs_resident else R.string.tabs_sleeping),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (tab.group.isNotEmpty()) Text(tab.group, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                             }
                             Column {

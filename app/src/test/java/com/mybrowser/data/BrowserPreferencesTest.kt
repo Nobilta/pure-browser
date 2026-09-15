@@ -38,4 +38,10 @@ class BrowserPreferencesTest {
         assertEquals(ThemeMode.SYSTEM, BrowserPreferencesRepository(context).load().theme)
         assertFalse(BrowserPreferencesRepository(context).load().video.rememberSpeed)
     }
+
+    @Test fun startupUpdateChecksStayOnUntilTheUserTurnsThemOff() {
+        assertTrue(BrowserPreferencesRepository(context).load().autoCheckUpdates)
+        BrowserPreferencesRepository(context).save(BrowserPreferences(autoCheckUpdates = false))
+        assertFalse(BrowserPreferencesRepository(context).load().autoCheckUpdates)
+    }
 }

@@ -1,6 +1,7 @@
 package com.mybrowser.ui.shell
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -96,8 +97,11 @@ internal fun BrowserSheetHost(
         BrowserSheetWindow(onDismissRequest = { navigation.current?.let(navigation::back) }) {
             // Replace content atomically inside the existing window. Stable keys
             // restore parent state without hidden dialogs or stale Back callbacks.
-            key(owner.route.key) {
-                savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+            // Depth tells the arriving page whether it travels from below (child) or above (parent).
+            CompositionLocalProvider(LocalSheetDepth provides navigation.routes.size) {
+                key(owner.route.key) {
+                    savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+                }
             }
         }
     }
