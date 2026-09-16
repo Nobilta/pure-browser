@@ -9,6 +9,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -56,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.composed
 import androidx.compose.foundation.background
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -84,11 +88,12 @@ import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.SystemLoginDialog
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
+import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.TextInputDialog
-import com.mybrowser.ui.shell.browserContentMotion
 import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.shell.pageChangeAlpha
 
 /** Category navigation stays mounted while pickers and filter lists are open. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -134,6 +139,12 @@ fun SettingsSheet(
     var pickerGeneration by rememberSaveable { mutableLongStateOf(0L) }
     val openPicker: (String) -> Unit = { pickerGeneration++; picker = it }
     val selected = SettingsCategory.entries.firstOrNull { it.name == sectionName }
+    // The list and a category are two panes of this one route. The sheet carries whichever pane the
+    // route shows first; every later switch is a page change inside the route, so no operation is
+    // animated twice.
+    val previousPane = remember { mutableStateOf(selected) }
+    val paneChanged = previousPane.value != selected
+    SideEffect { previousPane.value = selected }
     val back = {
         if (!childOpen && picker == null && !showSystemLogin && !showUpdate) {
             if (selected != null) sectionName = null else onDismiss()
@@ -151,7 +162,9 @@ fun SettingsSheet(
             Row(Modifier.fillMaxSize()) {
                 if (twoPane || selected == null) {
                     Box(if (twoPane) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
-                        SettingsPage(textResources.getString(R.string.menu_settings), back) {
+                        SettingsPage(textResources.getString(R.string.menu_settings), back,
+                            modifier = Modifier.settingsPaneChange(paneKey = null,
+                                animate = paneChanged && !twoPane, direction = -1f, travel = !twoPane)) {
                             OutlinedTextField(searchQuery, { searchQuery = it.take(128) }, label = { Text(textResources.getString(R.string.settings_search)) },
                                 singleLine = true, modifier = Modifier.fillMaxWidth().padding(12.dp))
                             if (searchQuery.isNotBlank()) {
@@ -208,9 +221,13 @@ fun SettingsSheet(
                                     SettingsToggle(textResources.getString(R.string.download_unmetered), textResources.getString(R.string.download_budget_summary),
                                         downloadSettings.unmeteredOnly, onDownloadNetworkChange)
                                     DownloadSettingsPage(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
-                                        onDownloadThreadCountChange, back)
+                                        onDownloadThreadCountChange, back,
+                                        modifier = Modifier.settingsPaneChange(paneKey = category,
+                                            animate = paneChanged, direction = 1f, travel = !twoPane))
                                 }
-                                else -> SettingsPage(textResources.getString(category.titleRes), back) {
+                                else -> SettingsPage(textResources.getString(category.titleRes), back,
+                                    modifier = Modifier.settingsPaneChange(paneKey = category,
+                                        animate = paneChanged, direction = 1f, travel = !twoPane)) {
                                     when (category) {
                                         SettingsCategory.BROWSING -> {
                                             SettingsGroup(textResources.getString(R.string.ui_startup))
@@ -374,17 +391,40 @@ private fun SettingsGroup(title: String) {
     )
 }
 
+/**
+ * A page change inside the settings route. The sheet carries the pane a route shows first, so only
+ * a later switch animates: the narrow layout pushes and pops between the list and a category, while
+ * the wide layout keeps its navigation column and swaps the detail without travel.
+ */
+private fun Modifier.settingsPaneChange(
+    paneKey: Any?,
+    animate: Boolean,
+    direction: Float,
+    travel: Boolean,
+): Modifier = composed {
+    val progress = remember(paneKey) { Animatable(if (animate) 0f else 1f) }
+    LaunchedEffect(paneKey) {
+        if (animate) progress.animateTo(1f, if (travel) BrowserMotion.pageChange else BrowserMotion.contentReplace)
+    }
+    val distance = with(LocalDensity.current) { BrowserMotion.PAGE_CHANGE_DISTANCE.toPx() }
+    graphicsLayer {
+        alpha = pageChangeAlpha(progress.value)
+        if (travel) translationX = (1f - progress.value) * distance * direction
+    }
+}
+
 @Composable
 private fun SettingsPage(
     title: String,
     onBack: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         BrowserSheetHeader(title, onBack = onBack, actions = actions)
         Column(
-            Modifier.weight(1f).fillMaxWidth().browserContentMotion(title)
+            Modifier.weight(1f).fillMaxWidth().then(modifier)
                 .verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         ) { content() }
     }
@@ -514,13 +554,15 @@ private fun DownloadSettingsPage(
     onChooseDirectory: () -> Unit,
     onThreadCountChange: (Int) -> Unit,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val textResources = localizedResources()
     var threadDraft by remember(settings.threadCount) {
         mutableFloatStateOf(settings.threadCount.toFloat())
     }
 
-    SettingsPage(title = textResources.getString(R.string.ui_download_settings), onBack = onBack) {
+    SettingsPage(title = textResources.getString(R.string.ui_download_settings), onBack = onBack,
+        modifier = modifier) {
         Text(
             text = textResources.getString(R.string.ui_save_location),
             style = MaterialTheme.typography.labelMedium,

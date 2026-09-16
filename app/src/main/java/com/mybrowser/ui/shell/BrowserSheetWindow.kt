@@ -1,10 +1,10 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -45,27 +45,25 @@ private class SheetWindowState {
  * [LocalSheetWindow] is cleared, because a picker opened by this page gets its own window.
  */
 internal class SheetPresentation(
-    private val first: Boolean,
+    /** True for the first page of a window: the window's own entrance carries it in. */
+    val first: Boolean,
     private val previous: SheetShape?,
     /** 1 for a top-level destination, 2 for the single child a menu may push. */
     val depth: Int,
     private val publishShape: (SheetShape) -> Unit,
 ) {
-    fun sceneFor(fullscreen: Boolean): SheetScene = when {
-        first -> SheetScene.ENTER
-        previous != null && previous.fullscreen != fullscreen -> SheetScene.CONTAINER
-        else -> SheetScene.WITHIN
-    }
-
     /** The surface this route replaced, non-null only while a container change settles. */
     fun replacedShape(fullscreen: Boolean): SheetShape? =
-        previous?.takeIf { sceneFor(fullscreen) == SheetScene.CONTAINER }
+        previous?.takeIf { previous.fullscreen != fullscreen }
 
     fun publish(shape: SheetShape) = publishShape(shape)
 }
 
 private val LocalSheetWindow = staticCompositionLocalOf<SheetWindowState?> { null }
 private val LocalSheetInsets = staticCompositionLocalOf<WindowInsets?> { null }
+
+/** The window's own progress: 0 while off the edge, 1 while presented. */
+private val LocalSheetVisibility = staticCompositionLocalOf<State<Float>> { mutableStateOf(1f) }
 private val LocalSheetPresentation = staticCompositionLocalOf {
     SheetPresentation(first = true, previous = null, depth = 1, publishShape = {})
 }
@@ -77,7 +75,11 @@ internal val LocalSheetDepth = staticCompositionLocalOf { 1 }
 internal fun browserSheetInsets(): WindowInsets = LocalSheetInsets.current ?: WindowInsets.safeDrawing
 
 @Composable
-internal fun BrowserSheetWindow(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal fun BrowserSheetWindow(
+    visibility: State<Float>,
+    onDismissRequest: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     val window = remember { SheetWindowState() }
     // Older Android versions can report zero system insets inside a dialog.
     val contentInsets = browserSheetInsets()
@@ -87,7 +89,11 @@ internal fun BrowserSheetWindow(onDismissRequest: () -> Unit, content: @Composab
         dismissOnClickOutside = false,
     )) {
         ApplySheetSystemBars(fullscreen = true)
-        CompositionLocalProvider(LocalSheetWindow provides window, LocalSheetInsets provides contentInsets) {
+        CompositionLocalProvider(
+            LocalSheetWindow provides window,
+            LocalSheetInsets provides contentInsets,
+            LocalSheetVisibility provides visibility,
+        ) {
             Box(Modifier.fillMaxSize()) { content() }
         }
     }
@@ -97,7 +103,14 @@ internal fun BrowserSheetWindow(onDismissRequest: () -> Unit, content: @Composab
 private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
     val window = LocalSheetWindow.current
     if (window == null) {
-        BrowserSheetWindow(onDismissRequest) { SheetWindowContent(onDismissRequest, content) }
+        // A window a page opens by itself (a picker) has nothing above it to drive its progress, so
+        // it runs its own entrance. Its exit is still the window animation: only the route host
+        // retains a page after the route is gone.
+        val visibility = remember { Animatable(0f) }
+        LaunchedEffect(Unit) { visibility.animateTo(1f, BrowserMotion.sheetEnter) }
+        BrowserSheetWindow(visibility.asState(), onDismissRequest) {
+            SheetWindowContent(onDismissRequest, content)
+        }
     } else {
         val owner = remember { Any() }
         val first = remember(window) { !window.hasPresentedContent }
@@ -119,22 +132,33 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
 }
 
 /**
- * Runs this route's entrance and republishes the surface a later route may replace.
+ * Runs this page's own transition and republishes the surface a later route may replace.
  * Both containers call it, so they cannot drift apart in rhythm or distance.
  */
 @Composable
 private fun sheetMotion(fullscreen: Boolean, color: Color, height: Int): SheetMotion {
     val presentation = LocalSheetPresentation.current
-    val scene = presentation.sceneFor(fullscreen)
-    val progress = rememberSheetMotion(scene)
+    val visibility = LocalSheetVisibility.current
+    // The window carries the first page in and out. A page that replaced another one inside the
+    // same window animates its own content instead, so one operation is never composed twice.
+    val content = remember { Animatable(if (presentation.first) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (content.value < 1f) content.animateTo(1f, BrowserMotion.pageChange)
+    }
     SideEffect { if (height > 0) presentation.publish(SheetShape(fullscreen, height, color)) }
     return SheetMotion(
-        scene = scene,
-        progress = progress.asState(),
+        visibility = visibility,
+        content = content.asState(),
         direction = if (presentation.depth > 1) 1f else -1f,
         replaced = presentation.replacedShape(fullscreen),
     )
 }
+
+/** One sheet shape for both containers, so a container change swaps rounded edges only. */
+@Composable
+private fun sheetShape(): Shape = MaterialTheme.shapes.extraLarge.copy(
+    bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp),
+)
 
 /** A faded copy of the surface a route replaced, so switching containers does not pop. */
 @Composable
@@ -151,7 +175,7 @@ private fun ReplacedSurface(shape: SheetShape, alpha: Float, sheetShape: Shape) 
     }
 }
 
-/** Fixed edges and one mounted route; only the surface layer moves during entrance. */
+/** Fixed edges and one mounted route; only the surface layer moves while the window animates. */
 @Composable
 internal fun BrowserBottomSheet(
     onDismissRequest: () -> Unit,
@@ -164,27 +188,21 @@ internal fun BrowserBottomSheet(
         val safeInsets = browserSheetInsets()
         var surfaceHeight by remember { mutableIntStateOf(0) }
         val motion = sheetMotion(fullscreen = false, color = containerColor, height = surfaceHeight)
-        val scene = motion.scene
-        val progress = motion.progress
-        val contentDistance = with(LocalDensity.current) { BrowserMotion.CONTENT_DISTANCE.toPx() }
+        val contentDistance = with(LocalDensity.current) { BrowserMotion.PAGE_CHANGE_DISTANCE.toPx() }
         val scrim = MaterialTheme.colorScheme.scrim
-        val sheetShape = MaterialTheme.shapes.extraLarge.copy(
-            bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp),
-        )
+        val shape = sheetShape()
         Box(Modifier.fillMaxSize()) {
-            // The scrim keeps the page out of every transition: it fades in with the first
-            // surface and then holds, so a route or container change never flashes the webpage.
+            // The scrim keeps the page out of every transition: it fades with the window progress
+            // and holds while routes change, so a change never flashes the webpage.
             Box(Modifier.matchParentSize().drawBehind {
-                val alpha = if (scene == SheetScene.ENTER) BrowserMotion.SCRIM_ALPHA * progress.value
-                else BrowserMotion.SCRIM_ALPHA
-                drawRect(scrim.copy(alpha = alpha))
+                drawRect(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA * motion.visibility.value))
             }
                 .pointerInput(onDismissRequest) { detectTapGestures { onDismissRequest() } }
                 .semantics {
                     contentDescription = dismissLabel
                     onClick { onDismissRequest(); true }
                 })
-            motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - progress.value, sheetShape) }
+            motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - motion.content.value, shape) }
             Box(Modifier.fillMaxSize()
                 .windowInsetsPadding(safeInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .imePadding().padding(top = 16.dp)) {
@@ -192,22 +210,20 @@ internal fun BrowserBottomSheet(
                     modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
                         .onSizeChanged { surfaceHeight = it.height }
                         .graphicsLayer {
-                            // A sheet is a solid surface, not a translucent page floating
-                            // over the website. Only translate its layer; never its scrim.
+                            // A sheet is a solid surface, not a translucent page floating over the
+                            // website: only its layer moves, and it leaves along the edge it came from.
                             alpha = if (surfaceHeight == 0) 0f else 1f
-                            translationY = if (scene == SheetScene.WITHIN) 0f
-                            else (1f - progress.value) * surfaceHeight
+                            translationY = (1f - motion.visibility.value) * surfaceHeight
                         }.then(modifier),
-                    shape = sheetShape,
+                    shape = shape,
                     color = containerColor,
                 ) {
                     Column(Modifier.windowInsetsPadding(safeInsets.only(WindowInsetsSides.Bottom)).padding(top = 12.dp)
                         .graphicsLayer {
-                            // The surface stays opaque under incoming content, so a submenu
-                            // never flashes the layer behind it.
-                            alpha = if (scene == SheetScene.ENTER) 1f else progress.value
-                            translationY = if (scene == SheetScene.ENTER) 0f
-                            else (1f - progress.value) * contentDistance * motion.direction
+                            // The surface stays opaque under incoming content, so a submenu never
+                            // flashes the layer behind it.
+                            alpha = pageChangeAlpha(motion.content.value)
+                            translationY = (1f - motion.content.value) * contentDistance * motion.direction
                         }, content = content)
                 }
             }
@@ -221,30 +237,26 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
         val containerColor = MaterialTheme.colorScheme.surface
         var height by remember { mutableIntStateOf(0) }
         val motion = sheetMotion(fullscreen = true, color = containerColor, height = height)
-        val scene = motion.scene
-        val progress = motion.progress
-        val contentDistance = with(LocalDensity.current) { BrowserMotion.CONTENT_DISTANCE.toPx() }
+        val contentDistance = with(LocalDensity.current) { BrowserMotion.PAGE_CHANGE_DISTANCE.toPx() }
+        val offset = with(LocalDensity.current) { BrowserMotion.FULLSCREEN_OFFSET.toPx() }
         val scrim = MaterialTheme.colorScheme.scrim
-        val sheetShape = MaterialTheme.shapes.extraLarge.copy(
-            bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp),
-        )
+        val shape = sheetShape()
         Box(Modifier.fillMaxSize().onSizeChanged { height = it.height }) {
-            // Hidden behind the opaque page at rest; it carries the transition when the
-            // destination swaps containers, and dims the page while a full-screen page enters.
+            // Hidden behind the opaque page at rest; it dims the page while a full-screen page
+            // enters or leaves, with the same progress as the surface.
             Box(Modifier.matchParentSize().drawBehind {
-                val alpha = if (scene == SheetScene.ENTER) BrowserMotion.SCRIM_ALPHA * progress.value
-                else BrowserMotion.SCRIM_ALPHA
-                drawRect(scrim.copy(alpha = alpha))
+                drawRect(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA * motion.visibility.value))
             })
-            motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - progress.value, sheetShape) }
+            motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - motion.content.value, shape) }
             Surface(Modifier.fillMaxSize().graphicsLayer {
-                alpha = if (height == 0) 0f else 1f
-                translationY = if (scene == SheetScene.WITHIN) 0f else (1f - progress.value) * height
+                // A page covers the window instead of sliding through it: it fades in from a short
+                // offset, so a settings or bookmarks page does not drag the whole screen.
+                alpha = if (height == 0) 0f else motion.visibility.value
+                translationY = (1f - motion.visibility.value) * offset
             }) {
                 Box(Modifier.fillMaxSize().graphicsLayer {
-                    alpha = if (scene == SheetScene.ENTER) 1f else progress.value
-                    translationY = if (scene == SheetScene.ENTER) 0f
-                    else (1f - progress.value) * contentDistance * motion.direction
+                    alpha = pageChangeAlpha(motion.content.value)
+                    translationY = (1f - motion.content.value) * contentDistance * motion.direction
                 }) { content() }
             }
         }

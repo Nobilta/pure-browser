@@ -25,8 +25,9 @@ internal fun ApplySheetSystemBars(fullscreen: Boolean = false) {
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
         val oldStatus = controller?.isAppearanceLightStatusBars
         val oldNavigation = controller?.isAppearanceLightNavigationBars
-        // Compose animates the incoming surface. The window manager retains the last
-        // frame for a short exit even when a close action immediately removes the route.
+        // The route host runs its own exit in Compose; this window animation still covers the
+        // overlays that leave by being unmounted, such as a picker opened by a page. Keeping it
+        // means no window disappears without a transition while those entries are converted.
         window?.setWindowAnimations(R.style.BrowserSheetAnimation)
         // The pinned Material3 version configures its dialog window after composition.
         // Apply the app preference after that update instead of following the OS theme.
