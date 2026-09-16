@@ -58,7 +58,7 @@ cd pure-browser
 调试版位于 `app/build/outputs/apk/debug/app-debug.apk`，可与正式版同时安装。
 默认构建 ARM64；模拟器配置见[测试指南](TESTING_GUIDE.md)，签名与发版见[发布指南](RELEASING.md)。
 
-想了解代码组织，可以从[架构说明](ARCHITECTURE_REVIEW.md)开始；已有的测试结果见[测试报告](EMULATOR_TEST_REPORT.md)。
+想了解代码组织，可以从[架构说明](ARCHITECTURE.md)开始。
 
 ## 反馈与贡献
 
