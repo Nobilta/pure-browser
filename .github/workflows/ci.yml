@@ -83,13 +83,22 @@ jobs:
           packages: platform-tools
 
       # The NDK is what rust/build.sh links against for the Android targets; the package ids are
-      # the ones the verified local build uses. shell: bash keeps one command for all three hosts
-      # (Git Bash on Windows resolves sdkmanager.bat).
+      # the ones the verified local build uses. shell: bash keeps one command for all three hosts,
+      # which means finding sdkmanager ourselves: Git Bash resolves neither the cmdline-tools
+      # layout nor the .bat suffix that Windows uses.
       - name: Install Android SDK packages
         shell: bash
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "platform-tools" "$ANDROID_PLATFORM" "$BUILD_TOOLS" "ndk;$NDK_VERSION"
+          SDKMANAGER="$(command -v sdkmanager.bat || command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls "$ANDROID_SDK_ROOT"/cmdline-tools/*/bin/sdkmanager.bat 2>/dev/null | tail -n 1)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found under $ANDROID_SDK_ROOT" >&2
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "$ANDROID_PLATFORM" "$BUILD_TOOLS" "ndk;$NDK_VERSION"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
       - name: Cache Gradle
