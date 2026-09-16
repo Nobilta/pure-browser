@@ -59,7 +59,7 @@ def main():
     def record(name):
         result['checks'].append(name)
         print('PASS', name, flush=True)
-        (args.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (args.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     def session_text():
         return ux.adb('shell', 'dumpsys', 'media_session')
@@ -89,9 +89,9 @@ def main():
         notifications = active_notifications()
         assert not re.search(r'\|com\.mybrowser\|2002\|', notifications), 'Active media notification survived close'
         assert ux.adb('shell', 'pidof', ux.PACKAGE) == process, 'The browser process restarted during the test'
-        (args.output / (name + '-session.txt')).write_text(session_text())
-        (args.output / (name + '-services.txt')).write_text(service_text())
-        (args.output / (name + '-notifications.txt')).write_text(notifications)
+        (args.output / (name + '-session.txt')).write_text(session_text(), encoding="utf-8")
+        (args.output / (name + '-services.txt')).write_text(service_text(), encoding="utf-8")
+        (args.output / (name + '-notifications.txt')).write_text(notifications, encoding="utf-8")
 
     def setting(title, value):
         ux.open_settings('Video playback')
@@ -143,7 +143,7 @@ def main():
         # Android 17's surface-hosted PiP menu can be visible in the screenshot
         # but absent from UiAutomation windows. Keep the actual system touch path
         # using its observed top-right 48dp close target within the current bounds.
-        (args.output / 'pip-menu.xml').write_text(raw)
+        (args.output / 'pip-menu.xml').write_text(raw, encoding="utf-8")
         # Screenshot encoding on a software-rendered emulator can take four
         # seconds, long enough for this transient system menu to hide. Complete
         # the observed Close touch before collecting the post-close screenshot.
@@ -197,7 +197,7 @@ def main():
                 name = label.split()[0].lower()
                 page(name)
                 play()
-                (args.output / (name + '-playing-session.txt')).write_text(session_text())
+                (args.output / (name + '-playing-session.txt')).write_text(session_text(), encoding="utf-8")
                 changed = time.time()
                 ux.tap(label)
                 result['cases'][name] = state(lambda r: r['lastAction'] == label and condition(r), since=changed)
@@ -303,14 +303,14 @@ def main():
         result['error'] = repr(error)
         if key:
             rows = json.load(urllib.request.urlopen(BASE + '__state?case=' + key, timeout=4))
-            (args.output / 'failure-telemetry.json').write_text(json.dumps(rows[-60:], indent=2))
+            (args.output / 'failure-telemetry.json').write_text(json.dumps(rows[-60:], indent=2), encoding="utf-8")
         raise
     finally:
-        (args.output / 'last-session.txt').write_text(session_text())
-        (args.output / 'last-activity.txt').write_text(ux.adb('shell', 'dumpsys', 'activity', 'activities'))
-        (args.output / 'last-screen.xml').write_text(all_windows()[1])
+        (args.output / 'last-session.txt').write_text(session_text(), encoding="utf-8")
+        (args.output / 'last-activity.txt').write_text(ux.adb('shell', 'dumpsys', 'activity', 'activities'), encoding="utf-8")
+        (args.output / 'last-screen.xml').write_text(all_windows()[1], encoding="utf-8")
         (args.output / 'last-screen.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20))
-        (args.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (args.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
         if result['passed']:
             ux.launch(BASE + 'browser-ux.html?case=media-complete')
             for title, value in original_settings.items():

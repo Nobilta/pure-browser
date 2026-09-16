@@ -28,7 +28,7 @@ def snapshot(name, expected):
               for value in (node.get('text'), node.get('content-desc'))}
     assert all(value in values for value in expected), (name, expected)
     stem = output / ('api' + sdk + '-productivity-visual-' + name)
-    stem.with_suffix('.xml').write_text(raw)
+    stem.with_suffix('.xml').write_text(raw, encoding="utf-8")
     png = subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'])
     stem.with_suffix('.png').write_bytes(png)
     checks.append(name)
@@ -85,4 +85,4 @@ finally:
     ux.adb('shell','settings','put','system','user_rotation','0')
     ux.adb('shell','settings','put','system','accelerometer_rotation','1')
     ux.adb('shell','cmd','locale','set-app-locales',ux.PACKAGE,'--user','0')
-    (output / ('api' + sdk + '-productivity-visual.json')).write_text(json.dumps(checks, indent=2))
+    (output / ('api' + sdk + '-productivity-visual.json')).write_text(json.dumps(checks, indent=2), encoding="utf-8")

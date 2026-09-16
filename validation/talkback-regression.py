@@ -39,7 +39,7 @@ def main():
 
     def snapshot(name):
         root, raw = nodes()
-        (a.output / (name + '.xml')).write_text(raw)
+        (a.output / (name + '.xml')).write_text(raw, encoding="utf-8")
         (a.output / (name + '.png')).write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
         return root
 
@@ -75,7 +75,7 @@ def main():
         time.sleep(2)
         assert ux.adb('shell', 'settings', 'get', 'secure', 'touch_exploration_enabled') == '1'
         status = ux.adb('shell', 'dumpsys', 'accessibility')
-        (a.output / 'accessibility-service.txt').write_text(status)
+        (a.output / 'accessibility-service.txt').write_text(status, encoding="utf-8")
         focus_and_activate('Menu')
         root = snapshot('menu')
         assert ux.match(root, 'Bookmarks') is not None and ux.match(root, 'Settings') is not None
@@ -97,7 +97,7 @@ def main():
         snapshot('failure')
         raise
     finally:
-        (a.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (a.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
         for name, value in original.items():
             if value == 'null':
                 ux.adb('shell', 'settings', 'delete', 'secure', name)

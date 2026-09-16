@@ -71,7 +71,7 @@ def main():
 
     def write_prefs(text, name):
         local = args.output / name
-        local.write_text(text)
+        local.write_text(text, encoding="utf-8")
         ux.adb('push', str(local), '/data/local/tmp/' + name)
         owner = shell('stat', '-c', '%u:%g', '/data/data/' + PACKAGE).strip()
         shell('cp', '/data/local/tmp/' + name, PREFS)
@@ -94,7 +94,7 @@ def main():
     original_prefs = None
     rooted = False
     try:
-        subprocess.run(ux.ADB + ['root'], text=True, stdout=subprocess.DEVNULL,
+        subprocess.run(ux.ADB + ['root'], text=True, encoding="utf-8", stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=60)
         subprocess.run(ux.ADB + ['wait-for-device'], timeout=60)
         rooted = 'uid=0' in shell('id')
@@ -118,7 +118,7 @@ def main():
         shell('am', 'start', '-W', '-n', PACKAGE + '/.MainActivity')
         assert wait_for_prompt(), 'The launch check did not offer the cached release'
         pid_before = process_id()
-        (args.output / 'before.xml').write_text(ux.nodes()[1])
+        (args.output / 'before.xml').write_text(ux.nodes()[1], encoding="utf-8")
         record('the process offers the update it finds in the cached manifest')
 
         # A configuration change rebuilds the Activity in the same process; the offer must not be
@@ -135,7 +135,7 @@ def main():
             time.sleep(1)
         survived = wait_for_prompt(10)
         pid_after = process_id()
-        (args.output / 'after.xml').write_text(ux.nodes()[1])
+        (args.output / 'after.xml').write_text(ux.nodes()[1], encoding="utf-8")
         shell('cmd', 'uimode', 'night', original_night)
 
         assert creates and destroys, \
@@ -148,7 +148,7 @@ def main():
             'checks': checks, 'passed': True, 'promptBefore': True, 'promptAfter': survived,
             'pidBefore': pid_before, 'pidAfter': pid_after, 'sameProcess': pid_before == pid_after,
             'fakeVersion': NEW_VERSION_NAME,
-        }, indent=2))
+        }, indent=2), encoding="utf-8")
     finally:
         if rooted:
             shell('cmd', 'uimode', 'night', original_night, tolerate_failure=True)

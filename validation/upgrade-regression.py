@@ -33,14 +33,14 @@ while time.monotonic() < deadline:
 assert stable_reads >= 2, 'Bookmark dialog did not settle after dismissing the keyboard'
 ux.tap('Save')
 ux.menu_item('Bookmarks'); ux.expect(title)
-(a.output / 'before.xml').write_text(ux.nodes()[1])
-before = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'before-package.txt').write_text(before)
+(a.output / 'before.xml').write_text(ux.nodes()[1], encoding="utf-8")
+before = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'before-package.txt').write_text(before, encoding="utf-8")
 before_code = int(re.search(r'versionCode=(\d+)', before)[1])
 subprocess.run(ux.ADB + ['install', '-r', str(a.apk)], check=True)
 ux.launch(); ux.menu_item('Bookmarks'); ux.expect(title)
-(a.output / 'after.xml').write_text(ux.nodes()[1])
+(a.output / 'after.xml').write_text(ux.nodes()[1], encoding="utf-8")
 (a.output / 'after.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
-after = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'after-package.txt').write_text(after)
+after = ux.adb('shell', 'dumpsys', 'package', 'com.mybrowser'); (a.output / 'after-package.txt').write_text(after, encoding="utf-8")
 after_code = int(re.search(r'versionCode=(\d+)', after)[1])
 assert after_code > before_code
 installed = ux.adb('shell', 'pm', 'path', 'com.mybrowser').partition(':')[2].strip()
@@ -49,5 +49,5 @@ assert ux.adb('shell', 'sha256sum', installed).split()[0] == expected
 (a.output / 'result.json').write_text(json.dumps({'passed': True, 'apkSha256': expected,
     'previousApkSha256': hashlib.sha256(a.previous.read_bytes()).hexdigest(),
     'beforeVersionCode': before_code, 'afterVersionCode': after_code, 'bookmarkTitle': title,
-    'checks': [f'Same-package in-place installation accepted: versionCode {before_code} to {after_code}', 'Bookmark created by the old release remains visible after database migration']}, indent=2))
+    'checks': [f'Same-package in-place installation accepted: versionCode {before_code} to {after_code}', 'Bookmark created by the old release remains visible after database migration']}, indent=2), encoding="utf-8")
 print('PASS upgrade retained bookmark and installed APK identity', flush=True)

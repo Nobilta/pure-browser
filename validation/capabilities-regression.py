@@ -36,7 +36,7 @@ class Regression:
 
     def snapshot(self, name):
         path = ROOT / 'results' / (self.prefix + '-' + name)
-        path.with_suffix('.xml').write_text(ux.nodes()[1])
+        path.with_suffix('.xml').write_text(ux.nodes()[1], encoding="utf-8")
         png = subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'])
         path.with_suffix('.png').write_bytes(png)
         return struct.unpack('>II', png[16:24])
@@ -288,7 +288,7 @@ class Regression:
         text = ''
         path = '/sdcard/Download/' + name
         while time.monotonic() < deadline:
-            completed = subprocess.run(ux.ADB + ['shell', 'cat', path], capture_output=True, text=True)
+            completed = subprocess.run(ux.ADB + ['shell', 'cat', path], capture_output=True, text=True, encoding="utf-8")
             if completed.returncode == 0 and completed.stdout.endswith('</DL><p>\n'):
                 text = completed.stdout
                 break
@@ -409,7 +409,7 @@ class Regression:
             raise
         finally:
             (ROOT / 'results' / (self.prefix + '.json')).write_text(json.dumps({'sdk': self.sdk,
-                'apkSha256': self.apk_hash, 'section': self.section, 'status': status, 'checks': self.checks}, indent=2) + '\n')
+                'apkSha256': self.apk_hash, 'section': self.section, 'status': status, 'checks': self.checks}, indent=2) + '\n', encoding="utf-8")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

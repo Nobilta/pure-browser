@@ -1,9 +1,9 @@
 name: CI
 
 # Runs the same entry points contributors run locally, on every push to the default branch and
-# every pull request. Signing and emulator regressions stay out of CI by design: signing keys
-# never enter CI (see RELEASING.md), and emulator stages run locally with recorded results
-# (see TESTING_GUIDE.md).
+# every pull request, on all three supported host platforms. Signing and emulator regressions stay
+# out of CI by design: signing keys never enter CI (see RELEASING.md), and emulator stages run
+# locally with recorded results (see TESTING_GUIDE.md).
 on:
   push:
     branches: [main]
@@ -22,15 +22,25 @@ env:
   # commit SHAs and updated by Dependabot (.github/dependabot.yml).
   JAVA_VERSION: '21'
   NODE_VERSION: '22'
+  PYTHON_VERSION: '3.12'
   RUST_VERSION: '1.98.0'
   NDK_VERSION: '27.2.12479018'
   ANDROID_PLATFORM: 'platforms;android-37.0'
   BUILD_TOOLS: 'build-tools;37.0.0'
+  # The harness reads and writes UTF-8 artifacts; Windows would otherwise pick a legacy code page.
+  PYTHONUTF8: '1'
+  PYTHONIOENCODING: utf-8
 
 jobs:
   quick:
-    name: Checks, unit tests, lint and an unsigned release build
-    runs-on: ubuntu-24.04
+    name: Checks, tests and builds (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # All three development hosts run the same quick entry point, so a "supported platform"
+        # claim is backed by a job instead of by a convention.
+        os: [ubuntu-24.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -48,14 +58,21 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # rustfmt and clippy are part of the project's checks, and the Android target is what the
-      # release build cross-compiles to.
+      # Pin the interpreter as well: the harness resolves python3 or python, and the localization
+      # and release scripts must not depend on whatever the runner image happens to ship.
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # rustfmt and clippy are part of the project's checks; both Android targets are needed so the
+      # release ABI and the emulator ABI can be cross-compiled on any host.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android, x86_64-linux-android
 
       # The action's default package list still asks for "tools", which no longer exists in the
       # SDK repository and makes the step fail; the packages this project needs are installed in
@@ -65,9 +82,11 @@ jobs:
         with:
           packages: platform-tools
 
-      # The NDK is what rust/build.sh links against for the Android target; the package ids are
-      # the ones the verified local build uses.
+      # The NDK is what rust/build.sh links against for the Android targets; the package ids are
+      # the ones the verified local build uses. shell: bash keeps one command for all three hosts
+      # (Git Bash on Windows resolves sdkmanager.bat).
       - name: Install Android SDK packages
+        shell: bash
         run: |
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install "platform-tools" "$ANDROID_PLATFORM" "$BUILD_TOOLS" "ndk;$NDK_VERSION"
@@ -90,21 +109,40 @@ jobs:
             rust/target
           key: cargo-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
 
+      # Localization, Node, Rust and Robolectric checks, including the host JNI libraries.
       - name: Quick checks
+        shell: bash
         run: ./build-and-test.sh --quick
+
+      # The release ABI: JNI cross-compile, resource processing with the host aapt2, DEX and
+      # packaging. This is what a contributor on this platform would ship.
+      - name: Debug build (arm64-v8a)
+        shell: bash
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      # The emulator ABI: an x86_64 host runs the API 37 emulator natively, and the harness needs a
+      # com.mybrowser package for that ABI (see TESTING_GUIDE.md).
+      - name: Emulator test package (x86_64)
+        shell: bash
+        run: ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 
       # lintDebug needs no signing config: the release signing config is only created when
       # keystore.properties exists, and this variant never touches it.
       - name: Android lint
+        if: runner.os == 'Linux'
+        shell: bash
         run: ./gradlew :app:lintDebug --console=plain
 
       # R8, resource shrinking and native packaging only exist in the release variant. Without
       # keystore.properties Gradle produces app-release-unsigned.apk, which is exactly what CI
       # can verify: everything except the signature.
       - name: Unsigned release build
+        if: runner.os == 'Linux'
+        shell: bash
         run: ./gradlew :app:assembleRelease --console=plain
 
       - name: Verify the release artifact
+        if: runner.os == 'Linux'
         run: |
           python3 - <<'PY'
           import pathlib, zipfile
@@ -123,8 +161,11 @@ jobs:
           print(f'OK: {apk.stat().st_size} bytes, R8 output present, libraries: {libs}')
           PY
 
-      # clippy is the static analysis that does not overlap with Android lint.
+      # clippy is the static analysis that does not overlap with Android lint, and Rust code is
+      # the same on every host, so one run is enough.
       - name: Rust clippy
+        if: runner.os == 'Linux'
+        shell: bash
         run: cargo clippy --locked --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings
 
       # Reports are worth keeping even when an earlier step failed.
@@ -132,10 +173,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: reports
+          name: reports-${{ runner.os }}
           if-no-files-found: ignore
           retention-days: 14
           path: |
             app/build/reports/**
             app/build/test-results/**
-            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/**/*.apk

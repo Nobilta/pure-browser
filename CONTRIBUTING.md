@@ -4,7 +4,11 @@
 
 ## 开发环境
 
-支持 macOS，以及 x86_64 Linux。推荐与 [CI](.github/workflows/ci.yml) 使用相同的工具版本：
+支持 macOS、Linux 和 Windows。Windows 需要 Git Bash（随 Git for Windows 安装）；
+脚本和 Gradle 都会调用其中的 bash，本机没有安装 WSL 也不影响构建。找不到时可用
+`-Pmybrowser.bash=/路径/bash.exe` 或环境变量 `PURE_BASH` 指定。
+推荐与 [CI](.github/workflows/ci.yml) 使用相同的工具版本（CI 在 ubuntu-24.04、macos-14 和
+windows-latest 上运行同一套快速检查）：
 
 | 工具 | 版本 |
 |---|---|
@@ -18,6 +22,9 @@
 在项目根目录的 `local.properties` 中设置 `sdk.dir=/你的/Android/SDK/路径`，或设置 `ANDROID_HOME`。
 NDK 可通过 `ANDROID_NDK_HOME` 指定；未设置时，构建脚本会从 SDK 的 `ndk/` 目录查找。
 JDK、Node.js、Python 和 Rust 工具需要在 `PATH` 中可用，连接设备时还需要 `adb`。
+
+Windows 上的 `local.properties` 由 Android Studio 写成 Java properties 转义形式
+（`sdk.dir=C\:\\Users\\…`），构建脚本会还原它，手写时用反斜杠或双反斜杠都可以。
 
 调试版自动使用调试签名，无需正式发布密钥。签名 Release 的配置见[发布指南](RELEASING.md#配置签名)。
 

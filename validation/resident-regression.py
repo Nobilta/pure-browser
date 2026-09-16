@@ -175,10 +175,10 @@ def main():
             assert same_tab['spaAfter'] == before['spa'], same_tab
             checks.append('Same-tab Back reused the retained document; form draft and SPA memory survived')
         (args.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'before':before,
-            'after':after,'sameTabBack':same_tab},indent=2))
+            'after':after,'sameTabBack':same_tab},indent=2), encoding="utf-8")
         print(json.dumps(checks),flush=True)
     finally:
         (args.output/'last-screen.png').write_bytes(subprocess.check_output(ux.ADB+['exec-out','screencap','-p'],timeout=20))
-        (args.output/'last-screen.xml').write_text(ux.nodes()[1])
+        (args.output/'last-screen.xml').write_text(ux.nodes()[1], encoding="utf-8")
 
 if __name__=='__main__': main()

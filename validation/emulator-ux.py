@@ -13,6 +13,8 @@ import time
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from hostencoding import ensure_utf8
+
 ROOT = Path(__file__).resolve().parent
 PACKAGE = "com.mybrowser"
 ADB = ["adb"] + (["-s", os.environ["ANDROID_SERIAL"]] if os.environ.get("ANDROID_SERIAL") else [])
@@ -85,7 +87,7 @@ def tap_resource(name, timeout=6):
 
 def adb(*args):
     command = ["shell", shlex.join(args[1:])] if args and args[0] == "shell" else list(args)
-    return subprocess.check_output(ADB + command, text=True, timeout=30).strip()
+    return subprocess.check_output(ADB + command, text=True, encoding="utf-8", timeout=30).strip()
 
 
 def media_dispatch(action):
@@ -164,7 +166,7 @@ def _probe_action(label, action, receipt):
     command = ["env", "CLASSPATH=" + UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
                "com.mybrowser.validation.FastUiDump", action, encoded]
     try:
-        result = subprocess.run(ADB + ["shell", shlex.join(command)], text=True,
+        result = subprocess.run(ADB + ["shell", shlex.join(command)], text=True, encoding="utf-8",
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
     except subprocess.TimeoutExpired:
         # The helper starts a VM per action, which a loaded or software-rendered device can
@@ -477,7 +479,7 @@ def regress():
     nodes()
     tap("刷新")
     geometry = tap_fixture("Popup page", page_probe, "popup", probe_url)
-    (ROOT / (evidence + "popup-touch.json")).write_text(json.dumps(geometry, indent=2))
+    (ROOT / (evidence + "popup-touch.json")).write_text(json.dumps(geometry, indent=2), encoding="utf-8")
     expect("Pure UX popup Page")
     adb("shell", "input", "keyevent", "3")
     time.sleep(1)
@@ -526,6 +528,7 @@ def launch(url=None):
 
 
 if __name__ == "__main__":
+    ensure_utf8()
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "tap", "settings", "launch", "menu", "regress"])
     parser.add_argument("value", nargs="?")

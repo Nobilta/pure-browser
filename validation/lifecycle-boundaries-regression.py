@@ -38,7 +38,7 @@ def main():
 
     def record(name, **details):
         checks.append({'check': name, **details})
-        (a.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (a.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
         print('PASS', name, details, flush=True)
 
     def wait(condition, since=0):
@@ -154,8 +154,8 @@ def main():
         result['error'] = repr(error)
         raise
     finally:
-        (a.output / 'result.json').write_text(json.dumps(result, indent=2))
-        (a.output / 'last-screen.xml').write_text(ux.nodes()[1])
+        (a.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
+        (a.output / 'last-screen.xml').write_text(ux.nodes()[1], encoding="utf-8")
         (a.output / 'last-screen.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
         ux.adb('shell', 'cmd', 'uimode', 'night', old_night)
 

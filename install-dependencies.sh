@@ -11,8 +11,12 @@ if ! command -v java >/dev/null 2>&1; then
     if command -v brew >/dev/null 2>&1; then
         echo "未找到 Java，使用 Homebrew 安装 Temurin。"
         brew install --cask temurin
+    elif command -v winget >/dev/null 2>&1; then
+        echo "未找到 Java，使用 winget 安装 Temurin 21。"
+        winget install --id EclipseAdoptium.Temurin.21.JDK --accept-source-agreements --accept-package-agreements
     else
         echo "未找到 Java 17+，请先安装 JDK。" >&2
+        echo "macOS: brew install --cask temurin；Windows: winget install EclipseAdoptium.Temurin.21.JDK" >&2
         exit 1
     fi
 fi
@@ -45,4 +49,7 @@ java -version 2>&1 | head -2
 rustc --version
 cargo --version
 echo "NDK: $(bash "$SCRIPT_DIR/rust/resolve-android-ndk.sh" "$SCRIPT_DIR")"
-echo "下一步：./build-and-test.sh"
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) echo "下一步（Git Bash）：bash build-and-test.sh" ;;
+    *) echo "下一步：./build-and-test.sh" ;;
+esac
