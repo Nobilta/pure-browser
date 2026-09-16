@@ -182,8 +182,8 @@ fun BrowserScreen(
 
             AnimatedVisibility(
                 visible = !state.isToolbarHidden || showHomeDashboard,
-                enter = expandVertically(expandFrom = Alignment.Top),
-                exit = shrinkVertically(shrinkTowards = Alignment.Top),
+                enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Top),
+                exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Top),
             ) {
                 if (!bottomAddressBar) addressBar()
             }
@@ -307,7 +307,13 @@ fun BrowserScreen(
         // inset source instead of two, same result: the bar sits directly on the keyboard
         // when it is up and on the navigation bar when it is not.
         if (!isVideoFullscreen) Column {
-            if (bottomAddressBar) AnimatedVisibility(visible = !state.isToolbarHidden || showHomeDashboard) { addressBar() }
+            // Both placements use one spec, each towards its own screen edge, so scrolling reads the
+            // same whichever position the address bar is set to.
+            if (bottomAddressBar) AnimatedVisibility(
+                visible = !state.isToolbarHidden || showHomeDashboard,
+                enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Bottom),
+                exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
+            ) { addressBar() }
             // Find bar appears above the toolbar
             if (state.isFindBarVisible) {
                 FindBar(

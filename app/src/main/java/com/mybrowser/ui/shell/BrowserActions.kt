@@ -1,5 +1,10 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -21,12 +26,28 @@ internal fun BrowserSheetHeader(
     onDismiss: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
+    // A page change keeps the header in place: the title crossfades and the leading inset glides
+    // when a page swaps its close button for a back button, instead of both jumping.
+    val startPadding by animateDpAsState(
+        targetValue = if (onBack == null) 24.dp else 4.dp,
+        animationSpec = BrowserMotion.headerShift,
+        label = "sheetHeaderStart",
+    )
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
-        .padding(start = if (onBack == null) 24.dp else 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+        .padding(start = startPadding, end = 12.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
         onBack?.let { BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = it) }
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        AnimatedContent(
+            targetState = title,
+            transitionSpec = {
+                fadeIn(BrowserMotion.contentReplace) togetherWith fadeOut(BrowserMotion.contentReplace)
+            },
+            label = "sheetHeaderTitle",
+            modifier = Modifier.weight(1f),
+        ) { shown ->
+            Text(shown, Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         actions()
         onDismiss?.let { BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close), onClick = it) }
     }

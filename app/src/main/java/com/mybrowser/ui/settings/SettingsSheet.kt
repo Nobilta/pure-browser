@@ -9,6 +9,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -145,6 +146,9 @@ fun SettingsSheet(
     val previousPane = remember { mutableStateOf(selected) }
     val paneChanged = previousPane.value != selected
     SideEffect { previousPane.value = selected }
+    // Each pane keeps its own scroll position and field state: leaving a category and coming back
+    // returns to where the reader was, instead of to the top of the list.
+    val paneState = rememberSaveableStateHolder()
     val back = {
         if (!childOpen && picker == null && !showSystemLogin && !showUpdate) {
             if (selected != null) sectionName = null else onDismiss()
@@ -162,6 +166,7 @@ fun SettingsSheet(
             Row(Modifier.fillMaxSize()) {
                 if (twoPane || selected == null) {
                     Box(if (twoPane) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
+                        paneState.SaveableStateProvider("settings-root") {
                         SettingsPage(textResources.getString(R.string.menu_settings), back,
                             modifier = Modifier.settingsPaneChange(paneKey = null,
                                 animate = paneChanged && !twoPane, direction = -1f, travel = !twoPane)) {
@@ -209,12 +214,14 @@ fun SettingsSheet(
                                 }
                             }
                         }
+                        }
                     }
                 }
                 if (twoPane) VerticalDivider()
                 if (selected != null) {
                     val category = selected
                     Box(Modifier.weight(1f)) {
+                        paneState.SaveableStateProvider(category.name) {
                         key(category) {
                             when (category) {
                                 SettingsCategory.DOWNLOADS -> Column {
@@ -303,6 +310,7 @@ fun SettingsSheet(
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }

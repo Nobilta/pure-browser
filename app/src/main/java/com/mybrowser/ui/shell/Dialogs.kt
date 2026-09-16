@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -89,7 +88,7 @@ class Dialogs {
         val res = localizedResources()
         var value by remember(request) { mutableStateOf(request.defaultValue) }
         var password by remember(request) { mutableStateOf("") }
-        AlertDialog(onDismissRequest = { answer(request, false) },
+        BrowserAlertDialog(onDismissRequest = { answer(request, false) },
             title = { Text(request.title.take(512)) },
             text = {
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
@@ -143,7 +142,7 @@ fun BookmarkEditDialog(
         if (canSave) onSave(trimmedTitle, trimmedUrl, addToHome && canAddToHome)
     }
 
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(if (isEditing) R.string.library_edit_bookmark else R.string.bookmark_editor_title)) },
         text = {
@@ -234,7 +233,7 @@ fun TextInputDialog(
     val context = LocalContext.current
     var value by remember { mutableStateOf(initialValue) }
 
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
