@@ -1,96 +1,109 @@
-# 构建与验证指南
+# 测试指南
 
-当前功能、依赖与交付包以 [README](README.md) 为准，实际执行结果见 [模拟器报告](EMULATOR_TEST_REPORT.md)。
-本文件是复现方法和验收范围，不表示下列所有设备/网站都已验证。
+先按[贡献指南](CONTRIBUTING.md#开发环境)准备环境。
+本文介绍如何运行检查和选择回归范围；已经执行过的结果、失败记录和设备覆盖见[回归报告](EMULATOR_TEST_REPORT.md)。
 
-CI（`.github/workflows/ci.yml`）在每次 push 与 PR 上只执行 `--quick` 加 Rust clippy；
-它不跑模拟器阶段，也不做签名构建——那两部分仍按本文件在本地设备上执行并记录结果。
+## 选择检查范围
 
-## 自动检查和签名构建
+| 需要验证的内容 | 入口 |
+|---|---|
+| 日常代码改动 | `./build-and-test.sh --quick` |
+| 签名发布包 | `./build-and-test.sh --release`，然后运行设备回归 |
+| 基础浏览 | 模拟器 `--profile smoke` |
+| 标签和媒体生命周期 | 模拟器 `--profile tabs` |
+| 特定功能 | 模拟器 `--stages 阶段名` |
+| 完整阶段矩阵 | 模拟器 `--profile full` |
+
+代码改动需要本地自动检查和模拟器回归，范围按受影响功能选择。仅修改文档时，核对链接、命令和对应实现即可。
+
+[CI](.github/workflows/ci.yml) 已执行快速检查、Android lint、Rust clippy、未签名 Release 构建，
+并检查 APK 中的 DEX 和 Rust JNI 库。签名和模拟器阶段在本地完成，具体分工见[发布指南](RELEASING.md)。
+
+## 自动检查与构建
 
 ```bash
 ./build-and-test.sh --quick
+```
+
+快速检查包含三语言资源、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
+Android 测试会构建并加载 host JNI，Node 使用内置测试运行器，无需安装 npm 包。
+
+发布前先配置[签名](RELEASING.md#配置签名)，再运行：
+
+```bash
 ./build-and-test.sh --release
-# 单独执行 Android 测试与静态检查：
+```
+
+发布检查额外执行 clippy、lint、R8、签名及 zipalign 校验，并生成安装包和更新附件。
+单独运行 Android 检查可用：
+
+```bash
 ./gradlew :app:testDebugUnitTest :app:lintDebug --console=plain
-# 需要 x86_64 模拟器时另行构建 debug；交付 Release 为 arm64：
-./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 ```
 
-发布模式执行三语言占位符检查、Node 播放/脚本协议测试、Rust fmt/test/clippy、Android/Robolectric、
-lint、R8 和签名验证。Android 测试自动构建 host JNI，验证真实跨语言契约。Node 使用内置测试运行器。
-SDK/NDK、签名配置和确切版本见 README；不手工复制旧 JNI 库，不为普通构建更新依赖校验值。
+构建会自动生成 JNI 库，不需要手动复制。依赖校验失败时先排查版本或产物差异，
+不要为通过检查而直接覆盖校验值。
+
+## 模拟器回归
+
+使用专用模拟器，脚本会写入测试书签、下载和站点数据。正式回归使用 API 37 ARM64 模拟器和
+包名为 `com.mybrowser` 的签名 Release；当前 runner 不接受 API 29。
+`full` 包含启动更新提示检查，需要可执行 `adb root` 的 AVD。
+调试版包名不同，不能直接用于这套 Release 回归。
+x86_64 调试版的构建方法见[贡献指南](CONTRIBUTING.md#构建和运行)。
+
+以下以 `emulator-5554` 和 0.9.1 为例，运行时替换为实际设备序列号与安装包路径。
+
+1. 安装并启动签名包，部署 UI 辅助程序：
+
+   ```bash
+   ANDROID_SERIAL=emulator-5554 ./install_and_test.sh PureBrowser-v0.9.1-release.apk
+   python3 validation/setup-ui-probe.py emulator-5554
+   ```
+
+   覆盖升级需要相同签名。请使用专用测试设备，不要通过卸载或清空日常使用的应用来绕过签名问题。
+
+2. 在一个终端启动 QA 服务，测试期间保持运行：
+
+   ```bash
+   python3 validation/qa-server.py --apk PureBrowser-v0.9.1-release.apk
+   ```
+
+3. 在另一个终端运行所需阶段：
+
+   ```bash
+   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.1-release.apk \
+     --label release-091-tabs --profile tabs
+   ```
+
+一次只运行一台模拟器和一个 UI 脚本，避免同时执行 Gradle 构建。
+QA 服务监听本机 8875/8876，经 ADB reverse 供模拟器访问；证书和桌面模式夹具还使用 8877–8879。
+设置了本机 HTTP 代理时，可在回归命令前加
+`NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让遥测直连本机。
+
+`smoke` 包含地址栏、标签驻留、基础浏览和网页对话框；`tabs` 包含驻留、普通/无痕媒体生命周期、
+菜单及两种弹窗视频。阶段定义见 [run-regressions.py](validation/run-regressions.py)。
+发布前按风险选择定向阶段或 `full`，并记录没有执行的范围。
+
+每个 suite 记录 APK SHA-256、设备、测试源码哈希、阶段和日志。
+只有安装包、AVD、测试源码和阶段选择全部相同时才能加 `--resume` 续跑；
+失败尝试保留在 `priorAttempts`，换包或改测试后应创建新的 suite。
+
+测试旧版本时，线上更新提示可能遮挡 UI。可先关闭“设置 → 关于 → 启动时自动检查更新”，
+更新功能本身则应单独验证。
+
+### 启动更新提示
+
+`update-launch` 检查切换深色模式导致 Activity 重建后，待处理的更新提示是否仍存在。
+它需要可 `adb root` 的 AVD，会写入缓存测试清单，仅检查提示，不下载或安装。
+结束时还原缓存、深色模式和应用进程。
 
 ```bash
-apksigner verify --verbose --print-certs PureBrowser-v0.9.0-release.apk
-shasum -a 256 PureBrowser-v0.9.0-release.apk
-./install_and_test.sh PureBrowser-v0.9.0-release.apk
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.1-release.apk \
+  --label update-prompt --stages update-launch
 ```
 
-安装应使用原签名覆盖升级；不要为了绕过错误先卸载用户应用或清空用户数据。
-
-## 模拟器串行回归
-
-使用专用模拟器，回归会写入测试书签、下载和站点数据。只运行一台模拟器和一个 UI 脚本，
-不要与 Gradle 构建同时运行。QA 仅监听本机 8875/8876，通过 ADB reverse 使用；证书和桌面模式夹具另外使用 8877–8879。
-本机设置 HTTP 代理时，给回归命令增加 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`，让夹具遥测直连本机。
-
-```bash
-python3 validation/qa-server.py --apk PureBrowser-v0.9.0-release.apk
-# 另一个终端：
-python3 validation/setup-ui-probe.py emulator-5554
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.9.0-release.apk \
-  --label release-090 --profile tabs
-```
-
-默认 `--profile smoke` 只执行地址栏、标签驻留、基础浏览和网页对话框；`--profile tabs` 验证驻留、普通/无痕媒体生命周期、菜单与弹窗视频。
-`--profile full` 才执行该设备的完整阶段矩阵，`--stages` 可以指定自定义范围。交付回归使用 API 37，API 29 专项路径已移除。
-只有 APK、AVD、测试源码、阶段选择完全相同时可以 `--resume`；
-退出码、耗时、日志和包哈希写入 suite JSON，失败保留到 `priorAttempts`。改变源码/包后使用新的 suite，不能复用旧包通过项。
-
-被测 APK 的 `versionCode` 必须不低于线上最新正式版本：低于时应用的启动检查会弹出更新对话框，可能遮挡后续 UI 步骤。
-需要验证更旧的版本时，先在“设置 → 关于 → 启动时自动检查更新”里关闭该开关再跑回归。
-
-### 为什么慢，以及怎么跑得快
-
-UI 查询是这里最贵的操作：每次读取无障碍树都会在设备上**新起一个 `app_process`**（`FastUiDump`），
-再连一次 UiAutomation。实测单次 280–540 ms（主机负载高时可达 1 s 以上），所以阶段耗时基本等于
-“查询次数 × 单次成本”。据此做了三项改动，都用同一交付包与同一套检查项验证过：
-
-1. **设备端等待**：`nodes(await_labels=...)` 让 helper 在**一个连接内**轮询控件出现（或消失）后再取快照，
-   宿主侧不再“每隔 150 ms 抓一次整树”。`tap_resource`、`menu_item`、`category`、`toolbar_back`、
-   `browser`、`expect`、`expect_menu` 都改为这种等待；`uiautomator` 降级路径没有等待能力，
-   所以调用方的轮询循环仍保留，语义不变。背靠背 A/B（同一 APK、同一轮数、同一台机器）：
-   `menu-navigation` **232 s → 207 s**，而实验组是在更高负载下跑的。
-2. **压力循环降档**：`menu-navigation --cycles` 默认 24 → **8**，`settings-back --cycles` 默认 6 → **4**。
-   两个循环都是“用不同延迟重复同一路径”，8 轮已覆盖 4 种 Back 延迟各两次、4 轮已覆盖左右手势各两次，
-   **检查项与断言完全不变**。同代码对照：`menu-navigation` 24 轮 **303 s** → 8 轮 **207 s**。
-3. **按需选择范围**：日常改动用 `--profile smoke`，提版本前用 `--profile tabs`；`full` 只在发布前跑。
-   `full` 里 `video-*` 有 9 个变体，只改播放器相关代码时用 `--stages video-popup video-popup-cross` 即可。
-
-需要完整压力覆盖时显式放大：`menu-navigation-regression.py --cycles 24`、`settings-back-regression.py --cycles 6`。
-比较两种等待行为时可以设置 `PURE_UX_NO_AWAIT=1`（把等待快照退回普通快照），用于同负载 A/B。
-
-`update-launch` 阶段验证"启动更新提示"在配置重建后仍然存在：它需要**可 root 的 AVD**（`adb root`），
-向应用写入一份缓存的测试清单后只在提示处停下，不下载也不安装，结束时还原清单缓存、深色模式与进程。
-它也是这条缺陷的可复现检查——提示过去存放在 Activity 状态里，深色模式切换会让它在同一进程内消失。
-
-**改动验证框架后必须做一次负向对照**：故意破坏被测行为，确认目标阶段仍然失败。
-本轮的做法是临时移除“菜单打开/关闭解除退出确认”，`menu-navigation` 如期在退出确认检查处失败
-（实测该序列 963 ms 且浏览器真的退出，排除负载噪声），随后还原并确认交付包 SHA-256 未变。
-
-Release 不开放远程 WebView 调试。辅助程序仅推入 `/data/local/tmp/pure-ui-dump.jar`，提供真实触摸、
-键盘和无障碍树读取；动态网页使用 DOM 遥测与播放/文件内容核对操作结果，不能只判断按钮存在。
-WebView 漏报可见网页节点时，先核对当前网址与新鲜夹具几何，再执行真实触摸；网站夹具不在导航后立即追加刷新。
-权限窗口和全屏控件须在同一次辅助会话中定位并触摸，防止窗口动画/自动隐藏造成坐标过期。
-播放器检查通过 `playerDump` / `playerReveal` / `playerTap` 只查询前景原生控件，跳过后台 WebView 子树，并主动刷新暂停视频的 Compose 节点缓存。
-全屏宿主按原生结构识别，不能假定无障碍树的子节点顺序等于窗口前后顺序；媒体选择夹具会回传按钮坐标与实际播放来源。
-Compose 页签切换后的输入先核对当前窗口实际聚焦的可编辑节点。添加过滤订阅使用有界完成等待，
-覆盖后台规则重建；普通界面切换仍使用较短等待。手动旋转使用 `wm user-rotation`，并以实际截图尺寸核对方向。
-PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸模式边缘返回先唤出系统栏，
-两次滑动之间只快速查询原生锁定控件，避免整棵网页树读取耗尽系统栏的显示时间。
-
-## 标签与应用更新验收
+## 标签与应用更新
 
 - 在驻留夹具中填写表单、修改 SPA 状态并滚动，分别手动新建标签、`window.open`、`target=_blank` 后返回。
   核对原文档 token、表单、JavaScript 状态和滚动位置，不能只核对 URL；离开页的视频保持暂停。
@@ -103,17 +116,17 @@ PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸�
 - 更新安装与相机文件分享分别验证：单元检查两个 Provider 的组件独立和目录边界，模拟器确认系统安装器可以读取 APK，
   并用 `capture` 阶段确认系统拍照/录像仍能将完整 JPEG/MP4 返回网页。只出现安装器启动提示不算安装成功。
 
-## 扫码预览验收
+## 扫码预览
 
 - 使用带 TOP、LEFT、RIGHT、不同角标、方格和正圆的非对称测试图；核对文字方向、左右顺序、圆形比例及居中裁切。
   模拟器 `imagefile` 先通过独立 Camera2 采集记录原始帧与传感器方向，区分夹具投影和应用预览变换；扫码成功不能代替画面验证。
 - 覆盖屏幕 0°、90°、180°、270°、窄竖屏和宽横屏；连续 90°→270° 时核对预览宽高不变仍更新方向。
   前摄回退保持系统默认镜像，应用不再叠加镜像。模拟器结果与未验证的实体设备覆盖分开记录。
 - 确认后台释放、前台恢复、Back/快速关闭释放，以及相机网页码、图片文本码、继续扫描和拒绝权限后选图。
-- 临时几何测试覆盖各传感器角度与不同缓冲区/视口比例，检查等长垂直像素轴、中心位置、裁切边界和方向。
-  删除临时测试源码后再执行完整构建，最终模拟器回归必须绑定同一签名 APK 的 SHA-256。
+- 几何测试覆盖各传感器角度与不同缓冲区/视口比例，检查等长垂直像素轴、中心位置、裁切边界和方向。
+  若使用会改变应用构建的临时测试代码，移除后需重新构建，并对最终签名 APK 运行回归。
 
-## 既有开发工具、界面和扫码验收
+## 开发工具与通用界面
 
 - 首页地址栏可点击输入，左侧不显示主页占位图标，右侧仅扫码；普通网页保留安全信息、刷新/停止。顶部/底部地址栏均验证。
 - 相机首次授权、拒绝、设置恢复、切后台、旋转、快速开关和手电筒；退出后 `dumpsys media.camera` 不保留本应用活动客户端。
@@ -125,10 +138,9 @@ PiP 返回先等待 Activity 离开 pinned 模式和屏幕尺寸稳定；沉浸�
 - 浅/深主题、中文/英文、150% 字体、横竖屏和键盘避让；系统动画缩放设为 0 时也可正常操作。
 - 使用 `dumpsys gfxinfo com.mybrowser reset` / `framestats` 采集实际布局/滚动帧；主机词法扫描耗时不能代替手机渲染性能。
 
-临时测试代码和二维码/大源码夹具在完成后删除，实际专项结果和截图保留在本次交付的验证目录。
+可复用的回归用例保留在源码中，一次性探针和生成夹具在检查后清理；结果和截图放在本地验证目录。
 
-## 播放器与既有功能验收
-
+## 播放器及其他功能
 
 ### 全屏浮层与 Material 3 控件
 
@@ -151,7 +163,7 @@ python3 validation/capabilities-regression.py --serial emulator-5554 --section s
 - 单个/批量关闭、最后一个标签关闭、普通/无痕切换仍正常，重启不恢复已关闭的标签。
 - 验证滚动收起/展开地址栏时，滑动起终点均位于当前 WebView 边界内，避免底部地址栏拦截按整屏比例定位的触摸。
 - 菜单 → 设置 → 菜单 → 浏览器；左上角、系统 Back、左右边缘手势、连续快速返回、重建和宽屏行为一致。
-  菜单与全部子页复用一个弹层窗口；逐帧检查切换期间不露出网页。返回菜单后没有旧设置内容，最终只剩主窗口且可触摸。
+  菜单与全部子页复用一个弹层窗口；用录像检查切换是否出现闪帧。返回菜单后没有旧设置内容，最终只剩主窗口且可触摸。
 - 网站设置、过滤订阅、用户脚本、管理网站、下载、历史、标签等页面上下边界连续执行快/慢滑动；标题及固定操作栏不移动，边界不拉伸，停止后像素稳定。
 - 管理网站列表使用固定弹层，通过左上角返回关闭；横屏和放大字体下同样可到达全部操作。
 - 开发者工具仅在菜单出现，关于和设置搜索不再包含该入口。
@@ -211,10 +223,10 @@ python3 validation/system-media-regression.py --serial emulator-5554 --package c
 
 静态本地 Blob 夹具不代表已验证真实 MSE/DRM、所有直播网站或实体接收器。
 
-### 保留能力
+### 其他功能
 
 - 主浏览链路、标签与历史恢复、主页、链接/图片上下文菜单、默认浏览器、外部 VIEW/SEND。
-- 菜单/设置逐级返回、快速连续点击、拖动关闭、重建与宽屏；私密会话配置重建及 Profile 清理。
+- 菜单/设置逐级返回、快速连续点击、按钮及外部区域关闭、重建与宽屏；私密会话配置重建及 Profile 清理。
 - 书签文件夹/移动/批量、HTML 导入导出与非法协议过滤。
 - 网站权限与系统授权分离；导航取消旧请求；input capture 拍照/录像/取消/重建后的字节回传。
 - Autofill 配置及合成 passkey 请求结果，不能冒充真实账户成功登录。
@@ -223,7 +235,7 @@ python3 validation/system-media-regression.py --serial emulator-5554 --package c
 - 语言、主题、150%/200% 字号、TalkBack 与键盘按需要单独执行，实际覆盖以报告为准。
 
 对应脚本可由 `validation/run-regressions.py` 查看。阅读/离线文章、Google Cast、整体备份恢复和双窗口
-已经删除；本版另外删除最近关闭/撤销与打印的过时测试阶段。可临时创建专项测试文件，完成验证后删除，不把一次性测试留在源码中。
+目前不提供；最近关闭、撤销和打印也没有对应阶段。一次性诊断脚本在检查完成后清理。
 
 ## 可选性能和线上检查
 
@@ -237,6 +249,33 @@ python3 validation/cosmetic-benchmark.py
 
 线上检查依赖网站当时的可用性；规则计算基准不代表整页速度、真机内存峰值或功耗。
 TalkBack 的 `a11y` 模式保留真实读屏服务；默认 UiAutomation 会暂时抑制它。
+
+## 维护 UI 回归脚本
+
+Release 不开放远程 WebView 调试。`setup-ui-probe.py` 将辅助程序放到
+`/data/local/tmp/pure-ui-dump.jar`，用真实触摸、键盘和无障碍树操作界面。
+动态网页还要检查 DOM 遥测、播放状态或返回的文件字节，按钮存在本身不足以证明操作成功。
+
+UI 查询会启动设备端 `app_process` 并连接 UiAutomation，历史单次耗时约 280–540ms。
+现有 helper 支持在同一个连接里等待控件出现或消失，减少重复抓取整棵树。
+不要用固定 sleep 代替“输入框已获得焦点”等实际条件；控件标签优先通过资源名读取各语言值。
+
+权限窗口和全屏控件应在同一次辅助会话中定位并触摸，避免动画或自动隐藏让坐标过期。
+播放器可用 `playerDump`、`playerReveal`、`playerTap`，减少遍历后台 WebView。
+网页节点漏报时，先核对当前网址和新鲜的夹具几何；旋转、PiP 或窗口切换后，等待尺寸及模式稳定再操作。
+
+压力循环默认是菜单 8 轮、设置返回 4 轮。需要增加重复次数时：
+
+```bash
+python3 validation/menu-navigation-regression.py --serial emulator-5554 --cycles 24
+python3 validation/settings-back-regression.py --serial emulator-5554 --cycles 6
+```
+
+比较等待机制时，可设置 `PURE_UX_NO_AWAIT=1` 退回普通快照，在相同包、设备和负载下对照。
+历史性能数据见[回归报告](EMULATOR_TEST_REPORT.md)，不作为每次运行的耗时标准。
+
+修改验证框架后，应做一次负向对照：临时引入一个已知缺陷，确认对应阶段仍会失败，
+随后还原代码并重新核对安装包。这样可以发现“脚本变快，但漏掉问题”的情况。
 
 ## 故障记录
 
