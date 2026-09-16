@@ -4,13 +4,11 @@ import android.util.AtomicFile
 import java.io.File
 
 /**
- * Commit UTF-8 text or restore the previous file; callers choose their IO dispatcher.
- *
  * android.util.AtomicFile commits by renaming its "<name>.new" file over the target and only logs
- * the failure. That rename cannot replace an existing file on Windows, where the unit tests run
- * under Robolectric, so every write after the first would silently keep the previous contents. The
- * leftover ".new" file distinguishes the two cases; the rename always succeeds on Android, so this
- * costs one existence check there.
+ * the failure. That rename replaces an existing file on Android, but not on Windows, where the unit
+ * tests run under Robolectric — there every write after the first would silently keep the previous
+ * contents. The leftover ".new" file tells the two cases apart, and the repair runs only where the
+ * platform rename cannot do the job, so the shipped code path is unchanged.
  */
 internal fun AtomicFile.writeUtf8(text: String) {
     val bytes = text.toByteArray(Charsets.UTF_8)
@@ -22,9 +20,14 @@ internal fun AtomicFile.writeUtf8(text: String) {
         failWrite(stream)
         throw error
     }
+    if (RENAME_REPLACES_EXISTING_FILE) return
     val pending = File(baseFile.path + ".new")
     if (pending.exists()) {
         pending.delete()
         baseFile.writeBytes(bytes)
     }
 }
+
+/** File.renameTo replaces an existing target on POSIX hosts; Windows refuses and keeps the old file. */
+private val RENAME_REPLACES_EXISTING_FILE =
+    !System.getProperty("os.name").orEmpty().startsWith("Windows")
