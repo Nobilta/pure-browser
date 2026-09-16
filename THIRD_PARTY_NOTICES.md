@@ -15,13 +15,12 @@ Their SVG paths were converted to Android VectorDrawable resources.
 
 ## AndroidX
 
-AndroidX dependencies use the Apache License 2.0. The current integration includes Activity 1.13.0,
-WebKit 1.17.0, Compose UI/Foundation/Runtime 1.9.4 and Material 3 1.4.0.
-The Gradle lockfile records the complete resolved dependency set.
+AndroidX dependencies, including Activity, WebKit, Compose and Material 3, use the Apache License 2.0.
+The Gradle lockfile records the resolved versions.
 
 ## ZXing
 
-The QR scanner uses [ZXing Core 3.5.3](https://github.com/zxing/zxing), copyright ZXing authors,
+The QR scanner uses [ZXing Core](https://github.com/zxing/zxing), copyright ZXing authors,
 under the [Apache License 2.0](third_party/material-icons-LICENSE.txt).
 Only the offline QR decoder is used. Camera capture uses Android Camera2; Google Play services
 and remote recognition services are not required.
@@ -47,6 +46,3 @@ The list data use MPL-2.0 and originate from the [Public Suffix List](https://pu
 
 `idna` 1.1 (MIT / Apache-2.0) provides UTS #46 normalization using ICU4X (Unicode-3.0).
 Exact transitive versions are pinned in Cargo.lock.
-
-When refreshing the suffix list, update the pinned PSL version, run the site-identity, filter and desktop-alias
-regressions, and rebuild both JNI libraries. Website permissions continue to use full origins rather than PSL domains.

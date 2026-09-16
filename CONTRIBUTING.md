@@ -1,6 +1,6 @@
 # 贡献指南
 
-欢迎为 Pure 浏览器报告问题、改进文档或提交代码。还不熟悉项目时，可以先看[功能介绍](FEATURES.md)和[架构说明](ARCHITECTURE_REVIEW.md)。
+欢迎为 Pure 浏览器报告问题、改进文档或提交代码。还不熟悉项目时，可以先看[功能介绍](FEATURES.md)和[架构说明](ARCHITECTURE.md)。
 
 ## 开发环境
 
@@ -54,7 +54,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 |---|---|
 | 用户可见行为或限制 | [功能介绍](FEATURES.md) |
 | 安装、依赖、构建或验证方法 | [README](README.md)、[英文 README](README.en.md)及相关指南 |
-| 发布步骤、版本和安装包信息 | [发布指南](RELEASING.md) |
+| 发布流程 | [发布指南](RELEASING.md) |
+| 版本变化和验证摘要 | [更新日志](CHANGELOG.md)、[Release 说明](release/notes.md) |
 
 ## 提交 Pull Request
 
@@ -65,7 +66,6 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 不适用的检查可以注明原因，不必填写没有执行过的测试数量。
 
 不要提交签名密钥、`keystore.properties`、`local.properties`、构建输出、APK 或 `validation/results/` 下的日志。
-维护者本地使用 `master` 的普通提交维护源码，并推送到远程 `main`；不保留备份或回滚分支。
 
 ## 代码约定
 
