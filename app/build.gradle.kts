@@ -228,7 +228,8 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.files(
         rustDir.resolve("adblock/Cargo.toml"), rustDir.resolve("url_utils/Cargo.toml"),
         rustDir.resolve("Cargo.toml"), rustDir.resolve("Cargo.lock"),
-        rustDir.resolve("build.sh"), rustDir.resolve("resolve-android-ndk.sh"),
+        rustDir.resolve("build.sh"), rustDir.resolve("build-abis.sh"),
+        rustDir.resolve("resolve-android-ndk.sh"),
     )
     inputs.property("abis", abis)
     inputs.property("androidApi", libs.versions.minSdk.get())
@@ -246,17 +247,9 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     environment("RUSTUP_HOME", rustupHome)
     environment("CARGO_HOME", cargoHome)
     environment("PURE_FILTER_OPT", filterOpt.get())
-    commandLine(listOf(bashShell, "-c", """
-        set -euo pipefail
-        for abi in "${'$'}@"; do
-            case ${'$'}abi in
-                arm64-v8a) target=aarch64-linux-android ;;
-                x86_64) target=x86_64-linux-android ;;
-                *) echo "Unmapped ABI: ${'$'}abi" >&2; exit 1 ;;
-            esac
-            TARGET="${'$'}target" ABI="${'$'}abi" bash ./build.sh
-        done
-    """.trimIndent(), "cargoBuild") + abis.get())
+    // The ABI loop lives in a file: a multi-line "bash -c" script does not survive the Windows
+    // command line, where its embedded quotes split the argument.
+    commandLine(listOf(bashShell, shellPath(rustDir.resolve("build-abis.sh"))) + abis.get())
 }
 
 // mergeJniLibFolders is the first task that reads the staged .so, so hooking every
