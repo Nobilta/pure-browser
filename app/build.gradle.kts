@@ -285,14 +285,6 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     dependsOn(cargoBuildHostTests)
     inputs.dir(hostTestJni)
     systemProperty("java.library.path", hostTestJni.get().asFile.absolutePath)
-    if (isWindowsHost) {
-        // Robolectric creates its per-test data directories under java.io.tmpdir. Windows hands the
-        // JVM a short (8.3) form of that path while File.getCanonicalPath() returns the long form,
-        // and AndroidX's FileProvider matches a canonical file path against roots it built from the
-        // configured directory, so the two sides stop agreeing. Canonicalizing tmpdir keeps them
-        // comparable; on other hosts the path is already canonical.
-        systemProperty("java.io.tmpdir", File(System.getProperty("java.io.tmpdir")).canonicalPath)
-    }
 }
 
 dependencies {
