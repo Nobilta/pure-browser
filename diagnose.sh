@@ -10,7 +10,8 @@ if ! command -v adb >/dev/null 2>&1; then
     exit 1
 fi
 
-device_line="$(adb devices | awk '$2 == "device" { print; exit }')"
+# Windows adb ends every line with CRLF, which would defeat the awk field comparison.
+device_line="$(adb devices | tr -d '\r' | awk '$2 == "device" { print; exit }')"
 if [[ -z "$device_line" ]]; then
     echo "未检测到已授权的 Android 设备或模拟器。" >&2
     adb devices
@@ -31,7 +32,16 @@ echo "已安装：$PACKAGE"
 log_file="$SCRIPT_DIR/validation/results/diagnose-logcat.txt"
 mkdir -p "$SCRIPT_DIR/validation/results"
 adb logcat -d > "$log_file"
-if rg -n "FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV" "$log_file"; then
+search_log() {
+    # ripgrep is convenient but not installed everywhere, and not by default on Windows.
+    if command -v rg >/dev/null 2>&1; then
+        rg -n "$1" "$log_file"
+    else
+        grep -nE "$1" "$log_file"
+    fi
+}
+
+if search_log "FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV"; then
     echo "检测到异常关键词，请按 PID 确认所属进程；完整日志：$log_file" >&2
     exit 1
 fi

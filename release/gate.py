@@ -25,7 +25,7 @@ class GateError(Exception):
 
 
 def gh(*arguments: str) -> str:
-    result = subprocess.run(['gh', *arguments], cwd=ROOT, text=True,
+    result = subprocess.run(['gh', *arguments], cwd=ROOT, text=True, encoding='utf-8',
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
         raise GateError('gh ' + ' '.join(arguments) + ' failed: ' + (result.stderr.strip() or 'unknown error'))
@@ -59,7 +59,7 @@ def previous_release(repo: str) -> str | None:
 
 def require_version(source: Path, info: dict) -> None:
     """The APK must come from this source revision and be newer than the published release."""
-    text = source.read_text()
+    text = source.read_text(encoding='utf-8')
     code = re.search(r'versionCode\s*=\s*(\d+)', text)
     name = re.search(r'versionName\s*=\s*"([^"]+)"', text)
     if not code or not name:
@@ -74,7 +74,7 @@ def require_newer(repo: str, tag: str | None, info: dict, workdir: Path) -> None
         print('gate: no published release yet, skipping the version and signer comparisons')
         return
     gh('release', 'download', tag, '--repo', repo, '--pattern', 'update.json', '--dir', str(workdir), '--clobber')
-    published = json.loads((workdir / 'update.json').read_text())
+    published = json.loads((workdir / 'update.json').read_text(encoding='utf-8'))
     if info['versionCode'] <= int(published['versionCode']):
         raise GateError('versionCode %d is not higher than the published %s'
                         % (info['versionCode'], published['versionCode']))
@@ -88,7 +88,7 @@ def require_same_signer(repo: str, tag: str | None, info: dict, workdir: Path) -
     if not published_apks:
         raise GateError('published release ' + tag + ' has no APK to compare signatures with')
     output = subprocess.run([android_tool('apksigner'), 'verify', '--print-certs', str(published_apks[0])],
-                            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout
+                            text=True, encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout
     signer = re.search(r'certificate SHA-256 digest: ([0-9a-fA-F]{64})', output)
     if not signer:
         raise GateError('cannot read the published signer certificate from ' + published_apks[0].name)
@@ -106,7 +106,7 @@ def main() -> None:
     parser.add_argument('--source', type=Path, default=ROOT / 'app/build.gradle.kts')
     args = parser.parse_args()
 
-    info = json.loads(args.info.read_text())
+    info = json.loads(args.info.read_text(encoding='utf-8'))
     if Path(info['apk']).resolve() != args.apk.resolve():
         raise GateError('the prepared attachments are for %s, not %s' % (info['apk'], args.apk))
     with tempfile.TemporaryDirectory() as directory:

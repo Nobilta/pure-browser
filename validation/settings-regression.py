@@ -28,7 +28,7 @@ def record(name):
 
 def screenshot(name):
     _, raw = ux.nodes()
-    (output / ("api" + sdk + "-settings-" + name + ".xml")).write_text(raw)
+    (output / ("api" + sdk + "-settings-" + name + ".xml")).write_text(raw, encoding="utf-8")
     data = subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"], timeout=20)
     (output / ("api" + sdk + "-settings-" + name + ".png")).write_bytes(data)
 
@@ -124,4 +124,4 @@ finally:
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.0")
     ux.adb("shell", "settings", "put", "system", "user_rotation", "0")
     ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "1")
-    (output / ("api" + sdk + "-settings.json")).write_text(json.dumps(checks, ensure_ascii=False, indent=2))
+    (output / ("api" + sdk + "-settings.json")).write_text(json.dumps(checks, ensure_ascii=False, indent=2), encoding="utf-8")

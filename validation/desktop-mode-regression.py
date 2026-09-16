@@ -112,7 +112,7 @@ class Regression(features.Regression):
 
     def snapshot(self, name):
         stem = self.output / (self.prefix + '-' + name)
-        stem.with_suffix('.xml').write_text(ux.nodes()[1])
+        stem.with_suffix('.xml').write_text(ux.nodes()[1], encoding="utf-8")
         stem.with_suffix('.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 
     def switch(self, root=None):
@@ -304,7 +304,7 @@ class Regression(features.Regression):
     def save(self):
         with LOCK:
             self.result['events'] = list(EVENTS)
-        (self.output / (self.prefix + '.json')).write_text(json.dumps(self.result, ensure_ascii=False, indent=2) + '\n')
+        (self.output / (self.prefix + '.json')).write_text(json.dumps(self.result, ensure_ascii=False, indent=2) + '\n', encoding="utf-8")
 
 
 def main():

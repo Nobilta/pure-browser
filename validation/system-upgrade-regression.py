@@ -48,8 +48,8 @@ def main():
     def record(name):
         checks.append(name)
         _, xml = ux.nodes()
-        (args.output / f'{len(checks):02d}.xml').write_text(xml)
-        (args.output / 'result.json').write_text(json.dumps({'checks': checks, 'passed': False}, indent=2))
+        (args.output / f'{len(checks):02d}.xml').write_text(xml, encoding="utf-8")
+        (args.output / 'result.json').write_text(json.dumps({'checks': checks, 'passed': False}, indent=2), encoding="utf-8")
         print('PASS', name, flush=True)
 
     try:
@@ -126,7 +126,7 @@ def main():
             assert y1 >= safe[1] and y2 <= safe[3], (label, ux.bounds(node), safe)
         record('Website settings actions remain reachable at 200 percent system font scale')
         ux.tap('取消')
-        (args.output / 'result.json').write_text(json.dumps({'checks': checks, 'passed': True}, indent=2))
+        (args.output / 'result.json').write_text(json.dumps({'checks': checks, 'passed': True}, indent=2), encoding="utf-8")
     finally:
         ux.adb('shell', 'settings', 'put', 'system', 'font_scale', font)
         (args.output / 'last-screen.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20))

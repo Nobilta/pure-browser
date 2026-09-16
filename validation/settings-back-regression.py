@@ -40,7 +40,7 @@ def record(name):
 
 def screenshot(name):
     _, raw = ux.nodes()
-    (output / (case + "-" + name + ".xml")).write_text(raw)
+    (output / (case + "-" + name + ".xml")).write_text(raw, encoding="utf-8")
     data = subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"], timeout=20)
     (output / (case + "-" + name + ".png")).write_bytes(data)
 
@@ -261,4 +261,4 @@ finally:
             ux.adb("shell", "settings", "delete", "system", name)
         else:
             ux.adb("shell", "settings", "put", "system", name, value)
-    (output / (case + ".json")).write_text(json.dumps(result, ensure_ascii=False, indent=2))
+    (output / (case + ".json")).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -39,10 +39,10 @@ try:
                 raise AssertionError("Settings category or translated strings missing for " + locale)
             time.sleep(.2)
         stem = output / ("api" + sdk + "-locale-" + locale)
-        stem.with_suffix(".xml").write_text(raw)
+        stem.with_suffix(".xml").write_text(raw, encoding="utf-8")
         stem.with_suffix(".png").write_bytes(subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"], timeout=20))
         checks.append(locale)
         print("PASS:", locale, "updates visible strings and retains the video settings category", flush=True)
 finally:
     ux.adb("shell", "cmd", "locale", "set-app-locales", ux.PACKAGE, "--user", "0")
-    (output / ("api" + sdk + "-locales.json")).write_text(json.dumps(checks, indent=2))
+    (output / ("api" + sdk + "-locales.json")).write_text(json.dumps(checks, indent=2), encoding="utf-8")

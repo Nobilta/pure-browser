@@ -39,7 +39,7 @@ def main():
 
     def snapshot(name):
         target = Path(str(stem) + "-" + name)
-        target.with_suffix(".xml").write_text(ux.nodes()[1])
+        target.with_suffix(".xml").write_text(ux.nodes()[1], encoding="utf-8")
         target.with_suffix(".png").write_bytes(subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"]))
 
     def loaded():
@@ -111,7 +111,7 @@ def main():
         snapshot("failure")
         raise
     finally:
-        stem.with_suffix(".json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        stem.with_suffix(".json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -28,16 +28,36 @@ Android 测试会构建 host JNI，Node 使用内置测试运行器。
 
 ## 模拟器回归
 
-使用专用 API 37 ARM64 模拟器，脚本会写入书签、下载和站点数据。
+三个平台都可以本地运行这套回归：需要 API 30 以上的 `google_apis` 镜像（`adb root` 可用，
+Play Store 镜像不行），ABI 与本机一致——Apple Silicon 用 arm64-v8a，x86_64 主机用 x86_64。
+脚本会写入书签、下载和站点数据，请使用专用模拟器。
 被测包须为 `com.mybrowser` 的签名 Release；调试版使用不同包名，不能直接用于这套回归。
-runner 不接受 API 29。`full` 包含启动更新提示检查，需要可执行 `adb root` 的 AVD。
+runner 不接受 API 29。`full` 包含启动更新提示检查。
+
+准备模拟器（用 Android Studio 的设备管理器创建也可以）：
+
+```bash
+python3 validation/manage-avd.py image                   # 查看本机该用哪个系统镜像
+python3 validation/manage-avd.py create PureBrowser_API37
+python3 validation/manage-avd.py start PureBrowser_API37
+```
+
+x86_64 主机（Windows、Linux、Intel Mac）装不上只含 arm64-v8a 的官方 APK，回归前用测试签名
+构建 x86_64 包；`release/prepare.py` 的发布校验只接受 arm64，正式包不受影响：
+
+```bash
+./gradlew -Pmybrowser.abi=x86_64 :app:assembleRelease
+```
+
+Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本时设置 `PYTHONUTF8=1`，
+经 `run-regressions.py` 运行时它会代为设置。脚本在 Git Bash 中执行。
 
 下面以 `emulator-5554` 和 0.9.1 为例，替换为实际序列号与 APK 路径。
 
 1. 安装并启动应用，部署 UI 辅助程序：
 
    ```bash
-   ANDROID_SERIAL=emulator-5554 ./install_and_test.sh PureBrowser-v0.9.1-release.apk
+   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.9.1-release.apk
    python3 validation/setup-ui-probe.py emulator-5554
    ```
 

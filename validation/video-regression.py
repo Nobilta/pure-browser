@@ -663,7 +663,7 @@ class Regression:
                  "apkSha256": self.apk_hash,
                  "checks": self.checks, "error": error, "lastPlayback": self.events()[-1:]}
         (self.output / (self.case + ".json")).write_text(
-            json.dumps(value, ensure_ascii=False, indent=2))
+            json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

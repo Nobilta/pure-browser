@@ -39,7 +39,7 @@ def main():
             ux.expect('System login fixture')
             record('Synthetic passkey request returns a visible cancellation/provider error without leaving the page', result=result, capability=ready)
             ux.open_settings('隐私与过滤'); find('Passwords and passkeys')
-            ux.expect('Open system settings'); (a.output / 'login-capabilities.xml').write_text(ux.nodes()[1])
+            ux.expect('Open system settings'); (a.output / 'login-capabilities.xml').write_text(ux.nodes()[1], encoding="utf-8")
             ux.tap('Close'); page()
             record('System login capability and provider requirements are visible in settings')
             ux.menu_item('Enter incognito mode'); since = time.time(); page()
@@ -51,9 +51,9 @@ def main():
         installed = ux.adb('shell', 'pm', 'path', a.package).partition(':')[2].strip()
         (a.output / 'result.json').write_text(json.dumps({'passed': True, 'checks': checks,
             'apkSha256': ux.adb('shell', 'sha256sum', installed).split()[0],
-            'notTested': ['Real credential/account sign-in']}, indent=2))
+            'notTested': ['Real credential/account sign-in']}, indent=2), encoding="utf-8")
     finally:
-        (a.output / 'last-screen.xml').write_text(ux.nodes()[1])
+        (a.output / 'last-screen.xml').write_text(ux.nodes()[1], encoding="utf-8")
         (a.output / 'last-screen.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 
 if __name__ == '__main__': main()

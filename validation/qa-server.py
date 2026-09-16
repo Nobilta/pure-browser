@@ -13,6 +13,8 @@ import time
 import struct
 import zlib
 
+from hostencoding import ensure_utf8
+
 ROOT = Path(__file__).resolve().parent
 APK_PATH = ROOT.parent / 'app/build/outputs/apk/release/app-release.apk'
 EVENTS = defaultdict(lambda: deque(maxlen=600))
@@ -197,6 +199,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 if __name__ == '__main__':
+    ensure_utf8()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apk', type=Path, default=APK_PATH,
                         help='APK served by the download fixture (default: Gradle release output)')

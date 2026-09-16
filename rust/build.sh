@@ -15,7 +15,19 @@ if [[ ! "$android_api" =~ ^[0-9]+$ ]]; then
     echo "Cannot read minSdk from the version catalog" >&2
     exit 1
 fi
-export CARGO_TARGET_DIR="$SCRIPT_DIR/target/android-api-$android_api"
+
+# Under MSYS/Cygwin a path such as /c/Users/me/src is meaningless to cargo and clang, which are
+# native programs; cygpath -m returns a form both they and the shell accept. Everywhere else this
+# is the identity.
+to_native_path() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+export CARGO_TARGET_DIR="$(to_native_path "$SCRIPT_DIR/target/android-api-$android_api")"
 
 case "$TARGET:$ABI" in
     aarch64-linux-android:arm64-v8a)
@@ -41,22 +53,31 @@ if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "$ANDROID_NDK_HOME" ]]; then
 fi
 
 # Pick the prebuilt toolchain for this host first, then fall back to the other known layouts, so
-# the same script works on macOS and on Linux CI.
+# the same script works on macOS, on Linux and in Git Bash on Windows.
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) host_tag=darwin-aarch64 ;;
     Darwin-*) host_tag=darwin-x86_64 ;;
     Linux-x86_64) host_tag=linux-x86_64 ;;
     Linux-aarch64|Linux-arm64) host_tag=linux-aarch64 ;;
+    MINGW*|MSYS*|CYGWIN*) host_tag=windows-x86_64 ;;
     *) host_tag="" ;;
 esac
 prebuilt="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"
 candidates=()
 [[ -n "$host_tag" ]] && candidates+=("$prebuilt/$host_tag")
-candidates+=("$prebuilt/darwin-x86_64" "$prebuilt/darwin-aarch64" "$prebuilt/linux-x86_64" "$prebuilt/linux-aarch64")
+candidates+=("$prebuilt/darwin-x86_64" "$prebuilt/darwin-aarch64" "$prebuilt/linux-x86_64" "$prebuilt/linux-aarch64" "$prebuilt/windows-x86_64")
 toolchain=""
+linker_file=""
 for candidate in "${candidates[@]}"; do
+    # The Windows NDK wraps the drivers as .cmd files; POSIX hosts ship them under the bare name.
     if [[ -x "$candidate/bin/$linker_name" ]]; then
         toolchain="$candidate"
+        linker_file="$linker_name"
+        break
+    fi
+    if [[ -f "$candidate/bin/$linker_name.cmd" ]]; then
+        toolchain="$candidate"
+        linker_file="$linker_name.cmd"
         break
     fi
 done
@@ -65,12 +86,13 @@ if [[ -z "$toolchain" ]]; then
     exit 1
 fi
 
+toolchain="$(to_native_path "$toolchain")"
 export PATH="$toolchain/bin:${PATH:-}"
 if [[ "$TARGET" == "aarch64-linux-android" ]]; then
-    export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/bin/$linker_name"
+    export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/bin/$linker_file"
     export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$toolchain/bin/llvm-ar"
 else
-    export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$toolchain/bin/$linker_name"
+    export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$toolchain/bin/$linker_file"
     export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$toolchain/bin/llvm-ar"
 fi
 
