@@ -61,8 +61,7 @@ The debug APK is at `app/build/outputs/apk/debug/app-debug.apk` and can be insta
 Builds target ARM64 by default. See the [testing guide](TESTING_GUIDE.md) for emulator setup
 and the [release guide](RELEASING.md) for signing and publishing.
 
-The [architecture guide](ARCHITECTURE_REVIEW.md) introduces the codebase.
-Recorded test results are in the [test report](EMULATOR_TEST_REPORT.md).
+The [architecture guide](ARCHITECTURE.md) introduces the codebase.
 
 ## Feedback and contributions
 

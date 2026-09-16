@@ -9,7 +9,7 @@ installed: the check stops at the prompt.
 Why it exists: the offer used to live in Activity state with the request in the Activity's
 lifecycleScope, so a configuration change cancelled the check or dropped an unanswered offer
 while the process-level claim stayed consumed — the prompt disappeared for the rest of the
-process. See EMULATOR_TEST_REPORT.md.
+process. Run this stage through validation/run-regressions.py; see TESTING_GUIDE.md.
 """
 import argparse
 import importlib.util
