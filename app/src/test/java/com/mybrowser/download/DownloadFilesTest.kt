@@ -39,7 +39,7 @@ class DownloadFilesTest {
             // to tell a real misconfiguration from a host filesystem difference.
             throw AssertionError(
                 "cacheDir=${context.cacheDir.path} | cameraRoot=${File(context.cacheDir, "web-capture").path} | " +
-                    "photo=${photo.path} | canonical=${photo.canonicalPath} | exists=${photo.exists()}",
+                    "photo=${photo.path} | canonical=${photo.canonicalPath} | root=${File(context.cacheDir, "web-capture").canonicalPath}",
                 error,
             )
         } finally { photo.delete(); apk.delete() }
