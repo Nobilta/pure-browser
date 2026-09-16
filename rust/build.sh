@@ -88,15 +88,35 @@ fi
 
 toolchain="$(to_native_path "$toolchain")"
 export PATH="$toolchain/bin:${PATH:-}"
+
+# The Windows NDK ships each API driver as a pair of wrappers (a shell script and a .cmd) around
+# clang.exe. A native rustc can execute neither — the script has no meaning to CreateProcess and a
+# batch file needs a command interpreter — so drive clang.exe and pass the --target the wrapper
+# would have added. Elsewhere the wrapper is a real executable and stays the linker.
+linker="$toolchain/bin/$linker_file"
+archiver="$toolchain/bin/llvm-ar"
+rustflags=""
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [[ -f "$toolchain/bin/clang.exe" ]]; then
+            linker="$toolchain/bin/clang.exe"
+            rustflags="-C link-arg=--target=${linker_name%-clang}"
+        fi
+        [[ -f "$toolchain/bin/llvm-ar.exe" ]] && archiver="$toolchain/bin/llvm-ar.exe"
+        ;;
+esac
+
 if [[ "$TARGET" == "aarch64-linux-android" ]]; then
-    export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/bin/$linker_file"
-    export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$toolchain/bin/llvm-ar"
+    export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+    export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$archiver"
+    [[ -n "$rustflags" ]] && export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="$rustflags"
 else
-    export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$toolchain/bin/$linker_file"
-    export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$toolchain/bin/llvm-ar"
+    export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$linker"
+    export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$archiver"
+    [[ -n "$rustflags" ]] && export CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS="$rustflags"
 fi
 
-echo "Building Rust libraries for $TARGET..."
+echo "Building Rust libraries for $TARGET (linker: $(basename "$linker"))..."
 rustup target add "$TARGET" >/dev/null 2>&1 || true
 cargo_args=(build --release --locked --target "$TARGET" -p adblock -p url_utils)
 case "${PURE_FILTER_OPT:-}" in
