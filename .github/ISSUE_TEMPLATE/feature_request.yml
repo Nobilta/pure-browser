@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        可以先查看[现有功能与项目范围](https://github.com/Nobilta/pure-browser/blob/main/FEATURES.md)。
+        可以先查看[现有功能](https://github.com/Nobilta/pure-browser/blob/main/FEATURES.md)。
         请描述使用场景，以及这项改进会如何帮助你；不需要提供代码或完整方案。
   - type: textarea
     id: problem
