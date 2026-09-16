@@ -17,7 +17,7 @@ def main():
         raise AssertionError(last)
     def record(name):
         checks.append(name);print('PASS',name,flush=True)
-        (a.output/'result.json').write_text(json.dumps({'passed':False,'checks':checks},indent=2))
+        (a.output/'result.json').write_text(json.dumps({'passed':False,'checks':checks},indent=2), encoding="utf-8")
     def setting(title,value):
         ux.open_settings('视频播放');root,_=ux.nodes()
         row=next(n for n in root.iter('node') if n.get('checkable')=='true' and ux.match(n,title) is not None)
@@ -40,7 +40,7 @@ def main():
         deadline=time.monotonic()+15
         while True:
             activity=ux.adb('shell','dumpsys','activity','activities')
-            (a.output/'pip-activity.txt').write_text(activity)
+            (a.output/'pip-activity.txt').write_text(activity, encoding="utf-8")
             if 'mode=pinned' in activity or 'windowingMode=2' in activity or 'mWindowingMode=2' in activity:break
             assert time.monotonic()<deadline, 'Activity did not enter PiP'
             time.sleep(.3)
@@ -53,14 +53,14 @@ def main():
         first=wait(lambda r:not r['paused'] and r['currentTime']>0);left=time.time()
         ux.adb('shell','input','keyevent','3');time.sleep(2)
         after=wait(lambda r:not r['paused'] and r['currentTime']>first['currentTime']+1,left)
-        services=ux.adb('shell','dumpsys','activity','services',a.package);(a.output/'services.txt').write_text(services)
+        services=ux.adb('shell','dumpsys','activity','services',a.package);(a.output/'services.txt').write_text(services, encoding="utf-8")
         assert 'MediaPlaybackService' in services and 'isForeground=true' in services
         record('Explicit background playback continues with a media foreground service')
         ux.media_dispatch('pause');wait(lambda r:r['paused'])
         record('System pause also stops explicitly enabled background playback')
         ux.launch();page();setting('Allow background media',False);page()
-        (a.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'background':after},indent=2))
+        (a.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'background':after},indent=2), encoding="utf-8")
     finally:
         (a.output/'last-screen.png').write_bytes(subprocess.check_output(ux.ADB+['exec-out','screencap','-p'],timeout=20))
-        (a.output/'last-screen.xml').write_text(ux.nodes()[1])
+        (a.output/'last-screen.xml').write_text(ux.nodes()[1], encoding="utf-8")
 if __name__=='__main__':main()

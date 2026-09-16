@@ -33,7 +33,7 @@ def main():
     def back(): ux.adb('shell','input','keyevent','4');time.sleep(.7)
     def record(name):
         checks.append(name);print('PASS',name,flush=True)
-        (a.output/'result.json').write_text(json.dumps({'passed':False,'checks':checks,'events':events()},indent=2))
+        (a.output/'result.json').write_text(json.dumps({'passed':False,'checks':checks,'events':events()},indent=2), encoding="utf-8")
     def wait(kind):
         end=time.monotonic()+15
         while time.monotonic()<end:
@@ -68,10 +68,10 @@ def main():
         web_tap('Capture photo');ux.expect('Shutter')
         ux.launch(base+'capture-fixture.html?case='+key+'&replacement=1');ux.expect('No file selected')
         assert len(events())==count;record('Navigating while capture is pending cancels the old document callback')
-        (a.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'events':events()},indent=2))
+        (a.output/'result.json').write_text(json.dumps({'passed':True,'checks':checks,'events':events()},indent=2), encoding="utf-8")
     finally:
         ux.adb('shell','settings','put','system','user_rotation',rotation)
         ux.adb('shell','settings','put','system','accelerometer_rotation',auto)
         (a.output/'last-screen.png').write_bytes(subprocess.check_output(ux.ADB+['exec-out','screencap','-p'],timeout=20))
-        (a.output/'last-screen.xml').write_text(ux.nodes()[1])
+        (a.output/'last-screen.xml').write_text(ux.nodes()[1], encoding="utf-8")
 if __name__=='__main__':main()

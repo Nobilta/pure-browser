@@ -7,7 +7,7 @@ p.add_argument('--package',default='com.mybrowser');p.add_argument('--rounds',ty
 p.add_argument('--modes',nargs='+',choices=['launcher','page'],default=['launcher','page']);a=p.parse_args()
 assert a.serial.startswith('emulator-') and a.rounds>0 and a.warmups>=0
 adb=['adb','-s',a.serial]
-def run(*cmd):return subprocess.check_output(adb+list(cmd),text=True,timeout=40).strip()
+def run(*cmd):return subprocess.check_output(adb+list(cmd),text=True, encoding="utf-8",timeout=40).strip()
 def pss(pid):
     raw=run('shell','dumpsys','meminfo',str(pid));match=re.search(r'TOTAL PSS:\s*(\d+)',raw) or re.search(r'^\s*TOTAL\s+(\d+)',raw,re.M)
     return int(match[1]) if match else None
@@ -43,4 +43,4 @@ for mode in a.modes:
 apk=run('shell','pm','path',a.package).partition(':')[2].strip()
 result={'serial':a.serial,'sdk':run('shell','getprop','ro.build.version.sdk'),'apkSha256':run('shell','sha256sum',apk).split()[0],
  'warmups':a.warmups,'modes':values,'scope':'Process cold, OS caches warm. Framework TotalTime is initial display. Page ready includes adb launch and loopback telemetry after two animation frames. Launcher follows saved startup preference. PSS is a snapshot, not peak memory. Isolated PIDs are scoped to the app UID, normally WebView renderer(s).'}
-a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2))
+a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2), encoding="utf-8");print(json.dumps(result,indent=2))

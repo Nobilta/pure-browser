@@ -18,14 +18,19 @@ fi
 sdk_dir="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 local_properties="$project_dir/local.properties"
 if [[ -f "$local_properties" ]]; then
-    configured_sdk="$(sed -n 's/^sdk\.dir=//p' "$local_properties" | head -n 1)"
-    if [[ -n "$configured_sdk" ]]; then
+    # local.properties follows Java properties escaping, so a Windows path arrives as
+    # C\:\\Users\\me\\AppData\\Local\\Android\\Sdk; unescape before testing the directory.
+    configured_sdk="$(sed -n 's/^sdk\.dir=//p' "$local_properties" | head -n 1 | sed -e 's/\\\(.\)/\1/g')"
+    if [[ -n "$configured_sdk" && -d "$configured_sdk" ]]; then
         sdk_dir="$configured_sdk"
     fi
 fi
 
 roots=()
 [[ -n "$sdk_dir" ]] && roots+=("$sdk_dir")
+# Fallbacks for a host where the SDK exists but is not exported: Windows, then the two common
+# macOS installations.
+[[ -n "${LOCALAPPDATA:-}" ]] && roots+=("$LOCALAPPDATA/Android/Sdk")
 roots+=("$HOME/Library/Android/sdk" "/opt/homebrew/share/android-commandlinetools")
 
 best=""

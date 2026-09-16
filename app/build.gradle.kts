@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -158,6 +159,57 @@ kotlin {
 
 // Rust builds share the same entry point with standalone builds.
 val rustDir = rootProject.file("rust")
+val isWindowsHost = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+
+// An Exec task does not run through a login shell, so PATH additions from a shell profile are
+// not guaranteed to be visible. Name the rustup locations on this host instead of assuming the
+// macOS toolchain directory.
+val rustupHome = System.getenv("RUSTUP_HOME") ?: (System.getProperty("user.home") + "/.rustup")
+val cargoHome = System.getenv("CARGO_HOME") ?: (System.getProperty("user.home") + "/.cargo")
+
+// rustup installs the default toolchain as stable-<host triple>. Unknown combinations fall back
+// to the shim directory, which still resolves cargo the same way a shell would.
+fun rustHostTriple(): String? {
+    val cpu = when (System.getProperty("os.arch").lowercase()) {
+        "aarch64", "arm64" -> "aarch64"
+        "x86_64", "amd64" -> "x86_64"
+        else -> return null
+    }
+    val os = System.getProperty("os.name").lowercase()
+    return when {
+        os.startsWith("mac") || os.startsWith("darwin") -> "$cpu-apple-darwin"
+        os.startsWith("linux") -> "$cpu-unknown-linux-gnu"
+        os.startsWith("windows") -> "$cpu-pc-windows-msvc"
+        else -> null
+    }
+}
+
+fun rustPathEntries(): List<String> = buildList {
+    rustHostTriple()?.let { add("$rustupHome/toolchains/stable-$it/bin") }
+    add("$cargoHome/bin")
+}.filter { File(it).isDirectory }
+
+// A bare "bash" on Windows resolves to the WSL launcher in C:\Windows\System32, which fails with
+// "Windows Subsystem for Linux has no installed distributions". Git for Windows provides the
+// POSIX shell the Rust scripts need; override with -Pmybrowser.bash or PURE_BASH.
+fun resolveBash(): String {
+    val override = providers.gradleProperty("mybrowser.bash").orNull ?: System.getenv("PURE_BASH")
+    if (!override.isNullOrBlank()) return override
+    if (!isWindowsHost) return "bash" // PATH lookup keeps the macOS and Linux behavior unchanged
+    val candidates = listOfNotNull(
+        System.getenv("ProgramFiles")?.let { "$it\\Git\\bin\\bash.exe" },
+        System.getenv("ProgramFiles(x86)")?.let { "$it\\Git\\bin\\bash.exe" },
+        System.getenv("LocalAppData")?.let { "$it\\Programs\\Git\\bin\\bash.exe" },
+    )
+    return candidates.firstOrNull { File(it).isFile } ?: "bash"
+}
+
+val bashShell = resolveBash()
+
+// Arguments reach the shell and native cargo as separate argv entries, so spaces in the home
+// directory are safe; forward slashes are understood by both the MSYS shell and native tools.
+fun shellPath(file: File): String = file.absolutePath.replace('\\', '/')
+
 val cargoBuild = tasks.register<Exec>("cargoBuild") {
     group = "build"
     description = "Cross-compiles application Rust modules for each configured ABI."
@@ -165,9 +217,6 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     val abiProp = providers.gradleProperty("mybrowser.abi").orElse("arm64-v8a")
     val abis = abiProp.map { it.split(',').map { s -> s.trim() }.filter { it.isNotEmpty() } }
     val outDir = layout.buildDirectory.dir("rustJniLibs")
-    val rustupHome = System.getProperty("user.home") + "/.rustup"
-    val cargoHome = System.getProperty("user.home") + "/.cargo"
-    val toolchainPath = "$rustupHome/toolchains/stable-aarch64-apple-darwin/bin"
 
     inputs.dir(rustDir.resolve("adblock/src"))
     inputs.dir(rustDir.resolve("url_utils/src"))
@@ -184,11 +233,16 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     outputs.dir(outDir)
 
     workingDir(rustDir)
-    environment("PATH", "$toolchainPath:${System.getenv("PATH")}")
+    val hostPath = rustPathEntries().joinToString(File.pathSeparator)
+    val inheritedPath = System.getenv("PATH").orEmpty()
+    environment(
+        "PATH",
+        if (hostPath.isEmpty()) inheritedPath else "$hostPath${File.pathSeparator}$inheritedPath",
+    )
     environment("RUSTUP_HOME", rustupHome)
     environment("CARGO_HOME", cargoHome)
     environment("PURE_FILTER_OPT", filterOpt.get())
-    commandLine(listOf("bash", "-c", """
+    commandLine(listOf(bashShell, "-c", """
         set -euo pipefail
         for abi in "${'$'}@"; do
             case ${'$'}abi in
@@ -217,7 +271,11 @@ val cargoBuildHostTests = tasks.register<Exec>("cargoBuildHostTests") {
         rustDir.resolve("build-host-tests.sh"))
     outputs.dir(hostTestJni)
     workingDir(rustDir)
-    commandLine("bash", rustDir.resolve("build-host-tests.sh").absolutePath, hostTestJni.get().asFile.absolutePath)
+    commandLine(
+        bashShell,
+        shellPath(rustDir.resolve("build-host-tests.sh")),
+        shellPath(hostTestJni.get().asFile),
+    )
 }
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     dependsOn(cargoBuildHostTests)

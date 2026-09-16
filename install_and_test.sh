@@ -17,7 +17,7 @@ if ! command -v adb >/dev/null 2>&1; then
     echo "找不到 adb。" >&2
     exit 1
 fi
-if ! adb devices | awk '$2 == "device" { found=1 } END { exit !found }'; then
+if ! adb devices | tr -d '\r' | awk '$2 == "device" { found=1 } END { exit !found }'; then
     echo "未找到已授权设备或模拟器。" >&2
     adb devices
     exit 1
@@ -28,4 +28,4 @@ adb install -r "$APK"
 adb shell am force-stop "$PACKAGE" || true
 adb shell am start -W -n "$ACTIVITY" >/dev/null
 echo "已安装并启动 ${PACKAGE}。"
-echo "查看崩溃：adb logcat -d | rg 'FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV'"
+echo "查看崩溃：adb logcat -d | grep -E 'FATAL EXCEPTION|UnsatisfiedLinkError|SIGSEGV'"

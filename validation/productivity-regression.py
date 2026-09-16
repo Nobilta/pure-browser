@@ -38,7 +38,7 @@ def record(name):
 def screenshot(name):
     _, raw = ux.nodes()
     prefix = output / ('api' + sdk + '-productivity-' + name)
-    prefix.with_suffix('.xml').write_text(raw)
+    prefix.with_suffix('.xml').write_text(raw, encoding="utf-8")
     prefix.with_suffix('.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 
 
@@ -298,4 +298,4 @@ try:
         library_checks()
 finally:
     ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')
-    (output / ('api' + sdk + '-productivity-' + args.section + '.json')).write_text(json.dumps(checks, indent=2))
+    (output / ('api' + sdk + '-productivity-' + args.section + '.json')).write_text(json.dumps(checks, indent=2), encoding="utf-8")

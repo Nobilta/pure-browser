@@ -111,12 +111,12 @@ def toolbar_back(timeout=8):
 def snapshot(name):
     try:
         _, xml = ux.nodes()
-        (out / (name + '.xml')).write_text(xml)
+        (out / (name + '.xml')).write_text(xml, encoding="utf-8")
     except Exception as error:
-        (out / (name + '-dump-error.txt')).write_text(str(error))
+        (out / (name + '-dump-error.txt')).write_text(str(error), encoding="utf-8")
     (out / (name + '.png')).write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20))
     for service in ('window', 'activity'):
-        (out / (name + '-' + service + '.txt')).write_text(ux.adb('shell', 'dumpsys', service))
+        (out / (name + '-' + service + '.txt')).write_text(ux.adb('shell', 'dumpsys', service), encoding="utf-8")
 
 
 def tap_point(node):
@@ -128,10 +128,10 @@ def sequence(events):
     encoded = base64.b64encode(json.dumps(events).encode()).decode()
     run = subprocess.run(ux.ADB + ['shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false',
                                   '/system/bin', 'com.mybrowser.validation.FastUiDump', 'sequence', encoded],
-                         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+                         text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
     receipt = re.search(r'Sequence completed in (\d+) ms', run.stdout)
     if run.returncode != 0 or receipt is None:
-        (out / ('input-helper-' + str(time.time_ns()) + '.txt')).write_text(run.stdout + run.stderr)
+        (out / ('input-helper-' + str(time.time_ns()) + '.txt')).write_text(run.stdout + run.stderr, encoding="utf-8")
     assert receipt, 'Input sequence did not finish; never retry possibly delivered Back events'
     return int(receipt[1])
 
@@ -313,13 +313,13 @@ except Exception as error:
     snapshot('failure')
     raise
 finally:
-    (out / 'logcat.txt').write_text(ux.adb('logcat', '-d', '-v', 'threadtime'))
-    (out / 'events.txt').write_text(ux.adb('logcat', '-b', 'events', '-d', '-v', 'threadtime'))
-    (out / 'crash.txt').write_text(ux.adb('logcat', '-b', 'crash', '-d', '-v', 'threadtime'))
+    (out / 'logcat.txt').write_text(ux.adb('logcat', '-d', '-v', 'threadtime'), encoding="utf-8")
+    (out / 'events.txt').write_text(ux.adb('logcat', '-b', 'events', '-d', '-v', 'threadtime'), encoding="utf-8")
+    (out / 'crash.txt').write_text(ux.adb('logcat', '-b', 'crash', '-d', '-v', 'threadtime'), encoding="utf-8")
     for name, value in original.items():
         if value == 'null':
             ux.adb('shell', 'settings', 'delete', 'system', name)
         else:
             ux.adb('shell', 'settings', 'put', 'system', name, value)
-    (out / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+    (out / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding="utf-8")
     print('RESULT:', out / 'result.json', flush=True)

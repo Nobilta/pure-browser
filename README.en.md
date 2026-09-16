@@ -47,7 +47,8 @@ See the [changelog](CHANGELOG.md) for changes in each version.
 
 ## Build from source
 
-The project uses Kotlin, Jetpack Compose and Rust. Builds support macOS and Linux (x86_64).
+The project uses Kotlin, Jetpack Compose and Rust. Builds support macOS, Linux and Windows;
+on Windows run the scripts from Git Bash.
 Follow the [development setup guide](CONTRIBUTING.md#开发环境) to install the JDK, Android SDK/NDK, Rust, Node.js and Python.
 
 ```bash

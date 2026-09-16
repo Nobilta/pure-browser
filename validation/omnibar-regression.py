@@ -83,13 +83,13 @@ def main():
 
     def snapshot(name):
         _, raw = windows()
-        (args.output / (name + '.xml')).write_text(raw)
+        (args.output / (name + '.xml')).write_text(raw, encoding="utf-8")
         (args.output / (name + '.png')).write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20))
 
     def record(name):
         result['checks'].append(name)
         print('PASS', name, flush=True)
-        (args.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (args.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     def position(bottom):
         ux.open_settings('Appearance')
@@ -194,7 +194,7 @@ def main():
                    *([] if value == 'null' else [value]))
         ux.adb('shell', 'settings', 'delete' if old_ime == 'null' else 'put', 'secure',
                'show_ime_with_hard_keyboard', *([] if old_ime == 'null' else [old_ime]))
-        (args.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (args.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
 if __name__ == '__main__':

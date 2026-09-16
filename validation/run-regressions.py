@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+from hostencoding import ensure_utf8
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'validation/results'
 
@@ -32,7 +34,7 @@ def main():
     adb = ['adb', '-s', args.serial]
 
     def device(*command):
-        return subprocess.check_output(adb + list(command), text=True, timeout=30).strip()
+        return subprocess.check_output(adb + list(command), text=True, encoding="utf-8", timeout=30).strip()
 
     def apk_hash():
         path = device('shell', 'pm', 'path', 'com.mybrowser').partition(':')[2].strip()
@@ -42,7 +44,7 @@ def main():
     if int(sdk) < 30:
         parser.error('API 29 regression support has been removed; use the API 37 emulator.')
     expected = (hashlib.sha256(args.apk.read_bytes()).hexdigest() if args.apk
-                else json.loads(args.build_manifest.read_text())['sha256'])
+                else json.loads(args.build_manifest.read_text(encoding="utf-8"))['sha256'])
     assert apk_hash() == expected, 'Installed APK does not match the build manifest'
     prefix = 'api' + sdk + '-' + args.label
     summary = OUT / (prefix + '-suite.json')
@@ -50,7 +52,7 @@ def main():
     result = {'serial': args.serial, 'sdk': sdk, 'apkSha256': expected,
               'startedAt': time.strftime('%Y-%m-%d %H:%M:%S'), 'stages': [], 'priorAttempts': []}
     if summary.exists():
-        old = json.loads(summary.read_text())
+        old = json.loads(summary.read_text(encoding="utf-8"))
         if args.resume:
             assert old['apkSha256'] == expected and old['device']['avd'] == avd, 'Cannot mix artifacts or devices'
             result = old
@@ -112,7 +114,7 @@ def main():
     result['profile'] = 'custom' if args.stages else args.profile
 
     def save():
-        summary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+        summary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding="utf-8")
 
     result.update(status='running', error=None)
     save()
@@ -132,11 +134,14 @@ def main():
         save()
         print('START:', name, flush=True)
         started = time.monotonic()
-        with log.open('w') as output:
+        with log.open('w', encoding='utf-8') as output:
             try:
-                completed = subprocess.run(command, cwd=ROOT, env={**os.environ, 'ANDROID_SERIAL': args.serial},
-                                           stdout=output, stderr=subprocess.STDOUT,
-                                           timeout=900 if name == 'menu-navigation' else 600)
+                completed = subprocess.run(
+                    command, cwd=ROOT,
+                    env={**os.environ, 'ANDROID_SERIAL': args.serial,
+                         'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'},
+                    stdout=output, stderr=subprocess.STDOUT,
+                    timeout=900 if name == 'menu-navigation' else 600)
                 code = completed.returncode
             except subprocess.TimeoutExpired:
                 code = -1
@@ -156,4 +161,5 @@ def main():
 
 
 if __name__ == '__main__':
+    ensure_utf8()
     main()

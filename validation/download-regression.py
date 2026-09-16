@@ -73,4 +73,4 @@ ux.adb("shell", "input", "keyevent", "4")
 result = {"sdk": sdk, "file": verified, "sha256": expected, "rangeRequests": ranges,
           "foregroundServiceObserved": "isForeground=true" in service_during,
           "foregroundServiceStopped": True, "defaultBrowserUI": True}
-(ROOT / "results" / ("api" + sdk + "-download.json")).write_text(json.dumps(result, indent=2))
+(ROOT / "results" / ("api" + sdk + "-download.json")).write_text(json.dumps(result, indent=2), encoding="utf-8")

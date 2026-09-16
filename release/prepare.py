@@ -13,15 +13,25 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def unescape_property(value):
+    """local.properties is a Java properties file: a Windows path arrives as C\\:\\\\Users\\\\me."""
+    return re.sub(r'\\(.)', r'\1', value)
+
+
 def android_tool(name):
     configured = os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME')
     properties = ROOT / 'local.properties'
     if properties.is_file():
-        for line in properties.read_text().splitlines():
+        for line in properties.read_text(encoding='utf-8').splitlines():
             if line.startswith('sdk.dir='):
-                configured = line.partition('=')[2].strip()
+                configured = unescape_property(line.partition('=')[2].strip())
     if configured:
-        candidates = list((Path(configured) / 'build-tools').glob('*/' + name))
+        build_tools = Path(configured) / 'build-tools'
+        # The bare name is what macOS and Linux ship; Windows uses apksigner.bat, zipalign.exe and
+        # aapt2.exe. Trying the bare name first keeps the POSIX result byte-identical.
+        candidates = []
+        for suffix in ('', '.bat', '.exe'):
+            candidates.extend(build_tools.glob('*/' + name + suffix))
         candidates.sort(key=lambda p: tuple(map(int, re.findall(r'\d+', p.parent.name))), reverse=True)
         if candidates:
             return str(candidates[0])
@@ -32,7 +42,7 @@ def android_tool(name):
 
 
 def run(*command):
-    return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
+    return subprocess.check_output(command, text=True, encoding='utf-8', stderr=subprocess.STDOUT)
 
 
 def prepare(apk, output, notes=None):
@@ -61,7 +71,7 @@ def prepare(apk, output, notes=None):
     if abis != {'arm64-v8a'}:
         raise ValueError('The official release currently ships arm64-v8a only: ' + str(sorted(abis)))
     checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
-    release_notes = notes.read_text() if notes else ''
+    release_notes = notes.read_text(encoding='utf-8') if notes else ''
     if len(release_notes) > 12_000:
         raise ValueError('Release notes exceed 12,000 characters')
     manifest = {'schemaVersion': 1, 'channel': 'stable', 'packageName': package[1], 'versionCode': code,
@@ -71,13 +81,13 @@ def prepare(apk, output, notes=None):
     output.mkdir(parents=True, exist_ok=True)
     destination = output / 'update.json'
     temporary = output / 'update.json.tmp'
-    temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     temporary.replace(destination)
     manifest_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
-    (output / 'SHA256SUMS').write_text(f'{checksum}  {apk.name}\n{manifest_hash}  update.json\n')
+    (output / 'SHA256SUMS').write_text(f'{checksum}  {apk.name}\n{manifest_hash}  update.json\n', encoding='utf-8')
     details = {'apk': str(apk), 'sha256': checksum, 'signerSha256': next(iter(signers)).lower(), 'tag': 'v' + version,
                'size': size, 'versionCode': code, 'versionName': version, 'minSdk': min_sdk, 'abi': 'arm64-v8a'}
-    (output / 'package-info.json').write_text(json.dumps(details, indent=2) + '\n')
+    (output / 'package-info.json').write_text(json.dumps(details, indent=2) + '\n', encoding='utf-8')
     return details
 
 

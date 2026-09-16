@@ -43,7 +43,7 @@ def wait_text(fragment):
 
 def snapshot(name):
     path = Path(str(stem) + '-' + name)
-    path.with_suffix('.xml').write_text(ux.nodes()[1])
+    path.with_suffix('.xml').write_text(ux.nodes()[1], encoding="utf-8")
     png = subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20)
     path.with_suffix('.png').write_bytes(png)
     return struct.unpack('>II', png[16:24])
@@ -159,4 +159,4 @@ finally:
             ux.adb('shell', 'settings', 'delete', 'system', name)
         else:
             ux.adb('shell', 'settings', 'put', 'system', name, value)
-    stem.with_suffix('.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+    stem.with_suffix('.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding="utf-8")

@@ -35,8 +35,8 @@ def main():
             fields = [f'{key}: {expected}' for key in ('cookie', 'local', 'indexed', 'cache')]
             if all(field in text for field in fields):
                 results.append({'check': label, 'expected': expected, 'passed': True})
-                (args.output / f'{len(results):02d}-storage.xml').write_text(raw)
-                (args.output / 'result.json').write_text(json.dumps(results, indent=2))
+                (args.output / f'{len(results):02d}-storage.xml').write_text(raw, encoding="utf-8")
+                (args.output / 'result.json').write_text(json.dumps(results, indent=2), encoding="utf-8")
                 print('PASS', label, flush=True)
                 return
             if time.monotonic() >= deadline:
@@ -101,7 +101,7 @@ def main():
     exit_private()
     read_storage('empty', 'both-profile cleanup erases normal data')
     crash = ux.adb('shell', 'logcat', '-b', 'crash', '-d')
-    (args.output / 'crash.log').write_text(crash)
+    (args.output / 'crash.log').write_text(crash, encoding="utf-8")
     assert 'com.mybrowser' not in crash, crash
     print(json.dumps({'checks': len(results), 'passed': True}), flush=True)
 

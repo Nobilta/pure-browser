@@ -45,8 +45,9 @@ Pure 浏览器是一款开源的 Android 浏览器，基于系统 WebView，支�
 
 ## 从源码构建
 
-项目使用 Kotlin、Jetpack Compose 和 Rust。构建支持 macOS 与 Linux（x86_64），
-请先按[贡献指南](CONTRIBUTING.md#开发环境)准备 JDK、Android SDK/NDK、Rust、Node.js 和 Python。
+项目使用 Kotlin、Jetpack Compose 和 Rust。构建支持 macOS、Linux 和 Windows，
+Windows 请在 Git Bash 中运行脚本。请先按[贡献指南](CONTRIBUTING.md#开发环境)准备 JDK、
+Android SDK/NDK、Rust、Node.js 和 Python。
 
 ```bash
 git clone https://github.com/Nobilta/pure-browser.git

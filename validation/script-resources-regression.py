@@ -13,7 +13,7 @@ def main():
     p.add_argument('--output', type=Path, required=True); a = p.parse_args()
     assert a.serial.startswith('emulator-'); ux.PACKAGE = a.package
     r = features.Regression(a.serial, 'resources'); r.output = a.output; a.output.mkdir(parents=True, exist_ok=True)
-    expected = (ROOT / 'resource-style.css').read_text()
+    expected = (ROOT / 'resource-style.css').read_text(encoding="utf-8")
     def good(s): return s['resourceText'] == expected and s['resourceHeader'] == '137,80,78,71,13,10,26,10' and s['resourceBytes'] > 50
     try:
         ux.adb('reverse', 'tcp:8875', 'tcp:8875'); ux.adb('shell', 'am', 'force-stop', a.package)
@@ -30,9 +30,9 @@ def main():
         r.record('Private pages do not execute installed resource scripts')
         ux.menu_item('Exit incognito mode'); r.page(); r.wait(good)
         r.record('Returning to normal browsing restores authorized script execution')
-        (a.output / 'result.json').write_text(json.dumps({'passed': True, 'apkSha256': r.apk_hash, 'checks': r.checks}, ensure_ascii=False, indent=2))
+        (a.output / 'result.json').write_text(json.dumps({'passed': True, 'apkSha256': r.apk_hash, 'checks': r.checks}, ensure_ascii=False, indent=2), encoding="utf-8")
     finally:
-        (a.output / 'last-screen.xml').write_text(ux.nodes()[1])
+        (a.output / 'last-screen.xml').write_text(ux.nodes()[1], encoding="utf-8")
         (a.output / 'last-screen.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 
 if __name__ == '__main__': main()

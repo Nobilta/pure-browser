@@ -14,11 +14,19 @@ if [[ -f "$PROJECT_DIR/local.properties" ]]; then
 fi
 SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-${configured_sdk:-}}}"
 if [[ -z "$SDK_DIR" ]]; then
-    SDK_DIR="$HOME/Library/Android/sdk"
+    if [[ -n "${LOCALAPPDATA:-}" ]]; then
+        SDK_DIR="$LOCALAPPDATA/Android/Sdk"
+    else
+        SDK_DIR="$HOME/Library/Android/sdk"
+    fi
 fi
 
 NDK_VERSION="${ANDROID_NDK_VERSION:-29.0.14206865}"
 SDKMANAGER="${SDKMANAGER:-$SDK_DIR/cmdline-tools/latest/bin/sdkmanager}"
+# Windows installs sdkmanager.bat, whose name does not match the bare one on POSIX hosts.
+if [[ ! -x "$SDKMANAGER" && -f "$SDKMANAGER.bat" ]]; then
+    SDKMANAGER="$SDKMANAGER.bat"
+fi
 if [[ ! -x "$SDKMANAGER" ]] && command -v sdkmanager >/dev/null 2>&1; then
     SDKMANAGER="$(command -v sdkmanager)"
 fi

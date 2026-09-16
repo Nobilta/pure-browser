@@ -40,7 +40,7 @@ class Regression:
 
     def snapshot(self, name):
         stem = self.output / ("api" + self.sdk + "-features-" + name)
-        stem.with_suffix(".xml").write_text(ux.nodes()[1])
+        stem.with_suffix(".xml").write_text(ux.nodes()[1], encoding="utf-8")
         stem.with_suffix(".png").write_bytes(subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"]))
 
     def page(self, extra=""):
@@ -380,7 +380,7 @@ class Regression:
         self.filter_settings()
         self.set_switch("自动更新规则", False)
         result = subprocess.run(ux.ADB + ["shell", "cmd", "jobscheduler", "get-job-state", ux.PACKAGE, "4107"],
-                                text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                                text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         assert "could not find job" in result.stdout.lower() or "unknown" in result.stdout.lower(), result.stdout
         self.set_switch("自动更新规则", True)
         jobs = ux.adb("shell", "dumpsys", "jobscheduler", ux.PACKAGE)
@@ -474,7 +474,7 @@ class Regression:
         (self.output / ("api" + self.sdk + "-features-" + self.section + ".json")).write_text(json.dumps({
             "serial": self.serial, "sdk": self.sdk, "case": self.case,
             "apkSha256": self.apk_hash, "checks": self.checks, "error": error
-        }, ensure_ascii=False, indent=2))
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

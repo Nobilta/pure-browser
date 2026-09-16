@@ -25,7 +25,7 @@ def main():
               'www.zhihu.com', 'www.wikipedia.org', 'www.reddit.com', 'www.google.com']]
     domains = set()
     for path in payloads:
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             if '##' not in line or line.startswith('!'):
                 continue
             for domain in line.split('##', 1)[0].split(','):
@@ -40,14 +40,14 @@ def main():
     assert len(hosts) == 80  # Exceeds the 32-host LRU: every cold-loop query misses.
     with tempfile.TemporaryDirectory(prefix='query-', dir=OUT) as scratch:
         output = Path(scratch)
-        (output / 'hosts.txt').write_text('\n'.join(hosts) + '\n')
+        (output / 'hosts.txt').write_text('\n'.join(hosts) + '\n', encoding="utf-8")
         raw = subprocess.check_output(
             ['cargo', 'run', '--locked', '--release', '-p', 'adblock', '--example',
              'cosmetic_bench', '--', str(output), *map(str, payloads)],
-            cwd=ROOT / 'rust', text=True, timeout=300)
+            cwd=ROOT / 'rust', text=True, encoding="utf-8", timeout=300)
         result = {
             'host': platform.platform(),
-            'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
+            'rustc': subprocess.check_output(['rustc', '--version'], text=True, encoding="utf-8").strip(),
             'rust': json.loads(raw),
             'inputs': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in payloads},
             'outputSha256': {host: hashlib.sha256((output / f'rust-{i}.css').read_bytes()).hexdigest()
@@ -55,7 +55,7 @@ def main():
             'scope': 'Current host CSS query only; excludes JNI, DOM, page load and device effects',
         }
     assert result['rust']['coldSamples'] == 480 and result['rust']['warmSamples'] == 200
-    (OUT / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
+    (OUT / 'result.json').write_text(json.dumps(result, indent=2) + '\n', encoding="utf-8")
     print(json.dumps({k: v for k, v in result.items() if k != 'outputSha256'}, indent=2))
 
 

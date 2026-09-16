@@ -43,7 +43,7 @@ def record(name):
 def screenshot(name):
     _, raw = ux.nodes()
     prefix = output / ('api' + sdk + '-home-shortcut-' + name)
-    prefix.with_suffix('.xml').write_text(raw)
+    prefix.with_suffix('.xml').write_text(raw, encoding="utf-8")
     prefix.with_suffix('.png').write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 
 
@@ -273,4 +273,4 @@ finally:
     (output / ('api' + sdk + '-home-shortcut.json')).write_text(json.dumps({
         'timestamp': datetime.now(timezone.utc).isoformat(), 'serial': args.serial, 'sdk': int(sdk),
         'apk_sha256': apk_sha256, 'checks': checks, 'error': failure,
-    }, indent=2))
+    }, indent=2), encoding="utf-8")

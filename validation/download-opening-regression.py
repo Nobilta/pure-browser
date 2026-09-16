@@ -42,13 +42,13 @@ def main():
         raise AssertionError('Timed out waiting for ' + repr(condition))
 
     def save(name):
-        (args.output / (name + '.xml')).write_text(ux.nodes()[1])
+        (args.output / (name + '.xml')).write_text(ux.nodes()[1], encoding="utf-8")
         (args.output / (name + '.png')).write_bytes(subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p']))
 
     def record(name, **details):
         result['checks'].append({'check': name, **details})
         print('PASS', name, flush=True)
-        (args.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (args.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     def foreground():
         raw = ux.adb('shell', 'dumpsys', 'activity', 'activities')
@@ -83,7 +83,7 @@ def main():
     def completed_file(kind, expected):
         path = '/sdcard/Download/' + file_name(kind)
         def has_bytes():
-            check = subprocess.run(ux.ADB + ['shell', 'sha256sum', path], capture_output=True, text=True)
+            check = subprocess.run(ux.ADB + ['shell', 'sha256sum', path], capture_output=True, text=True, encoding="utf-8")
             return check.returncode == 0 and check.stdout.split()[0] == expected
         wait(has_bytes, 65)
         return path
@@ -149,7 +149,7 @@ def main():
         activity = ux.adb('shell', 'dumpsys', 'activity', 'activities')
         # Android resolves the provider type without putting an explicit MIME on our Intent.
         assert 'act=android.intent.action.VIEW dat=content://media/' in activity and 'readUriPermissions=' in activity
-        (args.output / 'system-image-activity.txt').write_text(activity)
+        (args.output / 'system-image-activity.txt').write_text(activity, encoding="utf-8")
         save('system-image')
         record('A completed-row tap directly invokes Android image handling with a content URI', target=target)
         back_to_downloads()
@@ -159,7 +159,7 @@ def main():
         # Toasts can be separate accessibility windows from the active Activity.
         raw = ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false',
                      '/system/bin', 'com.mybrowser.validation.FastUiDump', 'windows')
-        (args.output / 'missing-file-windows.xml').write_text(raw)
+        (args.output / 'missing-file-windows.xml').write_text(raw, encoding="utf-8")
         save('missing-file')
         assert not system_ui(), 'A missing file unexpectedly launched an external Activity'
         # System-rendered Toasts are not exposed in every Provider's accessibility tree.
@@ -220,7 +220,7 @@ def main():
         save('failure')
         raise
     finally:
-        (args.output / 'result.json').write_text(json.dumps(result, indent=2))
+        (args.output / 'result.json').write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
 if __name__ == '__main__':
