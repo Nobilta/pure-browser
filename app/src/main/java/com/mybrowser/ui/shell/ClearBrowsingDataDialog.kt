@@ -22,7 +22,7 @@ fun ClearBrowsingDataDialog(privateMode: Boolean, isolated: Boolean, modernDelet
     var types by remember { mutableStateOf(if (privateMode) setOf(ClearDataType.WEBSITE_DATA)
         else setOf(ClearDataType.WEBSITE_DATA, ClearDataType.HISTORY)) }
     var period by remember { mutableStateOf(HistoryPeriod.ALL) }
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
+    BrowserAlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(R.string.clear_data_title)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.clear_scope), style = MaterialTheme.typography.titleSmall)

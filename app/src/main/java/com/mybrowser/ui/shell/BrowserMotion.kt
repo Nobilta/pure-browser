@@ -1,10 +1,15 @@
 package com.mybrowser.ui.shell
 
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.runtime.State
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 /**
@@ -19,20 +24,42 @@ internal object BrowserMotion {
     // Easing tokens of the Material 3 motion system; add the remaining ones with the spec that
     // needs them rather than keeping unused names here.
     val Standard = CubicBezierEasing(.2f, 0f, 0f, 1f)
+    val StandardDecelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
+    val StandardAccelerate = CubicBezierEasing(.3f, 0f, 1f, 1f)
     val EmphasizedDecelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
     val EmphasizedAccelerate = CubicBezierEasing(.3f, 0f, .8f, .15f)
 
     /** A panel arrives: long enough to read the surface, decelerating into place. */
-    val sheetEnter: AnimationSpec<Float> = tween(300, easing = EmphasizedDecelerate)
+    val sheetEnter: FiniteAnimationSpec<Float> = tween(300, easing = EmphasizedDecelerate)
 
     /** A panel leaves the way it came: shorter and accelerating away. */
-    val sheetExit: AnimationSpec<Float> = tween(200, easing = EmphasizedAccelerate)
+    val sheetExit: FiniteAnimationSpec<Float> = tween(200, easing = EmphasizedAccelerate)
 
     /** A page pushes or pops inside one window; the direction only flips the travel. */
-    val pageChange: AnimationSpec<Float> = tween(250, easing = Standard)
+    val pageChange: FiniteAnimationSpec<Float> = tween(250, easing = Standard)
 
     /** Same-level content swaps without travelling: filters, tabs, wide-layout detail. */
-    val contentReplace: AnimationSpec<Float> = tween(150, easing = Standard)
+    val contentReplace: FiniteAnimationSpec<Float> = tween(150, easing = Standard)
+
+    /**
+     * The address bar leaving towards its own screen edge. It changes layout size rather than
+     * moving a layer, so this spec is sized rather than float-based; the duration and curve are the
+     * same pair the rest of the app uses.
+     */
+    val chromeShow: FiniteAnimationSpec<IntSize> = tween(200, easing = StandardDecelerate)
+    val chromeHide: FiniteAnimationSpec<IntSize> = tween(150, easing = StandardAccelerate)
+
+    /** A row a user adds or removes: it fades, and its neighbours glide to their new places. */
+    val itemEnter: FiniteAnimationSpec<Float> = tween(150, easing = Standard)
+    val itemPlacement: FiniteAnimationSpec<IntOffset> = tween(200, easing = Standard)
+    val itemExit: FiniteAnimationSpec<Float> = tween(100, easing = Standard)
+
+    /** A local surface (a dialog) settles into place instead of appearing. */
+    val localEnter: FiniteAnimationSpec<Float> = tween(150, easing = StandardDecelerate)
+    val localExit: FiniteAnimationSpec<Float> = tween(100, easing = StandardAccelerate)
+
+    /** A header inset that settles with a page change instead of jumping. */
+    val headerShift: FiniteAnimationSpec<Dp> = tween(200, easing = Standard)
 
     /** Travel of a pushed page: arriving content starts one step towards the edge. */
     val PAGE_CHANGE_DISTANCE = 24.dp
@@ -53,6 +80,17 @@ internal object BrowserMotion {
 /** Alpha for a page that is still travelling: the fade finishes before the movement does. */
 internal fun pageChangeAlpha(progress: Float): Float =
     (progress * BrowserMotion.PAGE_CHANGE_FADE_SHARE).coerceIn(0f, 1f)
+
+/**
+ * The item motion for a list the user edits (closing a tab, deleting a download or bookmark).
+ * Applying it to every list would animate streamed updates as well, which reads as noise, so only
+ * user-managed rows ask for it.
+ */
+internal fun LazyItemScope.userItemMotion(): Modifier = Modifier.animateItem(
+    fadeInSpec = BrowserMotion.itemEnter,
+    placementSpec = BrowserMotion.itemPlacement,
+    fadeOutSpec = BrowserMotion.itemExit,
+)
 
 /** Geometry of one presented surface; a replaced container is faded out with it. */
 internal data class SheetShape(val fullscreen: Boolean, val height: Int, val color: Color)

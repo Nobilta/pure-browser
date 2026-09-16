@@ -21,11 +21,13 @@ import com.mybrowser.data.Bookmark
 import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.BookmarkFolders
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
+import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibraryFooter
 import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.browserSheetInsets
+import com.mybrowser.ui.shell.BrowserAlertDialog
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -116,7 +118,7 @@ fun BookmarksSheet(
                 items(bookmarks, key = { it.id }) { bookmark ->
                     var itemMenu by remember { mutableStateOf(false) }
                     fun toggleSelection() { selected = if (bookmark.id in selected) selected - bookmark.id else selected + bookmark.id }
-                    Row(Modifier.fillMaxWidth().combinedClickable(
+                    Row(userItemMotion().fillMaxWidth().combinedClickable(
                         onClick = { if (selecting) toggleSelection() else onSelectBookmark(bookmark.url) },
                         onLongClick = { selecting = true; toggleSelection() },
                         onLongClickLabel = stringResource(R.string.bookmarks_select)).padding(vertical = 12.dp),
@@ -154,7 +156,7 @@ fun BookmarksSheet(
         }
     }
     }
-    if (folderEditor) AlertDialog(onDismissRequest = { folderEditor = false },
+    if (folderEditor) BrowserAlertDialog(onDismissRequest = { folderEditor = false },
         title = { Text(stringResource(if (editingFolder == null) R.string.bookmarks_new_folder else R.string.bookmarks_rename_folder)) },
         text = { OutlinedTextField(folderName, { folderName = it.take(BookmarkFolders.MAX_NAME) }, singleLine = true,
             label = { Text(stringResource(R.string.bookmarks_folder_name)) }) },
@@ -171,12 +173,12 @@ fun BookmarksSheet(
         library.mutate { if (folder == null) moveBookmarks(ids, target) else updateFolder(folder.id, folder.title, target) }
         moving = false; selected = emptySet(); selecting = false
     }, onDismiss = { moving = false })
-    if (deleteSelected) AlertDialog(onDismissRequest = { deleteSelected = false },
+    if (deleteSelected) BrowserAlertDialog(onDismissRequest = { deleteSelected = false },
         title = { Text(stringResource(R.string.bookmarks_delete_selected)) },
         text = { Text(stringResource(R.string.bookmarks_selected, selected.size)) },
         confirmButton = { TextButton(onClick = { val ids = selected; library.mutate { deleteBookmarks(ids) }; selected = emptySet(); selecting = false; deleteSelected = false }) { Text(stringResource(R.string.cd_delete)) } },
         dismissButton = { TextButton(onClick = { deleteSelected = false }) { Text(stringResource(R.string.action_cancel)) } })
-    deleteFolder?.let { folder -> AlertDialog(onDismissRequest = { deleteFolder = null },
+    deleteFolder?.let { folder -> BrowserAlertDialog(onDismissRequest = { deleteFolder = null },
         title = { Text(folder.title) }, text = { Text(stringResource(R.string.bookmarks_remove_folder_note)) },
         confirmButton = { TextButton(onClick = { library.mutate { removeFolder(folder.id) }; deleteFolder = null }) { Text(stringResource(R.string.cd_delete)) } },
         dismissButton = { TextButton(onClick = { deleteFolder = null }) { Text(stringResource(R.string.action_cancel)) } }) }
@@ -184,7 +186,7 @@ fun BookmarksSheet(
 
 @Composable
 private fun BookmarkFolderPicker(choices: List<BookmarkFolder>, all: List<BookmarkFolder>, onSelect: (Long) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.bookmarks_move_to)) },
+    BrowserAlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.bookmarks_move_to)) },
         text = { LazyColumn(Modifier.heightIn(max = 400.dp)) {
             item { TextButton(onClick = { onSelect(0) }) { Text(stringResource(R.string.bookmarks_root)) } }
             items(choices.sortedBy { BookmarkFolders.path(it.id, all).joinToString("/") { item -> item.title } }, key = { it.id }) { folder ->
@@ -195,7 +197,7 @@ private fun BookmarkFolderPicker(choices: List<BookmarkFolder>, all: List<Bookma
 
 @Composable
 fun BookmarkImportDialog(data: com.mybrowser.data.BookmarkImport, busy: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
+    BrowserAlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(R.string.bookmarks_import)) },
         text = { Column {
             Text(stringResource(R.string.bookmarks_import_preview, data.entries.size, data.skipped))
