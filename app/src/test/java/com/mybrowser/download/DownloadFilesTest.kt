@@ -34,6 +34,14 @@ class DownloadFilesTest {
             assertEquals("update", context.contentResolver.openInputStream(apkUri)!!.bufferedReader().use { it.readText() })
             assertThrows(IllegalArgumentException::class.java) { FileProvider.getUriForFile(context, cameraAuthority, apk) }
             assertThrows(IllegalArgumentException::class.java) { FileProvider.getUriForFile(context, updateAuthority, photo) }
+        } catch (error: IllegalArgumentException) {
+            // The stock message does not say which path pair failed to match, which is the only way
+            // to tell a real misconfiguration from a host filesystem difference.
+            throw AssertionError(
+                "cacheDir=${context.cacheDir.path} | cameraRoot=${File(context.cacheDir, "web-capture").path} | " +
+                    "photo=${photo.path} | canonical=${photo.canonicalPath} | exists=${photo.exists()}",
+                error,
+            )
         } finally { photo.delete(); apk.delete() }
     }
 
