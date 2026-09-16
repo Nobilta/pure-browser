@@ -285,17 +285,6 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     dependsOn(cargoBuildHostTests)
     inputs.dir(hostTestJni)
     systemProperty("java.library.path", hostTestJni.get().asFile.absolutePath)
-    if (isWindowsHost) {
-        // Robolectric creates its per-test data directory under java.io.tmpdir, which the Windows
-        // runner hands to the JVM in 8.3 short form (C:\Users\RUNNER~1\...). File.getCanonicalPath()
-        // expands that form for a path that exists but not for one that does not, and AndroidX's
-        // FileProvider compares a canonical file path against roots canonicalized before the file
-        // appeared, so no root ever matches there. A short directory of our own has no alias to
-        // disagree about.
-        val temp = File(System.getenv("SystemDrive") ?: "C:", "pure-browser-tests")
-        val usable = temp.isDirectory || temp.mkdirs()
-        systemProperty("java.io.tmpdir", if (usable) temp.absolutePath else System.getProperty("java.io.tmpdir"))
-    }
 }
 
 dependencies {

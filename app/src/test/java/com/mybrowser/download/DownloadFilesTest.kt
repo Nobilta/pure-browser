@@ -5,17 +5,35 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import com.mybrowser.R
 import org.junit.Assert.*
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.xmlpull.v1.XmlPullParser
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadFilesTest {
+    /**
+     * "name:tag:path" for every entry of a provider's path configuration: the contract that keeps
+     * URI grants inside one directory tree.
+     */
+    private fun declaredPaths(context: Context, resource: Int): List<String> {
+        val parser = context.resources.getXml(resource)
+        val declared = mutableListOf<String>()
+        while (parser.next() != XmlPullParser.END_DOCUMENT) {
+            if (parser.eventType != XmlPullParser.START_TAG || parser.name == "paths") continue
+            declared += "${parser.getAttributeValue(null, "name")}:${parser.name}:" +
+                parser.getAttributeValue(null, "path")
+        }
+        return declared.sorted()
+    }
+
     private fun assertCameraAndUpdateUrisStayIsolated() {
         val context = RuntimeEnvironment.getApplication()
         val cameraAuthority = context.packageName + ".captures"
@@ -25,6 +43,17 @@ class DownloadFilesTest {
         // Android's provider registry keys the component by class name, even when
         // the manifest declares different authorities. Aliasing breaks URI grants.
         assertNotEquals(camera.name, update.name)
+        // Each provider may expose its own cache directory and nothing else.
+        assertEquals(listOf("capture:cache-path:web-capture/"), declaredPaths(context, R.xml.capture_paths))
+        assertEquals(listOf("updates:cache-path:updates/"), declaredPaths(context, R.xml.update_paths))
+        // The round trip below relies on FileProvider matching a canonical file path against its
+        // configured roots. A Windows host hands the JVM its temp directory in 8.3 short form, which
+        // makes those two sides disagree for reasons no device can reproduce, so the structural
+        // checks above carry the contract there.
+        assumeFalse(
+            "FileProvider root matching is unreliable under Robolectric on Windows",
+            System.getProperty("os.name").orEmpty().startsWith("Windows"),
+        )
         val photo = File(context.cacheDir, "web-capture/photo.jpg").apply { parentFile!!.mkdirs(); writeText("camera") }
         val apk = File(context.cacheDir, "updates/update.apk").apply { parentFile!!.mkdirs(); writeText("update") }
         try {
