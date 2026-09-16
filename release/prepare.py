@@ -74,6 +74,13 @@ def prepare(apk, output, notes=None):
     release_notes = notes.read_text(encoding='utf-8') if notes else ''
     if len(release_notes) > 12_000:
         raise ValueError('Release notes exceed 12,000 characters')
+    # These notes become the body of update.json, which is generated here and then published as an
+    # attachment: a file still describing the previous version would go out with this release and be
+    # shown in the in-app update prompt. Naming the version in the first line is what the notes of
+    # every release already do.
+    first_line = release_notes.splitlines()[0] if release_notes else ''
+    if release_notes and version not in first_line:
+        raise ValueError('release notes must name version ' + version + ' in their first line: ' + first_line)
     manifest = {'schemaVersion': 1, 'channel': 'stable', 'packageName': package[1], 'versionCode': code,
                 'versionName': version, 'minSdk': min_sdk,
                 'releaseNotes': release_notes,
