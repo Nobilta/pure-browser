@@ -23,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.mybrowser.ui.shell.BrowserAlertDialog
 
 /**
  * Foreground updates. Leaving this dialog cancels the transfer.
@@ -108,7 +109,7 @@ internal fun UpdatePanel(
         }
     }
     DisposableEffect(Unit) { onDispose { job?.cancel() } }
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.update_title)) },
         text = {

@@ -18,9 +18,11 @@ import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import java.text.DecimalFormat
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.shell.BrowserAlertDialog
 
 /**
  * Downloads management sheet showing active and completed downloads.
@@ -120,15 +122,17 @@ fun DownloadsSheet(
                         .weight(1f, fill = false),
                 ) {
                     items(downloads, key = { it.id }) { download ->
-                        DownloadItemRow(
-                            download = download,
-                            onCancel = { onCancelDownload(download.id) },
-                            onPause = { onPauseDownload(download.id) },
-                            onRetry = { onRetryDownload(download.id) },
-                            onOpen = { onOpenFile(download.id) },
-                            onDelete = { pendingDelete = download },
-                        )
-                        HorizontalDivider()
+                        Column(userItemMotion()) {
+                            DownloadItemRow(
+                                download = download,
+                                onCancel = { onCancelDownload(download.id) },
+                                onPause = { onPauseDownload(download.id) },
+                                onRetry = { onRetryDownload(download.id) },
+                                onOpen = { onOpenFile(download.id) },
+                                onDelete = { pendingDelete = download },
+                            )
+                            HorizontalDivider()
+                        }
                     }
                 }
             }
@@ -309,7 +313,7 @@ private fun DeleteDownloadDialog(
 ) {
     val textResources = localizedResources()
     var deleteFiles by remember(title, message) { mutableStateOf(true) }
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {

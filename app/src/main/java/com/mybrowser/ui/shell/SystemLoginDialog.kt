@@ -17,7 +17,7 @@ import com.mybrowser.core.SystemLoginSupport
 @Composable
 fun SystemLoginDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.system_login)) },
+    BrowserAlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.system_login)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.system_login_summary))
             Text(stringResource(if (SystemLoginSupport.autofillEnabled(context)) R.string.autofill_enabled else R.string.autofill_disabled), Modifier.padding(top = 12.dp))

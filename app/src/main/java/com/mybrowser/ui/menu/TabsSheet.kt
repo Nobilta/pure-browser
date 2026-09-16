@@ -24,9 +24,11 @@ import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.tabs.TabState
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibrarySearchField
+import com.mybrowser.ui.shell.BrowserAlertDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +86,7 @@ fun TabsSheet(
                     var itemMenu by remember { mutableStateOf(false) }
                     Surface(shape = MaterialTheme.shapes.medium, color = if (tab.id == currentId)
                         MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }) {
+                        modifier = userItemMotion().fillMaxWidth().clickable { onSelectTab(tab.id) }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(64.dp, 80.dp).clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
@@ -120,7 +122,7 @@ fun TabsSheet(
             }
         }
     }
-    groupTarget?.let { target -> AlertDialog(onDismissRequest = { groupTarget = null },
+    groupTarget?.let { target -> BrowserAlertDialog(onDismissRequest = { groupTarget = null },
         title = { Text(stringResource(R.string.tabs_group)) },
         text = { Column {
             OutlinedTextField(groupName, { groupName = it.take(40) }, singleLine = true,
@@ -132,7 +134,7 @@ fun TabsSheet(
         } },
         confirmButton = { TextButton(onClick = { onGroupTab(target.id, groupName); groupTarget = null }) { Text(stringResource(R.string.action_confirm)) } },
         dismissButton = { TextButton(onClick = { groupTarget = null }) { Text(stringResource(R.string.action_cancel)) } }) }
-    if (confirm != null) AlertDialog(onDismissRequest = { confirm = null },
+    if (confirm != null) BrowserAlertDialog(onDismissRequest = { confirm = null },
         title = { Text(stringResource(if (confirm == "all") R.string.tabs_close_all else R.string.tabs_close_others)) },
         text = {
             val count = if (confirm == "all") tabs.size else (tabs.size - 1).coerceAtLeast(0)
