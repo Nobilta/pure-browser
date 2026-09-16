@@ -48,7 +48,7 @@ keyPassword=填写私钥密码
 5. 确认 `gh` 在 PATH 中并已登录，创建草稿。替换下面的文件名为本次 APK：
 
    ```bash
-   bash release/publish.sh PureBrowser-v0.9.1-release.apk release/notes.md
+   bash release/publish.sh PureBrowser-v0.10.0-release.apk release/notes.md
    ```
 
    脚本要求远程 `main` 与本地 HEAD 一致、该提交 CI 通过、APK 版本与源码一致，
