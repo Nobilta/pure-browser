@@ -185,8 +185,12 @@ fun rustHostTriple(): String? {
 }
 
 fun rustPathEntries(): List<String> = buildList {
-    rustHostTriple()?.let { add("$rustupHome/toolchains/stable-$it/bin") }
+    // The shim directory comes first because it resolves whatever toolchain rustup considers
+    // current, exactly as a shell would. A pinned toolchain (CI installs a versioned one and adds
+    // the Android targets to it) would otherwise be shadowed by a same-named "stable-<triple>"
+    // toolchain that happens to exist on the machine but has no Android target installed.
     add("$cargoHome/bin")
+    rustHostTriple()?.let { add("$rustupHome/toolchains/stable-$it/bin") }
 }.filter { File(it).isDirectory }
 
 // A bare "bash" on Windows resolves to the WSL launcher in C:\Windows\System32, which fails with
