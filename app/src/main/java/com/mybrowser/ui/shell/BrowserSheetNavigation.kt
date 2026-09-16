@@ -1,7 +1,9 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -79,28 +81,59 @@ internal class BrowserSheetNavigation {
     }
 }
 
-/** One dialog survives route changes; only the visible page and its Back callback are mounted. */
+/**
+ * One dialog survives route changes; only the visible page and its Back callback are mounted.
+ *
+ * The host owns the window's progress, so it also owns the exit: when the stack empties the last
+ * page stays composed while the panel travels out, which keeps the closing transition showing a
+ * real page instead of an empty window. A route opened mid-exit reverses from the current position.
+ */
 @Composable
 internal fun BrowserSheetHost(
     navigation: BrowserSheetNavigation,
     content: @Composable (BrowserSheetNavigation.Presentation) -> Unit,
 ) {
     val savedState = rememberSaveableStateHolder()
-    val knownKeys = remember { mutableSetOf<Long>() }
-    val activeKeys = navigation.routes.map { it.key }.toSet()
-    SideEffect {
-        (knownKeys - activeKeys).forEach(savedState::removeState)
-        knownKeys.clear()
-        knownKeys.addAll(activeKeys)
+    val current = navigation.current
+
+    // The page that is leaving: kept composed until the exit finishes, then dropped.
+    val leaving = remember { mutableStateOf<BrowserSheetNavigation.Presentation?>(null) }
+    if (current != null) leaving.value = current
+    var closing by remember { mutableStateOf(false) }
+    val visibility = remember { Animatable(0f) }
+    LaunchedEffect(current) {
+        if (current != null) {
+            closing = false
+            visibility.animateTo(1f, BrowserMotion.sheetEnter)
+        } else if (leaving.value != null) {
+            closing = true
+            visibility.animateTo(0f, BrowserMotion.sheetExit)
+            closing = false
+            leaving.value = null
+        }
     }
-    navigation.current?.let { owner ->
-        BrowserSheetWindow(onDismissRequest = { navigation.current?.let(navigation::back) }) {
+    val shown = current ?: leaving.value?.takeIf { closing }
+
+    // Saved state is released only once nothing is displaying that route any more.
+    val knownKeys = remember { mutableSetOf<Long>() }
+    val retained = navigation.routes.map { it.key }.toSet() + setOfNotNull(shown?.route?.key)
+    SideEffect {
+        (knownKeys - retained).forEach(savedState::removeState)
+        knownKeys.clear()
+        knownKeys.addAll(retained)
+    }
+
+    if (shown != null) {
+        BrowserSheetWindow(
+            visibility = visibility.asState(),
+            onDismissRequest = { navigation.current?.let(navigation::back) },
+        ) {
             // Replace content atomically inside the existing window. Stable keys
             // restore parent state without hidden dialogs or stale Back callbacks.
             // Depth tells the arriving page whether it travels from below (child) or above (parent).
             CompositionLocalProvider(LocalSheetDepth provides navigation.routes.size) {
-                key(owner.route.key) {
-                    savedState.SaveableStateProvider(owner.route.key) { content(owner) }
+                key(shown.route.key) {
+                    savedState.SaveableStateProvider(shown.route.key) { content(shown) }
                 }
             }
         }
