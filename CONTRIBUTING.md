@@ -1,19 +1,33 @@
 # 贡献指南
 
-感谢参与。这个项目是 Android 浏览器，涉及页面渲染、文件写入和网络请求，所以对"改动是否被验证过"
-有明确要求；下面的流程是为了让评审能核对，而不是为了增加步骤。
+欢迎参与 Pure 浏览器的开发。下面介绍如何准备环境、运行检查和提交改动。
+
+## 开发环境
+
+支持 macOS 和 Linux（x86_64）。推荐与 [CI](.github/workflows/ci.yml) 使用相同的工具版本：
+
+- JDK 21、Node.js 22、Python 3.9 或更高版本。
+- Rust 1.98.0，通过 rustup 安装，包含 rustfmt、clippy 和 `aarch64-linux-android` target。
+- Android SDK Platform 37（`platforms;android-37.0`）、Build Tools 37.0.0、Platform Tools，以及 NDK 27.2.12479018。
+
+在项目根目录的 `local.properties` 中设置 `sdk.dir=/你的/Android/SDK/路径`，或设置 `ANDROID_HOME`。
+NDK 可通过 `ANDROID_NDK_HOME` 指定；未设置时，构建脚本会从 SDK 的 `ndk/` 目录中查找。
+JDK、Node.js、Python 和 Rust 工具需要在 `PATH` 中可用。
+
+调试版使用自动生成的调试签名，不需要正式发布密钥。构建签名 Release 时需要自己配置
+`keystore.properties`，流程见[发布指南](RELEASING.md)。这些本机配置与密钥不提交到仓库。
 
 ## 快速开始
 
 ```bash
 git clone https://github.com/Nobilta/pure-browser.git
 cd pure-browser
-./diagnose.sh                 # 环境自检：JDK / SDK / NDK / Rust / Node / Python
 ./build-and-test.sh --quick   # 提交前必跑：资源、Node、Rust 与 Android 单元测试
+./gradlew :app:assembleDebug  # 构建调试 APK
 ```
 
-环境要求见 [README 的"从源码构建"](README.md#从源码构建)。`local.properties`（SDK 路径）与
-`keystore.properties`（签名）由本地生成，不入库。
+调试 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，默认面向 ARM64 设备。
+模拟器配置与回归命令见[测试指南](TESTING_GUIDE.md)；连接设备后的安装诊断可用 `./diagnose.sh`。
 
 ## 提交前检查清单
 
