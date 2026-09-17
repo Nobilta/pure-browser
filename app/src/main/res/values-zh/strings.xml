@@ -349,6 +349,11 @@
     <string name="ui_brightness">亮度 %1$d%%</string>
     <string name="ui_volume">音量 %1$d%%</string>
     <string name="ui_release_to_seek">%1$s / %2$s</string>
+    <string name="ui_player_buffering">正在缓冲</string>
+    <string name="ui_player_network_speed">%1$s/s</string>
+    <string name="ui_selected_count">已选 %1$d 项</string>
+    <string name="ui_select_downloads">选择下载</string>
+    <string name="ui_current_playback_speed">当前倍速</string>
     <string name="ui_video">视频</string>
     <string name="ui_audio">音频</string>
     <string name="context_open_new_tab">在新标签页打开</string>

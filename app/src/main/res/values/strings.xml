@@ -349,6 +349,11 @@
     <string name="ui_brightness">Brightness %1$d%%</string>
     <string name="ui_volume">Volume %1$d%%</string>
     <string name="ui_release_to_seek">%1$s / %2$s</string>
+    <string name="ui_player_buffering">Buffering</string>
+    <string name="ui_player_network_speed">%1$s/s</string>
+    <string name="ui_selected_count">%1$d selected</string>
+    <string name="ui_select_downloads">Select downloads</string>
+    <string name="ui_current_playback_speed">Current speed</string>
     <string name="ui_video">Video</string>
     <string name="ui_audio">Audio</string>
     <string name="context_open_new_tab">Open in new tab</string>

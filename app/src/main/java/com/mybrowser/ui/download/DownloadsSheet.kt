@@ -3,7 +3,13 @@ package com.mybrowser.ui.download
 import com.mybrowser.download.localizeDownloadDirectory
 import com.mybrowser.download.DownloadItem
 import com.mybrowser.download.DownloadStatus
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import java.text.DecimalFormat
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
@@ -27,6 +34,7 @@ import com.mybrowser.ui.shell.BrowserAlertDialog
 /**
  * Downloads management sheet showing active and completed downloads.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun DownloadsSheet(
     downloads: List<DownloadItem>,
@@ -42,21 +50,31 @@ fun DownloadsSheet(
     val textResources = localizedResources()
     var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClearCompleted by remember { mutableStateOf(false) }
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var confirmDeleteSelected by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(focusedId, downloads.map { it.id }) {
         val index = downloads.indexOfFirst { it.id == focusedId }
         if (index >= 0) listState.scrollToItem(index)
     }
+    // A record can disappear while it is selected (cancelled, retried, deleted elsewhere).
+    LaunchedEffect(downloads.map { it.id }) {
+        selected = selected.intersect(downloads.map { it.id }.toSet())
+        if (downloads.isEmpty()) selecting = false
+    }
+    val leaveSelection = { selecting = false; selected = emptySet() }
 
     BrowserBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (selecting) leaveSelection() else onDismiss() },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 24.dp)
         ) {
-            BrowserSheetHeader(textResources.getString(R.string.ui_download_manager), onBack = onDismiss) {
+            BrowserSheetHeader(textResources.getString(R.string.ui_download_manager),
+                onBack = { if (selecting) leaveSelection() else onDismiss() }) {
                 if (downloads.isEmpty()) {
                     Text(
                         text = textResources.getString(R.string.ui_no_downloads),
@@ -74,7 +92,7 @@ fun DownloadsSheet(
                             it.status == DownloadStatus.COMPLETED ||
                                 it.status == DownloadStatus.FAILED
                         }
-                        if (hasTerminal) {
+                        if (hasTerminal && !selecting) {
                             TextButton(onClick = { confirmClearCompleted = true }) {
                                 Text(textResources.getString(R.string.cd_clear))
                             }
@@ -84,6 +102,28 @@ fun DownloadsSheet(
             }
 
             HorizontalDivider()
+
+            AnimatedVisibility(
+                visible = selecting,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                    expandVertically(animationSpec = BrowserMotion.chromeShow),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                    shrinkVertically(animationSpec = BrowserMotion.chromeHide),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = downloads.isNotEmpty() && downloads.all { it.id in selected },
+                        onCheckedChange = { checked ->
+                            selected = if (checked) downloads.map { it.id }.toSet() else emptySet()
+                        },
+                    )
+                    Text(textResources.getString(R.string.ui_selected_count, selected.size), Modifier.weight(1f))
+                    BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty()) {
+                        confirmDeleteSelected = true
+                    }
+                    BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close)) { leaveSelection() }
+                }
+            }
 
             if (downloads.isEmpty()) {
                 // Empty state
@@ -125,6 +165,13 @@ fun DownloadsSheet(
                         Column(userItemMotion()) {
                             DownloadItemRow(
                                 download = download,
+                                selecting = selecting,
+                                selected = download.id in selected,
+                                onToggleSelection = {
+                                    selecting = true
+                                    selected = if (download.id in selected) selected - download.id
+                                    else selected + download.id
+                                },
                                 onCancel = { onCancelDownload(download.id) },
                                 onPause = { onPauseDownload(download.id) },
                                 onRetry = { onRetryDownload(download.id) },
@@ -162,11 +209,28 @@ fun DownloadsSheet(
             onDismiss = { confirmClearCompleted = false },
         )
     }
+
+    if (confirmDeleteSelected) {
+        val count = selected.size
+        DeleteDownloadDialog(
+            title = textResources.getString(R.string.ui_delete_download_record),
+            message = textResources.getString(R.string.ui_selected_count, count),
+            onConfirm = { deleteFiles ->
+                confirmDeleteSelected = false
+                selected.forEach { id -> onDeleteDownload(id, deleteFiles) }
+                leaveSelection()
+            },
+            onDismiss = { confirmDeleteSelected = false },
+        )
+    }
 }
 
 @Composable
 private fun DownloadItemRow(
     download: DownloadItem,
+    selecting: Boolean,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
     onCancel: () -> Unit,
     onPause: () -> Unit,
     onRetry: () -> Unit,
@@ -177,13 +241,21 @@ private fun DownloadItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(
-                enabled = download.status == DownloadStatus.COMPLETED,
-                onClick = onOpen
+            .combinedClickable(
+                onClick = {
+                    if (selecting) onToggleSelection()
+                    else if (download.status == DownloadStatus.COMPLETED) onOpen()
+                },
+                onLongClick = onToggleSelection,
+                onLongClickLabel = stringResource(R.string.ui_select_downloads),
             )
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selecting) {
+            Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         // Icon based on status
         Icon(
             painter = painterResource(
@@ -272,7 +344,7 @@ private fun DownloadItemRow(
         }
 
         // Action button
-        when (download.status) {
+        if (!selecting) when (download.status) {
             DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> {
                 Column {
                     if (download.canPause) BrowserIconAction(R.drawable.ic_pause, stringResource(R.string.download_pause), onClick = onPause)

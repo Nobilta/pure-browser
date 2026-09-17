@@ -58,6 +58,14 @@ internal object BrowserMotion {
     val localEnter: FiniteAnimationSpec<Float> = tween(150, easing = StandardDecelerate)
     val localExit: FiniteAnimationSpec<Float> = tween(100, easing = StandardAccelerate)
 
+    /**
+     * A control surface arriving at, or leaving, one edge of the screen: the player's bars, a
+     * search field dropping out of the header. The same pair of durations the chrome uses, sized
+     * for travel instead of a layout change.
+     */
+    val overlayEnter: FiniteAnimationSpec<IntOffset> = tween(200, easing = StandardDecelerate)
+    val overlayExit: FiniteAnimationSpec<IntOffset> = tween(150, easing = StandardAccelerate)
+
     /** A header inset that settles with a page change instead of jumping. */
     val headerShift: FiniteAnimationSpec<Dp> = tween(200, easing = Standard)
 

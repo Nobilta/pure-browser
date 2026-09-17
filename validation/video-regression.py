@@ -117,6 +117,36 @@ class Regression:
                         str(self.width // 2), str(self.height // 2))
         return "Tapped" in result
 
+    def set_speed(self, rate):
+        """Tap the track and calibrate its inset against actual playback telemetry."""
+        end = None
+        for _ in range(4):
+            applied = self.events()[-1]["rate"]
+            if abs(applied - rate) < .001:
+                return
+            root, _ = self.player_nodes(reveal=True)
+            node = ux.match(root, "player_speed_slider")
+            assert node is not None, "Speed slider is missing from the player's panel"
+            x1, y1, x2, y2 = ux.bounds(node)
+            span = x2 - x1
+            # Compose expands accessibility bounds past the track. Start the endpoint
+            # probes inside it; subsequent taps correct using the rate the video applied.
+            thumb = next((n for n in node.iter("node") if ux.visible(n)
+                          and ux.bounds(n)[2] - ux.bounds(n)[0] < span / 2), None)
+            assert thumb is not None, "Speed slider thumb is missing"
+            left, top, right, bottom = ux.bounds(thumb)
+            y = (top + bottom) // 2
+            if end is None:
+                inset = (right - left) / 2
+                end = max(x1 + inset, min(x2 - inset, x1 + span * (rate - .5) / 4.5))
+            ux.adb("shell", "input", "tap", str(int(end)), str(y))
+            time.sleep(1.2)
+            applied = self.events()[-1]["rate"]
+            if abs(applied - rate) < .001:
+                return
+            end += (rate - applied) * span / 4.5
+        raise AssertionError("Speed slider did not reach " + str(rate) + "× (applied " + str(applied) + "×)")
+
     def button(self, label, reveal=True):
         if label == "Web play/pause" and self.variant.startswith("custom"):
             # Older providers expose stale or incomplete fullscreen accessibility nodes.
@@ -261,8 +291,9 @@ class Regression:
             baseline = self.popup_baseline()
             self.button("播放速度 1×")
             self.floating_menu("speed", baseline)
-            self.button("1.5×", reveal=False)
+            self.set_speed(1.5)
             self.wait(lambda s: s["paused"] and s["rate"] == 1.5)
+            self.button("关闭", reveal=False)
             ux.expect("player_speed_menu", present=False)
             self.stable_player(baseline)
             self.record("native pause, seek and speed control the original custom video")
@@ -463,8 +494,21 @@ class Regression:
         self.wait(lambda s: s["fullscreen"] and not s["paused"] and s["rate"] == 1)
         self.stable_player(baseline)
         self.button("播放速度 1×")
-        self.button("1.5×", reveal=False)
+        root, _ = self.player_nodes()
+        slider = ux.match(root, "player_speed_slider")
+        x1, _, x2, _ = ux.bounds(slider)
+        thumb = next(n for n in slider if ux.visible(n) and ux.bounds(n)[2] - ux.bounds(n)[0] < (x2 - x1) / 2)
+        left, top, right, bottom = ux.bounds(thumb)
+        start, y = (left + right) // 2, (top + bottom) // 2
+        ux.adb("shell", "input", "swipe", str(start), str(y), str(int(start + (x2 - x1) / 4)), str(y), "500")
+        self.wait(lambda s: s["rate"] > 1)
+        self.record("dragging the speed thumb changes the video's actual playback rate")
+        self.set_speed(.5)
+        self.set_speed(5)
+        self.set_speed(1.5)
         self.wait(lambda s: s["rate"] == 1.5)
+        self.record("speed slider reaches 0.5x and 5x and settles at 1.5x")
+        self.button("关闭", reveal=False)
         ux.expect("player_speed_menu", present=False)
         self.stable_player(baseline)
         started = time.time()

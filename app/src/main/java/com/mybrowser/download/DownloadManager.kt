@@ -65,6 +65,7 @@ class DownloadHandler(context: Context) : Closeable {
     private val destinationWriter = DownloadDestinationWriter(appContext)
     private val metadata = ConcurrentHashMap<Long, DownloadMetadata>()
     private val jobs = ConcurrentHashMap<Long, Job>()
+    private val deleting = ConcurrentHashMap.newKeySet<Long>()
     private val taskLock = Any()
     /** Survives replacement of a cancelled job that was itself waiting for an older job. */
     private val transferLocks = ConcurrentHashMap<Long, Mutex>()
@@ -199,35 +200,57 @@ class DownloadHandler(context: Context) : Closeable {
     }
 
     /**
-     * Removes one terminal record. If [deleteFile] is true, the record is retained when its
-     * corresponding local file cannot be deleted so the user can retry instead of losing it.
+     * Removes one record, stopping it first when it is still transferring. If [deleteFile] is true,
+     * the record is retained when its corresponding local file cannot be deleted so the user can
+     * retry instead of losing it.
      */
     fun delete(
         id: Long,
         deleteFile: Boolean,
         onComplete: (DownloadDeleteResult) -> Unit = {},
     ) {
-        val entry = metadata[id]
-        if (closed || entry == null) {
-            onComplete(DownloadDeleteResult(0, 0))
-            return
+        val writerLock = synchronized(taskLock) {
+            if (closed || !metadata.containsKey(id) || !deleting.add(id)) {
+                onComplete(DownloadDeleteResult(0, 0))
+                return
+            }
+            interrupted.remove(id)
+            jobs.remove(id)?.cancel()
+            transferLocks.computeIfAbsent(id) { Mutex() }
         }
         transferScope.launch {
-            val fileDeleted = !deleteFile || deleteStoredFile(entry)
-            val removed = if (fileDeleted && metadata.remove(id, entry)) 1 else 0
-            if (removed > 0) {
-                cleanupRemovedTask(id)
+            var removed = 0
+            var fileDeleted = true
+            try {
+                // A cancelled job may still be unwinding an earlier writer. Read metadata only
+                // after that writer releases the lock; progress/saving may have replaced it.
+                writerLock.withLock {
+                    val entry = metadata[id] ?: return@withLock
+                    fileDeleted = !deleteFile || deleteStoredFile(entry)
+                    if (fileDeleted) {
+                        if (metadata.remove(id) != null) removed = 1
+                        cleanupTemporaryFiles(id)
+                    } else {
+                        // Retain a usable record when file deletion fails, never an active row
+                        // whose transfer has already been cancelled.
+                        metadata.computeIfPresent(id) { _, current ->
+                            if (current.status.active) current.copy(status = DownloadStatus.PAUSED, bytesPerSecond = 0)
+                            else current
+                        }
+                    }
+                }
+                if (removed > 0) {
+                    DownloadNotifications.dismiss(appContext, id)
+                    transferLocks.remove(id, writerLock)
+                }
                 persistMetadata()
                 publishSnapshots()
                 refresh()
+            } finally {
+                deleting.remove(id)
             }
             withContext(Dispatchers.Main.immediate) {
-                onComplete(
-                    DownloadDeleteResult(
-                        removedCount = removed,
-                        failedFileCount = if (deleteFile && !fileDeleted) 1 else 0,
-                    ),
-                )
+                onComplete(DownloadDeleteResult(removed, if (fileDeleted) 0 else 1))
             }
         }
     }
@@ -271,6 +294,7 @@ class DownloadHandler(context: Context) : Closeable {
             runCatching { CookieManager.getInstance().getCookie(old.url) }.getOrNull(), MAX_COOKIE_LENGTH,
         ) else old.cookie
         synchronized(taskLock) {
+            if (deleting.contains(id)) return null
             if (!metadata.replace(id, old, old.copy(status = DownloadStatus.QUEUED, cookie = cookie, bytesPerSecond = 0))) return null
             val previous = jobs[id]
             previous?.cancel()

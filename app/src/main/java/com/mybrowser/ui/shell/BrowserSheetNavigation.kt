@@ -11,6 +11,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 
 /** The route stack owns navigation; a presentation owns callbacks from one mounted sheet. */
 internal class BrowserSheetNavigation {
@@ -100,10 +102,16 @@ internal fun BrowserSheetHost(
     val leaving = remember { mutableStateOf<BrowserSheetNavigation.Presentation?>(null) }
     if (current != null) leaving.value = current
     var closing by remember { mutableStateOf(false) }
+    var measured by remember { mutableStateOf(false) }
     val visibility = remember { Animatable(0f) }
     LaunchedEffect(current) {
         if (current != null) {
             closing = false
+            // The dialog window is created on this frame and its surface is measured a frame or two
+            // later. Animating straight away spends most of the entrance on an invisible panel and
+            // then snaps the remainder, so the travel starts from the measured surface instead.
+            measured = false
+            snapshotFlow { measured }.first { it }
             visibility.animateTo(1f, BrowserMotion.sheetEnter)
         } else if (leaving.value != null) {
             closing = true
@@ -127,6 +135,7 @@ internal fun BrowserSheetHost(
         BrowserSheetWindow(
             visibility = visibility.asState(),
             onDismissRequest = { navigation.current?.let(navigation::back) },
+            onMeasured = { measured = true },
         ) {
             // Replace content atomically inside the existing window. Stable keys
             // restore parent state without hidden dialogs or stale Back callbacks.

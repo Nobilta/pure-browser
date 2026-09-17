@@ -33,6 +33,9 @@ import com.mybrowser.ui.theme.MyBrowserTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/** The held gesture reports at most this often; the rate itself moves on the shared 0.1 grid. */
+private const val BOOST_SEND_INTERVAL_MS = 80L
+
 /** Chromium keeps its video surface; controls and menus share a separate, non-resizing overlay. */
 @SuppressLint("ViewConstructor")
 class FullscreenVideoView(
@@ -73,6 +76,9 @@ class FullscreenVideoView(
     private var progress by mutableFloatStateOf(0f)
     private var menu by mutableStateOf<PlayerMenu?>(null)
     private var hudMessage by mutableStateOf<String?>(null)
+    private val statusSource = PlayerStatusSource(activity)
+    private var networkSpeed by mutableStateOf<String?>(null)
+    private val networkMeter = PlaybackNetworkMeter { speed -> networkSpeed = speed }
     private val controlsHost = ComposeView(activity)
     private val gestures = GestureSurface(activity)
     private val hideControls = Runnable { if (!locked && !seeking && menu == null) showControls(false) }
@@ -113,6 +119,11 @@ class FullscreenVideoView(
                         canCast = canCast(),
                         menu = menu,
                         hud = hudMessage,
+                        buffering = enhanced && state.buffering,
+                        networkSpeed = networkSpeed,
+                        statusTime = statusSource.time,
+                        statusBattery = statusSource.batteryPercent,
+                        statusCharging = statusSource.charging,
                     ),
                     onPlayPause = ::togglePlayback,
                     onSeek = {
@@ -129,7 +140,9 @@ class FullscreenVideoView(
                     onRotate = ::rotate,
                     onPictureInPicture = onPictureInPicture,
                     onMenu = ::changeMenu,
-                    onSpeed = { rate -> changeMenu(null); onChooseSpeed(rate) },
+                    onSpeedPreview = { rate -> tracker.setPlaybackRate(rate) },
+                    // The panel stays open after a commit so the slider can be adjusted again.
+                    onSpeed = { rate -> onChooseSpeed(rate) },
                     castContent = castContent,
                 )
             }
@@ -160,6 +173,14 @@ class FullscreenVideoView(
         }
         refreshMode()
         if (wantEnhanced && !enhanced && !connecting && state.canUseEnhancedControls) connectControls()
+        // The meter follows the buffering indicator: the page's own byte counter while it moves,
+        // the process-wide total otherwise. Nothing is sampled while the video plays normally.
+        networkMeter.observe(signal)
+        if (enhanced && !pictureInPicture && state.buffering) networkMeter.start()
+        else {
+            networkMeter.stop()
+            if (!state.buffering) networkSpeed = null
+        }
         if (!seeking) progress = if (state.canSeek)
             ((state.position - state.seekStart) / (state.seekEnd - state.seekStart)).toFloat().coerceIn(0f, 1f) else 0f
     }
@@ -249,6 +270,7 @@ class FullscreenVideoView(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        statusSource.register()
         if (android.os.Build.VERSION.SDK_INT >= 33 && platformBack == null) {
             val callback = android.window.OnBackInvokedCallback {
                 if (!released && !handleBack()) onExit()
@@ -307,6 +329,9 @@ class FullscreenVideoView(
         ui.removeCallbacks(hideControls)
     }
 
+    /** A committed rate is confirmed in place; a toast would cover the bar that just changed. */
+    fun announceSpeed(rate: Float) = showHud(PlaybackSpeed.label(rate), 900)
+
     fun release() {
         if (released) return
         if (android.os.Build.VERSION.SDK_INT >= 33) {
@@ -315,6 +340,8 @@ class FullscreenVideoView(
         }
         disconnectControls()
         released = true
+        networkMeter.stop()
+        statusSource.unregister()
         controlsHost.disposeComposition()
         ui.removeCallbacksAndMessages(null)
         activity.window.attributes = activity.window.attributes.apply { screenBrightness = originalBrightness }
@@ -346,6 +373,11 @@ class FullscreenVideoView(
         private var targetPosition = 0.0
         private var hold = false
         private var originalRate = 1f
+        private var holdY = 0f
+        private var boostFloor = 1f
+        private var sentBoost = 1f
+        private var boostActive = false
+        private var lastBoostSendAt = 0L
         private var cancelledClick = false
         private val slop = ViewConfiguration.get(context).scaledTouchSlop * 1.5f
         private val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -361,12 +393,15 @@ class FullscreenVideoView(
         private val startHold = Runnable {
             if (down && axis == 0 && !locked && preferences.holdToBoost && state.isPlaying) {
                 hold = true; axis = 4; originalRate = state.playbackRate ?: 1f
+                holdY = downY; boostFloor = maxOf(originalRate, preferences.boostRate)
+                sentBoost = boostFloor; boostActive = false
                 cancelClick()
                 tracker.beginBoost(preferences.boostRate) { ok ->
                     if (released) return@beginBoost
                     if (ok && hold) {
+                        boostActive = true
                         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        showHud(activity.getString(R.string.ui_temporary_release_to_restore_speed, PlaybackSpeed.label(maxOf(originalRate, preferences.boostRate))))
+                        showHud(activity.getString(R.string.ui_temporary_release_to_restore_speed, PlaybackSpeed.label(boostFloor)))
                     } else if (ok) tracker.endBoost()
                     else if (hold) showHud(activity.getString(R.string.ui_temporary_speed_boost_is_unavailable_for_this_video), 1800)
                 }
@@ -382,6 +417,7 @@ class FullscreenVideoView(
         }
         fun cancelGesture() {
             ui.removeCallbacks(startHold)
+            boostActive = false
             if (hold) {
                 hold = false
                 tracker.endBoost()
@@ -389,6 +425,27 @@ class FullscreenVideoView(
             }
             if (down) cancelClick()
             down = false; axis = 0
+        }
+
+        /**
+         * A held long press drags its temporary rate: up towards [PlaybackSpeed.MAX], back down to
+         * the rate the hold started from but never below it. The page only hears about a change on
+         * the shared 0.1 grid, and no faster than [BOOST_SEND_INTERVAL_MS]. The play state comes
+         * from the tracked signal, which cannot lag behind a page that dropped its own boost.
+         */
+        private fun dragBoost(y: Float) {
+            if (!boostActive || !state.isPlaying) return
+            // Normalised by the distance the finger can still travel upwards, so a slide to the
+            // top edge always spans the whole boost range instead of depending on where it began.
+            val travel = ((holdY - y) / holdY.coerceAtLeast(1f)).coerceIn(0f, 1f)
+            val target = PlaybackSpeed.quantize(boostFloor + travel * (PlaybackSpeed.MAX - boostFloor))
+                .coerceIn(boostFloor, PlaybackSpeed.MAX)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (target == sentBoost || now - lastBoostSendAt < BOOST_SEND_INTERVAL_MS) return
+            sentBoost = target
+            lastBoostSendAt = now
+            tracker.updateBoost(target)
+            showHud(PlaybackSpeed.label(target))
         }
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (locked) return true
@@ -434,6 +491,7 @@ class FullscreenVideoView(
                             targetPosition = VideoGestureMath.seek(startPosition, dx / width.coerceAtLeast(1), state.duration, state.seekStart, state.seekEnd)
                             showHud(activity.getString(R.string.ui_release_to_seek, VideoGestureMath.time(targetPosition), VideoGestureMath.time(state.duration)))
                         }
+                        4 -> dragBoost(event.y)
                     }
                 }
                 MotionEvent.ACTION_UP -> {

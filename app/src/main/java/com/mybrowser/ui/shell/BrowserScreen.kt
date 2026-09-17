@@ -5,8 +5,16 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,7 +42,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -54,6 +66,11 @@ import com.mybrowser.ui.home.HomeDashboard
 /**
  * The browser chrome: omnibar on top, page in the middle, navigation at the bottom.
  */
+import kotlinx.coroutines.delay
+
+/** How long a load must last before its progress bar is worth showing. */
+private const val PROGRESS_REVEAL_DELAY_MS = 150L
+
 @Composable
 fun BrowserScreen(
     state: BrowserState,
@@ -138,12 +155,27 @@ fun BrowserScreen(
                 )
     }
 
+    // A fast load must not flash a bar, and a stalled one must show something: wait a beat
+    // before appearing, then stay indeterminate until Chromium reports its first percentage.
+    var showProgress by remember { mutableStateOf(false) }
+    LaunchedEffect(state.isLoading) {
+        if (state.isLoading) {
+            delay(PROGRESS_REVEAL_DELAY_MS)
+            showProgress = true
+        } else showProgress = false
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
 
         // --- top bar ---
         // Keep the underlying WebView nonzero in a small PiP window. Reserving
         // address/toolbar height there makes Chromium exit HTML fullscreen.
-        if (!isVideoFullscreen) Column(
+        AnimatedVisibility(
+            visible = !isVideoFullscreen,
+            enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Top),
+            exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Top),
+        ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 // Tinted in incognito. A mode this consequential should be visible without
@@ -158,7 +190,11 @@ fun BrowserScreen(
                     ),
                 ),
         ) {
-            if (isIncognito) {
+            AnimatedVisibility(
+                visible = isIncognito,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit),
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -190,8 +226,14 @@ fun BrowserScreen(
 
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting
             // under the omnibar reads as a stalled page.
-            if (state.isProgressVisible) {
-                LinearProgressIndicator(
+            AnimatedVisibility(
+                visible = showProgress && state.isProgressVisible,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit),
+            ) {
+                if (state.progress <= 0) LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                ) else LinearProgressIndicator(
                     progress = { state.progress / 100f },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -203,6 +245,7 @@ fun BrowserScreen(
                     drawStopIndicator = {},
                 )
             }
+        }
         }
 
         // --- page ---
@@ -238,7 +281,7 @@ fun BrowserScreen(
                 },
             )
 
-            if (showHomeDashboard) {
+            PageOverlay(visible = showHomeDashboard) {
                 HomeDashboard(
                     shortcuts = homeShortcuts,
                     onOpen = onOpenHomeShortcut,
@@ -247,16 +290,21 @@ fun BrowserScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-
-            // Inline playback remains owned by the website. This action opens cast
-            // selection without adding a second set of playback controls.
-            if (mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused) {
+            // PageOverlay keeps these four inside the page box: a plain AnimatedVisibility here
+            // resolves to the ColumnScope overload of the outer layout instead.
+            PageOverlay(
+                visible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(16.dp),
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                    scaleIn(animationSpec = BrowserMotion.localEnter, initialScale = 0.8f),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                    scaleOut(animationSpec = BrowserMotion.localExit, targetScale = 0.85f),
+            ) {
                 FloatingActionButton(
                     onClick = onCast,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(16.dp),
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                 ) {
@@ -270,9 +318,15 @@ fun BrowserScreen(
                 }
             }
 
-            state.pageFailure?.let { PageRecovery(it, onRetryPage, onHome, onSecurityClick) }
+            PageOverlay(
+                visible = state.pageFailure != null,
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
+            ) {
+                state.pageFailure?.let { PageRecovery(it, onRetryPage, onHome, onSecurityClick) }
+            }
 
-            if (state.isOmnibarFocused && !isVideoFullscreen) {
+            PageOverlay(visible = state.isOmnibarFocused && !isVideoFullscreen) {
                 // Share the editor's window: Popup outside-touch callbacks also
                 // receive keyboard and clear-button taps, cancelling their input.
                 BoxWithConstraints(Modifier.fillMaxSize().clickable(
@@ -306,7 +360,12 @@ fun BrowserScreen(
         // what the View implementation hand-rolled as maxOf(bars.bottom, ime.bottom). One
         // inset source instead of two, same result: the bar sits directly on the keyboard
         // when it is up and on the navigation bar when it is not.
-        if (!isVideoFullscreen) Column {
+        AnimatedVisibility(
+            visible = !isVideoFullscreen,
+            enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Bottom),
+            exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
+        ) {
+        Column {
             // Both placements use one spec, each towards its own screen edge, so scrolling reads the
             // same whichever position the address bar is set to.
             if (bottomAddressBar) AnimatedVisibility(
@@ -315,7 +374,13 @@ fun BrowserScreen(
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
             ) { addressBar() }
             // Find bar appears above the toolbar
-            if (state.isFindBarVisible) {
+            AnimatedVisibility(
+                visible = state.isFindBarVisible,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                    slideInVertically(animationSpec = BrowserMotion.overlayEnter) { it },
+                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                    slideOutVertically(animationSpec = BrowserMotion.overlayExit) { it },
+            ) {
                 FindBar(
                     query = state.findQuery,
                     onQueryChange = { query ->
@@ -352,5 +417,23 @@ fun BrowserScreen(
                     ),
             )
         }
+        }
     }
+}
+
+/**
+ * A surface the page area stacks over the WebView.
+ *
+ * Named so the call site keeps the box scope it needs for alignment: inside a `Box` nested in a
+ * `Column`, a plain `AnimatedVisibility` resolves to the column's overload instead.
+ */
+@Composable
+private fun PageOverlay(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    enter: EnterTransition = fadeIn(animationSpec = BrowserMotion.localEnter),
+    exit: ExitTransition = fadeOut(animationSpec = BrowserMotion.localExit),
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(visible = visible, modifier = modifier, enter = enter, exit = exit) { content() }
 }
