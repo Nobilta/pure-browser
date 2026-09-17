@@ -339,7 +339,7 @@ fun SettingsSheet(
                                 }
                             } else {
                                 val boost = picker == "boost"
-                                val choices = if (boost) listOf(2f, 3f) else PlaybackSpeed.OPTIONS
+                                val choices = if (boost) PlaybackSpeed.BOOST_OPTIONS else PlaybackSpeed.OPTIONS
                                 choices.forEach { speed ->
                                     HomepageModeItem(PlaybackSpeed.label(speed), "",
                                         speed == if (boost) preferences.video.boostRate else preferences.video.preferredSpeed) {

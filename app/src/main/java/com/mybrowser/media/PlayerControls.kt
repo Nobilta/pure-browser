@@ -1,13 +1,16 @@
 package com.mybrowser.media
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -27,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.core.PlaybackSpeed
+import com.mybrowser.ui.shell.BrowserMotion
 
 internal enum class PlayerMenu { SPEED, CAST }
 
@@ -43,7 +48,15 @@ internal data class PlayerControlsState(
     val canCast: Boolean,
     val menu: PlayerMenu?,
     val hud: String?,
+    val buffering: Boolean,
+    val networkSpeed: String?,
+    val statusTime: String,
+    val statusBattery: Int?,
+    val statusCharging: Boolean,
 )
+
+/** Clock and battery read below [LOW_BATTERY_PERCENT]; charging is never an alert. */
+private const val LOW_BATTERY_PERCENT = 20
 
 /** Everything, including the anchored menus, is drawn in the video's existing window. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -58,6 +71,7 @@ internal fun PlayerControls(
     onRotate: () -> Unit,
     onPictureInPicture: (() -> Unit)?,
     onMenu: (PlayerMenu?) -> Unit,
+    onSpeedPreview: (Float) -> Unit,
     onSpeed: (Float) -> Unit,
     castContent: @Composable () -> Unit,
 ) {
@@ -66,9 +80,17 @@ internal fun PlayerControls(
     var barHeight by remember { mutableIntStateOf(0) }
     BoxWithConstraints(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         val viewportHeight = maxHeight
-        if (state.visible && !state.locked) {
+        val topBarVisible = state.visible && !state.locked
+        AnimatedVisibility(
+            visible = topBarVisible,
+            enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                slideInVertically(animationSpec = BrowserMotion.overlayEnter) { -it },
+            exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                slideOutVertically(animationSpec = BrowserMotion.overlayExit) { -it },
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
             Row(
-                Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                Modifier.fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent)))
                     .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -81,17 +103,69 @@ internal fun PlayerControls(
                     PlayerIcon(R.drawable.ic_pip, stringResource(R.string.picture_in_picture), it)
                 }
                 PlayerIcon(R.drawable.ic_rotate, stringResource(R.string.ui_rotate_screen), onRotate)
+                // The immersive bars hide the system clock, so the controls carry time and
+                // battery for as long as they are on screen; they leave with the bar.
+                PlayerStatusStrip(
+                    state.statusTime, state.statusBattery, state.statusCharging,
+                    Modifier.padding(start = 8.dp, end = 4.dp),
+                )
             }
         }
 
-        state.hud?.let { message ->
-            // Feedback must stay touch-transparent so consecutive gestures reach the video.
-            Box(Modifier.align(Alignment.Center).padding(24.dp)
-                .shadow(6.dp, RoundedCornerShape(20.dp))
-                .background(colors.inverseSurface.copy(alpha = .96f), RoundedCornerShape(20.dp))
-                .semantics { liveRegion = LiveRegionMode.Polite }) {
-                Text(message, Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                    style = MaterialTheme.typography.titleMedium, color = colors.inverseOnSurface)
+        // Feedback and buffering share the centre: a stall and a gesture can be visible at once.
+        Column(
+            Modifier.align(Alignment.Center).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AnimatedVisibility(
+                visible = state.buffering,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit),
+            ) {
+                val label = stringResource(R.string.ui_player_buffering)
+                Row(
+                    Modifier.testTag("player_buffering")
+                        .shadow(6.dp, RoundedCornerShape(20.dp))
+                        .background(colors.inverseSurface.copy(alpha = .96f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .semantics(mergeDescendants = true) {
+                            liveRegion = LiveRegionMode.Polite
+                            contentDescription = label
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp,
+                        color = colors.inverseOnSurface)
+                    Text(label, style = MaterialTheme.typography.labelLarge, color = colors.inverseOnSurface)
+                    // The rate changes twice a second; announcing it would flood TalkBack.
+                    state.networkSpeed?.let { speed ->
+                        Text(stringResource(R.string.ui_player_network_speed, speed),
+                            Modifier.clearAndSetSemantics {},
+                            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                            color = colors.inverseOnSurface.copy(alpha = .8f))
+                    }
+                }
+            }
+            // A gesture message leaves the same way the buffering pill does, keeping its text while
+            // it fades instead of blanking the surface first.
+            var lastHud by remember { mutableStateOf(state.hud) }
+            if (state.hud != null) lastHud = state.hud
+            AnimatedVisibility(
+                visible = state.hud != null,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit),
+            ) {
+                lastHud?.let { message ->
+                    // Feedback must stay touch-transparent so consecutive gestures reach the video.
+                    Box(Modifier.shadow(6.dp, RoundedCornerShape(20.dp))
+                        .background(colors.inverseSurface.copy(alpha = .96f), RoundedCornerShape(20.dp))
+                        .semantics { liveRegion = LiveRegionMode.Polite }) {
+                        Text(message, Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                            style = MaterialTheme.typography.titleMedium, color = colors.inverseOnSurface)
+                    }
+                }
             }
         }
 
@@ -103,13 +177,33 @@ internal fun PlayerControls(
             ).clearAndSetSemantics { })
         }
 
-        if (state.visible && !state.locked) {
+        // The bar leaves towards the edge it sits on, the way the player's chrome does.
+        AnimatedVisibility(
+            visible = topBarVisible,
+            enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                slideInVertically(animationSpec = BrowserMotion.overlayEnter) { it },
+            exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                slideOutVertically(animationSpec = BrowserMotion.overlayExit) { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                Modifier.fillMaxWidth().padding(12.dp),
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                state.menu?.let { menu ->
+                // The panel keeps its last page composed while it leaves.
+                var lastMenu by remember { mutableStateOf(state.menu) }
+                if (state.menu != null) lastMenu = state.menu
+                AnimatedVisibility(
+                    visible = state.menu != null,
+                    enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                        scaleIn(animationSpec = BrowserMotion.localEnter,
+                            transformOrigin = TransformOrigin(1f, 1f), initialScale = 0.92f),
+                    exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                        scaleOut(animationSpec = BrowserMotion.localExit,
+                            transformOrigin = TransformOrigin(1f, 1f), targetScale = 0.94f),
+                ) {
+                lastMenu?.let { menu ->
                     val bar = with(density) { barHeight.toDp() }
                     val available = (viewportHeight - bar - 44.dp).coerceAtLeast(48.dp)
                     val popupWidth = if (menu == PlayerMenu.SPEED) 288.dp else 336.dp
@@ -132,29 +226,11 @@ internal fun PlayerControls(
                             }
                             HorizontalDivider(color = colors.outlineVariant.copy(alpha = .5f))
                             if (menu == PlayerMenu.SPEED) {
-                                LazyColumn(Modifier.fillMaxWidth().selectableGroup().padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    items(PlaybackSpeed.OPTIONS.chunked(3)) { rates ->
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            rates.forEach { rate ->
-                                                val selected = PlaybackSpeed.equivalent(rate, state.rate)
-                                                Box(Modifier.weight(1f).heightIn(min = 48.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(if (selected) colors.primaryContainer else colors.surfaceContainerHighest)
-                                                    .selectable(selected, role = Role.RadioButton, onClick = { onSpeed(rate) })
-                                                    .padding(horizontal = 4.dp, vertical = 12.dp),
-                                                    contentAlignment = Alignment.Center) {
-                                                    Text(PlaybackSpeed.label(rate), style = MaterialTheme.typography.labelLarge,
-                                                        color = if (selected) colors.onPrimaryContainer else colors.onSurface)
-                                                }
-                                            }
-                                            repeat(3 - rates.size) { Spacer(Modifier.weight(1f)) }
-                                        }
-                                    }
-                                }
+                                SpeedPanel(state.rate, onSpeedPreview, onSpeed)
                             } else castContent()
                         }
                     }
+                }
                 }
                 // Blank parts of the bar stay touch-transparent for native video gestures.
                 Box(
@@ -209,9 +285,14 @@ internal fun PlayerControls(
             }
         }
 
-        if ((state.visible || state.locked) && state.menu == null) {
+        AnimatedVisibility(
+            visible = (state.visible || state.locked) && state.menu == null,
+            enter = fadeIn(animationSpec = BrowserMotion.localEnter),
+            exit = fadeOut(animationSpec = BrowserMotion.localExit),
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
+        ) {
             FilledTonalIconButton(onClick = onLock,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp).size(48.dp),
+                modifier = Modifier.size(48.dp),
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                     containerColor = if (state.locked) colors.primaryContainer else colors.surfaceContainerHigh.copy(alpha = .9f),
                     contentColor = if (state.locked) colors.onPrimaryContainer else colors.onSurface,
@@ -220,6 +301,85 @@ internal fun PlayerControls(
                 Icon(painterResource(if (state.locked) R.drawable.ic_lock_open else R.drawable.ic_lock),
                     stringResource(if (state.locked) R.string.ui_unlock_screen else R.string.ui_lock_screen), Modifier.size(22.dp))
             }
+        }
+    }
+}
+
+/**
+ * The rate is continuous, so the panel offers one slider on the shared 0.1 grid; its tick marks
+ * are the grid, which is all the shortcuts the panel needs.
+ *
+ * The draft is kept here rather than read back from playback: a JS round trip and a 1 s probe
+ * pulse both lag the finger, and the release must commit what the user last saw.
+ */
+@Composable
+private fun SpeedPanel(
+    rate: Float,
+    onSpeedPreview: (Float) -> Unit,
+    onSpeed: (Float) -> Unit,
+) {
+    var draft by remember { mutableStateOf<Float?>(null) }
+    val shown = (draft ?: rate).coerceIn(PlaybackSpeed.MIN, PlaybackSpeed.MAX)
+    val heading = stringResource(R.string.playback_speed_title)
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.ui_current_playback_speed), Modifier.weight(1f),
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(PlaybackSpeed.label(shown),
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurface)
+        }
+        Slider(
+            value = shown,
+            onValueChange = { value ->
+                val quantized = PlaybackSpeed.quantize(value)
+                draft = quantized
+                onSpeedPreview(quantized)
+            },
+            onValueChangeFinished = {
+                draft?.let(onSpeed)
+                draft = null
+            },
+            valueRange = PlaybackSpeed.MIN..PlaybackSpeed.MAX,
+            steps = PlaybackSpeed.STEPS,
+            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("player_speed_slider")
+                .semantics { contentDescription = heading },
+        )
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(PlaybackSpeed.label(PlaybackSpeed.MIN), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(PlaybackSpeed.label(PlaybackSpeed.MAX), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Clock and battery for the top of the immersive player.
+ *
+ * The colour is the theme's error role rather than a fixed red: the player always renders in the
+ * dark scheme, so this picks up the dynamic palette on Android 12+ and the baseline error colour
+ * elsewhere. A low battery is the only alert: it colours the battery and its percentage, and the
+ * clock keeps the surface colour. Charging is not an alert, so a plugged-in battery is normal.
+ */
+@Composable
+private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, modifier: Modifier = Modifier) {
+    if (time.isEmpty() && battery == null) return
+    val alert = battery != null && battery < LOW_BATTERY_PERCENT && !charging
+    // Only the battery carries the alert colour; the clock stays on the surface colour.
+    val clockColor = MaterialTheme.colorScheme.onSurface
+    val batteryColor = if (alert) MaterialTheme.colorScheme.error else clockColor
+    Row(modifier.semantics(mergeDescendants = true) {}.testTag("player_status_strip"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (time.isNotEmpty()) {
+            Text(time, maxLines = 1,
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = clockColor)
+        }
+        if (battery != null) {
+            Icon(painterResource(R.drawable.ic_battery), null, Modifier.size(16.dp), tint = batteryColor)
+            Text("$battery%", maxLines = 1,
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = batteryColor)
         }
     }
 }

@@ -1,5 +1,10 @@
 package com.mybrowser.ui.library
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -21,6 +26,7 @@ import com.mybrowser.data.Bookmark
 import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.BookmarkFolders
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
+import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
@@ -83,13 +89,21 @@ fun BookmarksSheet(
                 }
             }
             LibrarySearchField(query, stringResource(R.string.bookmarks_search), onQueryChange)
-            if (selecting) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = bookmarks.isNotEmpty() && bookmarks.all { it.id in selected }, onCheckedChange = {
-                    selected = if (it) bookmarks.map { bookmark -> bookmark.id }.toSet() else emptySet()
-                })
-                Text(stringResource(R.string.bookmarks_selected, selected.size), Modifier.weight(1f))
-                TextButton(onClick = { movingFolder = null; moving = true }, enabled = selected.isNotEmpty() && !library.busy) { Text(stringResource(R.string.bookmarks_move)) }
-                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty() && !library.busy) { deleteSelected = true }
+            AnimatedVisibility(
+                visible = selecting,
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                    expandVertically(animationSpec = BrowserMotion.chromeShow),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                    shrinkVertically(animationSpec = BrowserMotion.chromeHide),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = bookmarks.isNotEmpty() && bookmarks.all { it.id in selected }, onCheckedChange = {
+                        selected = if (it) bookmarks.map { bookmark -> bookmark.id }.toSet() else emptySet()
+                    })
+                    Text(stringResource(R.string.bookmarks_selected, selected.size), Modifier.weight(1f))
+                    TextButton(onClick = { movingFolder = null; moving = true }, enabled = selected.isNotEmpty() && !library.busy) { Text(stringResource(R.string.bookmarks_move)) }
+                    BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty() && !library.busy) { deleteSelected = true }
+                }
             }
             if (library.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {

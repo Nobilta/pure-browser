@@ -527,7 +527,7 @@ class MainActivity : ComponentActivity(),
                 backHistory?.let { entries ->
                     BackHistoryDialog(entries, onSelect = { offset ->
                         backHistory = null
-                        if (backHistoryEpoch == permissionEpoch && webView.canGoBackOrForward(offset)) webView.goBackOrForward(offset)
+                        if (backHistoryEpoch == permissionEpoch) navigateHistory(offset)
                     }, onExitSite = { backHistory = null; webView.clearHistory(); goHome() }, onDismiss = { backHistory = null })
                 }
                 val mediaSnapshot by media.state.collectAsState()
@@ -547,10 +547,13 @@ class MainActivity : ComponentActivity(),
                     onNavigate = ::navigate,
                     onBack = { navigateBackAcrossTabs() },
                     onBackLongPress = ::showBackHistory,
-                    onForward = { if (webView.canGoForward()) webView.goForward() },
+                    onForward = { navigateHistory(1) },
                     onHome = ::goHome,
                     onReloadOrStop = {
-                        if (state.isLoading) webView.stopLoading() else webView.reload()
+                        if (state.isLoading) {
+                            webView.stopLoading()
+                            state.onLoadStopped()
+                        } else reloadPage()
                     },
                     onMenu = { if (sheet == null) openSheet(Sheet.MENU) },
                     onScanQr = { openSheet(Sheet.QR_SCANNER) },
@@ -1057,7 +1060,7 @@ class MainActivity : ComponentActivity(),
                     else (temporaryFilterOrigins + origin).toList().takeLast(128).toSet()
                 if (SiteOrigin.of(state.currentUrl) == origin) {
                     workerDocument = documentFor(state.currentUrl)
-                    webView.reload()
+                    reloadPage()
                 }
             },
             onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin, SiteSettings()) },
@@ -1234,7 +1237,9 @@ class MainActivity : ComponentActivity(),
                 if (webViewOrNull !== view || mediaTrackers[view] !== tracker) return@runOnUiThread
                 if (applied) {
                     rememberPlaybackSpeed(speed)
-                    toast(
+                    val host = fullscreenView
+                    if (host != null) host.announceSpeed(speed)
+                    else toast(
                         getString(
                             R.string.playback_speed_applied,
                             PlaybackSpeed.label(speed),
@@ -1307,7 +1312,7 @@ class MainActivity : ComponentActivity(),
                     repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
                     cancelWebsitePermissions()
                     applySiteSettings(webView, state.currentUrl)
-                    webView.reload()
+                    reloadPage()
                 }
                 if (showSiteOrigin == origin && (owner == null || sheetNavigation.isCurrent(owner))) {
                     showSiteOrigin = null
@@ -1512,8 +1517,10 @@ class MainActivity : ComponentActivity(),
         hasVideo = false
         rememberedVideo = null
         if (oldId != null && oldId != tab.id) {
+            val previousPageFailed = state.pageFailure != null
+            state.pageFailure = null
             webViewOrNull?.let { old ->
-                val keep = !privacy.isIncognito && wasReady == oldId && state.pageFailure == null &&
+                val keep = !privacy.isIncognito && wasReady == oldId && !previousPageFailed &&
                     !state.isLoading && normalTabManager.tabs.any { it.id == oldId }
                 if (keep) { old.stopLoading(); suspendPage(old) }
                 // Take the destination first: inserting the departing page into a single
@@ -1535,7 +1542,7 @@ class MainActivity : ComponentActivity(),
                     state.onPageStarted(tab.url)
                     applySiteSettings(webView, tab.url)
                     if (parked.settings != activeSites.get(tab.url) || parked.filtering != (workerDocument.filtering && filter.enabled.value)) {
-                        webView.reload()
+                        reloadPage()
                     } else {
                         clearHistoryOnNextFinish = false
                         readyWebViewTabId = tab.id
@@ -1567,7 +1574,7 @@ class MainActivity : ComponentActivity(),
             state.onPageStarted(url)
             state.onTitleChanged(tab.title)
             applySiteSettings(webView, url)
-            webView.loadUrl(url)
+            loadPage(url)
         } else {
             // restoreState starts an asynchronous navigation. Older providers briefly
             // report about:blank, so neither display nor persist that intermediate page.
@@ -1913,7 +1920,7 @@ class MainActivity : ComponentActivity(),
         webViewOrNull = acquireFreshPage()
         state.pageFailure = null
         state.onPageStarted(ABOUT_BLANK)
-        webView.loadUrl(ABOUT_BLANK)
+        loadPage(ABOUT_BLANK)
     }
 
     private fun confirmClearSite(origin: String) {
@@ -1947,6 +1954,7 @@ class MainActivity : ComponentActivity(),
     override fun isCurrentWebView(view: WebView): Boolean = webViewOrNull === view
 
     override fun onMainFrameNavigation(url: String) {
+        state.onNavigationRequested(url)
         cancelWebsitePermissions()
         applySiteSettings(webView, url)
     }
@@ -1980,6 +1988,8 @@ class MainActivity : ComponentActivity(),
             normalTabManager.scheduleSaveMetadata(this, NORMAL_TABS_PREFS)
         }
     }
+
+    override fun onPageCommitVisible(url: String) = state.onPageCommitVisible(url)
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
         if (url != webView.url || url != state.currentUrl) return
@@ -2083,17 +2093,17 @@ class MainActivity : ComponentActivity(),
         when (val result = ExternalIntentHandler.handle(this, url)) {
             ExternalIntentHandler.Result.Launched -> Unit
             ExternalIntentHandler.Result.Rejected -> Unit
-            is ExternalIntentHandler.Result.Fallback -> webView.loadUrl(result.url)
+            is ExternalIntentHandler.Result.Fallback -> loadPage(result.url)
         }
         // Always true: the URL is consumed here either way, and returning false would let
         // the WebView also try to load a scheme it cannot handle.
     }
 
     private fun retryFailedPage() {
-        val failed = state.pageFailure ?: return webView.reload()
+        val failed = state.pageFailure ?: return reloadPage()
         rendererRecovery.retry(tabManager.currentTab?.id.orEmpty())
-        state.pageFailure = null
-        webView.loadUrl(failed.url)
+        // Recovery remains visible until this attempt commits a successful document.
+        loadPage(failed.url)
     }
 
     private fun showBackHistory() {
@@ -2165,7 +2175,7 @@ class MainActivity : ComponentActivity(),
         pool.discard(webView)
         webViewOrNull = acquireFreshPage()
         if (lastUrl != ABOUT_BLANK && rendererRecovery.shouldReload(tabManager.currentTab?.id.orEmpty(), SystemClock.elapsedRealtime())) {
-            this.webView.loadUrl(lastUrl)
+            loadPage(lastUrl)
         } else if (lastUrl != ABOUT_BLANK) {
             state.onPageError()
             state.pageFailure = PageFailure(lastUrl, PageFailureKind.RENDERER)
@@ -2361,6 +2371,24 @@ class MainActivity : ComponentActivity(),
 
     // --- Navigation ---
 
+    private fun loadPage(url: String) {
+        state.onNavigationRequested(url)
+        webView.loadUrl(url)
+    }
+
+    private fun reloadPage() {
+        state.onNavigationRequested(webView.url ?: state.currentUrl)
+        webView.reload()
+    }
+
+    private fun navigateHistory(offset: Int) {
+        if (!webView.canGoBackOrForward(offset)) return
+        val history = webView.copyBackForwardList()
+        val target = history.getItemAtIndex(history.currentIndex + offset) ?: return
+        state.onNavigationRequested(target.url)
+        webView.goBackOrForward(offset)
+    }
+
     private fun navigate(input: String) {
         if (awaitScriptsReady { navigate(input) }) return
         var tabUrl: String? = null
@@ -2369,7 +2397,7 @@ class MainActivity : ComponentActivity(),
                 if (onUserScriptUrl(target.url)) return
                 prepareForNavigation()
                 applySiteSettings(webView, target.url)
-                webView.loadUrl(target.url)
+                loadPage(target.url)
                 tabUrl = target.url
             }
             is NavigationTarget.External -> onExternalUrl(target.url)
@@ -2504,7 +2532,7 @@ class MainActivity : ComponentActivity(),
                 android.view.KeyEvent.KEYCODE_L -> { state.revealToolbar(); state.onOmnibarFocusChange(true) }
                 android.view.KeyEvent.KEYCODE_T -> createNewTab()
                 android.view.KeyEvent.KEYCODE_W -> closeTab(tabManager.currentIndex)
-                android.view.KeyEvent.KEYCODE_R -> if (state.pageFailure != null) retryFailedPage() else webView.reload()
+                android.view.KeyEvent.KEYCODE_R -> if (state.pageFailure != null) retryFailedPage() else reloadPage()
                 android.view.KeyEvent.KEYCODE_F -> state.showFindBar()
                 android.view.KeyEvent.KEYCODE_TAB -> switchToTab((tabManager.currentIndex + (if (event.isShiftPressed) -1 else 1) + tabManager.count) % tabManager.count)
                 else -> return super.onKeyShortcut(keyCode, event)
@@ -2537,7 +2565,7 @@ class MainActivity : ComponentActivity(),
     private fun navigateBackAcrossTabs(): Boolean {
         if (webView.canGoBack()) {
             exitConfirmation.reset()
-            webView.goBack()
+            navigateHistory(-1)
             return true
         }
         if (tabManager.count > 1) {

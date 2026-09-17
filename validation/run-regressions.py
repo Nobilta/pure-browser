@@ -83,7 +83,8 @@ def main():
                        '--output', str(OUT / (prefix + '-' + name))]) for name in ['login']]
     stages += [('desktop-mode', ['desktop-mode-regression.py']),
               ('menu-navigation', ['menu-navigation-regression.py']),
-              ('security', ['security-regression.py']), ('download', ['download-regression.py']),
+              ('security', ['security-regression.py']),
+              ('navigation-recovery', ['navigation-recovery-regression.py']), ('download', ['download-regression.py']),
               ('developer-tools', ['developer-tools-regression.py']), ('browser', ['emulator-ux.py', 'regress']),
               ('video-blob', ['video-regression.py', '--variant', 'blob'])]
     stages += [(part, ['capabilities-regression.py', '--section', part])

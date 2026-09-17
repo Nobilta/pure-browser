@@ -33,6 +33,9 @@ class BrowserWebViewClient(
         fun onPageStarted(url: String)
         fun onMainFrameNavigation(url: String) {}
         fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean)
+
+        /** The new document has painted; anything the previous document showed may be dropped. */
+        fun onPageCommitVisible(url: String) {}
         fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {}
         fun onPageError(url: String, code: Int, description: String)
 
@@ -131,6 +134,11 @@ class BrowserWebViewClient(
     override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
         if (!listener.isCurrentWebView(view) || url.isNullOrBlank()) return
         listener.onHistoryUpdated(url, view.canGoBack(), view.canGoForward())
+    }
+
+    override fun onPageCommitVisible(view: WebView, url: String?) {
+        if (!listener.isCurrentWebView(view) || url.isNullOrBlank()) return
+        listener.onPageCommitVisible(url)
     }
 
     override fun onReceivedError(

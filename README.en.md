@@ -25,7 +25,8 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Ad blocking and userscripts**: built-in filter lists, custom filter subscriptions and userscript installation.
 - **Tabs and bookmarks**: tab groups, search, find in page, and bookmark import and export.
 - **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
-- **Downloads**: pause, resume and choose where to save files.
+- **Downloads**: pause, resume interrupted transfers and delete in bulk, with configurable save locations.
+- **Loading and recovery**: loading feedback while waiting for a response, with a built-in recovery page for failed loads.
 - **Offline QR scanning**: scan with the camera or read a code from an image, without an internet connection.
 - **Personalisation**: customise the home page, place the address bar at the top or bottom, and choose English, Simplified Chinese or Traditional Chinese.
 - **Privacy controls**: incognito browsing, per-site permissions, and browsing history and site data cleanup.

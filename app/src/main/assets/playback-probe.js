@@ -8,13 +8,158 @@
   var scheduled = null, pulse = null, observer = null;
   var controlsAttribute = 'data-pure-browser-controls', stageAttribute = 'data-pure-browser-stage';
   var rootAttribute = 'data-pure-browser-fullscreen', rejectedControls = null;
-  var rates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+  var MIN_RATE = 0.5, MAX_RATE = 5;
+  var buffering = false, lastPosition = 0, lastPositionAt = 0, seekingSince = 0;
   function finite(value, fallback) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
+  // One grid for the slider and the page: 0.1 steps inside the browser's range.
+  function validRate(value) {
+    return Number.isFinite(value) && value >= MIN_RATE && value <= MAX_RATE &&
+      Math.abs(value * 10 - Math.round(value * 10)) < 1e-4;
+  }
   function id(video) {
     if (!ids.has(video)) ids.set(video, 'v' + (++nextId));
     return ids.get(video);
   }
   function videos() { return Array.prototype.slice.call(doc.querySelectorAll('video,audio'), 0, 64); }
+  // A WebView exposes no byte counter for a media response, so the only stream-scoped source is
+  // what the page itself feeds a SourceBuffer. Counting appends is enough to tell how fast this
+  // page's stream is arriving; progressive downloads fall back to the native meter.
+  var appendOriginal = null, addSourceBufferOriginal = null, createObjectUrlOriginal = null;
+  // A page can run several players at once (ads, preloads). Bytes are therefore counted per
+  // SourceBuffer and summed only for the buffers of the MediaSource this video is showing, so a
+  // second player's traffic never lands in this video's rate. The registry is small and bounded:
+  // pages create a handful of MediaSources, and the oldest entry is dropped past that.
+  var sourceBytes = new WeakMap();
+  var sourceMedia = new WeakMap();
+  var mediaRegistry = [];
+  function mediaEntry(media) {
+    for (var i = 0; i < mediaRegistry.length; i++) {
+      if (mediaRegistry[i].media === media) return mediaRegistry[i];
+    }
+    var entry = { media: media, url: null, buffers: [] };
+    mediaRegistry.unshift(entry);
+    if (mediaRegistry.length > 8) mediaRegistry.pop();
+    return entry;
+  }
+  function registryEntryFor(url) {
+    if (!url) return null;
+    for (var i = 0; i < mediaRegistry.length; i++) {
+      if (mediaRegistry[i].url === url) return mediaRegistry[i];
+    }
+    return null;
+  }
+  function watchDelivery() {
+    try {
+      var sourcePrototype = win.SourceBuffer && win.SourceBuffer.prototype;
+      if (sourcePrototype && typeof sourcePrototype.appendBuffer === 'function' &&
+          !sourcePrototype.appendBuffer.__pureBrowser) {
+        appendOriginal = sourcePrototype.appendBuffer;
+        var append = appendOriginal;
+        var counted = function(data) {
+          try {
+            if (data && data.byteLength > 0) {
+              var buffer = this;
+              sourceBytes.set(buffer, (sourceBytes.get(buffer) || 0) + data.byteLength);
+            }
+          } catch (_) {}
+          return append.apply(this, arguments);
+        };
+        counted.__pureBrowser = true;
+        sourcePrototype.appendBuffer = counted;
+      }
+      var mediaPrototype = win.MediaSource && win.MediaSource.prototype;
+      if (mediaPrototype && typeof mediaPrototype.addSourceBuffer === 'function' &&
+          !mediaPrototype.addSourceBuffer.__pureBrowser) {
+        addSourceBufferOriginal = mediaPrototype.addSourceBuffer;
+        var add = addSourceBufferOriginal;
+        var tracked = function() {
+          var buffer = add.apply(this, arguments);
+          try {
+            var entry = mediaEntry(this);
+            if (entry) { entry.buffers.push(buffer); sourceMedia.set(buffer, this); }
+          } catch (_) {}
+          return buffer;
+        };
+        tracked.__pureBrowser = true;
+        mediaPrototype.addSourceBuffer = tracked;
+      }
+      if (win.URL && typeof win.URL.createObjectURL === 'function' &&
+          !win.URL.createObjectURL.__pureBrowser) {
+        createObjectUrlOriginal = win.URL.createObjectURL;
+        var create = createObjectUrlOriginal;
+        var mapped = function(object) {
+          var url = create.apply(this, arguments);
+          try {
+            if (win.MediaSource && object instanceof win.MediaSource) mediaEntry(object).url = url;
+          } catch (_) {}
+          return url;
+        };
+        mapped.__pureBrowser = true;
+        win.URL.createObjectURL = mapped;
+      }
+    } catch (_) {}
+  }
+  function unwatchDelivery() {
+    var pairs = [
+      [win.SourceBuffer && win.SourceBuffer.prototype, "appendBuffer", appendOriginal],
+      [win.MediaSource && win.MediaSource.prototype, "addSourceBuffer", addSourceBufferOriginal],
+      [win.URL, "createObjectURL", createObjectUrlOriginal],
+    ];
+    for (var i = 0; i < pairs.length; i++) {
+      try {
+        var target = pairs[i][0], name = pairs[i][1], original = pairs[i][2];
+        if (original && target && target[name] && target[name].__pureBrowser) target[name] = original;
+      } catch (_) {}
+    }
+    appendOriginal = null; addSourceBufferOriginal = null; createObjectUrlOriginal = null;
+  }
+  // Bytes this video's own delivery has produced. Zero means the page exposes no counter, and the
+  // native meter then falls back to its process-wide sample instead of reporting a guess.
+  function deliveryBytes(video, includeTiming) {
+    var total = 0;
+    try {
+      if (video) {
+        var entry = registryEntryFor(video.currentSrc) || registryEntryFor(video.src);
+        if (entry) {
+          for (var i = 0; i < entry.buffers.length; i++) {
+            total += sourceBytes.get(entry.buffers[i]) || 0;
+          }
+        }
+        if (total === 0 && includeTiming) {
+          // Progressive delivery has no page-side byte counter; a completed resource entry is the
+          // only number available, and only when the response allows timing.
+          var sources = [video.currentSrc, video.src];
+          (win.performance.getEntriesByType('resource') || []).forEach(function(entry) {
+            if (entry.transferSize > 0 && sources.indexOf(entry.name) >= 0) total += entry.transferSize;
+          });
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
+  // `waiting`/`stalled` are not dependable, so a silent stall is caught by watching the clock:
+  // a playing video whose time does not advance cannot deliver frames.
+  function updateBuffering(video) {
+    var now = Date.now();
+    if (!video || video.paused || video.ended || suspended) {
+      buffering = false; seekingSince = 0;
+      lastPosition = video ? video.currentTime : 0; lastPositionAt = now; return;
+    }
+    if (video.seeking) {
+      // `seeking` stays true until the target position has data, so a jump into an unbuffered
+      // stretch looks exactly like a stall and should be reported as one once it is not instant.
+      if (seekingSince === 0) { seekingSince = now; return; }
+      if (now - seekingSince > 700 && video.readyState < 3) buffering = true;
+      lastPositionAt = now;
+      return;
+    }
+    seekingSince = 0;
+    if (lastPositionAt === 0) { lastPosition = video.currentTime; lastPositionAt = now; return; }
+    if (video.currentTime - lastPosition > 0.2) {
+      buffering = false; lastPosition = video.currentTime; lastPositionAt = now; return;
+    }
+    if (now - lastPositionAt > 1500 && video.readyState < 3) buffering = true;
+  }
   function visible(video) {
     try {
       var rect = video.getBoundingClientRect(), style = win.getComputedStyle(video);
@@ -83,6 +228,7 @@
       restoreBoost(); restoreControls();
     }
     var video = pick(), urls = [], sourceUrl = null, rangeStart = 0, rangeEnd = 0;
+    updateBuffering(video);
     if (video) {
       selected = video;
       sourceUrl = addUrl(urls, video.currentSrc) || null;
@@ -118,7 +264,10 @@
       duration: video ? Math.max(0, finite(video.duration, 0)) : 0,
       seekStart: Math.max(0, finite(rangeStart, 0)), seekEnd: Math.max(0, finite(rangeEnd, 0)),
       width: video ? video.videoWidth : 0, height: video ? video.videoHeight : 0,
-      boosting: !!boost && boost.video === video
+      boosting: !!boost && boost.video === video,
+      buffering: buffering && !!video && !video.paused && !video.ended,
+      // The resource-timing scan only runs while a rate is actually being shown.
+      receivedBytes: deliveryBytes(video, buffering)
     };
   }
   function emit(message) {
@@ -294,17 +443,25 @@
         complete(false); return false;
       } else if (message.type === 'setPlaybackRate') {
         var rate = Number(message.rate);
-        if (rates.indexOf(rate) >= 0) {
+        if (validRate(rate)) {
           restoreBoost(); speeds.set(video, rate);
           video.defaultPlaybackRate = rate; video.playbackRate = rate;
           ok = Math.abs(video.playbackRate - rate) < 0.001;
         }
       } else if (message.type === 'beginBoost') {
         var boostRate = Number(message.rate);
-        if ((boostRate === 2 || boostRate === 3) && !video.paused && !video.ended) {
+        if (validRate(boostRate) && !video.paused && !video.ended) {
           restoreBoost();
           boost = { video: video, rate: video.playbackRate, source: video.currentSrc };
           video.playbackRate = Math.max(boostRate, boost.rate);
+          ok = true;
+        }
+      } else if (message.type === 'setBoostRate') {
+        // Only the held gesture moves this. boost.rate keeps the rate to restore on release,
+        // so this must not go through setPlaybackRate, which clears the boost first.
+        var heldRate = Number(message.rate);
+        if (boost && boost.video === video && validRate(heldRate)) {
+          video.playbackRate = Math.max(heldRate, boost.rate);
           ok = true;
         }
       } else if (message.type === 'seek') {
@@ -338,10 +495,16 @@
         var rate = speeds.get(video);
         if (Math.abs(video.playbackRate - rate) > 0.001) video.playbackRate = rate;
       }
+      if (video === selected) {
+        if (event.type === 'waiting' || event.type === 'stalled') buffering = true;
+        else if (event.type === 'playing' || event.type === 'canplay') buffering = false;
+        if (event.type === 'seeked' || event.type === 'emptied' || event.type === 'loadedmetadata') lastPositionAt = 0;
+      }
     }
     schedule();
   }
-  var events = ['play', 'playing', 'timeupdate', 'loadedmetadata', 'pause', 'ended', 'emptied', 'durationchange', 'ratechange'];
+  var events = ['play', 'playing', 'timeupdate', 'loadedmetadata', 'pause', 'ended', 'emptied',
+    'durationchange', 'ratechange', 'waiting', 'stalled', 'canplay', 'seeked'];
   function visibilityChanged() { if (doc.hidden) restoreBoost(); schedule(); }
   function pageHide() { restoreBoost(); restoreControls(); }
   function fullscreenChanged() {
@@ -379,7 +542,7 @@
   var api = {
     snapshot: snapshot, post: post, command: command, suspend: suspend, pauseAll: pauseAll,
     dispose: function() {
-      restoreBoost(); restoreControls(); disposed = true;
+      restoreBoost(); restoreControls(); unwatchDelivery(); disposed = true;
       win.clearTimeout(scheduled); win.clearTimeout(pulse);
       if (observer) observer.disconnect();
       events.forEach(function(name) { doc.removeEventListener(name, mediaEvent, true); });
@@ -391,6 +554,7 @@
       delete win.__pureBrowserVideoV2;
     }
   };
+  watchDelivery();
   win.__pureBrowserVideoV2 = api;
   schedule();
   return api;

@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/playback-probe.js'), 'utf8');
 
-function fixture(count = 1) {
+function fixture(count = 1, options = {}) {
   const listeners = new Map(), timers = new Map(), messages = [], styles = [];
   let nextTimer = 0;
   const doc = {
@@ -40,6 +40,8 @@ function fixture(count = 1) {
   });
   const win = {
     document: doc, location: { href: doc.baseURI },
+    // Browsers expose URL on the window, and the probe reads it there to attribute MSE traffic.
+    URL,
     performance: { getEntriesByType: () => [] },
     // Protocol tests model computed styles; the Android fixture checks actual CSS/layout.
     getComputedStyle(element) {
@@ -53,6 +55,18 @@ function fixture(count = 1) {
     addEventListener() {}, removeEventListener() {},
     mybrowserMediaProbe: { postMessage(raw) { messages.push(JSON.parse(raw)); } },
   };
+  if (options.mse) {
+    let blobs = 0;
+    win.URL = { createObjectURL: () => `blob:https://example.com/${++blobs}` };
+    // Minimal MediaSource/SourceBuffer pair: enough for the probe's delivery accounting, which is
+    // the only part of MSE it touches.
+    win.MediaSource = class MediaSource {};
+    // appendBuffer lives on the prototype, as it does in a browser: the probe wraps it there.
+    win.SourceBuffer = class SourceBuffer {
+      appendBuffer(data) { this.appended = (this.appended || 0) + (data?.byteLength || 0); }
+    };
+    win.MediaSource.prototype.addSourceBuffer = function () { return new win.SourceBuffer(); };
+  }
   const api = vm.runInNewContext(`${source}(window)`, { window: win, URL });
   let commandId = 0;
   function command(type, values = {}, target = api.snapshot()) {
@@ -478,4 +492,64 @@ test('ordinary pause remains resumable and hidden playing media can continue in 
   assert.equal(f.api.snapshot().playbackAvailable, true);
   v.paused = true; v.tagName = 'AUDIO';
   assert.equal(f.api.snapshot().playbackAvailable, true);
+});
+
+test('a rate the slider produced survives the float32 round trip', () => {
+  const f = fixture(), v = f.videos[0];
+  // 4.7f widens to 4.699999809265137 as a double, and the page used to reject exactly this kind of
+  // value: the app sends what the slider produced, so the grid check has to tolerate it.
+  for (const tenths of [5, 12, 15, 42, 43, 47, 48, 50]) {
+    const rate = Math.fround(tenths / 10);
+    assert.equal(f.command('setPlaybackRate', { rate }), true, `rate ${tenths / 10}`);
+    assert.ok(Math.abs(v.playbackRate - tenths / 10) < 1e-6, `applied ${v.playbackRate}`);
+  }
+  for (const rate of [0.4, 4.75, 5.1, 0.05]) {
+    assert.equal(f.command('setPlaybackRate', { rate }), false, `rate ${rate}`);
+  }
+});
+
+test('the held rate moves without losing the rate to restore', () => {
+  const f = fixture(), v = f.videos[0];
+  assert.equal(f.command('setBoostRate', { rate: 3 }), false, 'no boost is running yet');
+  f.command('setPlaybackRate', { rate: 1.5 });
+  assert.equal(f.command('beginBoost', { rate: 2 }), true);
+  assert.equal(f.command('setBoostRate', { rate: Math.fround(4.7) }), true);
+  assert.ok(Math.abs(v.playbackRate - 4.7) < 1e-6, `applied ${v.playbackRate}`);
+  assert.equal(f.command('endBoost'), true);
+  assert.ok(Math.abs(v.playbackRate - 1.5) < 1e-6, 'release restores the selected rate');
+  assert.ok(Math.abs(v.defaultPlaybackRate - 1.5) < 1e-6, 'a held gesture never rewrites the default');
+});
+
+test('delivery bytes belong to the video that produced them', () => {
+  const f = fixture(2, { mse: true });
+  const [mine, neighbour] = f.videos;
+  neighbour.paused = true;
+  const myMedia = new f.win.MediaSource();
+  mine.currentSrc = f.win.URL.createObjectURL(myMedia);
+  const neighbourMedia = new f.win.MediaSource();
+  neighbour.currentSrc = f.win.URL.createObjectURL(neighbourMedia);
+  const myBuffer = myMedia.addSourceBuffer('video/mp4');
+  const neighbourBuffer = neighbourMedia.addSourceBuffer('video/mp4');
+
+  myBuffer.appendBuffer({ byteLength: 1000 });
+  // An ad or a preloading player must not inflate this video's rate.
+  neighbourBuffer.appendBuffer({ byteLength: 1_000_000 });
+
+  assert.equal(f.api.snapshot().receivedBytes, 1000, "an ad's appends must not count for this video");
+  // The counter follows the selected video, so swapping which one plays swaps the number.
+  mine.paused = true;
+  neighbour.paused = false;
+  assert.equal(f.api.snapshot().receivedBytes, 1_000_000);
+});
+
+test('a jump into unbuffered data reports buffering once it is not instant', async () => {
+  const f = fixture(), v = f.videos[0];
+  v.readyState = 2;
+  v.seeking = true;
+  assert.equal(f.api.snapshot().buffering, false, 'positioning is not a stall yet');
+  await new Promise(resolve => setTimeout(resolve, 750));
+  assert.equal(f.api.snapshot().buffering, true, 'waiting for the target data is a stall');
+  v.seeking = false;
+  v.currentTime += 1;
+  assert.equal(f.api.snapshot().buffering, false);
 });

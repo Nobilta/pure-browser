@@ -44,6 +44,10 @@ class MediaPlaybackTracker(
         val isFullscreen: Boolean = false,
         val isBoosting: Boolean = false,
         val nativeControlsAvailable: Boolean = false,
+        /** The playing video is not advancing because data has not arrived. */
+        val buffering: Boolean = false,
+        /** Bytes this frame has fed its own player; zero when the page exposes no counter. */
+        val receivedBytes: Long = 0L,
         val sourceUrl: String? = null,
     ) {
         val canSeek: Boolean get() = hasMedia && duration > 0 && seekEnd > seekStart
@@ -156,7 +160,7 @@ class MediaPlaybackTracker(
     fun setPlaybackRate(rate: Float, onResult: (Boolean) -> Unit = {}) {
         val safe = PlaybackSpeed.normalizeSelection(rate)
         if (safe == null) { onResult(false); return }
-        send(target(), "setPlaybackRate", JSONObject().put("rate", safe.toDouble()), onResult)
+        send(target(), "setPlaybackRate", JSONObject().put("rate", PlaybackSpeed.wireRate(safe)), onResult)
     }
 
     fun togglePlayback(onResult: (Boolean) -> Unit = {}) = send(target(), "togglePlayback", onResult = onResult)
@@ -191,13 +195,21 @@ class MediaPlaybackTracker(
     fun beginBoost(rate: Float, onResult: (Boolean) -> Unit = {}) {
         if (rate != 2f && rate != 3f) { onResult(false); return }
         boostTarget = target()
-        send(boostTarget, "beginBoost", JSONObject().put("rate", rate.toDouble()), onResult)
+        send(boostTarget, "beginBoost", JSONObject().put("rate", PlaybackSpeed.wireRate(rate)), onResult)
     }
 
     fun endBoost() {
         val target = boostTarget ?: return
         boostTarget = null
         send(target, "endBoost")
+    }
+
+    /** Moves the rate of an ongoing hold without losing the rate to restore on release. */
+    fun updateBoost(rate: Float, onResult: (Boolean) -> Unit = {}) {
+        val safe = PlaybackSpeed.normalizeSelection(rate)
+        val target = boostTarget
+        if (safe == null || target == null) { onResult(false); return }
+        send(target, "setBoostRate", JSONObject().put("rate", PlaybackSpeed.wireRate(safe)), onResult)
     }
 
     fun setFullscreenControls(enabled: Boolean, onResult: (Boolean) -> Unit = {}) {
@@ -358,6 +370,8 @@ class MediaPlaybackTracker(
                 isFullscreen = hasVideo && json.optBoolean("fullscreen"),
                 isBoosting = hasVideo && json.optBoolean("boosting"),
                 nativeControlsAvailable = hasVideo && json.optBoolean("nativeControlsAvailable"),
+                buffering = hasMedia && json.optBoolean("buffering"),
+                receivedBytes = json.optLong("receivedBytes", 0L).coerceIn(0L, 1L shl 42),
                 sourceUrl = json.optString("sourceUrl").takeIf {
                     hasMedia && it.length <= 8192 && it.toUri().scheme in listOf("http", "https", "blob")
                 },

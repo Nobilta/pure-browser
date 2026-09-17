@@ -1,6 +1,8 @@
 package com.mybrowser.ui.shell
 
 import android.app.Application
+import com.mybrowser.core.PageFailure
+import com.mybrowser.core.PageFailureKind
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import org.junit.Assert.*
@@ -111,6 +113,90 @@ class BrowserStateTest {
         state.onPageStarted("https://example.com/new")
         state.onPageScroll(800, 600, 1f)
         assertFalse(state.isToolbarHidden)
+    }
+
+    @Test
+    fun theFailureOverlayStaysUntilAnotherDocumentIsOnScreen() {
+        val state = loadedState()
+        state.onPageStarted("https://example.com/gone")
+        state.pageFailure = PageFailure("https://example.com/gone", PageFailureKind.NETWORK, "ERR")
+        // A retry starts on the same URL: the engine is still showing its own error page, so the
+        // overlay must not uncover it while the retry runs.
+        state.onPageStarted("https://example.com/gone")
+        assertNotNull(state.pageFailure)
+        state.onPageCommitVisible("https://example.com/gone")
+        assertNull(state.pageFailure)
+        // Another destination also keeps the engine's previous error document covered.
+        state.pageFailure = PageFailure("https://example.com/gone", PageFailureKind.NETWORK, "ERR")
+        state.onNavigationRequested("https://example.com/next")
+        assertNotNull(state.pageFailure)
+        state.onPageStarted("https://example.com/next")
+        assertNotNull(state.pageFailure)
+        state.onPageCommitVisible("https://example.com/next")
+        assertNull(state.pageFailure)
+    }
+
+    @Test
+    fun theProgressBarIsVisibleBeforeTheFirstPercentage() {
+        val state = loadedState()
+        state.onNavigationRequested("https://example.com/slow")
+        assertTrue(state.isProgressVisible)
+        assertEquals(0, state.progress)
+        // Chromium can report 10% and wait for response headers before onPageStarted.
+        state.onProgressChanged(10)
+        assertTrue(state.isProgressVisible)
+        state.onPageStarted("https://example.com/slow")
+        state.onProgressChanged(40)
+        assertTrue(state.isProgressVisible)
+        state.onProgressChanged(100)
+        assertFalse(state.isProgressVisible)
+    }
+
+    @Test
+    fun anErrorDocumentCommitDoesNotDismissRecovery() {
+        val state = loadedState()
+        val url = "https://example.com/unreachable"
+        repeat(2) {
+            state.onNavigationRequested(url)
+            state.onPageStarted(url)
+            state.onPageError()
+            val failure = PageFailure(url, PageFailureKind.NETWORK, "ERR_CONNECTION_REFUSED")
+            state.pageFailure = failure
+            // This is the observed WebView order, including a commit after finish.
+            state.onPageFinished(url, true, false)
+            state.onProgressChanged(100)
+            state.onPageCommitVisible(url)
+            assertEquals(failure, state.pageFailure)
+            assertFalse(state.isLoading)
+        }
+        state.onNavigationRequested(url)
+        state.onPageCommitVisible(url) // A late commit from the previous attempt.
+        assertNotNull(state.pageFailure)
+        state.onPageStarted(url)
+        state.onPageFinished(url, true, false)
+        state.onPageCommitVisible(url)
+        assertNull(state.pageFailure)
+    }
+
+    @Test
+    fun pageInitiatedLoadingIgnoresLateProgressUntilTheStoppedLoadFinishes() {
+        val state = loadedState()
+        state.onProgressChanged(10)
+        assertTrue(state.isLoading)
+        state.onPageError()
+        state.onProgressChanged(80)
+        assertFalse(state.isLoading)
+        state.onNavigationRequested("https://example.com/retry")
+        assertTrue(state.isLoading)
+        state.onLoadStopped()
+        state.onProgressChanged(90)
+        assertFalse(state.isLoading)
+        state.onProgressChanged(100)
+        state.onPageFinished(state.currentUrl, true, false)
+        state.onProgressChanged(10) // A new POST form submission after Stop.
+        assertTrue(state.isLoading)
+        state.onNavigationRequested("about:blank")
+        assertNull(state.pageFailure)
     }
 
     @Test
