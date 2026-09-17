@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mybrowser.R
+import kotlinx.coroutines.flow.first
 
 /** The visible page owns Back; changing a route never tears down the dialog window. */
 private class SheetWindowState {
@@ -62,6 +64,15 @@ internal class SheetPresentation(
 private val LocalSheetWindow = staticCompositionLocalOf<SheetWindowState?> { null }
 private val LocalSheetInsets = staticCompositionLocalOf<WindowInsets?> { null }
 
+/**
+ * Reports that the window's surface has been laid out at least once.
+ *
+ * A dialog window is created on the frame the route is set, and its content is measured a frame
+ * or two later. Without this signal the entrance animates over that invisible stretch and then
+ * snaps what is left of it, which is what makes a sheet feel like it jumps.
+ */
+private val LocalSheetMeasured = staticCompositionLocalOf<() -> Unit> { {} }
+
 /** The window's own progress: 0 while off the edge, 1 while presented. */
 private val LocalSheetVisibility = staticCompositionLocalOf<State<Float>> { mutableStateOf(1f) }
 private val LocalSheetPresentation = staticCompositionLocalOf {
@@ -78,6 +89,7 @@ internal fun browserSheetInsets(): WindowInsets = LocalSheetInsets.current ?: Wi
 internal fun BrowserSheetWindow(
     visibility: State<Float>,
     onDismissRequest: () -> Unit,
+    onMeasured: () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val window = remember { SheetWindowState() }
@@ -93,6 +105,7 @@ internal fun BrowserSheetWindow(
             LocalSheetWindow provides window,
             LocalSheetInsets provides contentInsets,
             LocalSheetVisibility provides visibility,
+            LocalSheetMeasured provides onMeasured,
         ) {
             Box(Modifier.fillMaxSize()) { content() }
         }
@@ -105,10 +118,15 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
     if (window == null) {
         // A window a page opens by itself (a picker) has nothing above it to drive its progress, so
         // it runs its own entrance. Its exit is still the window animation: only the route host
-        // retains a page after the route is gone.
+        // retains a page after the route is gone. Like the route host, it waits for the first
+        // layout so the entrance is not spent on an unmeasured, invisible surface.
         val visibility = remember { Animatable(0f) }
-        LaunchedEffect(Unit) { visibility.animateTo(1f, BrowserMotion.sheetEnter) }
-        BrowserSheetWindow(visibility.asState(), onDismissRequest) {
+        var measured by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            snapshotFlow { measured }.first { it }
+            visibility.animateTo(1f, BrowserMotion.sheetEnter)
+        }
+        BrowserSheetWindow(visibility.asState(), onDismissRequest, onMeasured = { measured = true }) {
             SheetWindowContent(onDismissRequest, content)
         }
     } else {
@@ -186,6 +204,7 @@ internal fun BrowserBottomSheet(
     SheetWindowContent(onDismissRequest) {
         val dismissLabel = stringResource(R.string.ui_close)
         val safeInsets = browserSheetInsets()
+        val measured = LocalSheetMeasured.current
         var surfaceHeight by remember { mutableIntStateOf(0) }
         val motion = sheetMotion(fullscreen = false, color = containerColor, height = surfaceHeight)
         val contentDistance = with(LocalDensity.current) { BrowserMotion.PAGE_CHANGE_DISTANCE.toPx() }
@@ -208,7 +227,7 @@ internal fun BrowserBottomSheet(
                 .imePadding().padding(top = 16.dp)) {
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
-                        .onSizeChanged { surfaceHeight = it.height }
+                        .onSizeChanged { surfaceHeight = it.height; if (it.height > 0) measured() }
                         .graphicsLayer {
                             // A sheet is a solid surface, not a translucent page floating over the
                             // website: only its layer moves, and it leaves along the edge it came from.
@@ -235,13 +254,14 @@ internal fun BrowserBottomSheet(
 internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
     SheetWindowContent(onDismissRequest) {
         val containerColor = MaterialTheme.colorScheme.surface
+        val measured = LocalSheetMeasured.current
         var height by remember { mutableIntStateOf(0) }
         val motion = sheetMotion(fullscreen = true, color = containerColor, height = height)
         val contentDistance = with(LocalDensity.current) { BrowserMotion.PAGE_CHANGE_DISTANCE.toPx() }
         val offset = with(LocalDensity.current) { BrowserMotion.FULLSCREEN_OFFSET.toPx() }
         val scrim = MaterialTheme.colorScheme.scrim
         val shape = sheetShape()
-        Box(Modifier.fillMaxSize().onSizeChanged { height = it.height }) {
+        Box(Modifier.fillMaxSize().onSizeChanged { height = it.height; if (it.height > 0) measured() }) {
             // Hidden behind the opaque page at rest; it dims the page while a full-screen page
             // enters or leaves, with the same progress as the surface.
             Box(Modifier.matchParentSize().drawBehind {

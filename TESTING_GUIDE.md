@@ -52,12 +52,12 @@ x86_64 主机（Windows、Linux、Intel Mac）装不上只含 arm64-v8a 的官�
 Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本时设置 `PYTHONUTF8=1`，
 经 `run-regressions.py` 运行时它会代为设置。脚本在 Git Bash 中执行。
 
-下面以 `emulator-5554` 和 0.10.0 为例，替换为实际序列号与 APK 路径。
+下面以 `emulator-5554` 和 0.10.1 为例，替换为实际序列号与 APK 路径。
 
 1. 安装并启动应用，部署 UI 辅助程序：
 
    ```bash
-   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.10.0-release.apk
+   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.10.1-release.apk
    python3 validation/setup-ui-probe.py emulator-5554
    ```
 
@@ -66,14 +66,14 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 2. 启动 QA 服务，并保持该终端运行：
 
    ```bash
-   python3 validation/qa-server.py --apk PureBrowser-v0.10.0-release.apk
+   python3 validation/qa-server.py --apk PureBrowser-v0.10.1-release.apk
    ```
 
 3. 在另一个终端执行回归：
 
    ```bash
-   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.10.0-release.apk \
-     --label release-091-smoke --profile smoke
+   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.10.1-release.apk \
+     --label release-0101-smoke --profile smoke
    ```
 
 一次只运行一个 UI 脚本，避免同时构建。QA 使用本机 8875/8876 端口，部分夹具使用 8877–8879，
@@ -92,12 +92,15 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 例如，只检查启动更新提示和标签行为：
 
 ```bash
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.10.0-release.apk \
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.10.1-release.apk \
   --label update-tabs --stages update-launch resident
 ```
 
 `update-launch` 使用 root AVD 写入缓存测试清单，验证配置重建后提示仍存在；
 不会下载或安装更新，结束时还原缓存、深色模式和进程。
+页面加载与错误恢复可单独运行 `--stages navigation-recovery`：本地服务延迟响应头，检查地址输入、网页链接、POST 表单的进度提示，以及连续失败、重试成功、停止加载和停止后再次提交表单。下载删除的单元测试覆盖传输取消、临时文件清理和暂停/删除并发。
+`video-standard` 使用真实触摸验证倍速滑块拖动，以及 0.5×、5× 和 1.5× 档位；以网页实际播放状态判断结果，轨道点击会校正 Compose 无障碍边界的额外留白。
+
 完整阶段名称与检查项以 [run-regressions.py](validation/run-regressions.py) 及其调用的脚本为准。
 
 ## 结果与续跑

@@ -106,30 +106,60 @@ class BrowserState {
     var isDesktopMode: Boolean by mutableStateOf(false)
 
     /**
-     * Hidden outside 1..99. At 0 the load has not started and at 100 it is done; showing
-     * an empty or full bar in those states reads as a stuck page.
+     * Visible for as long as a load is running, including before the first percentage arrives: a
+     * server that accepts the connection and then stalls never reports one, and a page with no
+     * signal at all is what makes a slow load look frozen. At 0 the bar is drawn indeterminate.
      */
     val isProgressVisible: Boolean
-        get() = isLoading && progress in 1..99
+        get() = isLoading
 
     // --- WebView callbacks push in here ---
 
-    fun onPageStarted(url: String) {
-        pageFailure = null
+    private var navigationTerminated = false
+    private var documentStarted = false
+
+    /** WebView can defer onPageStarted until response headers arrive. */
+    fun onNavigationRequested(url: String) {
+        beginNavigation(url)
+        documentStarted = false
+    }
+
+    private fun beginNavigation(url: String) {
+        // Keep the previous error document covered until the replacement commits. Home has its
+        // own surface, so it does not need a recovery overlay while about:blank is loading.
+        if (url == ABOUT_BLANK) pageFailure = null
+        navigationTerminated = false
         hideFindBar()
         revealToolbar()
         currentUrl = url
         isLoading = true
         progress = 0
-        // Cleared here, not in onPageFinished: the old title would otherwise label the new
-        // page for the whole load.
         pageTitle = null
         syncOmnibarToUrl()
     }
 
+    fun onPageStarted(url: String) {
+        beginNavigation(url)
+        documentStarted = true
+    }
+
+    fun onPageCommitVisible(url: String) {
+        // Chromium commits its own error document too, after onReceivedError/onPageFinished.
+        // A pending retry also must not accept a late commit from the preceding failed load.
+        if (documentStarted && !navigationTerminated && url == currentUrl) pageFailure = null
+    }
+
     fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
-        isLoading = false
+        finishLoading()
         onHistoryUpdated(url, canGoBack, canGoForward)
+    }
+
+    private fun finishLoading() {
+        isLoading = false
+        // After a stopped load finishes, the still-visible page can submit a POST form. Its
+        // first progress callback must be able to start a new load without an override callback.
+        // Failed documents retain their guard through finish and the following error-page commit.
+        if (pageFailure == null) navigationTerminated = false
     }
 
     fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {
@@ -140,14 +170,24 @@ class BrowserState {
     }
 
     fun onPageError() {
+        navigationTerminated = true
+        isLoading = false
+    }
+
+    fun onLoadStopped() {
+        navigationTerminated = true
         isLoading = false
     }
 
     fun onProgressChanged(value: Int) {
-        progress = value
-        // A progress report is the only signal that a same-document navigation
-        // (history.pushState) finished, so loading has to be able to end here too.
-        if (value >= 100) isLoading = false
+        progress = value.coerceIn(0, 100)
+        if (progress >= 100) finishLoading()
+        else if (!navigationTerminated) {
+            // Covers navigations initiated inside WebView, including POST forms that do not
+            // invoke shouldOverrideUrlLoading, and same-document loads without onPageStarted.
+            isLoading = true
+            revealToolbar()
+        }
     }
 
     /** Blank titles are normalised to null so the cast label can fall back to the host. */

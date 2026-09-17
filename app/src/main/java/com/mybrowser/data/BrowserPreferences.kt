@@ -48,7 +48,7 @@ class BrowserPreferencesRepository(context: Context) {
             verticalGestures = prefs.getBoolean("video_vertical", true),
             horizontalSeek = prefs.getBoolean("video_seek", true),
             holdToBoost = prefs.getBoolean("video_hold", true),
-            boostRate = prefs.getFloat("video_boost", 2f).takeIf { it == 2f || it == 3f } ?: 2f,
+            boostRate = prefs.getFloat("video_boost", 2f).takeIf { it in PlaybackSpeed.BOOST_OPTIONS } ?: 2f,
             landscapeFullscreen = prefs.getBoolean("video_landscape", true),
             rememberSpeed = prefs.getBoolean("video_remember_speed", false),
             preferredSpeed = PlaybackSpeed.normalizeSelection(prefs.getFloat("video_speed", 1f)) ?: 1f,
@@ -57,7 +57,7 @@ class BrowserPreferencesRepository(context: Context) {
 
     fun save(value: BrowserPreferences): BrowserPreferences {
         val video = value.video.copy(
-            boostRate = value.video.boostRate.takeIf { it == 2f || it == 3f } ?: 2f,
+            boostRate = value.video.boostRate.takeIf { it in PlaybackSpeed.BOOST_OPTIONS } ?: 2f,
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
         )
         prefs.edit {
