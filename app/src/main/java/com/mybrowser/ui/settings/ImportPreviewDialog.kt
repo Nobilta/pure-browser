@@ -66,6 +66,12 @@ fun ImportPreviewDialog(
                 summary.siteReplaces?.let { (new, old) ->
                     Note(stringResource(R.string.settings_import_sites_note, new, old))
                 }
+                summary.bookmarksMerge?.let { (incoming, here) ->
+                    Note(stringResource(R.string.settings_import_bookmarks_note, incoming, here))
+                }
+                summary.historyMerge?.let { (incoming, here) ->
+                    Note(stringResource(R.string.settings_import_history_note, incoming, here))
+                }
                 if (summary.unknownBuiltInIds.isNotEmpty()) {
                     Note(stringResource(R.string.settings_import_unknown_builtins_note,
                         ImportPreviewText.unknownIds(summary.unknownBuiltInIds)))
@@ -111,6 +117,8 @@ private fun groupLabels(summary: ImportPreview): String {
             "downloads" -> resources.getString(R.string.settings_group_downloads)
             "filtering" -> resources.getString(R.string.settings_group_filtering)
             "sites" -> resources.getString(R.string.settings_group_sites)
+            "bookmarks" -> resources.getString(R.string.settings_group_bookmarks)
+            "history" -> resources.getString(R.string.settings_group_history)
             else -> id
         }
     }

@@ -212,6 +212,28 @@ class BookmarkManager(context: Context) {
         return entries
     }
 
+    /**
+     * Rows for a backup file, capped instead of refused: a library larger than the
+     * export budget should still produce a usable file. The caller reports what was
+     * left out using [countBookmarks].
+     */
+    @Synchronized
+    fun backupBookmarks(limit: Int): List<Bookmark> {
+        if (closed || limit <= 0) return emptyList()
+        return db.readableDatabase.query("bookmarks", COLUMNS, null, null, null, null,
+            "folder_id, position, id", limit.toString()).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) }
+        }
+    }
+
+    @Synchronized
+    fun countBookmarks(): Int {
+        if (closed) return 0
+        return db.readableDatabase.rawQuery("SELECT COUNT(*) FROM bookmarks", null).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
     /** Editing preserves row identity and fails atomically when another bookmark owns the URL. */
     @Synchronized
     fun updateBookmark(id: Long, title: String, url: String): Boolean {

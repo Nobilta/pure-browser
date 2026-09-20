@@ -6,7 +6,12 @@ import android.content.SharedPreferences
 import java.lang.reflect.Proxy
 import android.content.Context
 import com.mybrowser.core.TextDownloader
+import com.mybrowser.data.BookmarkFolders
+import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.BrowserPreferencesRepository
+import com.mybrowser.data.HistoryManager
+import com.mybrowser.data.ImportedBookmark
+import com.mybrowser.data.ImportedHistory
 import com.mybrowser.data.ThemeMode
 import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.filter.FilterController
@@ -21,6 +26,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,9 +46,12 @@ class SettingsTransferTest {
         val cold = FilterSubscriptions(context)
         val filter = FilterController(context)
         try {
-            val result = SettingsTransfer(context, filter, cold, SiteSettingsRepository(context)).collect("0.11")
-            assertEquals("Saved", result.settings.filtering!!.customSubscriptions!!.single().name)
-            assertFalse(result.settings.filtering!!.builtIns!!.single { it.id == "easylist" }.enabled)
+            val result = transfer(filter, cold, SiteSettingsRepository(context)).collect("0.11")
+            val settings = result.backup.settings
+            assertEquals("Saved", settings.filtering!!.customSubscriptions!!.single().name)
+            assertFalse(settings.filtering!!.builtIns!!.single { it.id == "easylist" }.enabled)
+            assertEquals(0, result.omittedBookmarks)
+            assertEquals(0, result.omittedHistory)
         } finally { filter.close() }
     }
 
@@ -51,11 +60,11 @@ class SettingsTransferTest {
         val subscriptions = FilterSubscriptions(context)
         var scheduled = 0
         try {
-            val transfer = SettingsTransfer(context, filter, subscriptions, SiteSettingsRepository(context)) { scheduled++ }
+            val settingsTransfer = transfer(filter, subscriptions, SiteSettingsRepository(context)) { scheduled++ }
             val backup = SettingsBackupCodec.decode("""{"format":"pure-browser-settings","schemaVersion":1,"settings":{
                 "filtering":{"customSubscriptions":[{"name":"Imported","url":"https://example.test/list","enabled":true}]}
             }}""")
-            val result = transfer.apply(backup)
+            val result = settingsTransfer.apply(backup)
             assertEquals(listOf("filtering"), result.applied)
             assertTrue(result.failed.isEmpty())
             assertEquals(1, result.pendingFilterUpdates)
@@ -64,6 +73,30 @@ class SettingsTransferTest {
     }
 
     private lateinit var context: Context
+
+    private var library: BookmarkManager? = null
+    private var visits: HistoryManager? = null
+
+    /** A transfer wired to real stores for this test's context, including the library. */
+    private fun transfer(
+        filter: FilterController,
+        subscriptions: FilterSubscriptions,
+        sites: SiteSettingsRepository,
+        onPendingFilterUpdates: () -> Unit = {},
+    ): SettingsTransfer {
+        val bookmarks = library ?: BookmarkManager(context).also { library = it }
+        val history = visits ?: HistoryManager(context).also { visits = it }
+        return SettingsTransfer(context, filter, subscriptions, sites, bookmarks, history, onPendingFilterUpdates)
+    }
+
+    @After fun releaseLibraryManagers() {
+        // BrowserDatabase is process-wide: a reference left open would hand the next test
+        // class this test's database instead of letting it open a fresh one.
+        library?.close()
+        library = null
+        visits?.close()
+        visits = null
+    }
 
     @Before fun setup() {
         context = RuntimeEnvironment.getApplication()
@@ -75,6 +108,7 @@ class SettingsTransferTest {
         }
         File(context.filesDir, "filter_subscriptions").deleteRecursively()
         File(context.cacheDir, "filter_lists").deleteRecursively()
+        clearLibrary()
     }
 
     @Test fun roundTripRestoresEveryGroupOnAFreshDevice() = runBlocking {
@@ -116,8 +150,19 @@ class SettingsTransferTest {
             sites.update("https://other.example.com/", {
                 it.withPermission(SiteCapability.CAMERA, SitePermission.ALLOW)
             })
+            // The library travels too: a folder, a bookmark and one visit.
+            BookmarkManager(context).also { library ->
+                assertEquals(1, library.importBookmarks(
+                    listOf(ImportedBookmark("Docs", "https://docs.example.com/", listOf("Reading"))),
+                ))
+                library.close()
+            }
+            HistoryManager(context).also { visits ->
+                visits.addHistory("Visited", "https://visited.example.com/")
+                visits.close()
+            }
 
-            encoded = SettingsBackupCodec.encode(SettingsTransfer(context, filter, subscriptions, sites).collect("9.9.9"))
+            encoded = SettingsBackupCodec.encode(transfer(filter, subscriptions, sites).collect("9.9.9").backup)
 
             // --- Target device: the same app with empty storage ----------------
             wipeStorage()
@@ -129,11 +174,32 @@ class SettingsTransferTest {
             throw IOException("The import path must not fetch anything")
         }
         val targetSites = SiteSettingsRepository(context)
-        val result = SettingsTransfer(context, targetFilter, targetSubscriptions, targetSites)
+        val result = transfer(targetFilter, targetSubscriptions, targetSites)
             .apply(SettingsBackupCodec.decode(encoded))
         try {
-            assertEquals(listOf("browser", "home", "search", "downloads", "filtering", "sites"), result.applied)
+            assertEquals(
+                listOf("browser", "home", "search", "downloads", "filtering", "sites", "bookmarks", "history"),
+                result.applied,
+            )
             assertTrue(result.failed.isEmpty())
+            assertEquals(1, result.importedBookmarks)
+            assertEquals(1, result.importedHistory)
+
+            // The library survives with its folder path and its visit time.
+            val library = BookmarkManager(context)
+            try {
+                val restored = library.getAllBookmarks().single()
+                assertEquals("https://docs.example.com/", restored.url)
+                assertEquals("Docs", restored.title)
+                assertEquals(
+                    listOf("Reading"),
+                    BookmarkFolders.path(restored.folderId, library.getFolders()).map { it.title },
+                )
+            } finally { library.close() }
+            HistoryManager(context).also { visits ->
+                assertEquals("https://visited.example.com/", visits.getAllHistory().single().url)
+                visits.close()
+            }
 
             val restored = BrowserPreferencesRepository(context).load()
             assertEquals(ThemeMode.DARK, restored.theme)
@@ -192,7 +258,7 @@ class SettingsTransferTest {
                 exportedAt = "2026-09-20T00:00:00Z",
                 settings = BackupSettings(browser = BackupBrowser(theme = "LIGHT")),
             )
-            val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
+            val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .apply(backup)
             assertEquals(listOf("browser"), result.applied)
             assertTrue(result.failed.isEmpty())
@@ -227,7 +293,7 @@ class SettingsTransferTest {
         )
         val filter = FilterController(context)
         try {
-            val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), sites).apply(backup)
+            val result = transfer(filter, FilterSubscriptions(context, filter), sites).apply(backup)
             assertEquals(listOf("sites"), result.applied)
             assertTrue(result.failed.isEmpty())
 
@@ -265,7 +331,7 @@ class SettingsTransferTest {
         )
         val filter = FilterController(context)
         try {
-            val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), brokenSites).apply(backup)
+            val result = transfer(filter, FilterSubscriptions(context, filter), brokenSites).apply(backup)
             assertEquals(listOf("browser"), result.applied)
             assertEquals(listOf("sites"), result.failed)
             assertTrue(brokenSites.needsRepair.value)
@@ -296,7 +362,7 @@ class SettingsTransferTest {
         )
         val filter = FilterController(context)
         try {
-            val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
+            val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .apply(backup)
             assertTrue(result.applied.isEmpty())
             assertEquals(listOf("search"), result.failed)
@@ -338,7 +404,7 @@ class SettingsTransferTest {
                     sites = listOf(BackupSite("https://a.example.com", BackupSitePreferences(filtering = true))),
                 ),
             )
-            val preview = SettingsTransfer(context, filter, subscriptions, sites).preview(backup)
+            val preview = transfer(filter, subscriptions, sites).preview(backup)
             assertEquals("9.9.9", preview.appVersion)
             assertEquals(listOf("browser", "search", "filtering", "sites"), preview.groups)
             assertEquals(true, preview.incognitoSwitch)
@@ -373,7 +439,7 @@ class SettingsTransferTest {
                     builtIns = listOf(BackupBuiltInSubscription("easylist", false)),
                 )),
             )
-            var result = SettingsTransfer(context, filter, subscriptions, SiteSettingsRepository(context)).apply(keepBackup)
+            var result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(keepBackup)
             assertEquals(listOf("filtering"), result.applied)
             assertTrue(result.failed.isEmpty())
             val kept = subscriptions.subscriptions.value.single { !it.builtIn }
@@ -385,7 +451,7 @@ class SettingsTransferTest {
             val clearBackup = keepBackup.copy(settings = keepBackup.settings.copy(
                 filtering = keepBackup.settings.filtering?.copy(customSubscriptions = emptyList()),
             ))
-            result = SettingsTransfer(context, filter, subscriptions, SiteSettingsRepository(context)).apply(clearBackup)
+            result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(clearBackup)
             assertEquals(listOf("filtering"), result.applied)
             assertTrue(result.failed.isEmpty())
             assertTrue(subscriptions.subscriptions.value.none { !it.builtIn })
@@ -417,7 +483,7 @@ class SettingsTransferTest {
         )
         val filter = FilterController(context)
         try {
-            val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), sites).apply(backup)
+            val result = transfer(filter, FilterSubscriptions(context, filter), sites).apply(backup)
             assertEquals(listOf("sites"), result.applied)
             assertTrue(result.failed.isEmpty())
             val entries = sites.entries.value
@@ -479,8 +545,10 @@ class SettingsTransferTest {
         val observed = ObservedContext(context)
         val filter = FilterController(observed)
         val subscriptions = FilterSubscriptions(observed, filter, builtIns = emptyList())
+        val observedLibrary = BookmarkManager(observed)
+        val observedVisits = HistoryManager(observed)
         try {
-            val result = SettingsTransfer(observed, filter, subscriptions, SiteSettingsRepository(observed)).apply(allGroupsBackup())
+            val result = SettingsTransfer(observed, filter, subscriptions, SiteSettingsRepository(observed), observedLibrary, observedVisits).apply(allGroupsBackup())
             assertEquals(listOf("browser", "home", "search", "downloads", "filtering", "sites"), result.applied)
             assertTrue(result.failed.isEmpty())
             assertEquals(6, observed.commits.size)
@@ -493,7 +561,11 @@ class SettingsTransferTest {
             reopened.initialize()
             assertEquals("Fixture", reopened.subscriptions.value.single().name)
             assertFalse(reopened.autoUpdate.value)
-        } finally { filter.close() }
+        } finally {
+            observedLibrary.close()
+            observedVisits.close()
+            filter.close()
+        }
     }
 
     @Test fun failedCommitsRestoreTheWholeGroupAndAreNeverReportedAsApplied() = runBlocking {
@@ -506,10 +578,12 @@ class SettingsTransferTest {
             val filter = FilterController(observed)
             val subscriptions = FilterSubscriptions(observed, filter, builtIns = emptyList())
             val sites = SiteSettingsRepository(observed)
+            val observedLibrary = BookmarkManager(observed)
+            val observedVisits = HistoryManager(observed)
             try {
                 subscriptions.initialize()
                 val before = context.getSharedPreferences(store, Context.MODE_PRIVATE).all.toMap()
-                val result = SettingsTransfer(observed, filter, subscriptions, sites).apply(allGroupsBackup())
+                val result = SettingsTransfer(observed, filter, subscriptions, sites, observedLibrary, observedVisits).apply(allGroupsBackup())
                 assertEquals("failure group $group", listOf(group), result.failed)
                 assertFalse(result.applied.contains(group))
                 assertEquals(5, result.applied.size)
@@ -521,7 +595,11 @@ class SettingsTransferTest {
                     assertTrue(subscriptions.subscriptions.value.isEmpty())
                 }
                 if (group == "sites") assertTrue(sites.entries.value.isEmpty())
-            } finally { filter.close() }
+            } finally {
+                observedLibrary.close()
+                observedVisits.close()
+                filter.close()
+            }
         }
     }
 
@@ -540,7 +618,7 @@ class SettingsTransferTest {
                 org.junit.Assert.assertThrows(SettingsBackupException::class.java) {
                     SettingsBackupCodec.decode(SettingsBackupCodec.encode(backup))
                 }
-                val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context)).apply(backup)
+                val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context)).apply(backup)
                 assertTrue(result.applied.isEmpty())
                 assertEquals(listOf("filtering"), result.failed)
                 assertEquals(ThemeMode.SYSTEM, BrowserPreferencesRepository(context).load().theme)
@@ -556,7 +634,7 @@ class SettingsTransferTest {
         ))
         val filter = FilterController(context)
         try {
-            val result = SettingsTransfer(context, filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
+            val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .apply(SettingsBackupCodec.decode(SettingsBackupCodec.encode(backup)))
             assertTrue(result.applied.isEmpty())
             assertEquals(listOf("search"), result.failed)
@@ -576,6 +654,103 @@ class SettingsTransferTest {
         }
     }
 
+    @Test fun libraryImportMergesWithoutDeletingAndStaysIdempotent() = runBlocking {
+        val filter = FilterController(context)
+        val subscriptions = FilterSubscriptions(context, filter)
+        val existing = "https://keep.example.com/"
+        val incoming = SettingsBackup(
+            SettingsBackup.FORMAT_ID, SettingsBackup.SCHEMA_VERSION, "test", "2026-09-20T00:00:00Z",
+            BackupSettings(
+                bookmarks = BackupBookmarks(
+                    folders = listOf(listOf("Empty folder")),
+                    entries = listOf(
+                        BackupBookmark("Remote title", existing),
+                        BackupBookmark("New", "https://new.example.com/", listOf("Reading")),
+                    ),
+                ),
+                history = listOf(
+                    BackupHistoryEntry("Remote", existing, 1_500_000_000_000, 7),
+                    BackupHistoryEntry("Fresh", "https://fresh.example.com/", 1_600_000_000_000, 3),
+                ),
+            ),
+        )
+        try {
+            BookmarkManager(context).also { library ->
+                library.addBookmark("Local title", existing)
+                library.close()
+            }
+            HistoryManager(context).also { visits ->
+                visits.addHistory("Local", existing)
+                visits.close()
+            }
+
+            val first = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(incoming)
+            assertTrue(first.failed.isEmpty())
+            assertEquals(listOf("bookmarks", "history"), first.applied)
+            // Only the URL this device did not have is inserted.
+            assertEquals(1, first.importedBookmarks)
+            assertEquals(1, first.importedHistory)
+
+            val library = BookmarkManager(context)
+            try {
+                // The existing bookmark keeps its identity and its local title.
+                assertEquals("Local title", library.getAllBookmarks().single { it.url == existing }.title)
+                assertEquals(2, library.countBookmarks())
+                assertEquals(
+                    setOf("Reading", "Empty folder"),
+                    library.getFolders().map { it.title }.toSet(),
+                )
+            } finally { library.close() }
+            HistoryManager(context).also { visits ->
+                val merged = visits.getAllHistory().single { it.url == existing }
+                // The local visit is the later one; the imported count is the larger one.
+                assertTrue(merged.visitTime > 1_500_000_000_000)
+                assertEquals(7, merged.visitCount)
+                assertEquals(2, visits.countHistory())
+                visits.close()
+            }
+
+            // Re-importing the same file must not duplicate rows or inflate counters.
+            val second = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(incoming)
+            assertEquals(0, second.importedBookmarks)
+            assertEquals(0, second.importedHistory)
+            BookmarkManager(context).also { bookmarks ->
+                assertEquals(2, bookmarks.countBookmarks())
+                bookmarks.close()
+            }
+            HistoryManager(context).also { visits ->
+                assertEquals(2, visits.countHistory())
+                assertEquals(7, visits.getAllHistory().single { it.url == existing }.visitCount)
+                visits.close()
+            }
+        } finally { filter.close() }
+        Unit
+    }
+
+    @Test fun libraryReadersCapRowsAndReportTheTrueTotal() {
+        BookmarkManager(context).also { library ->
+            assertEquals(3, library.importBookmarks(listOf(
+                ImportedBookmark("A", "https://a.example.com/"),
+                ImportedBookmark("B", "https://b.example.com/"),
+                ImportedBookmark("C", "https://c.example.com/"),
+            )))
+            assertEquals(2, library.backupBookmarks(2).size)
+            assertEquals(3, library.countBookmarks())
+            library.close()
+        }
+        HistoryManager(context).also { visits ->
+            assertEquals(3, visits.importHistory(listOf(
+                ImportedHistory("A", "https://a.example.com/", 1_600_000_000_000, 2),
+                ImportedHistory("B", "https://b.example.com/", 1_600_000_000_001, 1),
+                ImportedHistory("C", "https://c.example.com/", 1_600_000_000_002, 1),
+            )))
+            assertEquals(3, visits.countHistory())
+            // Capped reads keep the newest rows, and the count still reports everything.
+            assertEquals("https://c.example.com/", visits.backupHistory(1).single().url)
+            visits.close()
+        }
+    }
+
     private fun wipeStorage() {
         for (name in listOf(
             "browser_preferences", "browser_settings", "search_engines", "download_settings",
@@ -585,5 +760,12 @@ class SettingsTransferTest {
         }
         File(context.filesDir, "filter_subscriptions").deleteRecursively()
         File(context.cacheDir, "filter_lists").deleteRecursively()
+        clearLibrary()
+    }
+
+    /** Balanced open/close: the shared SQLite helper must drop back to zero references. */
+    private fun clearLibrary() {
+        BookmarkManager(context).also { it.clearAll(); it.close() }
+        HistoryManager(context).also { it.clearAll(); it.close() }
     }
 }

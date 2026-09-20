@@ -545,7 +545,6 @@
     <string name="download_notifications_manage">管理通知</string>
     <string name="download_confirm_title">下载文件？</string>
     <string name="download_confirm_action">下载</string>
-    <string name="download_confirm_apk">Android 安装包。仅下载，不会自动安装。</string>
     <string name="download_confirm_source">来源</string>
     <string name="download_confirm_size_unknown">大小未知</string>
     <string name="download_confirm_destination">保存到：%1$s</string>
@@ -698,7 +697,7 @@
     <string name="site_repair">重置所有网站设置</string>
     <string name="site_repair_confirm">重置所有网站的权限和显示偏好？书签、历史和网站数据将保留。</string>
     <string name="settings_export">导出设置</string>
-    <string name="settings_export_summary">将浏览器、首页、搜索、下载、过滤和站点偏好保存为 JSON 文件</string>
+    <string name="settings_export_summary">将设置、书签和历史记录保存为 JSON 文件</string>
     <string name="settings_exported">设置已导出</string>
     <string name="settings_export_failed">导出失败</string>
     <string name="settings_import">导入设置</string>
@@ -718,13 +717,15 @@
     <string name="settings_import_unknown_builtins_note">忽略未知的内置订阅：%1$s</string>
     <string name="settings_import_directory_note">文件建议使用自定义下载目录；本机无授权时将使用系统下载目录</string>
     <string name="settings_import_site_store_unreadable_note">站点设置存储不可读；将跳过站点分组。请先重置站点设置。</string>
-    <string name="settings_import_privacy_note">文件可能包含自定义网址和规则订阅地址。书签、历史和权限不会被导入。</string>
+    <string name="settings_import_privacy_note">文件可能包含自定义网址和规则订阅地址。书签和历史记录会合并导入；Cookie、权限、已下载文件和已安装脚本不会包含在文件中。</string>
     <string name="settings_group_browser">浏览器</string>
     <string name="settings_group_home">首页</string>
     <string name="settings_group_search">搜索</string>
     <string name="settings_group_downloads">下载</string>
     <string name="settings_group_filtering">过滤</string>
     <string name="settings_group_sites">站点</string>
+    <string name="settings_group_bookmarks">书签</string>
+    <string name="settings_group_history">历史记录</string>
     <string name="download_confirm_size">大小：%1$s</string>
     <string name="download_blocked_budget">此页面已达到自动确认次数上限，可在这里手动下载</string>
     <string name="download_blocked_existing">已有相同任务。点击可查看；任务完成后可下载新副本，旧文件会保留。</string>
@@ -737,6 +738,10 @@
     <string name="download_existing_paused">此下载已暂停，可在下载管理中继续</string>
     <string name="filter_pending_download">尚未下载规则，更新后此订阅才会生效</string>
     <string name="settings_import_filter_updates">首次规则下载：%1$d 个订阅。可在过滤设置查看结果。</string>
+    <string name="settings_import_bookmarks_note">书签：导入 %1$d 条，本机已有 %2$d 条；相同地址保留本机记录</string>
+    <string name="settings_import_history_note">历史记录：导入 %1$d 条，本机已有 %2$d 条；相同网址保留较晚的一次访问</string>
+    <string name="settings_import_library_added">已新增 %1$d 条书签、%2$d 条历史记录</string>
+    <string name="settings_export_truncated">已达文件上限：另有 %1$d 条书签、%2$d 条历史记录未导出</string>
     <string name="site_permission_not_remembered">本次按你的选择处理，但未能记住。请检查或重置网站设置。</string>
     <string name="privacy_cleanup_title">清理无痕数据</string>
     <string name="privacy_cleanup_failed">无痕数据清理失败，成功清理前已暂停网页访问。请重试或退出浏览器。</string>

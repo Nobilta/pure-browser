@@ -546,7 +546,6 @@
     <string name="download_notifications_manage">Manage notifications</string>
     <string name="download_confirm_title">Download file?</string>
     <string name="download_confirm_action">Download</string>
-    <string name="download_confirm_apk">Android app package. It is only downloaded; nothing is installed automatically.</string>
     <string name="download_confirm_source">From</string>
     <string name="download_confirm_size_unknown">Size unknown</string>
     <string name="download_confirm_destination">Save to: %1$s</string>
@@ -699,7 +698,7 @@
     <string name="site_repair">Reset all website settings</string>
     <string name="site_repair_confirm">Reset all website permissions and display preferences? Bookmarks, history and website data will be kept.</string>
     <string name="settings_export">Export settings</string>
-    <string name="settings_export_summary">Save a JSON file with browser, homepage, search, download, filtering and site preferences</string>
+    <string name="settings_export_summary">Save a JSON file with settings, bookmarks and history</string>
     <string name="settings_exported">Settings exported</string>
     <string name="settings_export_failed">Export failed</string>
     <string name="settings_import">Import settings</string>
@@ -719,13 +718,15 @@
     <string name="settings_import_unknown_builtins_note">Ignoring unknown built-in subscriptions: %1$s</string>
     <string name="settings_import_directory_note">The file suggests a custom download directory; without a local grant the system Downloads folder is used</string>
     <string name="settings_import_site_store_unreadable_note">The site settings store is unreadable; the sites group will be skipped. Reset site settings first.</string>
-    <string name="settings_import_privacy_note">The file may contain custom URLs and filter subscription addresses. Bookmarks, history and permissions are never imported.</string>
+    <string name="settings_import_privacy_note">The file may contain custom URLs and filter subscription addresses. Bookmarks and history are merged in; cookies, permissions, download files and installed scripts are never included.</string>
     <string name="settings_group_browser">Browser</string>
     <string name="settings_group_home">Homepage</string>
     <string name="settings_group_search">Search</string>
     <string name="settings_group_downloads">Downloads</string>
     <string name="settings_group_filtering">Filtering</string>
     <string name="settings_group_sites">Sites</string>
+    <string name="settings_group_bookmarks">Bookmarks</string>
+    <string name="settings_group_history">History</string>
     <string name="download_confirm_size">Size: %1$s</string>
     <string name="download_blocked_budget">Automatic confirmations are limited for this page. You can request this download here.</string>
     <string name="download_blocked_existing">A task already exists. Request again to view it, or download a new copy after it finishes. The old file is kept.</string>
@@ -738,6 +739,10 @@
     <string name="download_existing_paused">This download is paused. Continue it in Downloads.</string>
     <string name="filter_pending_download">No rules downloaded yet; update to activate this list</string>
     <string name="settings_import_filter_updates">First rule downloads: %1$d. Check progress in filtering settings.</string>
+    <string name="settings_import_bookmarks_note">Bookmarks: importing %1$d, %2$d already here; existing addresses are kept</string>
+    <string name="settings_import_history_note">History: importing %1$d entries, %2$d already here; the later visit is kept</string>
+    <string name="settings_import_library_added">Added %1$d bookmarks and %2$d history entries</string>
+    <string name="settings_export_truncated">File limit reached: %1$d bookmarks and %2$d history entries were left out</string>
     <string name="site_permission_not_remembered">Your choice applies this time, but could not be remembered. Check or reset website settings.</string>
     <string name="privacy_cleanup_title">Private data cleanup</string>
     <string name="privacy_cleanup_failed">Private data could not be cleared. Browsing is paused until cleanup succeeds. Retry or exit the browser.</string>

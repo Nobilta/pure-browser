@@ -1,7 +1,14 @@
 package com.mybrowser.backup
 
 import android.content.Context
+import com.mybrowser.data.Bookmark
+import com.mybrowser.data.BookmarkFolders
+import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.BrowserPreferencesRepository
+import com.mybrowser.data.HistoryEntry
+import com.mybrowser.data.HistoryManager
+import com.mybrowser.data.ImportedBookmark
+import com.mybrowser.data.ImportedHistory
 import com.mybrowser.data.ThemeMode
 import com.mybrowser.download.DownloadDestinationMode
 import com.mybrowser.download.DownloadSettingsRepository
@@ -21,7 +28,7 @@ import kotlinx.coroutines.withContext
 data class ImportPreview(
     val appVersion: String,
     val exportedAt: String,
-    /** Group ids present in the file: browser, home, search, downloads, filtering, sites. */
+    /** Group ids present in the file: browser, home, search, downloads, filtering, sites, bookmarks, history. */
     val groups: List<String>,
     /** Non-null when the import would switch the incognito wish to this value. */
     val incognitoSwitch: Boolean?,
@@ -35,10 +42,47 @@ data class ImportPreview(
     val directoryHintCustom: Boolean,
     /** The normal-mode site store is unreadable; the sites group must not be applied. */
     val siteStoreUnreadable: Boolean,
+    /** (in file, already here) bookmark counts; the merge keeps existing URLs. */
+    val bookmarksMerge: Pair<Int, Int>?,
+    /** (in file, already here) history counts; existing URLs keep the newer visit. */
+    val historyMerge: Pair<Int, Int>?,
 )
 
+/**
+ * A completed export plus what the size budget left out. Both counts are zero unless the
+ * device holds more bookmarks or history than one file may carry.
+ */
+data class ExportResult(
+    val backup: SettingsBackup,
+    val omittedBookmarks: Int = 0,
+    val omittedHistory: Int = 0,
+)
+
+/**
+ * Keeps rows in order until the byte budget is spent. Row counts alone cannot bound the
+ * file: a title may hold 512 characters and an address 8 KB, so a library that passes the
+ * count caps can still exceed the size the importer accepts.
+ */
+internal fun <T> fitBackupBudget(rows: List<T>, budget: Int, sizeOf: (T) -> Int): List<T> {
+    var remaining = budget
+    val kept = mutableListOf<T>()
+    for (row in rows) {
+        val cost = sizeOf(row).coerceAtLeast(1)
+        if (cost > remaining) break
+        remaining -= cost
+        kept += row
+    }
+    return kept
+}
+
 /** Honest per-group outcome: exactly what was written and what failed. */
-data class ApplyResult(val applied: List<String>, val failed: List<String>, val pendingFilterUpdates: Int = 0)
+data class ApplyResult(
+    val applied: List<String>,
+    val failed: List<String>,
+    val pendingFilterUpdates: Int = 0,
+    val importedBookmarks: Int = 0,
+    val importedHistory: Int = 0,
+)
 
 /**
  * Collects a whitelist export and applies an import through the existing repositories.
@@ -52,6 +96,8 @@ class SettingsTransfer(
     private val filter: FilterController,
     private val filterSubscriptions: FilterSubscriptions,
     private val sites: SiteSettingsRepository,
+    private val bookmarks: BookmarkManager,
+    private val history: HistoryManager,
     private val onPendingFilterUpdates: () -> Unit = {
         (context.applicationContext as? com.mybrowser.App)?.updateImportedFilters()
     },
@@ -61,9 +107,12 @@ class SettingsTransfer(
     companion object {
         /** One import at a time, across every SettingsTransfer instance. */
         private val importLock = Mutex()
+
+        /** Room inside the file budget for the settings groups that share the file. */
+        private const val SETTINGS_RESERVE_BYTES = 256 * 1024
     }
 
-    suspend fun collect(appVersion: String): SettingsBackup {
+    suspend fun collect(appVersion: String): ExportResult {
         filterSubscriptions.initialize()
         val subscriptions = filterSubscriptions.subscriptions.value
         val preferences = BrowserPreferencesRepository(appContext).load()
@@ -71,7 +120,30 @@ class SettingsTransfer(
         val engines = SearchEngineManager(appContext)
         val downloads = DownloadSettingsRepository(appContext).load()
 
-        return SettingsBackup(
+        // The library is capped, never refused: a device over the budget still gets a file,
+        // and the export reports what was left out instead of writing something unimportable.
+        val folders = bookmarks.getFolders()
+        fun pathOf(folderId: Long): List<String> = runCatching {
+            BookmarkFolders.path(folderId, folders).map { it.title }
+        }.getOrDefault(emptyList())
+        val paths = folders.associate { it.id to pathOf(it.id) }
+        // JSON escaping and key names are covered by the constant slack per row.
+        fun bookmarkCost(row: Bookmark): Int =
+            row.title.length + row.url.length + paths[row.folderId].orEmpty().sumOf { it.length } + 48
+        fun historyCost(row: HistoryEntry): Int = row.title.length + row.url.length + 40
+
+        val budget = SettingsBackupCodec.MAX_FILE_BYTES - SETTINGS_RESERVE_BYTES
+        val bookmarkRows = fitBackupBudget(
+            bookmarks.backupBookmarks(SettingsBackupCodec.MAX_BACKUP_BOOKMARKS), budget, ::bookmarkCost,
+        )
+        val historyRows = fitBackupBudget(
+            history.backupHistory(SettingsBackupCodec.MAX_BACKUP_HISTORY),
+            budget - bookmarkRows.sumOf(::bookmarkCost), ::historyCost,
+        )
+        val omittedBookmarks = (bookmarks.countBookmarks() - bookmarkRows.size).coerceAtLeast(0)
+        val omittedHistory = (history.countHistory() - historyRows.size).coerceAtLeast(0)
+
+        val backup = SettingsBackup(
             format = SettingsBackup.FORMAT_ID,
             schemaVersion = SettingsBackup.SCHEMA_VERSION,
             appVersion = appVersion,
@@ -140,8 +212,21 @@ class SettingsTransfer(
                         ),
                     )
                 },
+                bookmarks = BackupBookmarks(
+                    folders = folders.map { paths.getValue(it.id) },
+                    entries = bookmarkRows.map {
+                        BackupBookmark(title = it.title, url = it.url, folderPath = paths[it.folderId].orEmpty())
+                    },
+                ),
+                history = historyRows.map {
+                    BackupHistoryEntry(
+                        title = it.title, url = it.url,
+                        visitTime = it.visitTime, visitCount = it.visitCount,
+                    )
+                },
             ),
         )
+        return ExportResult(backup, omittedBookmarks, omittedHistory)
     }
 
     fun preview(backup: SettingsBackup): ImportPreview {
@@ -160,6 +245,8 @@ class SettingsTransfer(
                 settings.downloads?.let { add("downloads") }
                 settings.filtering?.let { add("filtering") }
                 settings.sites?.let { add("sites") }
+                settings.bookmarks?.let { add("bookmarks") }
+                settings.history?.let { add("history") }
             },
             incognitoSwitch = settings.browser?.incognitoEnabled
                 ?.takeIf { it != preferences.incognitoEnabled },
@@ -176,6 +263,8 @@ class SettingsTransfer(
                 .map { it.id }.filter { it !in knownBuiltIns },
             directoryHintCustom = settings.downloads?.directoryModeHint == DownloadDestinationMode.CUSTOM_DIRECTORY.name,
             siteStoreUnreadable = sites.needsRepair.value,
+            bookmarksMerge = settings.bookmarks?.let { it.entries.size to bookmarks.countBookmarks() },
+            historyMerge = settings.history?.let { it.size to history.countHistory() },
         )
     }
 
@@ -233,6 +322,8 @@ class SettingsTransfer(
                 s.downloads?.let { add("downloads") }
                 s.filtering?.let { add("filtering") }
                 s.sites?.let { add("sites") }
+                s.bookmarks?.let { add("bookmarks") }
+                s.history?.let { add("history") }
             }
             return ApplyResult(applied = emptyList(), failed = groups)
         }
@@ -253,6 +344,8 @@ class SettingsTransfer(
         val applied = mutableListOf<String>()
         val failed = mutableListOf<String>()
         var pendingFilterUpdates = 0
+        var importedBookmarks = 0
+        var importedHistory = 0
         val settings = backup.settings
 
         settings.browser?.let { browser ->
@@ -365,6 +458,26 @@ class SettingsTransfer(
             }.onSuccess { applied += "sites" }.onFailure { failed += "sites" }
         } ?: settings.sites?.let { failed += "sites" }
 
-        return ApplyResult(applied, failed, pendingFilterUpdates)
+        settings.bookmarks?.let { library ->
+            runCatching {
+                // A merge, never a replace: bookmarks the device already has keep their
+                // identity and title, and nothing the file omits is deleted.
+                importedBookmarks = bookmarks.importBookmarks(
+                    library.entries.map { ImportedBookmark(it.title, it.url, it.folderPath) },
+                    library.folders,
+                )
+            }.onSuccess { applied += "bookmarks" }.onFailure { failed += "bookmarks" }
+        }
+
+        settings.history?.let { entries ->
+            runCatching {
+                // Same merge rule: existing URLs keep the later visit and the larger count.
+                importedHistory = history.importHistory(
+                    entries.map { ImportedHistory(it.title, it.url, it.visitTime, it.visitCount) },
+                )
+            }.onSuccess { applied += "history" }.onFailure { failed += "history" }
+        }
+
+        return ApplyResult(applied, failed, pendingFilterUpdates, importedBookmarks, importedHistory)
     }
 }

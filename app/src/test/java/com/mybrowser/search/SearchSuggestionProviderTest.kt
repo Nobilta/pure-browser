@@ -119,12 +119,30 @@ class SearchSuggestionProviderTest {
         ))
         assertEquals(emptyList<String>(), SearchSuggestionProvider.parseBaiduJsonp("""evil.callback({"s":["x"]})"""))
         assertEquals(emptyList<String>(), SearchSuggestionProvider.parseBaiduJsonp("""window.baidu.sug("""))
-        // Sanity: the built-in table maps baidu/google/duckduckgo and not bing.
+        // Every built-in engine with a search box entry must map to an endpoint; the
+        // retired Azure Autosuggest API is not what this endpoint is.
         assertNotNull(SearchSuggestionProvider.BUILTIN_ENDPOINTS["baidu"])
         assertNotNull(SearchSuggestionProvider.BUILTIN_ENDPOINTS["google"])
         assertNotNull(SearchSuggestionProvider.BUILTIN_ENDPOINTS["duckduckgo"])
-        assertNull(SearchSuggestionProvider.BUILTIN_ENDPOINTS["bing"])
-        assertNull(provider.endpointFor(SearchEngine.BING))
+        val bing = SearchSuggestionProvider.BUILTIN_ENDPOINTS["bing"]
+        assertNotNull(bing)
+        assertEquals(SuggestFormat.OPEN_SEARCH_JSON, bing!!.format)
+        assertTrue(bing.urlTemplate.startsWith("https://api.bing.com/osjson.aspx"))
+        assertEquals(bing, provider.endpointFor(SearchEngine.BING))
+    }
+
+    @Test fun bingShapedResponsesParseToPlainTerms() = runBlocking {
+        // api.bing.com/osjson.aspx answers with Google's shape and needs no cvid/key.
+        serve("/bing", body = """["安卓浏览器",["安卓浏览器","安卓浏览器 推荐","安卓浏览器 下载"]]""")
+        val client = SearchSuggestionProvider(openConnection = { endpoint ->
+            assertEquals("api.bing.com", endpoint.host)
+            assertTrue(endpoint.query.contains("query=%E5%AE%89%E5%8D%93"))
+            URL("http://127.0.0.1:${server.address.port}/bing").openConnection() as HttpURLConnection
+        })
+        assertEquals(
+            listOf("安卓浏览器", "安卓浏览器 推荐", "安卓浏览器 下载"),
+            client.fetch(SearchEngine.BING, "安卓", false),
+        )
     }
 
     @Test fun googleShapedResponsesParseToPlainTerms() = runBlocking {
@@ -180,7 +198,10 @@ class SearchSuggestionProviderTest {
     }
 
     @Test fun engineWithoutEndpointNeverHitsTheNetwork() = runBlocking {
-        assertEquals(emptyList<String>(), provider.fetch(SearchEngine.BING, "q", isPrivate = false))
+        // Every built-in engine now maps to an endpoint, so this covers an unknown id and
+        // a custom engine with no suggest template. Neither may reach the network.
+        assertEquals(emptyList<String>(),
+            provider.fetch(SearchEngine.BAIDU.copy(id = "no_such_engine"), "q", isPrivate = false))
         assertEquals(emptyList<String>(), provider.fetch(customEngine("   "), "q", isPrivate = false))
         assertEquals(0, requests.get())
     }
