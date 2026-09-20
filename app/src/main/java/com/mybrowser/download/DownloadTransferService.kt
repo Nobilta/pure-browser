@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.ServiceInfo
@@ -42,16 +43,7 @@ class DownloadTransferService : Service() {
     }
 
     private fun updateNotificationChannel() {
-        notificationManager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.download_notification_channel),
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = getString(R.string.download_notification_channel_description)
-                setShowBadge(false)
-            },
-        )
+        ensureChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -116,7 +108,10 @@ class DownloadTransferService : Service() {
         )
         val title = when (active.size) {
             0 -> getString(R.string.download_notification_preparing)
-            1 -> primary?.filename.orEmpty()
+            // A private session's running download shows a generic title: the
+            // filename belongs to that session and must not leak to the lock screen.
+            1 -> if (primary?.autoResumeAllowed == false) getString(R.string.download_notification_private)
+                else primary?.filename.orEmpty()
             else -> getString(R.string.download_notification_multiple, active.size)
         }
         val builder = Notification.Builder(this, CHANNEL_ID)
@@ -166,5 +161,23 @@ class DownloadTransferService : Service() {
         const val CHANNEL_ID = "browser_downloads"
         const val NOTIFICATION_ID = 0xD011
         const val STOP_GRACE_PERIOD_MS = 400L
+
+        /**
+         * Creates the downloads channel without starting the service; the settings
+         * notification guide needs the channel to exist before it can link to its page.
+         * Re-creating an existing channel never resets the user's choices.
+         */
+        fun ensureChannel(context: Context) {
+            context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.download_notification_channel),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = context.getString(R.string.download_notification_channel_description)
+                    setShowBadge(false)
+                },
+            )
+        }
     }
 }

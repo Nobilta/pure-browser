@@ -143,6 +143,11 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path in ('/download-test.bin', '/download-resume.bin'):
             slow = parsed.path == '/download-resume.bin'
+            # The fixtures propagate their page query into the link, so every regression
+            # run downloads a fresh URL: the browser deduplicates by URL and would surface
+            # the previous run's record instead of starting a new transfer.
+            query = parse_qs(parsed.query)
+            run = re.sub(r'[^a-zA-Z0-9-]', '', (query.get('case') or query.get('visit') or [''])[0])[:24]
             size = (48 if slow else 6) * 1024 * 1024
             match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
             start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
@@ -153,7 +158,7 @@ class Handler(SimpleHTTPRequestHandler):
                     'path': parsed.path, 'ifRange': self.headers.get('If-Range')})
             self.send_response(206 if match else 200)
             self.send_header('Content-Type', 'application/octet-stream')
-            filename = 'pure-resume-test.bin' if slow else 'pure-range-test.bin'
+            filename = ('pure-resume-test' if slow else 'pure-range-test') + (('-' + run) if run else '') + '.bin'
             self.send_header('Content-Disposition', 'attachment; filename="' + filename + '"')
             self.send_header('Content-Length', str(end - start + 1))
             self.send_header('Accept-Ranges', 'bytes')

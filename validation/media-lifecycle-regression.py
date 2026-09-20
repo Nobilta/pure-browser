@@ -126,40 +126,38 @@ def main():
     def all_windows():
         return ux.window_nodes()
 
+    def pip_bounds():
+        activity = ux.adb('shell', 'dumpsys', 'activity', 'activities')
+        bounds = re.search(r'Task\{[^\n]*com\.mybrowser[^\n]*mode=pinned[^\n]*\n\s*'
+                           r'mBounds=Rect\((-?\d+), (-?\d+) - (-?\d+), (-?\d+)\)', activity)
+        return tuple(map(int, bounds.groups())) if bounds else None
+
     def pip_close():
         # The actual system PiP menu exposes the close/dismiss button only after
-        # the floating window is tapped. Resolve bounds from its live UI tree.
-        root, _ = all_windows()
-        app = next((n for n in root.iter('node') if n.get('package') == ux.PACKAGE and ux.visible(n)), None)
-        assert app is not None, 'The PiP window is missing from accessibility'
+        # the floating window is tapped. Its task bounds remain available when
+        # accessibility omits the app surface or retains the previous rotation.
+        left, top, right, bottom = wait(pip_bounds, message='The PiP task is missing')
         density = ux.adb('shell', 'wm', 'density')
-        ux.tap_node(app)
-        menu_shown = time.monotonic()
-        root, raw = all_windows()
-        button = next((n for n in root.iter('node') if ux.visible(n) and
-                       (n.get('resource-id', '').endswith(('/dismiss', '/close_button', '/pip_close_button')) or
-                        (n.get('package') in ('com.android.systemui', 'com.google.android.apps.nexuslauncher')
-                         and n.get('content-desc') in ('Close', 'Dismiss', '关闭', '關閉')))), None)
+        ux.adb('shell', 'input', 'tap', str((left + right) // 2), str((top + bottom) // 2))
+        # Act while the transient system menu is visible. Dumping every window can
+        # outlast its timeout even when the dump contains a valid Close button.
+        if ux.tap_now('Close'):
+            result['pipCloseInput'] = {'kind': 'system-menu-accessibility-touch'}
+            wait(lambda: not pip_active(), message='PiP stayed pinned after system close')
+            return
         # Android 17's surface-hosted PiP menu can be visible in the screenshot
         # but absent from UiAutomation windows. Keep the actual system touch path
-        # using its observed top-right 48dp close target within the current bounds.
-        (args.output / 'pip-menu.xml').write_text(raw, encoding="utf-8")
-        # Screenshot encoding on a software-rendered emulator can take four
-        # seconds, long enough for this transient system menu to hide. Complete
-        # the observed Close touch before collecting the post-close screenshot.
-        result['pipMenuLookupSeconds'] = round(time.monotonic() - menu_shown, 3)
-        if button is not None:
-            ux.tap_node(button)
-        else:
-            values = re.findall(r'(?:Physical|Override) density: (\d+)', density)
-            assert values, 'Unknown display density for PiP menu'
-            inset = round(24 * int(values[-1]) / 160)
-            # Showing the menu can resize/reposition PiP. Never use its bounds
-            # from before the menu opened, or the touch can miss the close icon.
-            app = next(n for n in root.iter('node') if n.get('package') == ux.PACKAGE and ux.visible(n))
-            x1, y1, x2, y2 = ux.bounds(app)
-            ux.adb('shell', 'input', 'tap', str(x2 - inset), str(y1 + inset))
-            result['pipCloseInput'] = {'kind': 'system-menu-touch', 'x': x2 - inset, 'y': y1 + inset}
+        # using its observed top-right 48dp close target. Reopen after the slow
+        # lookup, then touch before collecting any screenshots or window trees.
+        values = re.findall(r'(?:Physical|Override) density: (\d+)', density)
+        assert values, 'Unknown display density for PiP menu'
+        inset = round(24 * int(values[-1]) / 160)
+        left, top, right, bottom = wait(pip_bounds)
+        ux.adb('shell', 'input', 'tap', str((left + right) // 2), str((top + bottom) // 2))
+        time.sleep(.25)
+        left, top, right, bottom = wait(pip_bounds)
+        ux.adb('shell', 'input', 'tap', str(right - inset), str(top + inset))
+        result['pipCloseInput'] = {'kind': 'system-menu-touch', 'x': right - inset, 'y': top + inset}
         wait(lambda: not pip_active(), message='PiP stayed pinned after system close')
 
     try:
@@ -269,13 +267,12 @@ def main():
         ux.adb('shell', 'input', 'keyevent', '3')
         wait(pip_active, message='Home from fullscreen did not enter PiP')
         def fitted_video(row):
-            # Both the accessibility window and Chromium resize asynchronously;
-            # refresh the bounds instead of retaining an early transition value.
-            root, _ = all_windows()
-            app = next((n for n in root.iter('node') if n.get('package') == ux.PACKAGE and ux.visible(n)), None)
-            if app is None:
+            # Accessibility can retain landscape coordinates after the launcher rotates
+            # to portrait. Compare Chromium against the actual pinned task bounds.
+            bounds = pip_bounds()
+            if bounds is None:
                 return False
-            left, top, right, bottom = ux.bounds(app)
+            left, top, right, bottom = bounds
             result['pipWindowBounds'] = [left, top, right, bottom]
             viewport = row['viewport']
             width, height = viewport['width'] * viewport['dpr'], viewport['height'] * viewport['dpr']

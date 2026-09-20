@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Login lifecycle fixture</title>
+<style>body{font:18px sans-serif;margin:24px}button,input{font:inherit;display:block;margin:16px 0;padding:12px}pre{white-space:pre-wrap}</style>
+<h1>Login lifecycle fixture</h1>
+<p id="identity"></p>
+<form onsubmit="event.preventDefault()">
+  <label>Username <input autocomplete="username" name="username"></label>
+  <label>Password <input autocomplete="current-password" type="password" name="password"></label>
+</form>
+<button id="message">Open callback popup</button>
+<button id="redirect">Open redirect popup</button>
+<button id="complete">Complete in 3 seconds and close</button>
+<pre id="result">Waiting</pre>
+<script>
+const identity = crypto.randomUUID();
+document.querySelector('#identity').textContent = `Document: ${identity}`;
+const query = new URLSearchParams(location.search);
+const children = new Set();
+function openPopup(mode) {
+  const url = new URL(location.href);
+  url.search = new URLSearchParams({popup: mode}).toString();
+  const child = window.open(url.href, '_blank');
+  if (child) children.add(child);
+  else document.querySelector('#result').textContent = 'Popup refused';
+}
+document.querySelector('#message').onclick = () => openPopup('message');
+document.querySelector('#redirect').onclick = () => openPopup('redirect');
+document.querySelector('#complete').hidden = !query.has('popup');
+document.querySelector('#complete').onclick = () => setTimeout(() => {
+  if (!window.opener) {
+    document.querySelector('#result').textContent = 'FAIL: opener was destroyed';
+    return;
+  }
+  if (query.get('popup') === 'redirect') {
+    window.opener.location.href = new URL('login-lifecycle-fixture.html?returned=1', location.href).href;
+  } else {
+    window.opener.postMessage({kind: 'fixture-login-complete'}, location.origin);
+  }
+  window.close();
+}, 3000);
+window.addEventListener('message', async event => {
+  if (event.origin !== location.origin || !children.has(event.source) ||
+      event.data?.kind !== 'fixture-login-complete') return;
+  try {
+    const response = await fetch(`login-lifecycle-fixture.html?probe=${Date.now()}`, {cache: 'no-store'});
+    const body = await response.text();
+    if (!response.ok || !body.includes('Login lifecycle fixture')) throw Error('Empty or blocked callback fetch');
+    document.querySelector('#result').textContent = `PASS: callback fetch; original document ${identity}`;
+    document.body.dataset.callback = 'passed';
+  } catch (error) {
+    document.querySelector('#result').textContent = `FAIL: ${error.message}`;
+  }
+});
+if (query.has('returned')) document.querySelector('#result').textContent = 'PASS: opener navigation';
+</script>

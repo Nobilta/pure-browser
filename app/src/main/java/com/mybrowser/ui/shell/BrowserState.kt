@@ -60,6 +60,35 @@ class BrowserState {
         private set
     private var scrollDistance = 0f
 
+    // --- Immersive browser fullscreen ---
+
+    /** Mirror of the fullscreen preference combined with "no video fullscreen", set by the screen. */
+    var isImmersiveFullscreen: Boolean by mutableStateOf(false)
+        private set
+
+    /**
+     * The user temporarily revealed the omnibar and toolbar while immersive. Kept apart
+     * from [isToolbarHidden] on purpose: that flag is scroll-driven and page callbacks
+     * keep resetting it, so it must never stand in for the immersive chrome state.
+     */
+    var isChromeRevealed: Boolean by mutableStateOf(false)
+        private set
+
+    fun onImmersiveFullscreenChanged(active: Boolean) {
+        if (isImmersiveFullscreen == active) return
+        isImmersiveFullscreen = active
+        if (!active) isChromeRevealed = false
+    }
+
+    fun revealChrome() {
+        isChromeRevealed = true
+        revealToolbar()
+    }
+
+    fun hideChrome() {
+        isChromeRevealed = false
+    }
+
     val displayTitle: String
         get() = if (currentUrl == ABOUT_BLANK) "" else pageTitle ?: UrlUtils.forDisplay(currentUrl)
 
@@ -206,6 +235,7 @@ class BrowserState {
         isOmnibarFocused = focused
         if (focused) {
             revealToolbar()
+            if (isImmersiveFullscreen) isChromeRevealed = true
             // Show the real URL for editing, not the trimmed display form, and select it
             // all so typing replaces rather than appends.
             val text = currentUrl.takeUnless { it == ABOUT_BLANK }.orEmpty()
@@ -226,6 +256,7 @@ class BrowserState {
 
     fun showFindBar() {
         revealToolbar()
+        if (isImmersiveFullscreen) isChromeRevealed = true
         isFindBarVisible = true
     }
 

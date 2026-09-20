@@ -15,6 +15,8 @@ data class DownloadItem(
     val canPause: Boolean = false,
     val bytesPerSecond: Long = 0,
     val savingProgress: Int = 0,
+    /** False for private-session tasks; the running notification hides their filename. */
+    val autoResumeAllowed: Boolean = true,
 )
 
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAITING_NETWORK, SAVING;

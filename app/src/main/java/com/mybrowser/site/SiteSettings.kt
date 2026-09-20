@@ -1,10 +1,12 @@
 package com.mybrowser.site
 
+import com.mybrowser.data.commitConfirmed
 import android.content.Context
 import androidx.core.net.toUri
 import com.mybrowser.core.UrlUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -84,8 +86,11 @@ class SiteSettingsRepository private constructor(
     )
 
     private val mutex = Mutex()
-    private val mutable = MutableStateFlow(if (prefs == null) initial else decode(prefs.getString("sites", null)))
-    val entries = mutable.asStateFlow()
+    private val stored = if (prefs == null) initial else decode(prefs.getString("sites", null))
+    private val repairState = MutableStateFlow(prefs != null && stored == null)
+    val needsRepair = repairState.asStateFlow()
+    private val mutable = MutableStateFlow(Snapshot(stored ?: emptyMap()))
+    val entries: StateFlow<Map<String, SiteSettings>> = mutable.asStateFlow()
 
     fun get(url: String): SiteSettings = settingsFor(mutable.value, url)
 
@@ -94,7 +99,7 @@ class SiteSettingsRepository private constructor(
         mutex.withLock {
             val next = mutable.value.toMutableMap()
             val desktopSite = requireNotNull(DesktopSite.of(origin))
-            val settings = transform(settingsFor(next, origin)).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200),
+            val settings = transform(settingsFor(mutable.value, origin)).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200),
                 desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024) }
             next[origin] = settings
             // One display choice across existing aliases, committed atomically. Do
@@ -110,19 +115,55 @@ class SiteSettingsRepository private constructor(
 
     suspend fun reset(url: String) = update(url) { SiteSettings() }
 
+    /**
+     * Replaces the migratable subset of every origin's settings from a settings import.
+     * Permission decisions are never taken from the file: origins it lists keep their
+     * current permissions (new origins start at ASK), and origins it does not list keep
+     * their permissions while their migratable fields return to defaults. Fails without
+     * touching the store when the store is unreadable — imports must not bypass the
+     * same corruption protection as every other write.
+     */
+    suspend fun applyImported(migratable: Map<String, (SiteSettings) -> SiteSettings>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val next = mutable.value.mapValues { (origin, current) ->
+                val transform = migratable[origin]
+                if (transform != null) transform(current) else current.copy(
+                    filtering = true, javaScript = true, images = true, thirdPartyCookies = true,
+                    desktop = false, textZoom = 100, webDarkening = true, desktopWidth = 1024,
+                    enhancedPlayback = null,
+                )
+            }.toMutableMap()
+            migratable.forEach { (origin, transform) ->
+                if (origin !in next) next[origin] = transform(SiteSettings())
+            }
+            next.entries.removeAll { it.value == SiteSettings() }
+            require(next.size <= MAX_SITES) { "Site settings limit reached" }
+            save(next)
+        }
+    }
+
     suspend fun clearPermissions() = withContext(Dispatchers.IO) {
         mutex.withLock {
             val next = mutable.value.mapValues { (_, value) ->
                 SiteCapability.entries.fold(value.copy(externalApps = SitePermission.ASK)) { settings, capability -> settings.withPermission(capability, SitePermission.ASK) }
             }.filterValues { it != SiteSettings() }
+            // A corrupted store must stay untouched here; only the confirmed repair() may
+            // replace unreadable bytes. clearPermissions() fails loudly on such a store.
             save(next)
         }
     }
 
     fun privateSession() = SiteSettingsRepository(null, mutable.value.mapValues { it.value.forPrivateSession() })
 
+    /** Discard an unreadable store only after the user confirms resetting settings. */
+    suspend fun repair() = withContext(Dispatchers.IO) {
+        mutex.withLock { if (repairState.value) save(emptyMap(), force = true) }
+    }
+
     @android.annotation.SuppressLint("UseKtx") // KTX edit discards the commit result; publishing requires a confirmed write.
-    private fun save(next: Map<String, SiteSettings>) {
+    private fun save(next: Map<String, SiteSettings>, force: Boolean = false) {
+        check(!repairState.value || force) { "Stored site settings are unreadable; reset them before saving" }
+        val snapshot = Snapshot(next.toMap())
         val json = JSONObject()
         next.forEach { (origin, settings) ->
             val entry = JSONObject().put("filtering", settings.filtering).put("javascript", settings.javaScript)
@@ -136,29 +177,40 @@ class SiteSettingsRepository private constructor(
         }
         val text = json.toString()
         require(text.length <= 512 * 1024) { "Site settings storage limit reached" }
-        check(prefs == null || prefs.edit().putString("sites", text).commit()) { "Unable to save site settings" }
-        mutable.value = next.toMap()
+        prefs?.commitConfirmed(mapOf("sites" to text))
+        mutable.value = snapshot
+        repairState.value = false
+    }
+
+    /** Compute desktop aliases once per write, keeping origin permissions and the index together. */
+    private class Snapshot(settings: Map<String, SiteSettings>) : Map<String, SiteSettings> by settings {
+        val desktop = buildMap<String, SiteSettings> {
+            settings.forEach { (origin, value) ->
+                if (value.desktop) DesktopSite.of(origin)?.let { key -> if (key !in this) put(key, value) }
+            }
+        }
+
+        override fun equals(other: Any?) = other is Map<*, *> && entries == other.entries
+        override fun hashCode() = entries.hashCode()
     }
 
     companion object {
         val DESKTOP_WIDTHS = listOf(0, 980, 1024, 1280, 1440)
-        private const val MAX_SITES = 256
-        private fun settingsFor(sites: Map<String, SiteSettings>, url: String): SiteSettings {
+        const val MAX_SITES = 256
+        private fun settingsFor(sites: Snapshot, url: String): SiteSettings {
             val desktopSite = DesktopSite.of(url)
             // Read legacy exact-origin records directly; no lossy migration or extra
             // storage entries. An enabled alias remains effective until explicitly
             // disabled/reset from any of the same site's presentation aliases.
-            val desktop = desktopSite != null && sites.any { (origin, settings) ->
-                settings.desktop && DesktopSite.of(origin) == desktopSite
-            }
-            val presentation = sites.entries.firstOrNull { (origin, settings) -> settings.desktop && DesktopSite.of(origin) == desktopSite }?.value
+            val presentation = desktopSite?.let(sites.desktop::get)
             return (sites[SiteOrigin.of(url)] ?: SiteSettings()).let {
-                it.copy(desktop = desktop, desktopWidth = presentation?.desktopWidth ?: it.desktopWidth)
+                it.copy(desktop = presentation != null, desktopWidth = presentation?.desktopWidth ?: it.desktopWidth)
             }
         }
 
-        private fun decode(raw: String?): Map<String, SiteSettings> = runCatching {
-            if (raw == null || raw.length > 512 * 1024) return emptyMap()
+        private fun decode(raw: String?): Map<String, SiteSettings>? = runCatching {
+            if (raw == null) return emptyMap()
+            if (raw.length > 512 * 1024) return null
             val json = JSONObject(raw)
             buildMap {
                 json.keys().asSequence().take(MAX_SITES).forEach { key ->
@@ -179,6 +231,6 @@ class SiteSettingsRepository private constructor(
                     put(origin, value)
                 }
             }
-        }.getOrDefault(emptyMap())
+        }.getOrNull()
     }
 }

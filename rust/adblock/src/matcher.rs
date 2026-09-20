@@ -94,7 +94,7 @@ impl RuleSet {
             // Pick the least populated triplet, avoiding common prefixes such as "http".
             // Every triplet in this literal is necessary, including when it occurs inside
             // a longer URL word. Splitting the URL into words would miss such matches.
-            let key = literal
+            let rarest = literal
                 .as_bytes()
                 .windows(3)
                 .map(|bytes| {
@@ -104,12 +104,18 @@ impl RuleSet {
                         bytes[2].to_ascii_lowercase(),
                     ]
                 })
-                .min_by_key(|key| self.tokens.get(key).map_or(0, Vec::len))
-                .expect("extracted tokens have at least three bytes");
-            self.tokens
-                .entry(key)
-                .or_default()
-                .push(TokenRule { rule, literal });
+                .min_by_key(|key| self.tokens.get(key).map_or(0, Vec::len));
+            if let Some(key) = rarest {
+                self.tokens
+                    .entry(key)
+                    .or_default()
+                    .push(TokenRule { rule, literal });
+            } else {
+                // No triplet means nothing to look the rule up by. The engine is loaded inside the
+                // app process, so an impossible invariant must not take the process down; tests
+                // still fail loudly if token extraction ever starts returning short literals.
+                debug_assert!(false, "extracted tokens have at least three bytes");
+            }
         } else {
             self.fallback.push(rule);
         }

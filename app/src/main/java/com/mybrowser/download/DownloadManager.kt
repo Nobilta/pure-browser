@@ -85,6 +85,8 @@ class DownloadHandler(context: Context) : Closeable {
     private var monitorJob: Job? = null
     private val nextLocalId = AtomicLong(-System.currentTimeMillis().coerceAtLeast(1L))
     @Volatile private var closed = false
+    /** The private session currently downloading; see [rotatePrivateScope]. */
+    @Volatile private var privateScope: String? = null
 
     private val completionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -123,8 +125,25 @@ class DownloadHandler(context: Context) : Closeable {
         }
     }
 
-    /** Enqueues a validated HTTP(S) download and returns its app-local id. */
-    fun enqueue(
+    /** Outcome of a deduplicating enqueue: a new task, an existing one, or a refusal. */
+    sealed interface EnqueueOutcome {
+        data class Started(val id: Long) : EnqueueOutcome
+        data class Existing(val id: Long, val status: DownloadStatus) : EnqueueOutcome
+        data object Rejected : EnqueueOutcome
+    }
+
+    /**
+     * Enqueues a validated HTTP(S) download, deduplicated against the tasks this engine
+     * already owns. Task identity is the target URL without its fragment plus the
+     * private/normal identity context — query, encoding and path case stay part of the
+     * identity, and requests from a different context are never merged. An unfinished
+     * (queued, transferring, saving, paused) or completed task is returned as
+     * [EnqueueOutcome.Existing]; failed tasks may be superseded, and [newCopy] explicitly
+     * starts another copy of a completed download without deleting its record or file.
+     * The dedup check and the task creation run in one critical section so concurrent
+     * WebView callbacks cannot both pass the check.
+     */
+    fun enqueueOrGetExisting(
         url: String,
         userAgent: String?,
         contentDisposition: String?,
@@ -132,9 +151,11 @@ class DownloadHandler(context: Context) : Closeable {
         referer: String? = null,
         isPrivate: Boolean = false,
         cookieHeader: String? = if (isPrivate) null else runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull(),
-    ): Long? {
-        if (closed) return null
-        val cleanUrl = validHttpUrl(url) ?: return null
+        newCopy: Boolean = false,
+    ): EnqueueOutcome {
+        if (closed) return EnqueueOutcome.Rejected
+        val cleanUrl = validHttpUrl(url) ?: return EnqueueOutcome.Rejected
+        val identity = cleanUrl.substringBefore('#')
         val safeMime = mimeType?.substringBefore(';')?.let(::sanitizeMime).orEmpty()
             .ifEmpty { "application/octet-stream" }
         val safeUserAgent = sanitizeHeader(userAgent, MAX_USER_AGENT_LENGTH).orEmpty()
@@ -144,32 +165,43 @@ class DownloadHandler(context: Context) : Closeable {
             cookieHeader,
             MAX_COOKIE_LENGTH,
         )
-        val filename = uniqueFilename(
-            sanitizeFilename(FilenameParser.resolve(safeDisposition, cleanUrl, safeMime)),
-        )
         val settings = settingsRepository.load()
         val id = createLocalId()
-        val entry = DownloadMetadata(
-            id = id,
-            backend = DownloadBackend.LOCAL,
-            url = cleanUrl,
-            userAgent = safeUserAgent,
-            cookie = safeCookie,
-            contentDisposition = safeDisposition,
-            mimeType = safeMime,
-            filename = filename,
-            referer = safeReferer,
-            timestamp = System.currentTimeMillis(),
-            status = DownloadStatus.QUEUED,
-            unmeteredOnly = settings.unmeteredOnly,
-            autoResumeAllowed = !isPrivate,
-            configuredThreadCount = settings.threadCount,
-            actualThreadCount = settings.threadCount,
-            destinationMode = settings.destinationMode,
-            customTreeUri = settings.customTreeUri,
-            destinationLabel = settings.destinationLabel,
-        )
-        metadata[id] = entry
+        // A private task belongs to the private session that created it; a later
+        // session with the same URL must not be merged into this one's record.
+        val scope = if (isPrivate) {
+            privateScope ?: "private-${System.nanoTime()}".also { privateScope = it }
+        } else null
+        val entry = synchronized(taskLock) {
+            if (closed) return EnqueueOutcome.Rejected
+            existingMetadataFor(identity, isPrivate, includeCompleted = !newCopy)
+                ?.let { return EnqueueOutcome.Existing(it.id, it.status) }
+            val created = DownloadMetadata(
+                id = id,
+                backend = DownloadBackend.LOCAL,
+                url = cleanUrl,
+                userAgent = safeUserAgent,
+                cookie = safeCookie,
+                contentDisposition = safeDisposition,
+                mimeType = safeMime,
+                filename = uniqueFilename(
+                    sanitizeFilename(FilenameParser.resolve(safeDisposition, cleanUrl, safeMime)),
+                ),
+                referer = safeReferer,
+                timestamp = System.currentTimeMillis(),
+                status = DownloadStatus.QUEUED,
+                unmeteredOnly = settings.unmeteredOnly,
+                autoResumeAllowed = !isPrivate,
+                privateScope = scope,
+                configuredThreadCount = settings.threadCount,
+                actualThreadCount = settings.threadCount,
+                destinationMode = settings.destinationMode,
+                customTreeUri = settings.customTreeUri,
+                destinationLabel = settings.destinationLabel,
+            )
+            metadata[id] = created
+            created
+        }
         trimMetadata()
         persistMetadata()
         publishSnapshots()
@@ -177,7 +209,64 @@ class DownloadHandler(context: Context) : Closeable {
         // LAZY closes the race where a tiny local response finishes before its Job is placed
         // in the cancellation map.
         launchTransfer(id)
-        return id
+        return EnqueueOutcome.Started(id)
+    }
+
+    /** The newest non-failed task already owning [identityUrl] in the given context, if any. */
+    fun existingTaskFor(identityUrl: String, isPrivate: Boolean): Pair<Long, DownloadStatus>? =
+        synchronized(taskLock) { existingMetadataFor(identityUrl, isPrivate) }
+            ?.let { it.id to it.status }
+
+    /**
+     * Starts a new private download scope. Private records only claim URLs inside the
+     * session that created them, so the same link in a later private session starts a
+     * fresh task instead of surfacing the previous session's record.
+     */
+    fun rotatePrivateScope(): String {
+        val scope = "private-${System.nanoTime()}"
+        privateScope = scope
+        return scope
+    }
+
+    /** Returns to normal browsing: private records stop claiming new requests' URLs. */
+    fun endPrivateScope() {
+        privateScope = null
+    }
+
+    /**
+     * The filename a confirmed request for [url] will most likely receive. The unique
+     * suffix assigned at enqueue time may still differ when another task takes the name
+     * first; the started download reports the final name.
+     */
+    fun previewFilename(url: String, contentDisposition: String?, mimeType: String?): String? {
+        val cleanUrl = validHttpUrl(url) ?: return null
+        val safeMime = mimeType?.substringBefore(';')?.let(::sanitizeMime).orEmpty()
+            .ifEmpty { "application/octet-stream" }
+        val safeDisposition = sanitizeHeader(contentDisposition, MAX_CONTENT_DISPOSITION_LENGTH)
+        return sanitizeFilename(FilenameParser.resolve(safeDisposition, cleanUrl, safeMime))
+    }
+
+    private fun existingMetadataFor(identityUrl: String, isPrivate: Boolean, includeCompleted: Boolean = true): DownloadMetadata? =
+        metadata.values
+            .filter { it.autoResumeAllowed == !isPrivate && it.status != DownloadStatus.FAILED }
+            .filter { includeCompleted || it.status != DownloadStatus.COMPLETED }
+            // Private tasks are scoped to their session; normal tasks share one scope.
+            .filter { !isPrivate || it.privateScope == privateScope }
+            .filter { it.url.substringBefore('#') == identityUrl }
+            .maxByOrNull { it.timestamp }
+
+    /** Enqueues a validated HTTP(S) download and returns its app-local id. */
+    fun enqueue(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        referer: String? = null,
+        isPrivate: Boolean = false,
+        cookieHeader: String? = if (isPrivate) null else runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull(),
+    ): Long? = when (val outcome = enqueueOrGetExisting(url, userAgent, contentDisposition, mimeType, referer, isPrivate, cookieHeader)) {
+        is EnqueueOutcome.Started -> outcome.id
+        else -> null
     }
 
     /** Cancels an active task and removes its incomplete data and browser record. */
@@ -281,7 +370,25 @@ class DownloadHandler(context: Context) : Closeable {
 
     fun retry(id: Long): Long? {
         val old = metadata[id] ?: return null
-        if (closed || old.status !in listOf(DownloadStatus.FAILED, DownloadStatus.PAUSED)) return null
+        if (closed) return null
+        if (old.status == DownloadStatus.COMPLETED) {
+            // A new generation never owns/deletes the old file or record. Active copies
+            // still coalesce so repeated taps cannot create parallel identical transfers.
+            val cookie = if (old.autoResumeAllowed) runCatching {
+                CookieManager.getInstance().getCookie(old.url)
+            }.getOrNull() else old.cookie
+            // Old private records may be viewed, but cannot borrow another session's identity.
+            if (!old.autoResumeAllowed && old.privateScope != privateScope) return null
+            return when (val outcome = enqueueOrGetExisting(
+                old.url, old.userAgent, old.contentDisposition, old.mimeType, old.referer,
+                isPrivate = !old.autoResumeAllowed, cookieHeader = cookie, newCopy = true,
+            )) {
+                is EnqueueOutcome.Started -> outcome.id
+                is EnqueueOutcome.Existing -> outcome.id
+                EnqueueOutcome.Rejected -> null
+            }
+        }
+        if (old.status !in listOf(DownloadStatus.FAILED, DownloadStatus.PAUSED)) return null
         if (old.backend == DownloadBackend.LEGACY_SYSTEM) {
             val replacement = enqueue(old.url, old.userAgent, old.contentDisposition, old.mimeType, old.referer)
                 ?: return null
@@ -404,15 +511,19 @@ class DownloadHandler(context: Context) : Closeable {
     override fun close() {
         if (closed) return
         closed = true
-        jobs.values.forEach(Job::cancel)
-        jobs.clear()
-        metadata.replaceAll { _, entry ->
-            if (entry.backend == DownloadBackend.LOCAL &&
-                entry.status.active
-            ) {
-                entry.copy(status = DownloadStatus.PAUSED)
-            } else {
-                entry
+        // A finishing transfer takes taskLock to publish its terminal state, so closing under the
+        // same lock keeps the record and the job from disagreeing about the last write.
+        synchronized(taskLock) {
+            jobs.values.forEach(Job::cancel)
+            jobs.clear()
+            metadata.replaceAll { _, entry ->
+                if (entry.backend == DownloadBackend.LOCAL &&
+                    entry.status.active
+                ) {
+                    entry.copy(status = DownloadStatus.PAUSED)
+                } else {
+                    entry
+                }
             }
         }
         persistMetadata()
@@ -604,6 +715,7 @@ class DownloadHandler(context: Context) : Closeable {
         canPause = true,
         bytesPerSecond = entry.bytesPerSecond,
         savingProgress = entry.savingProgress,
+        autoResumeAllowed = entry.autoResumeAllowed,
     )
 
     private fun publishSnapshots() = synchronized(metadataLock) {
@@ -708,6 +820,7 @@ class DownloadHandler(context: Context) : Closeable {
                     status = status,
                     unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
                     autoResumeAllowed = obj.optBoolean("autoResumeAllowed", true),
+                    privateScope = obj.optString("privateScope").takeIf { it.isNotBlank() },
                     bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
                     totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
                     configuredThreadCount = DownloadSettingsRepository.normalizeThreadCount(
@@ -749,6 +862,7 @@ class DownloadHandler(context: Context) : Closeable {
                     .put("status", entry.status.name)
                     .put("autoResumeAllowed", entry.autoResumeAllowed)
                     .put("unmeteredOnly", entry.unmeteredOnly)
+                    .put("privateScope", entry.privateScope ?: "")
                     .put("bytesDownloaded", entry.bytesDownloaded)
                     .put("totalBytes", entry.totalBytes)
                     .put("configuredThreadCount", entry.configuredThreadCount)
@@ -870,6 +984,8 @@ class DownloadHandler(context: Context) : Closeable {
         val timestamp: Long,
         val status: DownloadStatus,
         val autoResumeAllowed: Boolean = true,
+        /** Session token for private tasks; null for normal-mode tasks. */
+        val privateScope: String? = null,
         val unmeteredOnly: Boolean = false,
         val bytesPerSecond: Long = 0,
         val savingProgress: Int = 0,

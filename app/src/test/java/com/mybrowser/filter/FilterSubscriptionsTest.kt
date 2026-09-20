@@ -175,4 +175,45 @@ class FilterSubscriptionsTest {
         first.close()
         second.close()
     }
+    @Test fun legacyManifestMigratesOnTheFirstSuccessfulWriteKeepingSnapshotsAndValidators() = runBlocking {
+        val first = controller()
+        assertTrue(first.add("Migrated", "https://example.com/list.txt"))
+        val before = first.subscriptions.value.single()
+        val prefs = context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+        val saved = prefs.getString("subscriptions_manifest", null)!!
+        val legacy = File(context.filesDir, "filter_subscriptions/subscriptions.json")
+        legacy.writeText(saved)
+        prefs.edit().remove("subscriptions_manifest").putBoolean("auto_update", false).commit()
+        val migrated = controller()
+        migrated.initialize()
+        assertEquals(before.file, migrated.subscriptions.value.single().file)
+        assertFalse(migrated.autoUpdate.value)
+        assertTrue(migrated.setEnabled(before.id, false))
+        assertFalse(legacy.exists())
+        val reopened = controller()
+        reopened.initialize()
+        val after = reopened.subscriptions.value.single()
+        assertEquals(before.file, after.file)
+        assertEquals(before.etag, after.etag)
+        assertEquals(before.modified, after.modified)
+        assertEquals(before.updatedAt, after.updatedAt)
+        assertFalse(after.enabled)
+        assertFalse(reopened.autoUpdate.value)
+        assertTrue(File(context.filesDir, "filter_subscriptions/" + before.file).isFile)
+    }
+
+    @Test fun customImportCannotDuplicateBuiltInsOrNormalizedUrls() = runBlocking {
+        val controller = FilterSubscriptions(context)
+        controller.initialize()
+        val before = controller.subscriptions.value
+        for (lists in listOf(
+            listOf(Triple("Copy", FilterSubscriptions.BUILT_INS.first().url, true)),
+            listOf(Triple("A", "https://example.com/list", true), Triple("B", " https://example.com/list ", false)),
+        )) {
+            assertFalse(controller.importConfiguration(emptyMap(), lists, enabled = false, autoUpdate = false).ok)
+            assertEquals(before, controller.subscriptions.value)
+            assertTrue(controller.autoUpdate.value)
+        }
+    }
+
 }

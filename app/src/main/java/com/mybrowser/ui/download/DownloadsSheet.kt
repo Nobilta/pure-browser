@@ -2,6 +2,7 @@ package com.mybrowser.ui.download
 
 import com.mybrowser.download.localizeDownloadDirectory
 import com.mybrowser.download.DownloadItem
+import com.mybrowser.download.DownloadRequestCoordinator
 import com.mybrowser.download.DownloadStatus
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -46,6 +47,10 @@ fun DownloadsSheet(
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
     onClearCompleted: (deleteFiles: Boolean) -> Unit = {},
     focusedId: Long? = null,
+    blocked: List<DownloadRequestCoordinator.BlockedEntry> = emptyList(),
+    overflowCount: Int = 0,
+    onUnblockDownload: (String) -> Unit = {},
+    onDismissBlocked: (String) -> Unit = {},
 ) {
     val textResources = localizedResources()
     var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
@@ -123,6 +128,60 @@ fun DownloadsSheet(
                     }
                     BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close)) { leaveSelection() }
                 }
+            }
+
+            if (blocked.isNotEmpty() || overflowCount > 0) {
+                // Requests the coordinator did not show a dialog for. The user picks one
+                // to request it explicitly; nothing here started a transfer.
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(
+                        text = textResources.getString(R.string.download_blocked_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                    if (overflowCount > 0) Text(
+                        textResources.getString(R.string.download_blocked_overflow, overflowCount),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                    blocked.forEach { entry ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = entry.request.filename,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = textResources.getString(
+                                        when (entry.reason) {
+                                            DownloadRequestCoordinator.BlockedReason.REJECTED -> R.string.download_blocked_rejected
+                                            DownloadRequestCoordinator.BlockedReason.LIMIT -> R.string.download_blocked_limit
+                                            DownloadRequestCoordinator.BlockedReason.BUDGET -> R.string.download_blocked_budget
+                                            DownloadRequestCoordinator.BlockedReason.EXISTING -> R.string.download_blocked_existing
+                                        },
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(onClick = { onUnblockDownload(entry.identity) }) {
+                                Text(textResources.getString(R.string.download_blocked_request))
+                            }
+                            IconButton(onClick = { onDismissBlocked(entry.identity) }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_close),
+                                    contentDescription = textResources.getString(R.string.ui_close),
+                                )
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider()
             }
 
             if (downloads.isEmpty()) {
@@ -365,11 +424,19 @@ private fun DownloadItemRow(
                 }
             }
             DownloadStatus.COMPLETED -> {
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_delete),
-                        contentDescription = textResources.getString(R.string.ui_delete_download),
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // A finished URL can be fetched again by explicit choice; the file
+                    // may be gone from the file manager, or the server may have newer
+                    // bytes. Page-driven repeats never reach this path.
+                    TextButton(onClick = onRetry) {
+                        Text(textResources.getString(R.string.download_redownload))
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_delete),
+                            contentDescription = textResources.getString(R.string.ui_delete_download),
+                        )
+                    }
                 }
             }
         }

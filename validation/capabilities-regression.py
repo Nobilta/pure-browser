@@ -68,9 +68,7 @@ class Regression:
             time.sleep(.3)
         raise AssertionError('Missing fixture telemetry: ' + self.url)
 
-    def web_tap(self, key):
-        event = self.telemetry()
-        rectangle = event['buttons'][key]
+    def tap_rectangle(self, event, rectangle):
         view = next(n for n in ux.nodes()[0].iter('node') if n.get('class') == 'android.webkit.WebView')
         x1, y1, x2, y2 = ux.bounds(view)
         scale = (x2-x1)/event['width']
@@ -78,6 +76,30 @@ class Regression:
         y = y1 + (rectangle['y']+rectangle['height']/2)*scale
         assert y1 <= y <= y2
         ux.adb('shell', 'input', 'tap', str(int(x)), str(int(y)))
+
+    def web_tap(self, key):
+        # The cosmetic filter hides the fixture's ad element shortly after load,
+        # shifting everything below it. One telemetry snapshot can therefore
+        # describe a pre-filter layout that no longer exists at tap time, so the
+        # tap lands below the real element. Require two consecutive reports with
+        # identical geometry, then re-check after the tap and tap again if the
+        # element still moved (the first tap missed and had no effect).
+        rect = self.telemetry()['buttons'][key]
+        deadline = time.monotonic() + 8
+        while True:
+            time.sleep(.45)  # the fixture reports every 400ms
+            event = self.telemetry()
+            current = event['buttons'][key]
+            if all(abs(current[k] - rect[k]) < 1 for k in ('x', 'y', 'width', 'height')):
+                break
+            rect = current
+            assert time.monotonic() < deadline, 'Fixture layout never settled for ' + key
+        self.tap_rectangle(event, rect)
+        time.sleep(.6)  # let a post-tap report arrive
+        settled = self.telemetry()
+        moved = settled['buttons'][key]
+        if any(abs(moved[k] - rect[k]) >= 1 for k in ('x', 'y')):
+            self.tap_rectangle(settled, moved)
         time.sleep(.5)
 
     def javascript_disabled(self):
@@ -322,6 +344,18 @@ class Regression:
         before = set(ux.adb('shell', 'sh', '-c', 'ls /sdcard/Download/pure-resume-test*.bin 2>/dev/null || true').splitlines())
         started = time.time()
         self.web_tap('download')
+        # The download confirmation dialog is deliberate design and has no skip setting.
+        # The WebView may take a moment to report the download, so poll for the button.
+        deadline = time.monotonic() + 10
+        while True:
+            root, _ = ux.nodes()
+            node = next((n for n in root.iter('node') if ux.visible(n)
+                         and n.get('text') in ('下载', '下載', 'Download')), None)
+            if node is not None:
+                ux.tap_node(node)
+                break
+            assert time.monotonic() < deadline, 'Download confirmation dialog missing'
+            time.sleep(.3)
         ux.menu_item('下载')
         ux.expect('暂停下载')
         time.sleep(3)

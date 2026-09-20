@@ -1,6 +1,7 @@
 package com.mybrowser.home
 
 import android.annotation.SuppressLint
+import com.mybrowser.data.commitConfirmed
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -73,6 +74,17 @@ class HomeRepository(context: Context) {
             HomepageMode.NAVIGATION
         }
         return HomeSettings(mode, fixedUrl, prefs.getBoolean(KEY_RESTORE_SESSION, false))
+    }
+
+    /** Batch import: absent fields and navigation tiles remain untouched. */
+    fun importSettings(mode: HomepageMode?, fixedUrl: String?, restoreLastSession: Boolean?) {
+        val cleanUrl = fixedUrl?.trim()
+        require(cleanUrl == null || UrlUtils.isHttpUrl(cleanUrl)) { "Invalid homepage URL" }
+        prefs.commitConfirmed(buildMap {
+            mode?.let { put(KEY_MODE, it.name) }
+            cleanUrl?.let { put(KEY_FIXED_URL, it) }
+            restoreLastSession?.let { put(KEY_RESTORE_SESSION, it) }
+        })
     }
 
     fun saveMode(mode: HomepageMode) {

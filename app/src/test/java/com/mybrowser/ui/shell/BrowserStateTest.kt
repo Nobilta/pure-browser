@@ -208,4 +208,42 @@ class BrowserStateTest {
         assertFalse(state.isLoading)
         assertEquals("https://example.com/route", state.currentUrl)
     }
+    @Test
+    fun immersiveFullscreenRevealsChromeForEditingAndResetsWhenVideoTakesOver() {
+        val state = loadedState()
+        // Normal browsing: focus and find never touch the reveal flag.
+        state.onOmnibarFocusChange(true)
+        assertFalse(state.isChromeRevealed)
+        state.onOmnibarFocusChange(false)
+        state.showFindBar()
+        assertFalse(state.isChromeRevealed)
+        state.hideFindBar()
+
+        state.onImmersiveFullscreenChanged(true)
+        assertTrue(state.isImmersiveFullscreen)
+        assertFalse(state.isChromeRevealed)
+
+        // Focusing the omnibar or opening find reveals the chrome.
+        state.onOmnibarFocusChange(true)
+        assertTrue(state.isChromeRevealed)
+        state.onOmnibarFocusChange(false)
+        state.hideChrome()
+        assertFalse(state.isChromeRevealed)
+        state.revealChrome()
+        assertTrue(state.isChromeRevealed)
+        // A reveal also forces the scroll-collapse flag visible.
+        assertFalse(state.isToolbarHidden)
+        state.hideChrome()
+
+        state.showFindBar()
+        assertTrue(state.isChromeRevealed)
+
+        // Video fullscreen takes the screen: immersive deactivates and the reveal resets.
+        state.onImmersiveFullscreenChanged(false)
+        assertFalse(state.isImmersiveFullscreen)
+        assertFalse(state.isChromeRevealed)
+        // Coming back from video keeps the chrome hidden until asked for again.
+        state.onImmersiveFullscreenChanged(true)
+        assertFalse(state.isChromeRevealed)
+    }
 }

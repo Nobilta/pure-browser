@@ -47,6 +47,7 @@ fun MenuSheet(
     hasCastSession: Boolean,
     hasVideo: Boolean,
     isDesktopMode: Boolean,
+    isBrowserFullscreen: Boolean,
     isCurrentPageBookmarked: Boolean,
     canUsePageActions: Boolean,
     onOpenSiteSettings: () -> Unit,
@@ -54,6 +55,7 @@ fun MenuSheet(
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onToggleDesktopMode: () -> Unit,
+    onToggleBrowserFullscreen: (Boolean) -> Unit,
     onOpenFind: () -> Unit,
     onOpenMedia: () -> Unit,
     onOpenBookmarks: () -> Unit,
@@ -110,6 +112,23 @@ fun MenuSheet(
                             checked = isDesktopMode,
                             onCheckedChange = null,
                             enabled = canUsePageActions,
+                        )
+                    },
+                )
+                MenuRow(
+                    iconRes = R.drawable.ic_fullscreen,
+                    title = stringResource(R.string.browser_fullscreen),
+                    enabled = true,
+                    subtitle = stringResource(
+                        if (isBrowserFullscreen) R.string.browser_fullscreen_on
+                        else R.string.browser_fullscreen_off,
+                    ),
+                    onClick = { onToggleBrowserFullscreen(!isBrowserFullscreen) },
+                    toggleState = isBrowserFullscreen,
+                    trailing = {
+                        Switch(
+                            checked = isBrowserFullscreen,
+                            onCheckedChange = null,
                         )
                     },
                 )
