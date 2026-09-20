@@ -26,8 +26,9 @@ import java.nio.charset.CodingErrorAction
  *    with the osjson shape `["query",["term",…],[],{…}]`.
  *  - DuckDuckGo — `https://duckduckgo.com/ac/?q={query}&type=list` answers with the
  *    same osjson shape (also consumed as response[1] by SearXNG's DDG adapter).
- *  - Bing — no public suggest endpoint exists since the Autosuggest API retirement
- *    (2025-08); Bing is deliberately unsupported and never falls back to another engine.
+ *  - Bing — `https://api.bing.com/osjson.aspx?query={query}` answers with the same
+ *    osjson shape as Google. Only the paid Azure Autosuggest API was retired in
+ *    2025-08; this consumer endpoint needs no key. No engine falls back to another.
  *
  * Custom engines may configure an HTTPS OpenSearch JSON template instead
  * (`[query,[term,…]]`).
@@ -53,7 +54,7 @@ class SearchSuggestionProvider internal constructor(
 ) {
 
     companion object {
-        /** Per-engine built-in endpoints; keyed by engine id. Bing is absent on purpose. */
+        /** Per-engine built-in endpoints; keyed by engine id. */
         val BUILTIN_ENDPOINTS: Map<String, SuggestEndpoint> = mapOf(
             "baidu" to SuggestEndpoint(
                 "https://www.baidu.com/su?wd={query}&json=1",
@@ -61,6 +62,10 @@ class SearchSuggestionProvider internal constructor(
             ),
             "google" to SuggestEndpoint(
                 "https://www.google.com/complete/search?client=firefox&q={query}",
+                SuggestFormat.OPEN_SEARCH_JSON,
+            ),
+            "bing" to SuggestEndpoint(
+                "https://api.bing.com/osjson.aspx?query={query}",
                 SuggestFormat.OPEN_SEARCH_JSON,
             ),
             "duckduckgo" to SuggestEndpoint(

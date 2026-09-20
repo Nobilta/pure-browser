@@ -15,7 +15,7 @@ Kotlin 源码位于 [app/src/main/java/com/mybrowser](app/src/main/java/com/mybr
 | `ui` | Compose 界面，按 shell、settings、library、player 等功能组织 |
 | `tabs`、`data`、`home`、`search` | 标签、书签与历史、首页和搜索 |
 | `site`、`privacy`、`security` | 网站设置、权限、Profile、证书和外部协议 |
-| `backup` | 设置导入导出的白名单编解码、预览与分组应用 |
+| `backup` | 设置、书签与历史的导入导出编解码、预览与分组应用 |
 | `download`、`update` | 文件下载与续传；应用更新下载及 APK 校验 |
 | `filter`、`userscript` | 过滤订阅、脚本安装与注入 |
 | `media`、`dlna`、`qr` | 视频与系统媒体、局域网投屏、Camera2 / ZXing 扫码 |
@@ -95,6 +95,7 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识。�
 过滤订阅清单保存在 `filter_settings` 的 `subscriptions_manifest` 中，与全局过滤和自动更新开关一起提交，
 成功后才发布状态。旧 `filter_subscriptions/subscriptions.json` 在首次成功写入时迁移，规则快照、时间戳与 HTTP 验证器保持不变。
 不同分组不构成整体事务，结果会明确报告成功和失败分组。
+备份文件同时携带书签（含文件夹路径与空文件夹）和历史；两组都是合并且从不删除：书签按地址去重并保留本机身份与标题，历史按地址保留较晚的访问时间和较大的访问次数，因此重复导入不会重复计数。导出侧按上限截断并报告省略数量，读取上限不经过搜索用的结果条数限制。超限或非 HTTP(S) 的行在解码阶段整体拒绝，不会写到一半失败。
 `SettingsTransfer.collect` 等待订阅初始化并使用同一份列表快照。导入结果携带首次规则待下载数；配置提交后由 App 的进程协程调用 `updateMissing`，仅下载已启用且缺少快照的自定义订阅。网络失败不回滚已保存配置，行状态提供重试。
 导入元数据在解码时限制长度，内置订阅限制数量和标识长度；`ImportPreviewText` 在格式化与排版前截断预览文本，未知标识只拼接有界前缀。
 

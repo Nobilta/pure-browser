@@ -1,13 +1,17 @@
 package com.mybrowser.backup
 
 /**
- * Explicit whitelist DTO for the settings backup file. Every group is optional: a null
- * group means "keep the current device settings" on import; within a group a null field
- * means the same. Exported files always contain every group.
+ * Explicit whitelist DTO for the backup file. Every group is optional: a null group
+ * means "keep the current device data" on import; within a group a null field means
+ * the same. Exported files always contain every group.
  *
- * Anything outside these classes — bookmarks, history, cookies, downloads, scripts,
- * site permissions, SAF grants — is deliberately not representable, so a crafted file
- * cannot smuggle it back in.
+ * Besides settings the file carries the browsing library the user collected: bookmarks
+ * (with their folders) and history. Both library groups merge on import — they can add
+ * and update, but they can never delete what the target device already has.
+ *
+ * Anything outside these classes — cookies and sessions, site permissions, download
+ * files and their records, installed user scripts, SAF grants — is deliberately not
+ * representable, so a crafted file cannot smuggle it in.
  */
 data class SettingsBackup(
     val format: String,
@@ -30,6 +34,29 @@ data class BackupSettings(
     val filtering: BackupFiltering? = null,
     /** Null = keep current sites; an empty list clears only migratable site preferences. */
     val sites: List<BackupSite>? = null,
+    /** Null = leave the target's bookmarks alone; a list merges by URL. */
+    val bookmarks: BackupBookmarks? = null,
+    /** Null = leave the target's history alone; a list merges by URL. */
+    val history: List<BackupHistoryEntry>? = null,
+)
+
+/** Folder paths are listed separately so empty folders survive a round trip. */
+data class BackupBookmarks(
+    val folders: List<List<String>> = emptyList(),
+    val entries: List<BackupBookmark> = emptyList(),
+)
+
+data class BackupBookmark(
+    val title: String,
+    val url: String,
+    val folderPath: List<String> = emptyList(),
+)
+
+data class BackupHistoryEntry(
+    val title: String,
+    val url: String,
+    val visitTime: Long,
+    val visitCount: Int,
 )
 
 data class BackupBrowser(

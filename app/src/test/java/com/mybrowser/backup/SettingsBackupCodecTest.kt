@@ -352,8 +352,66 @@ class SettingsBackupCodecTest {
                     ),
                 ),
             ),
+            bookmarks = BackupBookmarks(
+                // An empty folder is part of the library and must survive the round trip.
+                folders = listOf(listOf("Empty"), listOf("Reading"), listOf("Reading", "Later")),
+                entries = listOf(
+                    BackupBookmark("Docs", "https://docs.example.com/"),
+                    BackupBookmark("Article", "https://article.example.com/", listOf("Reading", "Later")),
+                ),
+            ),
+            history = listOf(
+                BackupHistoryEntry("Visited", "https://visited.example.com/", 1_700_000_000_000, 4),
+                BackupHistoryEntry("Bare", "https://bare.example.com/", 1_700_000_000_001, 1),
+            ),
         ),
     )
+
+    @Test fun rejectsInvalidLibraryRows() {
+        // Addresses land in stores that only accept HTTP(S).
+        reject(edit {
+            bookmarksOf(it).getJSONArray("entries")
+                .put(JSONObject().put("title", "Bad").put("url", "javascript:alert(1)"))
+        })
+        reject(edit {
+            historyOf(it).put(JSONObject().put("url", "file:///etc/hosts").put("visitTime", 1_700_000_000_000))
+        })
+        // A folder path deeper than the bookmark store allows would fail mid-write.
+        val deep = JSONObject(encoded)
+        val deepPath = JSONArray()
+        for (depth in 1..SettingsBackupCodec.MAX_FOLDER_PATH_DEPTH + 1) deepPath.put("f$depth")
+        bookmarksOf(deep).getJSONArray("entries").getJSONObject(0).put("folderPath", deepPath)
+        reject(deep.toString())
+        // A blank or oversized folder name is rejected too.
+        val blank = JSONObject(encoded)
+        val blankPath = JSONArray()
+        blankPath.put("   ")
+        bookmarksOf(blank).getJSONArray("entries").getJSONObject(0).put("folderPath", blankPath)
+        reject(blank.toString())
+        // Visit times and counters must be plausible.
+        reject(edit {
+            historyOf(it).put(JSONObject().put("url", "https://zero.example.com/").put("visitTime", 0))
+        })
+        reject(edit {
+            historyOf(it).put(
+                JSONObject().put("url", "https://future.example.com/")
+                    .put("visitTime", SettingsBackupCodec.MAX_VISIT_TIME_MILLIS + 1),
+            )
+        })
+        reject(edit {
+            historyOf(it).put(
+                JSONObject().put("url", "https://counted.example.com/")
+                    .put("visitTime", 1_700_000_000_000).put("visitCount", 0),
+            )
+        })
+        // Wrong group shape stays a hard error, exactly like the settings groups.
+        reject(edit { it.getJSONObject("settings").put("bookmarks", JSONArray()) })
+        reject(edit { it.getJSONObject("settings").put("history", JSONObject()) })
+    }
+
+    private fun bookmarksOf(root: JSONObject) = root.getJSONObject("settings").getJSONObject("bookmarks")
+
+    private fun historyOf(root: JSONObject) = root.getJSONObject("settings").getJSONArray("history")
 
     @Test fun sampleFileStaysUnderTheSizeCap() {
         assertTrue(encoded.toByteArray().size < SettingsBackupCodec.MAX_FILE_BYTES)
