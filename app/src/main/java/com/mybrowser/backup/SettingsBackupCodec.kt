@@ -1,6 +1,9 @@
 package com.mybrowser.backup
 
 import com.mybrowser.core.PlaybackSpeed
+import com.mybrowser.data.BookmarkFolders
+import com.mybrowser.data.BookmarkHtml
+import com.mybrowser.data.ImportedHistory
 import com.mybrowser.download.MAX_DOWNLOAD_THREADS
 import com.mybrowser.download.MIN_DOWNLOAD_THREADS
 import com.mybrowser.site.SiteSettingsRepository
@@ -14,11 +17,28 @@ import org.json.JSONObject
  */
 object SettingsBackupCodec {
 
-    const val MAX_FILE_BYTES = 2 * 1024 * 1024
+    /**
+     * The file carries settings plus the browsing library, so the bound follows the
+     * bookmark HTML import budget rather than the old settings-only size. Everything
+     * inside it is still validated field by field before any write.
+     */
+    const val MAX_FILE_BYTES = 8 * 1024 * 1024
     const val MAX_APP_VERSION_CHARS = 128
     const val MAX_EXPORTED_AT_CHARS = 64
     const val MAX_BUILT_IN_ID_CHARS = 64
     const val MAX_BUILT_IN_ENTRIES = 64
+
+    /** Library bounds mirror the stores that receive the rows, so import cannot fail on size. */
+    const val MAX_BACKUP_BOOKMARKS = BookmarkHtml.MAX_BOOKMARKS
+    const val MAX_BACKUP_HISTORY = 20_000
+    const val MAX_LIBRARY_URL_CHARS = 8_192
+    const val MAX_LIBRARY_TITLE_CHARS = 512
+    const val MAX_FOLDER_PATH_DEPTH = BookmarkFolders.MAX_DEPTH
+    const val MAX_FOLDER_PATH_SEGMENT_CHARS = BookmarkFolders.MAX_NAME
+    const val MAX_FOLDER_PATHS = BookmarkFolders.MAX_FOLDERS
+
+    /** 2100-01-01: a crafted file cannot place visits arbitrarily far into the future. */
+    const val MAX_VISIT_TIME_MILLIS = 4_102_444_800_000
 
     fun encode(backup: SettingsBackup): String {
         val root = JSONObject()
@@ -134,8 +154,39 @@ object SettingsBackupCodec {
             settings.put("sites", array)
         }
 
+        backup.settings.bookmarks?.let { library ->
+            val group = JSONObject()
+            val folders = JSONArray()
+            library.folders.forEach { path -> folders.put(jsonArrayOf(path)) }
+            group.put("folders", folders)
+            val entries = JSONArray()
+            library.entries.forEach { entry ->
+                val item = JSONObject().put("title", entry.title).put("url", entry.url)
+                if (entry.folderPath.isNotEmpty()) item.put("folderPath", jsonArrayOf(entry.folderPath))
+                entries.put(item)
+            }
+            group.put("entries", entries)
+            settings.put("bookmarks", group)
+        }
+
+        backup.settings.history?.let { history ->
+            val array = JSONArray()
+            history.forEach { entry ->
+                array.put(
+                    JSONObject()
+                        .put("title", entry.title)
+                        .put("url", entry.url)
+                        .put("visitTime", entry.visitTime)
+                        .put("visitCount", entry.visitCount),
+                )
+            }
+            settings.put("history", array)
+        }
+
         return root.toString(2)
     }
+
+    private fun jsonArrayOf(values: List<String>): JSONArray = JSONArray().apply { values.forEach { put(it) } }
 
     fun decode(text: String): SettingsBackup {
         val root = runCatching { JSONObject(text) }.getOrNull()
@@ -165,6 +216,8 @@ object SettingsBackupCodec {
                 downloads = strictGroup(settingsObject, "downloads")?.let(::decodeDownloads),
                 filtering = strictGroup(settingsObject, "filtering")?.let(::decodeFiltering),
                 sites = strictSites(settingsObject),
+                bookmarks = strictGroup(settingsObject, "bookmarks")?.let(::decodeBookmarks),
+                history = strictHistory(settingsObject),
             ),
         )
     }
@@ -395,6 +448,87 @@ object SettingsBackupCodec {
         return sites
     }
 
+    private fun decodeBookmarks(group: JSONObject): BackupBookmarks {
+        val folders = optionalArray(group, "folders")?.let { array ->
+            if (array.length() > MAX_FOLDER_PATHS) throw SettingsBackupException("Too many bookmark folders")
+            (0 until array.length()).map { index ->
+                decodeFolderPath(array.opt(index), "bookmarks.folders[$index]")
+            }
+        }.orEmpty()
+        val entries = optionalArray(group, "entries")?.let { array ->
+            if (array.length() > MAX_BACKUP_BOOKMARKS) throw SettingsBackupException("Too many bookmarks")
+            (0 until array.length()).map { index ->
+                val item = array.optJSONObject(index)
+                    ?: throw SettingsBackupException("bookmarks.entries[$index] is not an object")
+                val url = libraryUrl(item, "bookmarks.entries[$index]")
+                val title = optionalString(item, "title").orEmpty()
+                if (title.length > MAX_LIBRARY_TITLE_CHARS) {
+                    throw SettingsBackupException("bookmarks.entries[$index].title is too long")
+                }
+                BackupBookmark(
+                    title = title,
+                    url = url,
+                    // A missing path means the bookmark bar, exactly as the store models it.
+                    folderPath = optionalArray(item, "folderPath")
+                        ?.let { decodeFolderPath(it, "bookmarks.entries[$index].folderPath") }
+                        .orEmpty(),
+                )
+            }
+        }.orEmpty()
+        return BackupBookmarks(folders, entries)
+    }
+
+    private fun decodeFolderPath(value: Any?, label: String): List<String> {
+        val array = value as? JSONArray ?: throw SettingsBackupException("$label must be an array")
+        if (array.length() > MAX_FOLDER_PATH_DEPTH) throw SettingsBackupException("$label is nested too deeply")
+        return (0 until array.length()).map { index ->
+            val segment = array.opt(index) as? String
+                ?: throw SettingsBackupException("$label[$index] must be a string")
+            val name = segment.trim()
+            if (name.isEmpty() || name.length > MAX_FOLDER_PATH_SEGMENT_CHARS) {
+                throw SettingsBackupException("$label[$index] is out of range")
+            }
+            name
+        }
+    }
+
+    private fun strictHistory(settings: JSONObject): List<BackupHistoryEntry>? {
+        if (!settings.has("history") || settings.isNull("history")) return null
+        val array = settings.optJSONArray("history")
+            ?: throw SettingsBackupException("settings.history must be an array")
+        if (array.length() > MAX_BACKUP_HISTORY) throw SettingsBackupException("Too many history entries")
+        return (0 until array.length()).map { index ->
+            val item = array.optJSONObject(index)
+                ?: throw SettingsBackupException("history[$index] is not an object")
+            val url = libraryUrl(item, "history[$index]")
+            val title = optionalString(item, "title").orEmpty()
+            if (title.length > MAX_LIBRARY_TITLE_CHARS) {
+                throw SettingsBackupException("history[$index].title is too long")
+            }
+            val visitTime = requiredLong(item, "visitTime")
+            if (visitTime <= 0 || visitTime > MAX_VISIT_TIME_MILLIS) {
+                throw SettingsBackupException("history[$index].visitTime is out of range")
+            }
+            // Absent or null means "a single visit"; only the store's own bound is enforced.
+            val visitCount = if (item.has("visitCount") && !item.isNull("visitCount")) {
+                int(item, "visitCount")
+            } else 1
+            if (visitCount !in 1..ImportedHistory.MAX_VISIT_COUNT) {
+                throw SettingsBackupException("history[$index].visitCount is out of range")
+            }
+            BackupHistoryEntry(title = title, url = url, visitTime = visitTime, visitCount = visitCount)
+        }
+    }
+
+    /** Library rows land in stores that accept HTTP(S) only; reject them here, not mid-write. */
+    private fun libraryUrl(item: JSONObject, label: String): String {
+        val url = requiredString(item, "url")
+        if (url.length > MAX_LIBRARY_URL_CHARS || !com.mybrowser.core.UrlUtils.isHttpUrl(url)) {
+            throw SettingsBackupException("$label.url is not an HTTP(S) address")
+        }
+        return url
+    }
+
     private fun validateRate(group: JSONObject, field: String) {
         if (!group.has(field.substringAfterLast('.'))) return
         val value = optionalDouble(group, field.substringAfterLast('.')) ?: return
@@ -449,6 +583,13 @@ object SettingsBackupCodec {
     private fun int(group: JSONObject, key: String): Int {
         val value = group.opt(key)
         return (value as? Number)?.toInt()?.takeIf { (value as Number).toDouble() == it.toDouble() }
+            ?: throw SettingsBackupException("$key must be an integer")
+    }
+
+    private fun requiredLong(group: JSONObject, key: String): Long {
+        if (!group.has(key) || group.isNull(key)) throw SettingsBackupException("$key is missing")
+        val value = group.opt(key)
+        return (value as? Number)?.toLong()?.takeIf { (value as Number).toDouble() == it.toDouble() }
             ?: throw SettingsBackupException("$key must be an integer")
     }
 

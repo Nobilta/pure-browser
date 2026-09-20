@@ -5,6 +5,14 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 
+/** One row restored from a backup file; visit time and count are preserved, not re-stamped. */
+data class ImportedHistory(val title: String, val url: String, val visitTime: Long, val visitCount: Int) {
+    companion object {
+        /** Upper bound for a restored counter; a crafted file must not store absurd values. */
+        const val MAX_VISIT_COUNT = 1_000_000
+    }
+}
+
 /** Repository for browsing history. */
 class HistoryManager(context: Context) {
 
@@ -130,6 +138,71 @@ class HistoryManager(context: Context) {
             arrayOf(prefix, SqlLike.prefix(query), SqlLike.prefix(query)), null, null,
             "visit_time DESC, id DESC", "30").use { c -> buildList { while (c.moveToNext()) add(c.toHistoryEntry()) } }
         return (first + searchHistory(query, 20)).distinctBy { it.id }
+    }
+
+    /**
+     * Most recent entries for a backup file. Unlike [getAllHistory] the limit is not
+     * clamped to search-result bounds: the caller owns the file-size budget.
+     */
+    @Synchronized
+    fun backupHistory(limit: Int): List<HistoryEntry> {
+        if (closed || limit <= 0) return emptyList()
+        return db.readableDatabase.query("history", COLUMNS, null, null, null, null,
+            "visit_time DESC, id DESC", limit.toString()).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.toHistoryEntry()) }
+        }
+    }
+
+    @Synchronized
+    fun countHistory(): Int {
+        if (closed) return 0
+        return db.readableDatabase.rawQuery("SELECT COUNT(*) FROM history", null).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
+    /**
+     * Restores imported rows in one transaction. Import is a merge, never a replace: a
+     * URL that already exists keeps the later visit time and the larger visit count, so
+     * importing the same file twice cannot duplicate rows or inflate counters.
+     *
+     * @return how many URLs were inserted; existing ones are merged instead.
+     */
+    @Synchronized
+    fun importHistory(entries: List<ImportedHistory>): Int {
+        if (closed || entries.isEmpty()) return 0
+        val database = db.writableDatabase
+        database.beginTransaction()
+        try {
+            var inserted = 0
+            entries.forEach { entry ->
+                val url = entry.url.trim()
+                require(url.isNotEmpty() && url.length <= SqlLike.MAX_URL_LENGTH) { "History URL out of range" }
+                require(entry.visitTime > 0) { "History visit time must be positive" }
+                require(entry.visitCount in 1..ImportedHistory.MAX_VISIT_COUNT) { "History visit count out of range" }
+                val existing = findId(database, url)
+                if (existing < 0) {
+                    val values = ContentValues().apply {
+                        put("title", entry.title.trim().take(SqlLike.MAX_TITLE_LENGTH).ifBlank { url })
+                        put("url", url)
+                        put("host", SearchKey.host(url))
+                        put("visit_time", entry.visitTime)
+                        put("visit_count", entry.visitCount)
+                    }
+                    if (database.insert("history", null, values) != -1L) inserted++
+                } else {
+                    database.execSQL(
+                        "UPDATE history SET visit_time = MAX(visit_time, ?), " +
+                            "visit_count = MAX(COALESCE(visit_count, 1), ?) WHERE id = ?",
+                        arrayOf(entry.visitTime, entry.visitCount, existing),
+                    )
+                }
+            }
+            database.setTransactionSuccessful()
+            return inserted
+        } finally {
+            database.endTransaction()
+        }
     }
 
     private fun findId(database: SQLiteDatabase, url: String): Long =

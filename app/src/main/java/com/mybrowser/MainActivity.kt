@@ -3308,7 +3308,10 @@ class MainActivity : ComponentActivity(),
 
     private val settingsTransfer: com.mybrowser.backup.SettingsTransfer by lazy {
         val app = application as App
-        com.mybrowser.backup.SettingsTransfer(this, app.filterController, app.filterSubscriptions, app.siteSettings)
+        com.mybrowser.backup.SettingsTransfer(
+            this, app.filterController, app.filterSubscriptions, app.siteSettings,
+            bookmarkManager, historyManager,
+        )
     }
 
     private fun exportSettings() {
@@ -3318,19 +3321,35 @@ class MainActivity : ComponentActivity(),
 
     private fun exportSettingsTo(uri: Uri) {
         lifecycleScope.launch {
-            val written = withContext(Dispatchers.IO) {
+            val export = withContext(Dispatchers.IO) {
                 runCatching {
                     val version = runCatching {
                         packageManager.getPackageInfo(packageName, 0).versionName
                     }.getOrNull().orEmpty()
-                    val json = com.mybrowser.backup.SettingsBackupCodec.encode(settingsTransfer.collect(version))
+                    val result = settingsTransfer.collect(version)
+                    val json = com.mybrowser.backup.SettingsBackupCodec.encode(result.backup)
                     // Success is reported only after the stream is closed with the payload in it.
-                    contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                    val stored = contentResolver.openOutputStream(uri, "wt")?.use { output ->
                         output.write(json.toByteArray(Charsets.UTF_8))
                     } != null
-                }.getOrDefault(false)
+                    result.takeIf { stored }
+                }.getOrNull()
             }
-            toast(getString(if (written) R.string.settings_exported else R.string.settings_export_failed))
+            if (export == null) {
+                toast(getString(R.string.settings_export_failed))
+                return@launch
+            }
+            // Never claim a complete file when the size budget cut the library short.
+            val truncated = export.omittedBookmarks > 0 || export.omittedHistory > 0
+            toast(
+                getString(R.string.settings_exported) +
+                    if (truncated) {
+                        "\n" + getString(
+                            R.string.settings_export_truncated,
+                            export.omittedBookmarks, export.omittedHistory,
+                        )
+                    } else "",
+            )
         }
     }
 
@@ -3391,8 +3410,21 @@ class MainActivity : ComponentActivity(),
                 toggleIncognito()
             }
             if (result.failed.isEmpty()) {
-                toast(getString(R.string.settings_imported, result.applied.size) +
-                    if (result.pendingFilterUpdates > 0) "\n" + getString(R.string.settings_import_filter_updates, result.pendingFilterUpdates) else "")
+                toast(
+                    getString(R.string.settings_imported, result.applied.size) +
+                        if (result.pendingFilterUpdates > 0) {
+                            "\n" + getString(R.string.settings_import_filter_updates, result.pendingFilterUpdates)
+                        } else "",
+                )
+                // Say how much browsing data actually landed: a merge can add nothing.
+                if (result.importedBookmarks > 0 || result.importedHistory > 0) {
+                    toast(
+                        getString(
+                            R.string.settings_import_library_added,
+                            result.importedBookmarks, result.importedHistory,
+                        ),
+                    )
+                }
             } else {
                 // Name the failing groups: a count alone cannot tell the user what to re-check.
                 val names = result.failed.map { groupId ->
@@ -3402,6 +3434,8 @@ class MainActivity : ComponentActivity(),
                         "search" -> R.string.settings_group_search
                         "downloads" -> R.string.settings_group_downloads
                         "filtering" -> R.string.settings_group_filtering
+                        "bookmarks" -> R.string.settings_group_bookmarks
+                        "history" -> R.string.settings_group_history
                         else -> R.string.settings_group_sites
                     })
                 }.joinToString("、")

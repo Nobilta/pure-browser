@@ -17,9 +17,6 @@ import com.mybrowser.download.DownloadRequestCoordinator
 import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.localizedResources
 
-/** Android package MIME type gets an explicit label in the confirmation. */
-private const val APK_MIME = "application/vnd.android.package-archive"
-
 /**
  * The single download confirmation. Nothing starts until the user picks 下载;
  * the request context behind it lives in memory only.
@@ -44,13 +41,6 @@ fun DownloadConfirmDialog(
                 )
                 if (isNewCopy) {
                     Text(textResources.getString(R.string.download_copy_note), style = MaterialTheme.typography.bodySmall)
-                }
-                if (request.mimeType == APK_MIME) {
-                    Text(
-                        text = textResources.getString(R.string.download_confirm_apk),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
                 Row(Modifier.fillMaxWidth()) {
                     Text(
