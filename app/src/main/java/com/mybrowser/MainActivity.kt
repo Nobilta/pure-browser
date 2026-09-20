@@ -608,9 +608,10 @@ class MainActivity : ComponentActivity(),
                 if (showClearData) ClearBrowsingDataDialog(privacy.isIncognito, privacy.hasRealIsolation,
                     dataCleaner.supportsCompleteDeletion, clearingData, ::clearBrowsingData, { showClearData = false })
                 // The single download confirmation; the request behind it lives in memory only.
-                downloadRequests.pending.collectAsState().value?.let { request ->
+                downloadRequests.pending.collectAsState().value?.let { confirmation ->
                     com.mybrowser.ui.download.DownloadConfirmDialog(
-                        request = request,
+                        request = confirmation.request,
+                        isNewCopy = confirmation.isNewCopy,
                         destinationLabel = downloadSettings.displayDestinationLabel(resources),
                         onConfirm = ::confirmDownloadRequest,
                         onCancel = downloadRequests::rejectPending,
@@ -1951,10 +1952,10 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun downloadImage(url: String) {
-        // "Save image" is an explicit user action, but it goes through the same gate as
-        // page requests: one confirmation, dedup against existing tasks, no bypass.
+        // An explicit save is independent of page popup limits and prior rejections.
+        // It confirms a new copy locally or reports an unfinished task without opening a sheet.
         val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
-        submitDownloadRequest(url, webView.settings.userAgentString, null, mime)
+        submitDownloadRequest(url, webView.settings.userAgentString, null, mime, fromUser = true)
     }
 
     /**
@@ -1962,7 +1963,7 @@ class MainActivity : ComponentActivity(),
      * before the user confirms; repeats collapse into the existing task or the blocked
      * list instead of stacking dialogs.
      */
-    private fun submitDownloadRequest(url: String, userAgent: String?, contentDisposition: String?, mimeType: String?, contentLength: Long = -1) {
+    private fun submitDownloadRequest(url: String, userAgent: String?, contentDisposition: String?, mimeType: String?, contentLength: Long = -1, fromUser: Boolean = false) {
         val filename = downloadHandler.previewFilename(url, contentDisposition, mimeType)
         if (filename == null) {
             toast(getString(R.string.ui_unable_to_start_the_download))
@@ -1980,12 +1981,17 @@ class MainActivity : ComponentActivity(),
             sourceOrigin = com.mybrowser.site.SiteOrigin.of(state.currentUrl),
             contentLength = contentLength.takeIf { it >= 0 },
         )
-        handleDownloadSubmission(downloadRequests.submit(request))
+        handleDownloadSubmission(if (fromUser) downloadRequests.submitFromUser(request) else downloadRequests.submit(request))
     }
 
     private fun handleDownloadSubmission(result: com.mybrowser.download.DownloadRequestCoordinator.SubmitResult) {
         when (result) {
             is com.mybrowser.download.DownloadRequestCoordinator.SubmitResult.Confirm -> Unit
+            is com.mybrowser.download.DownloadRequestCoordinator.SubmitResult.ExistingNotice -> toast(getString(
+                if (result.status == com.mybrowser.download.DownloadStatus.PAUSED) R.string.download_existing_paused
+                else R.string.download_existing_active))
+            com.mybrowser.download.DownloadRequestCoordinator.SubmitResult.ConfirmationBusy ->
+                toast(getString(R.string.download_blocked_limit))
             is com.mybrowser.download.DownloadRequestCoordinator.SubmitResult.Existing -> if (result.firstForPage) {
                 // The "view task" entry: once per document, silent on repeats.
                 downloadFocusId = result.id

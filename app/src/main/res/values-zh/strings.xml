@@ -730,4 +730,9 @@
     <string name="download_blocked_existing">已有相同任务。点击可查看；任务完成后可下载新副本，旧文件会保留。</string>
     <string name="download_blocked_overflow">另有 %1$d 次请求未保存（最多保留 5 条）。请移除一条记录，再回网页重新触发下载。</string>
     <string name="browser_fullscreen_exit_unsaved">本次已退出全屏，但无法保存偏好，下次启动可能仍开启</string>
+    <string name="download_copy_title">保存新副本？</string>
+    <string name="download_copy_note">此链接已有已完成的下载。继续将保存新副本，保留原有文件。</string>
+    <string name="download_copy_action">保存副本</string>
+    <string name="download_existing_active">此文件已在下载或等待下载</string>
+    <string name="download_existing_paused">此下载已暂停，可在下载管理中继续</string>
 </resources>

@@ -12,9 +12,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.backup.ImportPreview
+import com.mybrowser.backup.ImportPreviewText
+import com.mybrowser.backup.SettingsBackupCodec
 import com.mybrowser.backup.SettingsBackup
 
 /**
@@ -38,10 +41,12 @@ fun ImportPreviewDialog(
                     .verticalScroll(rememberScrollState()),
             ) {
                 if (backup.appVersion.isNotEmpty()) {
-                    Note(stringResource(R.string.settings_import_source_version, backup.appVersion))
+                    Note(stringResource(R.string.settings_import_source_version,
+                        ImportPreviewText.limit(backup.appVersion, SettingsBackupCodec.MAX_APP_VERSION_CHARS)))
                 }
                 if (backup.exportedAt.isNotEmpty()) {
-                    Note(stringResource(R.string.settings_import_exported_at, backup.exportedAt))
+                    Note(stringResource(R.string.settings_import_exported_at,
+                        ImportPreviewText.limit(backup.exportedAt, SettingsBackupCodec.MAX_EXPORTED_AT_CHARS)))
                 }
                 Note(stringResource(R.string.settings_import_groups, groupLabels(summary)))
                 summary.incognitoSwitch?.let { target ->
@@ -62,7 +67,8 @@ fun ImportPreviewDialog(
                     Note(stringResource(R.string.settings_import_sites_note, new, old))
                 }
                 if (summary.unknownBuiltInIds.isNotEmpty()) {
-                    Note(stringResource(R.string.settings_import_unknown_builtins_note, summary.unknownBuiltInIds.joinToString(", ")))
+                    Note(stringResource(R.string.settings_import_unknown_builtins_note,
+                        ImportPreviewText.unknownIds(summary.unknownBuiltInIds)))
                 }
                 if (summary.directoryHintCustom) {
                     Note(stringResource(R.string.settings_import_directory_note))
@@ -85,7 +91,9 @@ fun ImportPreviewDialog(
 @Composable
 private fun Note(text: String) {
     Text(
-        text = text,
+        text = ImportPreviewText.limit(text),
+        maxLines = 6,
+        overflow = TextOverflow.Ellipsis,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),

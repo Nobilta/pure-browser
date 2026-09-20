@@ -28,19 +28,24 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
     }
 
     enum class BlockedReason { REJECTED, LIMIT, BUDGET, EXISTING }
+    data class Confirmation(val request: Request, val isNewCopy: Boolean)
     data class BlockedEntry(val request: Request, val reason: BlockedReason) {
         val identity: String get() = request.identity
     }
     sealed class SubmitResult {
         data class Confirm(val request: Request) : SubmitResult()
         data class Existing(val id: Long, val status: DownloadStatus, val firstForPage: Boolean) : SubmitResult()
+        /** A direct user action gets local feedback, never automatic sheet navigation. */
+        data class ExistingNotice(val status: DownloadStatus) : SubmitResult()
+        data object ConfirmationBusy : SubmitResult()
         data class Suppressed(val blockedCount: Int) : SubmitResult()
         data class Intercepted(val blockedCount: Int, val firstNotice: Boolean) : SubmitResult()
     }
 
     private class Document {
-        var pending: Request? = null
+        var pending: Confirmation? = null
         var newCopy = false
+        var fromUser = false
         var blocked = emptyList<BlockedEntry>()
         val rejected = mutableSetOf<String>()
         val reported = mutableSetOf<String>()
@@ -52,8 +57,8 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
     private val documents = mutableMapOf<String, Document>()
     private var tabId = "initial"
     private val document: Document get() = documents.getOrPut(tabId) { Document() }
-    private val _pending = MutableStateFlow<Request?>(null)
-    val pending: StateFlow<Request?> = _pending.asStateFlow()
+    private val _pending = MutableStateFlow<Confirmation?>(null)
+    val pending: StateFlow<Confirmation?> = _pending.asStateFlow()
     private val _blocked = MutableStateFlow<List<BlockedEntry>>(emptyList())
     val blocked: StateFlow<List<BlockedEntry>> = _blocked.asStateFlow()
     private val _overflow = MutableStateFlow(0)
@@ -78,15 +83,20 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
 
     fun submit(request: Request): SubmitResult = submit(request, explicit = false)
 
-    private fun submit(request: Request, explicit: Boolean): SubmitResult {
+    /** Long-press actions bypass page suppression/budgets, but still require confirmation. */
+    fun submitFromUser(request: Request): SubmitResult = submit(request, explicit = true, fromUser = true)
+
+    private fun submit(request: Request, explicit: Boolean, fromUser: Boolean = false): SubmitResult {
         val state = document
         val identity = request.identity
-        if (state.pending?.let { it.identity == identity && it.isPrivate == request.isPrivate } == true) {
+        if (state.pending?.request?.let { it.identity == identity && it.isPrivate == request.isPrivate } == true) {
             return SubmitResult.Suppressed(state.blocked.size)
         }
         if (!explicit && identity in state.rejected) return SubmitResult.Suppressed(state.blocked.size)
-        handler.existingTaskFor(identity, request.isPrivate)?.let { (id, status) ->
+        val existing = handler.existingTaskFor(identity, request.isPrivate)
+        existing?.let { (id, status) ->
             if (!explicit || status != DownloadStatus.COMPLETED) {
+                if (fromUser) return SubmitResult.ExistingNotice(status)
                 // Keep a visible action even after the one-time "view task" routing.
                 // Retrying uses this request's current credentials/headers, not the old task's.
                 recordBlocked(request, BlockedReason.EXISTING)
@@ -98,6 +108,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         }
         if (!explicit && state.blocked.any { it.identity == identity }) return SubmitResult.Suppressed(state.blocked.size)
         if (state.pending != null) {
+            if (fromUser) return SubmitResult.ConfirmationBusy
             recordBlocked(request, BlockedReason.LIMIT)
             return interceptNotice()
         }
@@ -106,18 +117,21 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
             return interceptNotice()
         }
         if (!explicit) state.budget--
-        state.pending = request
+        state.pending = Confirmation(request, existing?.second == DownloadStatus.COMPLETED)
         state.newCopy = explicit
+        state.fromUser = fromUser
+        if (fromUser) state.blocked = state.blocked.filterNot { it.identity == identity }
         publish()
         return SubmitResult.Confirm(request)
     }
 
     fun confirmPending(): DownloadHandler.EnqueueOutcome {
         val state = document
-        val request = state.pending ?: return DownloadHandler.EnqueueOutcome.Rejected
+        val request = state.pending?.request ?: return DownloadHandler.EnqueueOutcome.Rejected
         val newCopy = state.newCopy
         state.pending = null
         state.newCopy = false
+        state.fromUser = false
         publish()
         return handler.enqueueOrGetExisting(
             request.url, request.userAgent, request.contentDisposition, request.mimeType,
@@ -128,13 +142,15 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
 
     fun rejectPending() {
         val state = document
-        val request = state.pending ?: return
+        val request = state.pending?.request ?: return
+        val fromUser = state.fromUser
         state.pending = null
         state.newCopy = false
-        // Stop remembering new identities at the cap; the exhausted automatic budget
-        // still prevents fresh dialogs. No unbounded set of private URLs is retained.
+        state.fromUser = false
+        // Stop remembering new identities at the cap; automatic requests still pass
+        // through the document budget. No unbounded set of private URLs is retained.
         if (state.rejected.size < MAX_REMEMBERED_IDENTITIES) state.rejected.add(request.identity)
-        recordBlocked(request, BlockedReason.REJECTED)
+        if (!fromUser) recordBlocked(request, BlockedReason.REJECTED)
         publish()
     }
 

@@ -27,6 +27,7 @@ private const val APK_MIME = "application/vnd.android.package-archive"
 @Composable
 fun DownloadConfirmDialog(
     request: DownloadRequestCoordinator.Request,
+    isNewCopy: Boolean,
     destinationLabel: String,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
@@ -34,13 +35,16 @@ fun DownloadConfirmDialog(
     val textResources = localizedResources()
     BrowserAlertDialog(
         onDismissRequest = onCancel,
-        title = { Text(textResources.getString(R.string.download_confirm_title)) },
+        title = { Text(textResources.getString(if (isNewCopy) R.string.download_copy_title else R.string.download_confirm_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = request.filename,
                     style = MaterialTheme.typography.titleMedium,
                 )
+                if (isNewCopy) {
+                    Text(textResources.getString(R.string.download_copy_note), style = MaterialTheme.typography.bodySmall)
+                }
                 if (request.mimeType == APK_MIME) {
                     Text(
                         text = textResources.getString(R.string.download_confirm_apk),
@@ -79,7 +83,9 @@ fun DownloadConfirmDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text(stringResource(R.string.download_confirm_action)) }
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(if (isNewCopy) R.string.download_copy_action else R.string.download_confirm_action))
+            }
         },
         dismissButton = {
             TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) }
