@@ -714,7 +714,7 @@
     <string name="settings_import_incognito_on_note">Incognito mode will be switched on; the next cold start opens a private session</string>
     <string name="settings_import_incognito_off_note">Incognito mode will be switched off; current private tabs will be closed</string>
     <string name="settings_import_engines_note">Custom search engines: importing %1$d, replacing %2$d existing</string>
-    <string name="settings_import_subscriptions_note">Custom filter subscriptions: importing %1$d, replacing %2$d existing; rules download on next update</string>
+    <string name="settings_import_subscriptions_note">Custom filter subscriptions: importing %1$d, replacing %2$d existing; missing rules for enabled lists will download after import</string>
     <string name="settings_import_sites_note">Site preferences: importing %1$d of %2$d; unlisted sites return to defaults, permissions are untouched</string>
     <string name="settings_import_unknown_builtins_note">Ignoring unknown built-in subscriptions: %1$s</string>
     <string name="settings_import_directory_note">The file suggests a custom download directory; without a local grant the system Downloads folder is used</string>
@@ -736,4 +736,9 @@
     <string name="download_copy_action">Save copy</string>
     <string name="download_existing_active">This file is already queued or downloading</string>
     <string name="download_existing_paused">This download is paused. Continue it in Downloads.</string>
+    <string name="filter_pending_download">No rules downloaded yet; update to activate this list</string>
+    <string name="settings_import_filter_updates">First rule downloads: %1$d. Check progress in filtering settings.</string>
+    <string name="site_permission_not_remembered">Your choice applies this time, but could not be remembered. Check or reset website settings.</string>
+    <string name="privacy_cleanup_title">Private data cleanup</string>
+    <string name="privacy_cleanup_failed">Private data could not be cleared. Browsing is paused until cleanup succeeds. Retry or exit the browser.</string>
 </resources>

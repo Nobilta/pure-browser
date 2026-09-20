@@ -713,7 +713,7 @@
     <string name="settings_import_incognito_on_note">將開啟無痕模式；下次冷啟動進入無痕會話</string>
     <string name="settings_import_incognito_off_note">將關閉無痕模式；當前無痕標籤會被關閉</string>
     <string name="settings_import_engines_note">自定義搜索引擎：導入 %1$d 個，替換現有 %2$d 個</string>
-    <string name="settings_import_subscriptions_note">自定義過濾訂閱：導入 %1$d 個，替換現有 %2$d 個；規則在下次更新時下載</string>
+    <string name="settings_import_subscriptions_note">自訂過濾訂閱：匯入 %1$d 項，取代原有 %2$d 項；匯入後下載已啟用訂閱缺少的規則</string>
     <string name="settings_import_sites_note">站點偏好：導入 %1$d 個（現有 %2$d 個）；未列出的站點恢復默認，權限不受影響</string>
     <string name="settings_import_unknown_builtins_note">忽略未知的內置訂閱：%1$s</string>
     <string name="settings_import_directory_note">文件建議使用自定義下載目錄；本機無授權時將使用系統下載目錄</string>
@@ -735,4 +735,9 @@
     <string name="download_copy_action">儲存副本</string>
     <string name="download_existing_active">此檔案已在下載或等待下載</string>
     <string name="download_existing_paused">此下載已暫停，可在下載管理中繼續</string>
+    <string name="filter_pending_download">尚未下載規則，更新後此訂閱才會生效</string>
+    <string name="settings_import_filter_updates">首次規則下載：%1$d 個訂閱。可在過濾設定查看結果。</string>
+    <string name="site_permission_not_remembered">本次依你的選擇處理，但未能記住。請檢查或重設網站設定。</string>
+    <string name="privacy_cleanup_title">清除無痕資料</string>
+    <string name="privacy_cleanup_failed">無痕資料清除失敗，成功清除前已暫停網頁瀏覽。請重試或離開瀏覽器。</string>
 </resources>

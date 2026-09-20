@@ -2,15 +2,12 @@ package com.mybrowser.privacy
 
 import android.webkit.CookieManager
 import android.webkit.WebView
-import android.os.Handler
-import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 /**
  * Owns whether the browser is currently incognito, and enforces what that means.
@@ -25,8 +22,11 @@ class PrivacyMode(private val appContext: android.content.Context) {
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     var lastCleanupSucceeded: Boolean by mutableStateOf(true)
         private set
-    var isTransitioning: Boolean by mutableStateOf(false)
-        private set
+    private val cleanup = PrivacyCleanupBarrier(cleanupScope)
+    val cleanupState = cleanup.state
+    val isTransitioning: Boolean get() = cleanupState.value != PrivacyCleanupBarrier.State.READY
+    suspend fun awaitReady() = cleanup.awaitReady()
+    fun retryCleanup() = cleanup.retry()
 
     /** True while incognito. Compose reads this to switch the theme accent and badge. */
     var isIncognito: Boolean by mutableStateOf(false)
@@ -72,12 +72,11 @@ class PrivacyMode(private val appContext: android.content.Context) {
             // may have left its cookies behind, and this session must not start on
             // them (nor on the normal session's logins).
             sharedJarCleared = true
-            val manager = CookieManager.getInstance()
-            lastCleanupSucceeded = runCatching {
-                manager.removeAllCookies(null)
-                manager.flush()
-                true
-            }.getOrDefault(false)
+            lastCleanupSucceeded = false
+            cleanup.enqueue {
+                BrowsingDataCleaner(appContext).clearCookies(DataProfile.NORMAL)
+                lastCleanupSucceeded = true
+            }
         }
 
         view.settings.apply {
@@ -113,34 +112,28 @@ class PrivacyMode(private val appContext: android.content.Context) {
      * wipe is indiscriminate: it clears normal-mode cookies too. The caller knows which case
      * it is from [hasRealIsolation]; passing that value through is the intended use.
      */
-    fun exit(wipeSharedStorage: Boolean, onComplete: () -> Unit = {}) {
-        if (isTransitioning) return
+    fun exit(wipeSharedStorage: Boolean) {
+        if (!isIncognito) return
         val isolated = hasRealIsolation
-        isTransitioning = true
         isIncognito = false
         hasRealIsolation = false
-        cleanupScope.launch {
+        lastCleanupSucceeded = false
+        cleanup.enqueue {
             val cleaner = BrowsingDataCleaner(appContext)
-            val cleared = runCatching {
-                when {
-                    wipeSharedStorage -> {
-                        cleaner.clearWebsiteData(DataProfile.NORMAL)
-                        android.webkit.GeolocationPermissions.getInstance().clearAll()
-                    }
-                    isolated -> {
-                        cleaner.clearWebsiteData(DataProfile.PRIVATE)
-                        cleaner.clearCookies(DataProfile.PRIVATE)
-                    }
+            when {
+                wipeSharedStorage -> {
+                    cleaner.clearWebsiteData(DataProfile.NORMAL)
+                    android.webkit.GeolocationPermissions.getInstance().clearAll()
                 }
-            }.isSuccess
+                isolated -> {
+                    cleaner.clearWebsiteData(DataProfile.PRIVATE)
+                    cleaner.clearCookies(DataProfile.PRIVATE)
+                }
+            }
             val deleted = IncognitoProfile.destroy()
             // Modern deletion erases site data even if an empty loaded profile remains
             // until the next process. Older providers cannot promise this full erasure.
-            lastCleanupSucceeded = cleared && (!isolated || deleted || cleaner.supportsCompleteDeletion)
-            dispatchCompletion {
-                isTransitioning = false
-                onComplete()
-            }
+            lastCleanupSucceeded = !isolated || deleted || cleaner.supportsCompleteDeletion
         }
     }
 
@@ -155,7 +148,4 @@ class PrivacyMode(private val appContext: android.content.Context) {
         view.clearSslPreferences()
     }
 
-    private fun dispatchCompletion(onComplete: () -> Unit) {
-        Handler(Looper.getMainLooper()).post { runCatching { onComplete() } }
-    }
 }

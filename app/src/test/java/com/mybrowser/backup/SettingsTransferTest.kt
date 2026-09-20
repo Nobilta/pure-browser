@@ -33,6 +33,35 @@ import java.io.IOException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SettingsTransferTest {
+    @Test fun exportWaitsForSavedSubscriptionConfigurationWithoutExplicitInitialization() = runBlocking {
+        val warm = FilterSubscriptions(context)
+        assertTrue(warm.importConfiguration(mapOf("easylist" to false),
+            listOf(Triple("Saved", "https://example.test/list", true))).ok)
+        val cold = FilterSubscriptions(context)
+        val filter = FilterController(context)
+        try {
+            val result = SettingsTransfer(context, filter, cold, SiteSettingsRepository(context)).collect("0.11")
+            assertEquals("Saved", result.settings.filtering!!.customSubscriptions!!.single().name)
+            assertFalse(result.settings.filtering!!.builtIns!!.single { it.id == "easylist" }.enabled)
+        } finally { filter.close() }
+    }
+
+    @Test fun successfulImportRequestsFirstDownloadsAndReportsTheirCount() = runBlocking {
+        val filter = FilterController(context)
+        val subscriptions = FilterSubscriptions(context)
+        var scheduled = 0
+        try {
+            val transfer = SettingsTransfer(context, filter, subscriptions, SiteSettingsRepository(context)) { scheduled++ }
+            val backup = SettingsBackupCodec.decode("""{"format":"pure-browser-settings","schemaVersion":1,"settings":{
+                "filtering":{"customSubscriptions":[{"name":"Imported","url":"https://example.test/list","enabled":true}]}
+            }}""")
+            val result = transfer.apply(backup)
+            assertEquals(listOf("filtering"), result.applied)
+            assertTrue(result.failed.isEmpty())
+            assertEquals(1, result.pendingFilterUpdates)
+            assertEquals(1, scheduled)
+        } finally { filter.close() }
+    }
 
     private lateinit var context: Context
 
