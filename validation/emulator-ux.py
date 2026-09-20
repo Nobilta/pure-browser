@@ -158,6 +158,20 @@ def visible(node):
     return node.get("visible-to-user") != "false" and len(rect) == 4 and rect[2] > rect[0] and rect[3] > rect[1]
 
 
+def web_view(timeout=10):
+    """The page surface arrives only after WebView enables its accessibility tree, which a
+    cold launch on a loaded device can delay past the activity itself."""
+    deadline = time.monotonic() + timeout
+    while True:
+        node = next((n for n in nodes()[0].iter("node")
+                     if n.get("class") == "android.webkit.WebView" and visible(n)), None)
+        if node is not None:
+            return node
+        if time.monotonic() >= deadline:
+            raise AssertionError("The page WebView did not appear")
+        time.sleep(.2)
+
+
 def _probe_action(label, action, receipt):
     if _probe_available.get(tuple(ADB)) is False:
         return False
@@ -389,7 +403,13 @@ def close_menu():
 def menu_item(label):
     root, _ = nodes()
     if not menu_open(root):
-        tap("菜单")
+        try:
+            tap("菜单")
+        except AssertionError:
+            # A helper VM that outlives its client can land the tap after the probe gave up:
+            # the menu is then open and its button covered, which reads as a missing control.
+            if not menu_open(nodes()[0]):
+                raise
     # Returning from a child keeps the menu's previous scroll position. The first read of
     # each pass waits for the row on the device, so an already-reachable row costs one
     # connection and only a row that needs scrolling keeps stepping through the list.

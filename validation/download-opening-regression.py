@@ -76,6 +76,19 @@ def main():
         ux.launch(base + 'download-opening-fixture.html?case=' + key)
         ux.expect('Download image')
 
+    def confirm_download():
+        """Confirm the download dialog; it is deliberate design and has no skip setting."""
+        deadline = time.monotonic() + 10
+        while True:
+            root, _ = ux.nodes()
+            node = next((n for n in root.iter('node') if ux.visible(n)
+                         and n.get('text') in ('下载', '下載', 'Download')), None)
+            if node is not None:
+                ux.tap_node(node)
+                return
+            assert time.monotonic() < deadline, 'Download confirmation dialog missing'
+            time.sleep(.3)
+
     def file_name(kind):
         extension = {'image': 'png', 'apk': 'apk', 'unknown': 'bin'}[kind]
         return 'pure-open-' + key + '-' + kind + '.' + extension
@@ -118,6 +131,7 @@ def main():
             ux.adb('shell', 'pm', 'clear-permission-flags', ux.PACKAGE, notification_permission, 'user-set', 'user-fixed')
         page()
         ux.tap('Download unknown size')
+        confirm_download()
         if sdk >= 33:
             root, _ = ux.nodes()
             deny = next((n for n in root.iter('node') if n.get('resource-id', '').endswith('/permission_deny_button')), None)
@@ -141,6 +155,7 @@ def main():
 
         page()
         ux.tap('Download image')
+        confirm_download()
         image_hash = hashlib.sha256(urllib.request.urlopen(base + 'context-image.png').read()).hexdigest()
         image_path = completed_file('image', image_hash)
         downloads()
@@ -170,6 +185,7 @@ def main():
 
         page()
         ux.tap('Download application')
+        confirm_download()
         completed_file('apk', result['apkSha256'])
         downloads()
         completed_row('apk')
@@ -196,6 +212,7 @@ def main():
         key += '-cold'
         page()
         ux.tap('Download image')
+        confirm_download()
         completed_file('image', image_hash)
         wait(lambda: 'isForeground=true' not in ux.adb('shell', 'dumpsys', 'activity', 'services', ux.PACKAGE))
         notifications = ux.adb('shell', 'dumpsys', 'notification', '--noredact')

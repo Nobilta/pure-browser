@@ -21,6 +21,7 @@ document.getElementById('script-status').textContent='JavaScript active';
 document.getElementById('agent-status').textContent=/Android|Mobile/.test(navigator.userAgent)?'Mobile agent active':'Desktop agent active';
 document.getElementById('camera').onclick=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:true});stream.getTracks().forEach(t=>t.stop());report('camera','allowed')}catch(e){report('camera',e.name)}};
 document.getElementById('location').onclick=()=>navigator.geolocation.getCurrentPosition(()=>report('location','allowed'),e=>report('location','denied:'+e.code),{timeout:3000});
+document.getElementById('download').search = location.search;
 document.getElementById('inspect-filter').onclick=()=>{document.getElementById('filter-result').textContent=getComputedStyle(document.getElementById('pure-filter-unit')).display==='none'?'Filter hidden':'Filter visible'};
 let samples=0;const probe=setInterval(()=>{if(++samples>240){clearInterval(probe);return}if(document.hidden)return;
 const buttons={};for(const id of ['camera','location','inspect-filter','download']){const r=document.getElementById(id).getBoundingClientRect();buttons[id]={x:r.x,y:r.y,width:r.width,height:r.height}}

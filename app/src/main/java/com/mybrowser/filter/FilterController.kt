@@ -65,11 +65,17 @@ class FilterController(private val appContext: Context) {
         _enabled.value = value
     }
 
+    /** Publish the switch only after a grouped settings import has committed it. */
+    internal fun reloadEnabledPreference() {
+        _enabled.value = prefs.getBoolean("enabled", true)
+    }
+
     /** Every enabled subscription participates in the same atomic engine snapshot. */
     fun replaceLists(rules: List<String>, names: List<String> = emptyList()): Job? {
         if (closed.get()) return null
-        if (rules.size > 35 || rules.any { it.length > FilterListFormat.MAX_BYTES } ||
-            rules.sumOf { it.length.toLong() } > FilterListFormat.MAX_TOTAL_BYTES) return null
+        val sizes = rules.map { utf8Bytes(it) }
+        if (rules.size > 35 || sizes.any { it > FilterListFormat.MAX_BYTES } ||
+            sizes.sum() > FilterListFormat.MAX_TOTAL_BYTES) return null
         payloads = rules.toList()
         sourceNames = names.toList()
         return scheduleRebuild()
@@ -99,14 +105,14 @@ class FilterController(private val appContext: Context) {
         if (_enabled.value && siteEnabled) lock.read { filter?.cosmeticCss(url).orEmpty() } else ""
 
     fun shouldBlock(request: WebResourceRequest, documentUrl: String, siteEnabled: Boolean = true,
-        type: ResourceType = classifyResourceType(request)): Boolean {
+        type: ResourceType = classifyResourceType(request), countForPage: Boolean = true): Boolean {
         if (!_enabled.value || !siteEnabled || request.isForMainFrame) return false
         val requestUrl = request.url.toString()
         if (requestUrl.length > MAX_URL_LENGTH || documentUrl.length > MAX_URL_LENGTH) return false
         val hit = lock.read {
             filter?.shouldBlock(requestUrl, documentUrl, type) ?: false
         }
-        if (hit) blocked.incrementAndGet()
+        if (hit && countForPage) blocked.incrementAndGet()
         return hit
     }
 
@@ -135,7 +141,7 @@ class FilterController(private val appContext: Context) {
             if (generation != rebuildGeneration.get()) return@launch
             val snapshot = payloads
             val names = sourceNames
-            val next = buildEngine(snapshot)
+            val next = buildEngine(snapshot, names)
 
             if (closed.get() || generation != rebuildGeneration.get()) {
                 next?.first?.close()
@@ -163,14 +169,24 @@ class FilterController(private val appContext: Context) {
 
     private fun buildEngine(
         lists: List<String>,
+        names: List<String>,
     ): Pair<NativeFilter, Int>? {
         if (!NativeFilter.isAvailable) {
             return null
         }
         val next = NativeFilter.createOrNull() ?: return null
         var count = 0
-        lists.forEach { rules ->
-            if (rules.isNotBlank()) count = next.addList(rules).coerceAtLeast(count)
+        lists.forEachIndexed { index, rules ->
+            if (rules.isNotBlank()) {
+                val added = next.addList(rules)
+                // The native side refuses oversize or unparseable lists with -1; swallowing
+                // that would leave the engine silently short with no trace in a bug report.
+                if (added < 0) android.util.Log.w(
+                    "FilterController",
+                    "Refused filter list ${names.getOrNull(index) ?: "List ${index + 1}"}",
+                )
+                count = added.coerceAtLeast(count)
+            }
         }
 
         return next to count
@@ -178,5 +194,22 @@ class FilterController(private val appContext: Context) {
 
     companion object {
         const val MAX_URL_LENGTH = 8_192
+
+        /** UTF-8 size without copying the text; the list caps are byte budgets, not character counts. */
+        fun utf8Bytes(text: String): Long {
+            var bytes = 0L
+            var index = 0
+            while (index < text.length) {
+                val codePoint = text.codePointAt(index)
+                bytes += when {
+                    codePoint < 0x80 -> 1
+                    codePoint < 0x800 -> 2
+                    codePoint < 0x10000 -> 3
+                    else -> 4
+                }
+                index += Character.charCount(codePoint)
+            }
+            return bytes
+        }
     }
 }

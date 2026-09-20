@@ -10,6 +10,10 @@ strip = true
 panic = "abort"
 
 # Android arm64 JNI comparisons (z/2/3, both execution orders) favor this hot crate.
-# Keep dependencies and URL/bookmark utilities optimized for size.
+# Keep dependencies optimized for size.
 [profile.release.package.adblock]
+opt-level = 3
+
+# Source highlighting scans large HTML/JS/CSS documents; optimize its lexer for speed.
+[profile.release.package.url_utils]
 opt-level = 3

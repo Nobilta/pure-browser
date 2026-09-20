@@ -1,5 +1,6 @@
 package com.mybrowser.download
 
+import com.mybrowser.data.commitConfirmed
 import android.content.res.Resources
 import com.mybrowser.R
 import android.content.Context
@@ -78,6 +79,16 @@ class DownloadSettingsRepository(context: Context) {
                 prefs.getInt(KEY_THREAD_COUNT, DEFAULT_DOWNLOAD_THREADS),
             ),
         )
+    }
+
+    /** Imported directory hints never copy or grant access to another device's tree. */
+    fun importSettings(threadCount: Int?, unmeteredOnly: Boolean?, useSystemDirectory: Boolean) {
+        require(threadCount == null || threadCount in MIN_DOWNLOAD_THREADS..MAX_DOWNLOAD_THREADS)
+        prefs.commitConfirmed(buildMap {
+            threadCount?.let { put(KEY_THREAD_COUNT, it) }
+            unmeteredOnly?.let { put("unmetered_only", it) }
+            if (useSystemDirectory) put(KEY_DESTINATION_MODE, DownloadDestinationMode.SYSTEM_DOWNLOADS.name)
+        })
     }
 
     fun useSystemDownloads(): DownloadSettings {

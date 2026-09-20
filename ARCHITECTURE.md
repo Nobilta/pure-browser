@@ -15,6 +15,7 @@ Kotlin 源码位于 [app/src/main/java/com/mybrowser](app/src/main/java/com/mybr
 | `ui` | Compose 界面，按 shell、settings、library、player 等功能组织 |
 | `tabs`、`data`、`home`、`search` | 标签、书签与历史、首页和搜索 |
 | `site`、`privacy`、`security` | 网站设置、权限、Profile、证书和外部协议 |
+| `backup` | 设置导入导出的白名单编解码、预览与分组应用 |
 | `download`、`update` | 文件下载与续传；应用更新下载及 APK 校验 |
 | `filter`、`userscript` | 过滤订阅、脚本安装与注入 |
 | `media`、`dlna`、`qr` | 视频与系统媒体、局域网投屏、Camera2 / ZXing 扫码 |
@@ -24,28 +25,43 @@ Kotlin 源码位于 [app/src/main/java/com/mybrowser](app/src/main/java/com/mybr
 | [release](release/) | 校验签名 APK、生成更新附件、创建 Release 草稿 |
 
 数据库、下载和权限留在 Android 层，便于直接使用 SQLite、SAF、MediaStore、Cookie 和系统回调。
-共享类型放在 `core`；`ResourceType` 的枚举顺序属于 JNI 契约，修改时需同步 Rust。
+共享类型放在 `core`；`ResourceType` 和 `SourceToken` 的枚举顺序属于 JNI 契约，修改时需同步 Rust。
+`url_utils` 还负责书签导入和源码词法高亮；高亮通过一次有界 JNI 调用返回 UTF-16 区间，Kotlin 负责文本分块与展示。
 `media` 使用 Compose 渲染全屏控件，因此它也依赖部分 UI 组件。
 
 ## 状态与异步回调
 
 `App` 持有需跨 Activity 重建的仓库和操作，包括启动更新检查及待处理提示。
-`BrowserSessionState` 保留当前会话的标签元数据和临时无痕设置，无痕状态不写入磁盘。
+`BrowserSessionState` 保留当前会话的标签元数据；无痕只持久化开关意愿，会话数据不写入磁盘。
 
 WebView、文档、弹层和媒体操作都有自己的实例或代次标识。异步回执到达时校验所有者，
 避免导航、关闭、重新打开后的旧结果覆盖当前状态。网站授权、文件上传、证书提示和媒体命令尤其依赖这项约定。
 
 书签和历史写入成功后才更新界面；异步搜索丢弃过期结果。
+当前页书签查询由 `BookmarkStatusTracker` 管理，写入成功会取消旧查询并递增代次，避免旧结果覆盖书签星标。
 设置仓库在进程内共享写锁，文件存储采用有界读取和原子写入。
+
+无痕只有开关意愿持久化到偏好；会话本身（标签、来源关系、Profile 数据）留在内存，
+下次启动进入全新会话，清理失败的 Profile 延迟到启动后完成。
 
 ## WebView 与标签
 
 `MainActivity` 管理当前页面，`RecentTabStore` 保存普通后台页面。
 离开时暂停媒体，重新访问时取回原 WebView；驻留数量随标签数增长。
-收到内存压力时按最早停放顺序回收，`TRIM_MEMORY_COMPLETE` 清空驻留页，`UI_HIDDEN` 本身不触发回收。
+收到内存压力时按最早停放顺序回收，`TRIM_MEMORY_COMPLETE` 清空普通驻留页并终止后台窗口组，保留标签 URL 供再次访问时重载，`UI_HIDDEN` 本身不触发回收。
 
 新窗口使用全新 WebView，交接完成后保留来源页。新实例配置失败时，先清理媒体追踪器和脚本运行时，
-再从池中丢弃；内存不足重试前回收最老驻留页。归还池时解除监听，避免持有旧 Activity。
+再从实例管理器丢弃；内存不足重试前回收最老普通驻留页。
+`WebViewPool` 由 Activity 持有，直接使用该 Activity 创建实例，避免 Autofill 在初始化时绑定到 Application。
+实例不跨 Activity 复用；销毁宿主时统一清理，待交接的原生窗口在 Chromium 消费 transport 后销毁。
+
+`PageAcquisition` 统一分配失败清理和内存不足重试，`MediaTrackerRegistry` 管理每个 WebView 的媒体追踪器。
+`PopupWebViewClient` 让后台窗口继续网络与导航，同时将 UI 回调与前台隔离。
+`PopupSessionStore` 单独记录真实 JavaScript 窗口关系，与手动新标签的返回关系分开。
+弹窗及来源页在普通和无痕会话中保持存活，后台请求使用自身文档的过滤配置，不更新前台媒体、日志或过滤计数。
+后台页面不弹权限框、不启动外部应用；关闭回调按来源实例定位标签。原页面最后一个弹窗关闭后，
+若尚未回到原页面，继续保留以完成回调请求；重新选择后无关联的页面恢复普通标签策略。
+关闭标签、结束会话、清理浏览数据或销毁宿主会清理对应实例；普通后台回收不淘汰正在协作的窗口。
 
 `TabManager` 保存当前会话的来源关系和访问顺序。返回先消费网页历史，再关闭子标签；
 选择来源页或最近存活标签。关系不跨普通/无痕管理器，也不持久化。
@@ -54,6 +70,8 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识。�
 无痕关闭；开关可用不代表文档一定保留。测试应核对文档身份和表单状态，不能只检查 URL 或滚动位置。
 
 ## 菜单与窗口
+
+`FullscreenPreferenceState` 在会话中保留立即退出的回退状态，跨 Activity 重建或恢复不会被旧磁盘值覆盖；启用须确认保存，串行写入和代次检查防止旧启用回写。
 
 `BrowserSheetNavigation` 只允许“菜单 → 一个子页面”，设置内部管理自己的分类和选项。
 路由 key 恢复滚动与分类，每次 `Presentation` 提供新的回调身份。
@@ -65,6 +83,18 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识。�
 底部面板位置固定，列表关闭边界拉伸。动画参数集中在 `BrowserMotion`，
 底部面板和全屏页由 `BrowserSheetWindow` 共用进入、换页和换容器逻辑。
 地址栏建议放在 Activity 内，避免独立窗口打断输入法和编辑状态。
+建议按链接、搜索项、在线联想、书签和历史排序：粘贴文本中的网址由 `WebLinkExtractor` 提取，
+在线联想由 `SearchSuggestionProvider` 按 HTTPS 模板获取（无联想地址的引擎直接不出联想，不回退其他引擎），
+请求带去抖和过期丢弃，输入法组词期间不发起；无痕每次会话使用独立缓存，切换会话与缓存发布共用锁。
+输入取消、退出无痕或覆盖整个请求的 6 秒截止时间都会使响应失效，并在 IO 线程断开连接。
+响应按 Content-Type 的 charset 严格解码，百度未声明时回退 GBK，其他引擎默认 UTF-8；无效编码不会缓存。
+链接扫描始终按实际消耗的文本推进，包含无效、重复或被扫描上限截断的候选，避免嵌套协议头造成重复扫描。
+
+设置导入按分组独立提交；`ConfirmedPreferences.kt` 中的 `commitConfirmed` 检查磁盘写入结果，失败时恢复涉及键的内存值并尝试恢复磁盘，
+恢复失败仍报告该组失败。搜索引擎列表及选中项、首页和下载选项分别批量写入对应偏好文件。
+过滤订阅清单保存在 `filter_settings` 的 `subscriptions_manifest` 中，与全局过滤和自动更新开关一起提交，
+成功后才发布状态。旧 `filter_subscriptions/subscriptions.json` 在首次成功写入时迁移，规则快照、时间戳与 HTTP 验证器保持不变。
+不同分组不构成整体事务，结果会明确报告成功和失败分组。
 
 ## 媒体与投屏
 
@@ -90,6 +120,7 @@ SetURI / Play 被接受与设备返回 PLAYING 是不同状态；接收器直接
 网站设置和权限使用完整 origin。桌面显示偏好单独允许同协议、同端口的网站入口别名共享。
 `site_identity` 提供 PSL / IDNA 判断，其中 PRIVATE 部分用于区分公共托管服务上的不同站点。
 升级 PSL 时同步验证过滤和桌面别名，并重新构建两个 JNI 库。
+网站设置的不可变快照包含桌面别名索引，读取时不再扫描所有站点。文件损坏时阻止普通写入，明确提示并提供确认重置入口。
 
 无痕优先使用每次会话唯一的 WebView Profile。退出先擦除数据并停用该名称，
 无法立即删除的 Profile 在下次进程启动时清理；清理期间阻止重新进入无痕。
@@ -100,9 +131,17 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 
 ## 下载、更新与构建
 
+下载请求先经 `DownloadRequestCoordinator` 汇聚：新请求弹出唯一确认对话框（刻意设计，无关闭选项），
+确认、预算和拦截记录按标签文档保存，前台只暴露所选标签状态，主文档导航或关页清理；后台窗口导航也重置自身状态。
+同页重复请求与既有任务按去片段后的地址去重，最多保留 5 条供显式重试，额外事件只保留有界计数并给出恢复说明。
+显式重试的授权只在调用中存在。重新下载仅绕过已完成记录，活动任务继续合并；旧记录和文件不归新任务所有。
+`DownloadPresenter` 管理任务操作、文件打开及结果提示；WebView 提供的 contentLength 传至确认框。
 下载恢复核对 validator、长度、最终 URL 和分段边界，不能确认同一实体时完整重下。
 每个任务共享写入锁，取消和删除等待旧 writer 结束；文件发布成功后才显示完成。
 Cookie 仅驻留内存，并且只向原 origin 发送。系统文件打开统一交给 Android 处理。
+
+通知权限不随首次下载弹出：`DownloadNotificationGuide` 只读真实系统状态，
+旧版 download_notifications/requested 会迁移，下载设置按需引导到运行时授权、应用通知或渠道页面，拒绝授权不影响下载。
 
 应用更新单独校验 GitHub 下载地址、文件摘要、包名、版本、SDK、ABI 和签名。
 更新 APK 与相机输出使用不同的 FileProvider 组件类及目录，避免 URI 授权混用。

@@ -26,13 +26,16 @@ def files():
 
 ux.adb("reverse", "tcp:8875", "tcp:8875")
 ux.adb("shell", "am", "force-stop", ux.PACKAGE)
-ux.launch("http://127.0.0.1:8875/download-fixture.html")
+# A fresh case key makes this run's download URL unique; the browser deduplicates
+# repeat downloads of one URL by design, so a static URL would only reopen the
+# previous run's completed entry.
+ux.launch("http://127.0.0.1:8875/download-fixture.html?case=" + str(time.time_ns()))
 before = files()
-root, _ = ux.nodes()
-web = next(n for n in root.iter("node") if n.get("class") == "android.webkit.WebView")
+web = ux.web_view()
 x1, y1, x2, y2 = ux.bounds(web)
 started = time.time()
 ux.adb("shell", "input", "tap", str((x1 + x2) // 2), str(y1 + 95))
+ux.tap("下载")  # Confirm the download dialog; it is deliberate design and has no skip setting.
 service_during = ux.adb("shell", "dumpsys", "activity", "services", ux.PACKAGE)
 expected = hashlib.sha256(bytes(range(256)) * (6 * 1024 * 1024 // 256)).hexdigest()
 deadline = time.monotonic() + 25

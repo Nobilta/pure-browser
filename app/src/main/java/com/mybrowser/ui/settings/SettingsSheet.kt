@@ -108,7 +108,7 @@ fun SettingsSheet(
     currentSearchEngine: SearchEngine,
     availableSearchEngines: List<SearchEngine>,
     onSearchEngineChange: (SearchEngine) -> Unit,
-    onAddCustomSearchEngine: (String, String) -> Unit,
+    onAddCustomSearchEngine: (String, String, String?) -> Unit,
     onRemoveCustomSearchEngine: (SearchEngine) -> Unit,
     currentHomepageMode: HomepageMode,
     currentHomepage: String,
@@ -122,11 +122,17 @@ fun SettingsSheet(
     onChooseDownloadDirectory: () -> Unit,
     onDownloadThreadCountChange: (Int) -> Unit,
     onDownloadNetworkChange: (Boolean) -> Unit = {},
+    downloadNotificationsEnabled: Boolean = true,
+    onDownloadNotifications: () -> Unit = {},
     preferences: BrowserPreferences,
     onPreferencesChange: (BrowserPreferences) -> Unit,
+    isIncognito: Boolean = false,
+    onIncognitoChange: (Boolean) -> Unit = {},
     isFilterEnabled: Boolean,
     onFilterEnabledChange: (Boolean) -> Unit,
     onClearData: () -> Unit,
+    onExportSettings: () -> Unit = {},
+    onImportSettings: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val textResources = localizedResources()
@@ -227,6 +233,7 @@ fun SettingsSheet(
                                 SettingsCategory.DOWNLOADS -> Column {
                                     SettingsToggle(textResources.getString(R.string.download_unmetered), textResources.getString(R.string.download_budget_summary),
                                         downloadSettings.unmeteredOnly, onDownloadNetworkChange)
+                                    DownloadNotificationItem(downloadNotificationsEnabled, onDownloadNotifications)
                                     DownloadSettingsPage(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
                                         onDownloadThreadCountChange, back,
                                         modifier = Modifier.settingsPaneChange(paneKey = category,
@@ -245,10 +252,22 @@ fun SettingsSheet(
                                                 restoreLastSession, onRestoreLastSessionChange)
                                             SettingsGroup(textResources.getString(R.string.ui_search_and_system))
                                             SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_search)
+                                            SettingsToggle(textResources.getString(R.string.ui_online_search_suggestions),
+                                                textResources.getString(R.string.ui_online_search_suggestions_summary),
+                                                preferences.searchSuggestionsEnabled,
+                                                { onPreferencesChange(preferences.copy(searchSuggestionsEnabled = it)) })
+                                            SettingsToggle(textResources.getString(R.string.ui_private_search_suggestions),
+                                                textResources.getString(R.string.ui_private_search_suggestions_summary),
+                                                preferences.privateSearchSuggestionsEnabled,
+                                                { onPreferencesChange(preferences.copy(privateSearchSuggestionsEnabled = it)) })
                                             SettingsItem(textResources.getString(R.string.ui_default_browser), if (isDefaultBrowser) textResources.getString(R.string.ui_set_as_default) else textResources.getString(R.string.ui_not_set_as_default),
                                                 onSetDefaultBrowser, R.drawable.ic_desktop)
                                         }
                                         SettingsCategory.APPEARANCE -> {
+                                            SettingsToggle(textResources.getString(R.string.browser_fullscreen),
+                                                textResources.getString(R.string.browser_fullscreen_summary),
+                                                preferences.browserFullscreenEnabled,
+                                                { onPreferencesChange(preferences.copy(browserFullscreenEnabled = it)) })
                                             SettingsToggle(textResources.getString(R.string.bottom_address_bar), textResources.getString(R.string.preference_immediate),
                                                 preferences.bottomAddressBar, { onPreferencesChange(preferences.copy(bottomAddressBar = it)) })
                                             SettingsToggle(textResources.getString(R.string.swipe_tab_switch), textResources.getString(R.string.swipe_tab_switch_summary),
@@ -257,6 +276,9 @@ fun SettingsSheet(
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
+                                            SettingsToggle(textResources.getString(R.string.ui_incognito_browsing),
+                                                textResources.getString(R.string.ui_incognito_persistent_summary),
+                                                isIncognito, onIncognitoChange)
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_lock)
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
@@ -266,6 +288,8 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
                                             SettingsGroup(textResources.getString(R.string.menu_section_data))
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
+                                            SettingsItem(textResources.getString(R.string.settings_export), textResources.getString(R.string.settings_export_summary), onExportSettings, R.drawable.ic_share)
+                                            SettingsItem(textResources.getString(R.string.settings_import), textResources.getString(R.string.settings_import_summary), onImportSettings, R.drawable.ic_download)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                         }
                                         SettingsCategory.VIDEO -> {
@@ -369,6 +393,49 @@ private enum class SettingsCategory(val titleRes: Int, val icon: Int) {
     ABOUT(R.string.ui_about, R.drawable.ic_code),
 }
 
+/**
+ * The download notification entry: real system state, plain styling, no red dots or
+ * banners. Only this row ever starts the permission request or opens the system pages.
+ */
+@Composable
+private fun DownloadNotificationItem(enabled: Boolean, onAction: () -> Unit) {
+    val textResources = localizedResources()
+    Column(
+        Modifier.fillMaxWidth()
+            .highlightSetting(textResources.getString(R.string.download_notifications))
+            .clickable(onClick = onAction)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = textResources.getString(R.string.download_notifications),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = textResources.getString(
+                    if (enabled) R.string.download_notifications_state_on else R.string.download_notifications_state_off,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = textResources.getString(
+                if (enabled) R.string.download_notifications_summary_on
+                else R.string.download_notifications_summary_off,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = onAction) {
+            Text(textResources.getString(
+                if (enabled) R.string.download_notifications_manage else R.string.download_notifications_enable,
+            ))
+        }
+    }
+}
+
 @Composable
 private fun SettingsToggle(title: String, summary: String, checked: Boolean,
     onChange: (Boolean) -> Unit, enabled: Boolean = true) {
@@ -444,7 +511,7 @@ private fun SearchEngineSettings(
     current: SearchEngine,
     available: List<SearchEngine>,
     onChange: (SearchEngine) -> Unit,
-    onAddCustom: (String, String) -> Unit,
+    onAddCustom: (String, String, String?) -> Unit,
     onRemoveCustom: (SearchEngine) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -495,8 +562,8 @@ private fun SearchEngineSettings(
 
     if (showAddDialog) {
         CustomSearchEngineDialog(
-            onConfirm = { name, template ->
-                onAddCustom(name, template)
+            onConfirm = { name, template, suggestTemplate ->
+                onAddCustom(name, template, suggestTemplate)
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false },
@@ -506,11 +573,12 @@ private fun SearchEngineSettings(
 
 @Composable
 private fun CustomSearchEngineDialog(
-    onConfirm: (name: String, template: String) -> Unit,
+    onConfirm: (name: String, template: String, suggestTemplate: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var template by remember { mutableStateOf("") }
+    var suggestTemplate by remember { mutableStateOf("") }
     val canSave = name.trim().isNotEmpty() && template.trim().isNotEmpty()
 
     AlertDialog(
@@ -534,6 +602,18 @@ private fun CustomSearchEngineDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = suggestTemplate,
+                    onValueChange = { suggestTemplate = it },
+                    label = { Text(stringResource(R.string.search_engine_suggest_url)) },
+                    placeholder = { Text(stringResource(R.string.search_engine_suggest_url_hint)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Done,
                     ),
                     modifier = Modifier.fillMaxWidth(),
@@ -542,7 +622,7 @@ private fun CustomSearchEngineDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name.trim(), template.trim()) },
+                onClick = { onConfirm(name.trim(), template.trim(), suggestTemplate.trim().ifEmpty { null }) },
                 enabled = canSave,
             ) { Text(stringResource(R.string.bookmark_save)) }
         },
@@ -807,14 +887,18 @@ private fun Modifier.highlightSetting(title: String): Modifier = composed {
     bringIntoViewRequester(requester).then(if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
 }
 private val SETTINGS_SEARCH = listOf(
+    R.string.ui_incognito_browsing to SettingsCategory.PRIVACY,
     R.string.system_login to SettingsCategory.PRIVACY,
     R.string.automatic_pip to SettingsCategory.VIDEO,
     R.string.background_playback to SettingsCategory.VIDEO,
     R.string.cd_home to SettingsCategory.BROWSING,
     R.string.ui_restore_pages_on_startup to SettingsCategory.BROWSING,
     R.string.ui_search_engine to SettingsCategory.BROWSING,
+    R.string.ui_online_search_suggestions to SettingsCategory.BROWSING,
+    R.string.ui_private_search_suggestions to SettingsCategory.BROWSING,
     R.string.ui_default_browser to SettingsCategory.BROWSING,
     R.string.ui_app_theme to SettingsCategory.APPEARANCE,
+    R.string.browser_fullscreen to SettingsCategory.APPEARANCE,
     R.string.bottom_address_bar to SettingsCategory.APPEARANCE,
     R.string.swipe_tab_switch to SettingsCategory.APPEARANCE,
     R.string.ui_ad_filtering to SettingsCategory.PRIVACY,
@@ -822,7 +906,10 @@ private val SETTINGS_SEARCH = listOf(
     R.string.script_title to SettingsCategory.PRIVACY,
     R.string.site_settings to SettingsCategory.PRIVACY,
     R.string.menu_clear_data to SettingsCategory.PRIVACY,
+    R.string.settings_export to SettingsCategory.PRIVACY,
+    R.string.settings_import to SettingsCategory.PRIVACY,
     R.string.download_unmetered to SettingsCategory.DOWNLOADS,
+    R.string.download_notifications to SettingsCategory.DOWNLOADS,
     R.string.ui_download_settings to SettingsCategory.DOWNLOADS,
     R.string.ui_brightness_and_volume_gestures to SettingsCategory.VIDEO,
     R.string.ui_swipe_to_seek to SettingsCategory.VIDEO,

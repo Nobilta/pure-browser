@@ -11,6 +11,7 @@ use jni::sys::jstring;
 use jni::JNIEnv;
 
 mod bookmarks;
+mod source;
 
 #[no_mangle]
 pub extern "system" fn Java_com_mybrowser_core_UrlUtils_nativeRegistrableDomain(
@@ -40,6 +41,8 @@ pub extern "system" fn Java_com_mybrowser_data_BookmarkHtml_nativeParse(
         Ok(value) => value.into(),
         Err(_) => return std::ptr::null_mut(),
     };
+    // The size limit lives in bookmarks::parse: this entry point receives whole bookmark
+    // documents (not single URLs), so the app-side cap and the parser's cap must agree.
     let Ok(parsed) = bookmarks::parse(&input) else {
         return std::ptr::null_mut();
     };

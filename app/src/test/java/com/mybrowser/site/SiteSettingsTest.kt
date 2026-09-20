@@ -14,6 +14,77 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SiteSettingsTest {
+    @Test fun anUnreadableStoreIsKeptInsteadOfBeingResetByTheNextWrite() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        val corrupt = "{not json"
+        assertTrue(prefs.edit().putString("sites", corrupt).commit())
+        val repo = SiteSettingsRepository(context)
+        // The session runs on defaults, but the bytes the user cannot currently read stay put.
+        assertTrue(repo.get("https://example.com").filtering)
+        assertTrue(repo.needsRepair.value)
+        try {
+            repo.update("https://example.com") { it.copy(javaScript = false) }
+            fail("A non-persistent change must not report success")
+        } catch (_: IllegalStateException) { }
+        assertTrue(repo.get("https://example.com").javaScript)
+        assertTrue(SiteSettingsRepository(context).get("https://example.com").javaScript)
+        assertEquals(corrupt, prefs.getString("sites", null))
+        // Discarding everything on purpose is still allowed to replace it.
+        repo.repair()
+        assertFalse(repo.needsRepair.value)
+        assertNotEquals(corrupt, prefs.getString("sites", null))
+    }
+
+    @Test fun anUnreadableStorePersistsAgainAfterExplicitRepair() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().putString("sites", "{not json").commit())
+        val repo = SiteSettingsRepository(context)
+        repo.repair()
+        // The repair restored persistence: a later change reaches disk without another force.
+        repo.update("https://example.com") { it.copy(javaScript = false) }
+        val saved = prefs.getString("sites", null)
+        assertTrue(saved != null && saved.contains("example.com"))
+        // And a fresh repository reads the repaired store back.
+        assertFalse(SiteSettingsRepository(context).get("https://example.com").javaScript)
+    }
+
+    @Test fun clearingPermissionsNeverOverwritesAnUnreadableStore() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        val corrupt = "{not json"
+        assertTrue(prefs.edit().putString("sites", corrupt).commit())
+        val repo = SiteSettingsRepository(context)
+        try {
+            repo.clearPermissions()
+            fail("Permission clearing must fail on an unreadable store")
+        } catch (_: IllegalStateException) { }
+        assertEquals(corrupt, prefs.getString("sites", null))
+        assertTrue(repo.needsRepair.value)
+        // The user declining the repair keeps the original bytes and the protection.
+        assertTrue(SiteSettingsRepository(context).needsRepair.value)
+        assertEquals(corrupt, prefs.getString("sites", null))
+    }
+
+    @Test fun repairedClearPermissionsOnlyRemovesPermissions() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().putString("sites", "{not json").commit())
+        val repo = SiteSettingsRepository(context)
+        repo.repair()
+        repo.update("https://example.com") {
+            it.copy(camera = SitePermission.ALLOW, javaScript = false, desktop = true, desktopWidth = 1440, enhancedPlayback = false)
+        }
+        repo.clearPermissions()
+        val restored = SiteSettingsRepository(context)
+        assertEquals(SitePermission.ASK, restored.get("https://example.com").camera)
+        assertFalse(restored.get("https://example.com").javaScript)
+        assertTrue(restored.get("https://example.com").desktop)
+        assertEquals(1440, restored.get("https://example.com").desktopWidth)
+        assertFalse(restored.get("https://example.com").useEnhancedPlayback(true))
+    }
+
     @Test fun enhancedPlaybackOverridesTheDefaultOnlyForTheSavedOrigin() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val repo = SiteSettingsRepository(context)
@@ -31,6 +102,22 @@ class SiteSettingsTest {
         assertFalse(restored.get("https://example.com").useEnhancedPlayback(true))
         restored.reset("https://example.com")
         assertNull(SiteSettingsRepository(context).get("https://example.com").enhancedPlayback)
+    }
+
+    @Test fun repairDoesNotEraseAHealthyStoreAndAliasIndexTracksEveryMutation() = runBlocking {
+        val repo = SiteSettingsRepository(RuntimeEnvironment.getApplication())
+        repo.update("https://m.example.com") { it.copy(desktop = true, desktopWidth = 1280, camera = SitePermission.BLOCK) }
+        assertEquals(1280, repo.get("https://www.example.com").desktopWidth)
+        assertEquals(SitePermission.ASK, repo.get("https://www.example.com").camera)
+        repo.repair()
+        assertTrue(repo.get("https://example.com").desktop)
+        repo.update("https://example.com") { it.copy(desktopWidth = 1440) }
+        assertEquals(1440, repo.get("https://m.example.com").desktopWidth)
+        repo.clearPermissions()
+        assertTrue(repo.get("https://www.example.com").desktop)
+        repo.reset("https://www.example.com")
+        assertFalse(repo.get("https://example.com").desktop)
+        assertFalse(repo.get("https://m.example.com").desktop)
     }
 
     @Test fun privatePlaybackOverridesDoNotChangeTheSavedWebsiteChoice() = runBlocking {

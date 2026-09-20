@@ -145,13 +145,11 @@ impl CosmeticMatcher {
         {
             let mut cache = self.cache.lock().unwrap_or_else(|error| error.into_inner());
             if let Some(index) = cache.entries.iter().position(|(key, _)| key == host) {
-                let entry = cache
-                    .entries
-                    .remove(index)
-                    .expect("position came from cache");
-                let css = Arc::clone(&entry.1);
-                cache.entries.push_front(entry);
-                return css;
+                if let Some(entry) = cache.entries.remove(index) {
+                    let css = Arc::clone(&entry.1);
+                    cache.entries.push_front(entry);
+                    return css;
+                }
             }
         }
         let css: Arc<str> = self.select(host).into();

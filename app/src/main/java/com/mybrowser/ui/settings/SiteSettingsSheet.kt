@@ -28,7 +28,8 @@ import com.mybrowser.ui.shell.LibrarySearchField
 fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Boolean, busy: Boolean,
     onSave: (SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
     onClearSiteData: (() -> Unit)? = null, temporaryFilteringOff: Boolean = false,
-    onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true) {
+    onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true,
+    needsRepair: Boolean = false, onRepair: () -> Unit = {}) {
     var draft by remember(origin, settings) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
     BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
@@ -39,6 +40,7 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null)) {
                 // Long origins and large fonts must not consume the fixed-height viewport.
                 Text(origin, style = MaterialTheme.typography.bodyMedium)
+                if (needsRepair) SiteStorageRepairNotice(busy, onRepair)
                 Text(stringResource(if (privateSession) R.string.site_private_scope else R.string.site_scope),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp))
@@ -112,12 +114,12 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 }
                 Text(stringResource(R.string.site_os_permission_note), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { confirmReset = true }, enabled = !busy) { Text(stringResource(R.string.site_reset)) }
+                TextButton(onClick = { confirmReset = true }, enabled = !busy && !needsRepair) { Text(stringResource(R.string.site_reset)) }
                 if (onClearSiteData != null) TextButton(onClick = onClearSiteData, enabled = !busy) { Text(stringResource(R.string.clear_this_site)) }
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.weight(1f).fillMaxHeight()) { Text(stringResource(R.string.action_cancel)) }
-                Button(onClick = { onSave(draft) }, enabled = !busy, modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Button(onClick = { onSave(draft) }, enabled = !busy && !needsRepair, modifier = Modifier.weight(1f).fillMaxHeight()) {
                     Text(stringResource(R.string.site_save_reload))
                 }
             }
@@ -130,11 +132,13 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
 }
 
 @Composable
-fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
+fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Unit, onDismiss: () -> Unit,
+    needsRepair: Boolean = false, busy: Boolean = false, onRepair: () -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 20.dp)) {
             BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
+            if (needsRepair) SiteStorageRepairNotice(busy, onRepair)
             LibrarySearchField(query, stringResource(R.string.site_search)) { query = it }
             val origins = sites.keys.filter { it.contains(query, true) }.sorted()
             if (origins.isEmpty()) Text(stringResource(R.string.site_none), modifier = Modifier.padding(vertical = 20.dp))
@@ -147,6 +151,21 @@ fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Un
             }
         }
     }
+}
+
+@Composable
+private fun SiteStorageRepairNotice(busy: Boolean, onRepair: () -> Unit) {
+    var confirm by remember { mutableStateOf(false) }
+    Text(stringResource(R.string.site_storage_unreadable), color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 8.dp))
+    TextButton(onClick = { confirm = true }, enabled = !busy) { Text(stringResource(R.string.site_repair)) }
+    if (confirm) AlertDialog(onDismissRequest = { confirm = false },
+        title = { Text(stringResource(R.string.site_repair)) },
+        text = { Text(stringResource(R.string.site_repair_confirm)) },
+        confirmButton = { TextButton(onClick = { confirm = false; onRepair() }, enabled = !busy) {
+            Text(stringResource(R.string.site_repair))
+        } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.action_cancel)) } })
 }
 
 @Composable

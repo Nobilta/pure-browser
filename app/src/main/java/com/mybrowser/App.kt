@@ -1,11 +1,8 @@
 package com.mybrowser
 
 import android.app.Application
-import android.content.ComponentCallbacks2
 import android.os.StrictMode
-import android.util.Log
 import android.webkit.WebView
-import com.mybrowser.core.WebViewPool
 import com.mybrowser.download.DownloadHandler
 import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.FilterSubscriptions
@@ -21,7 +18,6 @@ class App : Application() {
     val certificateWarnings = com.mybrowser.security.CertificateWarnings()
     val mediaSession by lazy { com.mybrowser.media.BrowserMediaSession(this) }
 
-    val webViewPool by lazy { WebViewPool(applicationContext) }
     private var webEnginePrepared = false
 
     /**
@@ -43,6 +39,12 @@ class App : Application() {
     // One writer per persisted store, including during Activity recreation.
     val siteSettings by lazy { com.mybrowser.site.SiteSettingsRepository(this) }
 
+    /**
+     * Process-scoped so the incognito suggestion cache outlives Activity recreation and
+     * can be wiped exactly once when the private session ends.
+     */
+    val searchSuggestionProvider by lazy { com.mybrowser.search.SearchSuggestionProvider() }
+
     /** Outlives every Activity; only used for work that must not be cancelled by rotation. */
     private val appScope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
@@ -63,6 +65,7 @@ class App : Application() {
     /** Checks once per process when the user left the launch check on; failures stay silent. */
     fun checkForStartupUpdate() {
         val enabled = runCatching { com.mybrowser.data.BrowserPreferencesRepository(this).load().autoCheckUpdates }
+            .onFailure { android.util.Log.w("App", "Unreadable preferences; assuming the startup check is on", it) }
             .getOrDefault(true)
         if (!enabled || !startupUpdateClaimed.compareAndSet(false, true)) return
         appScope.launch {
@@ -70,7 +73,10 @@ class App : Application() {
                 com.mybrowser.update.UpdateRepository(this@App).check()
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                // Silence is for the user: a check that cannot run must not interrupt startup, and
+                // it must not look like "already up to date" in a bug report either.
+                android.util.Log.w("App", "Startup update check failed", error)
                 null
             }
             if (offered != null && !startupUpdateAnswered.get()) startupUpdateOfferState.value = offered
@@ -116,25 +122,6 @@ class App : Application() {
         // Clean an abandoned private profile before the first browser window attaches.
         IncognitoProfile.deleteStaleProfile()
         webEnginePrepared = true
-    }
-
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-
-        // Since API 34, only UI_HIDDEN and BACKGROUND are still delivered. In API 37's
-        // android.jar: TRIM_MEMORY_RUNNING_{MODERATE,LOW,CRITICAL} and
-        // TRIM_MEMORY_{MODERATE,COMPLETE} all carry @Deprecated, and the RUNNING_* ones
-        // have not been delivered to apps since API 34. That leaves UI_HIDDEN (20) and
-        // BACKGROUND (40), both of which mean "we are no longer in front of the user"
-        // rather than "the device is short on memory".
-        //
-        // Consequence for the pool: there is no foreground memory-pressure signal to
-        // react to any more, so staying inside a memory budget has to come from bounding
-        // the pool up front (WebViewPool.maxSize) rather than from trimming on demand.
-        if (webEnginePrepared && level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-            Log.d(TAG, "onTrimMemory($level): backgrounded, releasing idle WebViews")
-            webViewPool.trim()
-        }
     }
 
     private fun enableStrictMode() {

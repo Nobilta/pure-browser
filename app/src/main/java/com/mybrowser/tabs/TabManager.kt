@@ -149,6 +149,10 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
         val tab = currentTab ?: return
         runCatching {
             tab.savedState = Bundle().takeIf { webView.saveState(it) != null }
+        }.onFailure {
+            // Losing this bundle only costs a document restore later; silence would make the
+            // regression invisible in a bug report.
+            android.util.Log.w("TabManager", "Could not save the page state for " + tab.id, it)
         }
         webView.url?.takeIf { it.isNotBlank() }?.let { tab.url = it }
         webView.title?.takeIf { it.isNotBlank() }?.let { tab.title = it }

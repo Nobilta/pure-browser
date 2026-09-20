@@ -51,6 +51,10 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeFree(
     }
 }
 
+/// Largest filter list accepted from the app. The bundled lists are ~4 MiB in total and the
+/// app caps each download at 8 MiB; this only refuses a payload that is already pathological.
+const MAX_LIST_BYTES: usize = 16 * 1024 * 1024;
+
 /// Parse `text` as an EasyList-syntax filter list and add its network rules.
 /// Returns the total rule count after loading, or -1 on failure.
 #[no_mangle]
@@ -68,6 +72,9 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeAddList(
         Ok(s) => s.into(),
         Err(_) => return -1,
     };
+    if text.len() > MAX_LIST_BYTES {
+        return -1;
+    }
 
     let engine = unsafe { &mut *(handle as *mut FilterEngine) };
     engine.unsupported += engine.network.load(&text).skipped_unsupported;
