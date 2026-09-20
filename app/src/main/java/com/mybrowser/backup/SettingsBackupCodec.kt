@@ -15,6 +15,10 @@ import org.json.JSONObject
 object SettingsBackupCodec {
 
     const val MAX_FILE_BYTES = 2 * 1024 * 1024
+    const val MAX_APP_VERSION_CHARS = 128
+    const val MAX_EXPORTED_AT_CHARS = 64
+    const val MAX_BUILT_IN_ID_CHARS = 64
+    const val MAX_BUILT_IN_ENTRIES = 64
 
     fun encode(backup: SettingsBackup): String {
         val root = JSONObject()
@@ -152,8 +156,8 @@ object SettingsBackupCodec {
         return SettingsBackup(
             format = SettingsBackup.FORMAT_ID,
             schemaVersion = schema,
-            appVersion = root.optString("appVersion", ""),
-            exportedAt = root.optString("exportedAt", ""),
+            appVersion = boundedMetadata(root, "appVersion", MAX_APP_VERSION_CHARS),
+            exportedAt = boundedMetadata(root, "exportedAt", MAX_EXPORTED_AT_CHARS),
             settings = BackupSettings(
                 browser = strictGroup(settingsObject, "browser")?.let(::decodeBrowser),
                 home = strictGroup(settingsObject, "home")?.let(::decodeHome),
@@ -297,11 +301,16 @@ object SettingsBackupCodec {
     private fun decodeFiltering(group: JSONObject): BackupFiltering {
         var builtIns: List<BackupBuiltInSubscription>? = null
         optionalArray(group, "builtIns")?.let { array ->
+            if (array.length() > MAX_BUILT_IN_ENTRIES) throw SettingsBackupException("Too many built-in subscriptions")
             builtIns = (0 until array.length()).map { index ->
                 val item = array.optJSONObject(index)
                     ?: throw SettingsBackupException("filtering.builtIns[$index] is not an object")
+                val id = requiredString(item, "id")
+                if (id.isBlank() || id.length > MAX_BUILT_IN_ID_CHARS) {
+                    throw SettingsBackupException("Built-in subscription id out of range")
+                }
                 BackupBuiltInSubscription(
-                    id = requiredString(item, "id"),
+                    id = id,
                     enabled = requiredBoolean(item, "enabled"),
                 )
             }
@@ -395,6 +404,12 @@ object SettingsBackupCodec {
     }
 
     // --- Strict, null-preserving accessors: absent = keep current, wrong type = reject. ---
+
+    private fun boundedMetadata(root: JSONObject, key: String, limit: Int): String {
+        val value = optionalString(root, key).orEmpty()
+        if (value.length > limit) throw SettingsBackupException("$key is too long")
+        return value
+    }
 
     private fun optionalObject(group: JSONObject, key: String): JSONObject? =
         if (!group.has(key) || group.isNull(key)) null else group.optJSONObject(key)

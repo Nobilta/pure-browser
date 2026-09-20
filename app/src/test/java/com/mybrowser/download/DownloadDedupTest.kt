@@ -185,7 +185,7 @@ class DownloadDedupTest {
         assertTrue(coordinator.blocked.value.isEmpty())
         assertTrue(coordinator.submit(request(url("?a=new"))) is DownloadRequestCoordinator.SubmitResult.Confirm)
         coordinator.selectTab("B")
-        assertEquals(url("?b=1"), coordinator.pending.value!!.url)
+        assertEquals(url("?b=1"), coordinator.pending.value!!.request.url)
         coordinator.retainTabs(setOf("A"))
         coordinator.selectTab("B")
         assertNull(coordinator.pending.value)
@@ -208,8 +208,8 @@ class DownloadDedupTest {
         val target = request(url("?explicit=1")).copy(contentLength = 12345)
         coordinator.submit(target)
         assertTrue(coordinator.requestBlocked(target.identity) { "fresh=1" } is DownloadRequestCoordinator.SubmitResult.Confirm)
-        assertEquals(12345L, coordinator.pending.value!!.contentLength)
-        assertEquals("fresh=1", coordinator.pending.value!!.cookieHeader)
+        assertEquals(12345L, coordinator.pending.value!!.request.contentLength)
+        assertEquals("fresh=1", coordinator.pending.value!!.request.cookieHeader)
         coordinator.rejectPending()
         assertTrue(coordinator.submit(target) is DownloadRequestCoordinator.SubmitResult.Suppressed)
     }
@@ -229,4 +229,79 @@ class DownloadDedupTest {
         assertTrue(handler.downloads.value.any { it.id == -99L && it.status == DownloadStatus.COMPLETED })
     }
 
+    @Test fun explicitCompletedImageConfirmsCopyLocallyOnEveryAttempt() {
+        seedCompleted()
+        val image = request(url()).copy(cookieHeader = "image=current")
+        repeat(2) {
+            assertTrue(coordinator.submitFromUser(image) is DownloadRequestCoordinator.SubmitResult.Confirm)
+            assertTrue(coordinator.pending.value!!.isNewCopy)
+            assertEquals("image=current", coordinator.pending.value!!.request.cookieHeader)
+            assertEquals(1, handler.downloads.value.size) // No transfer before confirmation.
+            coordinator.rejectPending()
+            assertTrue(coordinator.blocked.value.isEmpty())
+        }
+        assertTrue(coordinator.submit(image) is DownloadRequestCoordinator.SubmitResult.Suppressed)
+        assertTrue(coordinator.submitFromUser(image) is DownloadRequestCoordinator.SubmitResult.Confirm)
+        assertTrue(coordinator.confirmPending() is DownloadHandler.EnqueueOutcome.Started)
+        assertTrue(handler.downloads.value.any { it.id == -99L && it.status == DownloadStatus.COMPLETED })
+    }
+
+    @Test fun explicitImagesNeitherSpendNorDependOnAutomaticBudget() {
+        repeat(4) { index ->
+            assertTrue(coordinator.submitFromUser(request(url("?manual=$index"))) is DownloadRequestCoordinator.SubmitResult.Confirm)
+            assertFalse(coordinator.pending.value!!.isNewCopy)
+            coordinator.rejectPending()
+        }
+        repeat(3) { index ->
+            assertTrue(coordinator.submit(request(url("?auto=$index"))) is DownloadRequestCoordinator.SubmitResult.Confirm)
+            coordinator.rejectPending()
+        }
+        assertTrue(coordinator.submit(request(url("?auto=3"))) is DownloadRequestCoordinator.SubmitResult.Intercepted)
+        // The same rejected URL is still usable from a new deliberate long-press.
+        assertTrue(coordinator.submitFromUser(request(url("?manual=0"))) is DownloadRequestCoordinator.SubmitResult.Confirm)
+    }
+
+    @Test fun explicitUnfinishedImageAlwaysGivesANoticeWithoutAddingBlockedEntries() = runBlocking {
+        val id = (handler.enqueueOrGetExisting(url(), null, null, null) as DownloadHandler.EnqueueOutcome.Started).id
+        awaitDownloading(id)
+        repeat(2) {
+            val result = coordinator.submitFromUser(request(url()))
+            assertTrue(result is DownloadRequestCoordinator.SubmitResult.ExistingNotice)
+            assertNull(coordinator.pending.value)
+            assertTrue(coordinator.blocked.value.isEmpty())
+        }
+        handler.pause(id)
+        assertEquals(DownloadRequestCoordinator.SubmitResult.ExistingNotice(DownloadStatus.PAUSED),
+            coordinator.submitFromUser(request(url())))
+        assertEquals(1, handler.downloads.value.size)
+        assertTrue(coordinator.blocked.value.isEmpty())
+    }
+
+    @Test fun explicitRequestDoesNotReplaceAnUnansweredConfirmation() {
+        val first = request(url("?first"))
+        coordinator.submit(first)
+        assertEquals(DownloadRequestCoordinator.SubmitResult.ConfirmationBusy,
+            coordinator.submitFromUser(request(url("?second"))))
+        assertEquals(first, coordinator.pending.value!!.request)
+        assertTrue(coordinator.blocked.value.isEmpty())
+    }
+
+    @Test fun explicitPrivateImageDoesNotReuseANormalCompletedDownload() {
+        seedCompleted()
+        val image = request(url(), isPrivate = true).copy(cookieHeader = "private=current")
+        assertTrue(coordinator.submitFromUser(image) is DownloadRequestCoordinator.SubmitResult.Confirm)
+        assertFalse(coordinator.pending.value!!.isNewCopy)
+        assertTrue(coordinator.pending.value!!.request.isPrivate)
+        assertEquals("private=current", coordinator.pending.value!!.request.cookieHeader)
+    }
+
+    private fun seedCompleted() {
+        handler.close()
+        val entry = org.json.JSONObject().put("id", -99).put("backend", "LOCAL").put("url", url())
+            .put("filename", "old.bin").put("status", "COMPLETED").put("autoResumeAllowed", true)
+        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit()
+            .putString("entries", org.json.JSONArray().put(entry).toString()).commit()
+        handler = DownloadHandler(context)
+        coordinator = DownloadRequestCoordinator(handler)
+    }
 }

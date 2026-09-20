@@ -235,6 +235,43 @@ class SettingsBackupCodecTest {
         }
     }
 
+    @Test fun rejectsOversizedAndWronglyTypedPreviewMetadata() {
+        listOf("appVersion" to SettingsBackupCodec.MAX_APP_VERSION_CHARS,
+            "exportedAt" to SettingsBackupCodec.MAX_EXPORTED_AT_CHARS).forEach { (key, limit) ->
+            reject(edit { it.put(key, "x".repeat(limit + 1)) })
+            reject(edit { it.put(key, 123) })
+            reject(edit { it.put(key, JSONObject()) })
+        }
+        val crafted = edit { it.put("appVersion", "v".repeat(1_500_000)) }
+        assertTrue(crafted.toByteArray().size < SettingsBackupCodec.MAX_FILE_BYTES)
+        reject(crafted)
+    }
+
+    @Test fun acceptsMetadataBoundariesAndMissingOptionalMetadata() {
+        val boundary = SettingsBackupCodec.decode(edit {
+            it.put("appVersion", "v".repeat(SettingsBackupCodec.MAX_APP_VERSION_CHARS))
+            it.put("exportedAt", "t".repeat(SettingsBackupCodec.MAX_EXPORTED_AT_CHARS))
+        })
+        assertEquals(SettingsBackupCodec.MAX_APP_VERSION_CHARS, boundary.appVersion.length)
+        assertEquals(SettingsBackupCodec.MAX_EXPORTED_AT_CHARS, boundary.exportedAt.length)
+        val absent = SettingsBackupCodec.decode(edit { it.remove("appVersion"); it.put("exportedAt", JSONObject.NULL) })
+        assertEquals("", absent.appVersion)
+        assertEquals("", absent.exportedAt)
+    }
+
+    @Test fun boundsBuiltinIdsAndCountWhileKeepingUnknownIdsCompatible() {
+        fun withIds(ids: List<String>) = edit { root ->
+            val array = JSONArray()
+            ids.forEach { array.put(JSONObject().put("id", it).put("enabled", true)) }
+            root.getJSONObject("settings").getJSONObject("filtering").put("builtIns", array)
+        }
+        reject(withIds(listOf("x".repeat(SettingsBackupCodec.MAX_BUILT_IN_ID_CHARS + 1))))
+        reject(withIds(listOf(" ")))
+        reject(withIds(List(SettingsBackupCodec.MAX_BUILT_IN_ENTRIES + 1) { "future_$it" }))
+        val allowed = List(SettingsBackupCodec.MAX_BUILT_IN_ENTRIES) { "$it".padEnd(SettingsBackupCodec.MAX_BUILT_IN_ID_CHARS, 'x') }
+        assertEquals(allowed, SettingsBackupCodec.decode(withIds(allowed)).settings.filtering!!.builtIns!!.map { it.id })
+    }
+
     /** Re-encodes the full sample with one edit applied, so rejections target a real field. */
     private fun edit(block: (JSONObject) -> Unit): String {
         val root = JSONObject(encoded)
