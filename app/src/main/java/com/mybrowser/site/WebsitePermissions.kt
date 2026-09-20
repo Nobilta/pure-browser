@@ -78,7 +78,6 @@ class WebsitePermissions(
     private fun complete(request: Pending, allowed: Boolean, saveChoice: Boolean = true) {
         scope.launch {
             if (request.done || pending !== request || !request.isCurrent()) { request.finish(false); return@launch }
-            var result = allowed
             if (request.remember && saveChoice) {
                 try {
                     request.repository.update(request.prompt.origin) { current ->
@@ -89,9 +88,13 @@ class WebsitePermissions(
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     request.finish(false)
                     throw cancelled
-                } catch (_: Exception) { onSaveError(); result = false }
+                } catch (_: Exception) {
+                    // Persistence failure does not reverse the user's decision for
+                    // this request. Navigation/cancellation and OS grants still gate it.
+                    onSaveError()
+                }
             }
-            request.finish(result)
+            request.finish(allowed)
             if (pending === request) { pending = null; prompt = null }
         }
     }

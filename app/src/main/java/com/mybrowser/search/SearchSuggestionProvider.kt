@@ -18,14 +18,14 @@ import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 
 /**
- * Suggest endpoints for the built-in engines, verified 2026-09-20:
+ * Suggest endpoints for the built-in engines (protocol fixtures are covered in tests):
  *
  *  - Baidu — `https://www.baidu.com/su?wd={query}&json=1` answers with the restricted
  *    JSONP wrapper `window.baidu.sug({"q":…,"s":[…]})`; the `s` array holds plain terms.
  *  - Google — `https://www.google.com/complete/search?client=firefox&q={query}` answers
  *    with the osjson shape `["query",["term",…],[],{…}]`.
  *  - DuckDuckGo — `https://duckduckgo.com/ac/?q={query}&type=list` answers with the
- *    same osjson shape.
+ *    same osjson shape (also consumed as response[1] by SearXNG's DDG adapter).
  *  - Bing — no public suggest endpoint exists since the Autosuggest API retirement
  *    (2025-08); Bing is deliberately unsupported and never falls back to another engine.
  *

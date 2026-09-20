@@ -25,6 +25,60 @@ import java.util.concurrent.Executors
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadDedupTest {
+    @Test fun dismissingAnExistingShortcutDoesNotRepeatAutomaticManagerRouting() {
+        val item = request(url("?existing-dismissed"))
+        assertTrue(handler.enqueueOrGetExisting(item.url, null, null, null) is DownloadHandler.EnqueueOutcome.Started)
+        assertTrue(coordinator.submit(item) is DownloadRequestCoordinator.SubmitResult.Existing)
+        coordinator.removeBlocked(item.identity)
+        assertTrue(coordinator.submit(item) is DownloadRequestCoordinator.SubmitResult.Suppressed)
+        assertEquals(item.identity, coordinator.blocked.value.single().identity)
+    }
+    @Test fun dismissingARejectedEntryAllowsAnotherRequestWithoutResettingBudget() {
+        val item = request(url("?rejected"))
+        repeat(3) {
+            assertTrue(coordinator.submit(item) is DownloadRequestCoordinator.SubmitResult.Confirm)
+            coordinator.rejectPending()
+            coordinator.removeBlocked(item.identity)
+            assertTrue(coordinator.blocked.value.isEmpty())
+        }
+        assertTrue(coordinator.submit(item) is DownloadRequestCoordinator.SubmitResult.Intercepted)
+        assertEquals(DownloadRequestCoordinator.BlockedReason.BUDGET, coordinator.blocked.value.single().reason)
+        assertTrue(coordinator.requestBlocked(item.identity) { null } is DownloadRequestCoordinator.SubmitResult.Confirm)
+    }
+
+    @Test fun freshBlockedDownloadsReplaceExistingTaskShortcuts() = runBlocking {
+        repeat(5) { index ->
+            val item = request(url("?existing=$index"))
+            handler.enqueueOrGetExisting(item.url, null, null, null)
+            assertTrue(coordinator.submit(item) is DownloadRequestCoordinator.SubmitResult.Existing)
+        }
+        assertEquals(5, coordinator.blocked.value.size)
+        assertTrue(coordinator.submit(request(url("?pending"))) is DownloadRequestCoordinator.SubmitResult.Confirm)
+        val fresh = request(url("?fresh"))
+        assertTrue(coordinator.submit(fresh) is DownloadRequestCoordinator.SubmitResult.Intercepted)
+        assertEquals(5, coordinator.blocked.value.size)
+        assertEquals(0, coordinator.overflow.value)
+        assertEquals(DownloadRequestCoordinator.BlockedReason.LIMIT,
+            coordinator.blocked.value.single { it.identity == fresh.identity }.reason)
+        coordinator.rejectPending()
+        assertTrue(coordinator.requestBlocked(fresh.identity) { null } is DownloadRequestCoordinator.SubmitResult.Confirm)
+    }
+
+    @Test fun endedPrivateDownloadSessionCannotClaimTheSameUrlInTheNextSession() {
+        val target = url("?private-session")
+        val firstScope = handler.rotatePrivateScope()
+        val first = handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
+        assertTrue(first is DownloadHandler.EnqueueOutcome.Started)
+        assertNotNull(handler.existingTaskFor(target, true))
+        handler.endPrivateScope()
+        assertNull(handler.existingTaskFor(target, true))
+        assertNotEquals(firstScope, handler.rotatePrivateScope())
+        assertNull(handler.existingTaskFor(target, true))
+        val next = handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
+        assertTrue(next is DownloadHandler.EnqueueOutcome.Started)
+        assertNotEquals((first as DownloadHandler.EnqueueOutcome.Started).id,
+            (next as DownloadHandler.EnqueueOutcome.Started).id)
+    }
     private val context get() = RuntimeEnvironment.getApplication()
     private lateinit var server: HttpServer
     private lateinit var handler: DownloadHandler

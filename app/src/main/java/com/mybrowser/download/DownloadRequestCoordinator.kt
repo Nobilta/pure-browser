@@ -166,6 +166,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
 
     fun removeBlocked(identity: String) {
         document.blocked = document.blocked.filterNot { it.identity == identity }
+        document.rejected.remove(identity)
         publish()
     }
 
@@ -180,6 +181,12 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
     private fun recordBlocked(request: Request, reason: BlockedReason) {
         val state = document
         if (state.blocked.any { it.identity == request.identity }) return
+        // Existing tasks already have another entry point in Downloads. Preserve a
+        // new blocked request ahead of these shortcuts when the bounded list is full.
+        if (state.blocked.size >= MAX_BLOCKED_ENTRIES && reason != BlockedReason.EXISTING) {
+            val replaceable = state.blocked.firstOrNull { it.reason == BlockedReason.EXISTING }
+            if (replaceable != null) state.blocked = state.blocked - replaceable
+        }
         if (state.blocked.size >= MAX_BLOCKED_ENTRIES) {
             state.overflow = (state.overflow.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         } else state.blocked = state.blocked + BlockedEntry(request, reason)

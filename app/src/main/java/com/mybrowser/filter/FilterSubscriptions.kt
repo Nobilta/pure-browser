@@ -250,9 +250,14 @@ class FilterSubscriptions(
     }
 
     /** Updates enabled subscriptions by default; a row's explicit update may target a disabled one. */
-    suspend fun update(id: String? = null): Boolean = mutate {
+    suspend fun update(id: String? = null): Boolean = updateMatching { if (id == null) it.enabled else it.id == id }
+
+    /** First payloads for imported enabled custom lists; no unrelated refreshes. */
+    suspend fun updateMissing(): Boolean = updateMatching { !it.builtIn && it.enabled && it.file == null }
+
+    private suspend fun updateMatching(matches: (Subscription) -> Boolean): Boolean = mutate {
         var allSucceeded = true
-        val targets = _subscriptions.value.filter { if (id == null) it.enabled else it.id == id }
+        val targets = _subscriptions.value.filter(matches)
         for (target in targets) {
             try {
                 val hasSnapshot = target.file != null && readSavedPayload(target) != null

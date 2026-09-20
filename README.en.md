@@ -29,8 +29,8 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Loading and recovery**: loading feedback while waiting for a response, with a built-in recovery page for failed loads.
 - **Immersive fullscreen**: hide the system bars and browser toolbar so the page fills the screen; a floating button keeps browser actions reachable, and exiting takes effect immediately without reloading the page.
 - **Offline QR scanning**: scan with the camera or read a code from an image, without an internet connection.
-- **Personalisation**: customise the home page, place the address bar at the top or bottom, and choose English, Simplified Chinese or Traditional Chinese; settings can be exported to a file and imported on another device, with each group confirmed only after it has been saved.
-- **Privacy controls**: incognito browsing, per-site permissions, and browsing history and site data cleanup; unreadable website settings can be reset after confirmation to restore saving.
+- **Personalisation**: customise the home page, place the address bar at the top or bottom, and choose English, Simplified Chinese or Traditional Chinese; settings can be exported to a file and imported on another device, with each group confirmed only after it has been saved. Enabled subscriptions then download any missing rules.
+- **Privacy controls**: incognito browsing, per-site permissions, and browsing history and site data cleanup; unreadable website settings can be reset after confirmation to restore saving. Page navigation waits for private data cleanup to finish.
 
 See the [feature guide](FEATURES.md) for details, website compatibility and incognito limitations.
 The linked development and reference guides are currently in Chinese.

@@ -48,6 +48,9 @@ WebView 宿主与弹窗单元测试覆盖 Activity 绑定、交接期间销毁�
 
 ## 模拟器回归
 
+并发与会话的 JVM 回归覆盖清理回调延迟/失败重试、Activity 等待者替换、ViewModel 结束下载会话、导出前订阅初始化、导入首次规则更新，以及拒绝下载恢复和拦截条目优先级。
+联想测试使用本地响应核对 OpenSearch/JSONP 与深嵌套失败处理；这些测试不能证明远程服务可达或真实 Chromium 的行为。
+
 三个平台都可以本地运行这套回归：需要 API 30 以上的 `google_apis` 镜像（`adb root` 可用，
 Play Store 镜像不行），ABI 与本机一致——Apple Silicon 用 arm64-v8a，x86_64 主机用 x86_64。
 脚本会写入书签、下载和站点数据，请使用专用模拟器。

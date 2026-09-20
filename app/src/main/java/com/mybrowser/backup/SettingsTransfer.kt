@@ -38,7 +38,7 @@ data class ImportPreview(
 )
 
 /** Honest per-group outcome: exactly what was written and what failed. */
-data class ApplyResult(val applied: List<String>, val failed: List<String>)
+data class ApplyResult(val applied: List<String>, val failed: List<String>, val pendingFilterUpdates: Int = 0)
 
 /**
  * Collects a whitelist export and applies an import through the existing repositories.
@@ -52,6 +52,9 @@ class SettingsTransfer(
     private val filter: FilterController,
     private val filterSubscriptions: FilterSubscriptions,
     private val sites: SiteSettingsRepository,
+    private val onPendingFilterUpdates: () -> Unit = {
+        (context.applicationContext as? com.mybrowser.App)?.updateImportedFilters()
+    },
 ) {
     private val appContext = context.applicationContext
 
@@ -60,7 +63,9 @@ class SettingsTransfer(
         private val importLock = Mutex()
     }
 
-    fun collect(appVersion: String): SettingsBackup {
+    suspend fun collect(appVersion: String): SettingsBackup {
+        filterSubscriptions.initialize()
+        val subscriptions = filterSubscriptions.subscriptions.value
         val preferences = BrowserPreferencesRepository(appContext).load()
         val home = HomeRepository(appContext).loadSettings()
         val engines = SearchEngineManager(appContext)
@@ -114,9 +119,9 @@ class SettingsTransfer(
                 filtering = BackupFiltering(
                     enabled = filter.enabled.value,
                     autoUpdate = filterSubscriptions.autoUpdate.value,
-                    builtIns = filterSubscriptions.subscriptions.value
+                    builtIns = subscriptions
                         .filter { it.builtIn }.map { BackupBuiltInSubscription(it.id, it.enabled) },
-                    customSubscriptions = filterSubscriptions.subscriptions.value
+                    customSubscriptions = subscriptions
                         .filter { !it.builtIn }.map { BackupCustomSubscription(it.name, it.url, it.enabled) },
                 ),
                 sites = sites.entries.value.map { (origin, settings) ->
@@ -247,6 +252,7 @@ class SettingsTransfer(
     private suspend fun applyValidated(backup: SettingsBackup): ApplyResult {
         val applied = mutableListOf<String>()
         val failed = mutableListOf<String>()
+        var pendingFilterUpdates = 0
         val settings = backup.settings
 
         settings.browser?.let { browser ->
@@ -325,7 +331,13 @@ class SettingsTransfer(
                     builtInStates, customs, filtering.enabled, filtering.autoUpdate,
                 )
                 require(outcome.ok) { "Unable to import filter configuration" }
-            }.onSuccess { applied += "filtering" }.onFailure { failed += "filtering" }
+                pendingFilterUpdates = outcome.pendingUpdates
+            }.onSuccess {
+                applied += "filtering"
+                // A scheduler failure cannot turn a committed configuration into a
+                // reported write failure. Missing payloads stay visible for manual retry.
+                if (pendingFilterUpdates > 0) runCatching { onPendingFilterUpdates() }
+            }.onFailure { failed += "filtering" }
         }
 
         settings.sites?.takeIf { !sites.needsRepair.value }?.let { siteList ->
@@ -353,6 +365,6 @@ class SettingsTransfer(
             }.onSuccess { applied += "sites" }.onFailure { failed += "sites" }
         } ?: settings.sites?.let { failed += "sites" }
 
-        return ApplyResult(applied, failed)
+        return ApplyResult(applied, failed, pendingFilterUpdates)
     }
 }

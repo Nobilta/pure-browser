@@ -713,7 +713,7 @@
     <string name="settings_import_incognito_on_note">将开启无痕模式；下次冷启动进入无痕会话</string>
     <string name="settings_import_incognito_off_note">将关闭无痕模式；当前无痕标签会被关闭</string>
     <string name="settings_import_engines_note">自定义搜索引擎：导入 %1$d 个，替换现有 %2$d 个</string>
-    <string name="settings_import_subscriptions_note">自定义过滤订阅：导入 %1$d 个，替换现有 %2$d 个；规则在下次更新时下载</string>
+    <string name="settings_import_subscriptions_note">自定义过滤订阅：导入 %1$d 项，替换原有 %2$d 项；导入后下载已启用订阅缺少的规则</string>
     <string name="settings_import_sites_note">站点偏好：导入 %1$d 个（现有 %2$d 个）；未列出的站点恢复默认，权限不受影响</string>
     <string name="settings_import_unknown_builtins_note">忽略未知的内置订阅：%1$s</string>
     <string name="settings_import_directory_note">文件建议使用自定义下载目录；本机无授权时将使用系统下载目录</string>
@@ -735,4 +735,9 @@
     <string name="download_copy_action">保存副本</string>
     <string name="download_existing_active">此文件已在下载或等待下载</string>
     <string name="download_existing_paused">此下载已暂停，可在下载管理中继续</string>
+    <string name="filter_pending_download">尚未下载规则，更新后此订阅才会生效</string>
+    <string name="settings_import_filter_updates">首次规则下载：%1$d 个订阅。可在过滤设置查看结果。</string>
+    <string name="site_permission_not_remembered">本次按你的选择处理，但未能记住。请检查或重置网站设置。</string>
+    <string name="privacy_cleanup_title">清理无痕数据</string>
+    <string name="privacy_cleanup_failed">无痕数据清理失败，成功清理前已暂停网页访问。请重试或退出浏览器。</string>
 </resources>

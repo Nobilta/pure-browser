@@ -34,6 +34,8 @@ class App : Application() {
 
     /** Process-scoped so Activity recreation never cancels an in-flight download. */
     val downloadHandler by lazy { DownloadHandler(applicationContext) }
+    // Cleanup outlives both configuration changes and closing/reopening the window.
+    val privacyMode by lazy { com.mybrowser.privacy.PrivacyMode(this) }
     lateinit var castController: com.mybrowser.dlna.CastController
         private set
     // One writer per persisted store, including during Activity recreation.
@@ -47,6 +49,10 @@ class App : Application() {
 
     /** Outlives every Activity; only used for work that must not be cancelled by rotation. */
     private val appScope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+
+    fun updateImportedFilters() {
+        appScope.launch { filterSubscriptions.updateMissing() }
+    }
 
     /**
      * The startup update check belongs to the process, not to an Activity. The claim makes it
