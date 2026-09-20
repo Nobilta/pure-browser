@@ -18,8 +18,8 @@ import android.webkit.SafeBrowsingResponse
  * Navigation, errors, and the render-process lifecycle.
  *
  * Everything requiring UI (dialogs, prompts) is delegated upward through [Listener]
- * rather than handled here, so this class stays usable from a pooled WebView whose
- * host Activity may be swapped.
+ * rather than handled here. Each instance belongs to its Activity; a hidden member
+ * of a live popup group uses PopupWebViewClient and its own document state.
  */
 @SuppressLint("MissingOnRenderProcessGone")
 class BrowserWebViewClient(

@@ -3,6 +3,7 @@ package com.mybrowser.filter
 import android.content.Context
 import android.util.AtomicFile
 import androidx.core.content.edit
+import com.mybrowser.data.commitConfirmed
 import com.mybrowser.R
 import com.mybrowser.core.TextDownloader
 import com.mybrowser.core.writeUtf8
@@ -20,8 +21,9 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Process-scoped subscriptions. Immutable content files + an atomic manifest ensure an
- * interrupted or invalid update cannot discard the last working list.
+ * Process-scoped subscriptions. Immutable content files plus a confirmed preference-file
+ * manifest preserve the last working list. The manifest shares storage with the global
+ * switches so settings imports can commit the entire filtering group in one edit.
  */
 class FilterSubscriptions(
     context: Context,
@@ -50,7 +52,7 @@ class FilterSubscriptions(
 
     private val appContext = context.applicationContext
     private val directory = File(appContext.filesDir, "filter_subscriptions")
-    private val manifest = AtomicFile(File(directory, "subscriptions.json"))
+    private val legacyManifest = AtomicFile(File(directory, "subscriptions.json"))
     private val prefs = appContext.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
     private val mutex = Mutex()
     private var initialized = false
@@ -71,7 +73,10 @@ class FilterSubscriptions(
         if (initialized) return
         directory.mkdirs()
         val saved = runCatching {
-            manifest.openRead().use { JSONArray(TextDownloader.readText(it, 256 * 1024)) }
+            val text = prefs.getString(MANIFEST_KEY, null)
+                ?: legacyManifest.openRead().use { TextDownloader.readText(it, 256 * 1024) }
+            require(text.length <= 256 * 1024)
+            JSONArray(text)
         }.getOrNull()
         val records = mutableMapOf<String, JSONObject>()
         if (saved != null) for (i in 0 until minOf(saved.length(), MAX_CUSTOM_LISTS + builtIns.size)) {
@@ -172,6 +177,78 @@ class FilterSubscriptions(
         true
     }
 
+    /** Result of a config-only import: success plus how many lists await their first download. */
+    data class ImportOutcome(val ok: Boolean, val pendingUpdates: Int)
+
+    /**
+     * Applies subscription configuration from a settings import. This is config-only:
+     * no network requests. Custom lists with an existing local snapshot (same URL) keep
+     * their cached rules; new ones start without a payload and show up as pending an
+     * update. Unknown built-in ids must be filtered out by the caller.
+     *
+     * A null [customLists] means the file said nothing about custom subscriptions and
+     * the current ones are kept untouched; an explicit (possibly empty) list replaces
+     * them wholesale, so "absent" and "cleared" stay distinguishable.
+     */
+    suspend fun importConfiguration(
+        builtInStates: Map<String, Boolean>,
+        customLists: List<Triple<String, String, Boolean>>?,
+        enabled: Boolean? = null,
+        autoUpdate: Boolean? = null,
+    ): ImportOutcome = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            _busy.value = true
+            _lastError.value = null
+            try {
+                customLists?.let { validateCustomLists(it, builtIns.map { source -> source.url }.toSet()) }
+                initializeLocked()
+                val current = _subscriptions.value
+                var next = current.map { subscription ->
+                    if (subscription.builtIn && subscription.id in builtInStates) {
+                        subscription.copy(enabled = builtInStates.getValue(subscription.id))
+                    } else {
+                        subscription
+                    }
+                }
+                if (customLists != null) {
+                    next = next.filter { it.builtIn } // custom lists are replaced wholesale
+                    require(customLists.size <= MAX_CUSTOM_LISTS) { "Subscription limit reached" }
+                    for ((name, url, enabled) in customLists) {
+                        val cleanName = name.trim()
+                        val cleanUrl = url.trim()
+                        require(cleanName.isNotEmpty() && cleanName.length <= 128 && TextDownloader.isHttpUrl(cleanUrl))
+                        // Reuse a cached payload when the same URL was already subscribed here.
+                        val cached = current.firstOrNull { !it.builtIn && it.url == cleanUrl }
+                        next += (cached?.copy(name = cleanName, enabled = enabled)
+                            ?: Subscription(TextDownloader.sha256(cleanUrl).take(16), cleanName, cleanUrl, enabled = enabled))
+                    }
+                }
+                checkSize(next)
+                persist(next, enabled, autoUpdate)
+                _subscriptions.value = next
+                filter?.reloadEnabledPreference()
+                _autoUpdate.value = prefs.getBoolean("auto_update", true)
+                // Scheduling is derived from the durable preference and retried at app
+                // startup. A scheduler failure cannot undo a successful configuration commit.
+                runCatching { FilterUpdateJob.schedule(appContext, _autoUpdate.value) }
+                cleanup()
+                ImportOutcome(ok = true, pendingUpdates = next.count { !it.builtIn && it.enabled && it.file == null })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _lastError.value = appContext.getString(R.string.filter_operation_failed)
+                ImportOutcome(ok = false, pendingUpdates = 0)
+            } finally {
+                try {
+                    // A committed snapshot must reach the engine even when its UI closes.
+                    withContext(NonCancellable) { if (initialized) rebuild() }
+                } finally {
+                    _busy.value = false
+                }
+            }
+        }
+    }
+
     /** Updates enabled subscriptions by default; a row's explicit update may target a disabled one. */
     suspend fun update(id: String? = null): Boolean = mutate {
         var allSucceeded = true
@@ -262,14 +339,23 @@ class FilterSubscriptions(
         filter?.replaceLists(enabled.map { it.second }, enabled.map { it.first })?.join()
     }
 
-    private fun persist(lists: List<Subscription>) {
+    private fun persist(lists: List<Subscription>, enabled: Boolean? = null, autoUpdate: Boolean? = null) {
         val array = JSONArray()
         lists.forEach { list ->
             array.put(JSONObject().put("id", list.id).put("name", list.name).put("url", list.url)
                 .put("enabled", list.enabled).put("file", list.file).put("updatedAt", list.updatedAt)
                 .put("checkedAt", list.checkedAt).put("etag", list.etag).put("modified", list.modified))
         }
-        manifest.writeUtf8(array.toString())
+        val text = array.toString()
+        require(text.length <= 256 * 1024) { "Subscription manifest too large" }
+        prefs.commitConfirmed(buildMap {
+            put(MANIFEST_KEY, text)
+            enabled?.let { put("enabled", it) }
+            autoUpdate?.let { put("auto_update", it) }
+        })
+        // The old AtomicFile is read only until the first successful migration/write.
+        // Its payload filenames and HTTP validators are preserved verbatim in the JSON.
+        legacyManifest.delete()
     }
 
     private fun cleanup() {
@@ -278,6 +364,19 @@ class FilterSubscriptions(
     }
 
     companion object {
+        /** Shared by decode, whole-file preflight and the repository write boundary. */
+        fun validateCustomLists(lists: List<Triple<String, String, Boolean>>, builtInUrls: Set<String> = BUILT_INS.map { it.url }.toSet()) {
+            require(lists.size <= MAX_CUSTOM_LISTS) { "Subscription limit reached" }
+            val urls = lists.map { it.second.trim() }
+            require(urls.toSet().size == urls.size) { "Duplicate subscription URL" }
+            require(urls.none { it in builtInUrls }) { "Custom subscription duplicates a built-in list" }
+            lists.forEach { (name, url, _) ->
+                require(name.trim().length in 1..128) { "Subscription name out of range" }
+                require(TextDownloader.isHttpUrl(url.trim())) { "Invalid subscription URL" }
+            }
+        }
+
+        private const val MANIFEST_KEY = "subscriptions_manifest"
         const val MAX_CUSTOM_LISTS = 32
         private val ID = Regex("[a-f0-9]{16}")
         private val SNAPSHOT = Regex("[a-z0-9-]+-[a-f0-9]{64}\\.txt")

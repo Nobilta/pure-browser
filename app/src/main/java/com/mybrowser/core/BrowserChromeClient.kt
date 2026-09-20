@@ -33,6 +33,7 @@ class BrowserChromeClient(
 
         fun onProgressChanged(progress: Int)
         fun onTitleChanged(title: String?)
+        fun onBackgroundTitleChanged(view: WebView, title: String?) {}
         fun onIconChanged(icon: Bitmap?)
 
         /** JavaScript console output from the current WebView. */
@@ -62,6 +63,9 @@ class BrowserChromeClient(
         /** Chromium has replaced the popup's native contents; document scripts can be registered. */
         fun onPopupContentsAttached(view: WebView, opener: WebView) {}
         fun onCloseWindow()
+        fun onCloseWindow(window: WebView) {
+            if (isCurrentWebView(window)) onCloseWindow()
+        }
 
         /**
          * JS dialog. Host must eventually call confirm()/cancel() on the result, and
@@ -84,7 +88,10 @@ class BrowserChromeClient(
     }
 
     override fun onReceivedTitle(view: WebView, title: String?) {
-        if (!listener.isCurrentWebView(view)) return
+        if (!listener.isCurrentWebView(view)) {
+            listener.onBackgroundTitleChanged(view, title)
+            return
+        }
         listener.onTitleChanged(title)
     }
 
@@ -197,8 +204,7 @@ class BrowserChromeClient(
     }
 
     override fun onCloseWindow(window: WebView) {
-        if (!listener.isCurrentWebView(window)) return
-        listener.onCloseWindow()
+        listener.onCloseWindow(window)
     }
 
     // --- JS dialogs ---

@@ -29,6 +29,26 @@ data class BrowserPreferences(
     val swipeTabs: Boolean = false,
     /** Check the public release manifest once per process start and offer a newer build. */
     val autoCheckUpdates: Boolean = true,
+    /**
+     * The user's wish to browse incognito. Persisted across restarts, unlike the live
+     * session in PrivacyMode: every cold start opens a brand-new incognito session and
+     * never restores private tabs or cookies.
+     */
+    val incognitoEnabled: Boolean = false,
+    /** Online search suggestions in normal mode; the input is sent to the current engine. */
+    val searchSuggestionsEnabled: Boolean = true,
+    /**
+     * Online search suggestions in incognito. Off by default: the user must opt in
+     * before any incognito input leaves the device.
+     */
+    val privateSearchSuggestionsEnabled: Boolean = false,
+    /**
+     * The user's wish for immersive browsing: system bars, omnibar and toolbar stay
+     * hidden and the page fills the screen. A small floating entry point keeps
+     * browser actions reachable; unlike video fullscreen this never recreates the
+     * WebView or changes the profile.
+     */
+    val browserFullscreenEnabled: Boolean = false,
 )
 
 /** UI preferences only; URLs, cookies and temporary playback state never enter this store. */
@@ -39,6 +59,10 @@ class BrowserPreferencesRepository(context: Context) {
         bottomAddressBar = prefs.getBoolean("bottom_address_bar", false),
         swipeTabs = prefs.getBoolean("swipe_tabs", false),
         autoCheckUpdates = prefs.getBoolean("auto_check_updates", true),
+        incognitoEnabled = prefs.getBoolean("incognito_enabled", false),
+        searchSuggestionsEnabled = prefs.getBoolean("search_suggestions_enabled", true),
+        privateSearchSuggestionsEnabled = prefs.getBoolean("private_search_suggestions_enabled", false),
+        browserFullscreenEnabled = prefs.getBoolean("browser_fullscreen_enabled", false),
         theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM").orEmpty()) }
             .getOrDefault(ThemeMode.SYSTEM),
         video = VideoPreferences(
@@ -55,27 +79,44 @@ class BrowserPreferencesRepository(context: Context) {
         ),
     )
 
-    fun save(value: BrowserPreferences): BrowserPreferences {
+    /**
+     * Persists the incognito wish with a confirmed result. A mode switch must only happen
+     * after this succeeds, so unlike [save] this reports the disk write instead of firing
+     * and forgetting. Call from an IO dispatcher.
+     */
+    fun saveIncognitoEnabled(value: Boolean): Boolean =
+        prefs.edit().putBoolean("incognito_enabled", value).commit()
+
+    /** Restore the in-memory value too: a failed commit must not enable fullscreen on reload. */
+    fun saveBrowserFullscreenEnabled(value: Boolean): Boolean =
+        runCatching { prefs.commitConfirmed(mapOf("browser_fullscreen_enabled" to value)) }.isSuccess
+
+    fun save(value: BrowserPreferences, confirmed: Boolean = false): BrowserPreferences {
         val video = value.video.copy(
             boostRate = value.video.boostRate.takeIf { it in PlaybackSpeed.BOOST_OPTIONS } ?: 2f,
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
         )
-        prefs.edit {
-            putBoolean("video_auto_pip", video.automaticPip)
-            putBoolean("video_background", video.backgroundPlayback)
-            putBoolean("bottom_address_bar", value.bottomAddressBar)
-            putBoolean("swipe_tabs", value.swipeTabs)
-            putBoolean("auto_check_updates", value.autoCheckUpdates)
-            putString("theme", value.theme.name)
-            .putBoolean("video_controls", video.enhancedControls)
-            .putBoolean("video_vertical", video.verticalGestures)
-            .putBoolean("video_seek", video.horizontalSeek)
-            .putBoolean("video_hold", video.holdToBoost)
-            .putFloat("video_boost", video.boostRate)
-            .putBoolean("video_landscape", video.landscapeFullscreen)
-            .putBoolean("video_remember_speed", video.rememberSpeed)
-            .putFloat("video_speed", video.preferredSpeed)
-        }
+        val values = mapOf(
+            "video_auto_pip" to video.automaticPip,
+            "video_background" to video.backgroundPlayback,
+            "bottom_address_bar" to value.bottomAddressBar,
+            "swipe_tabs" to value.swipeTabs,
+            "auto_check_updates" to value.autoCheckUpdates,
+            "incognito_enabled" to value.incognitoEnabled,
+            "search_suggestions_enabled" to value.searchSuggestionsEnabled,
+            "private_search_suggestions_enabled" to value.privateSearchSuggestionsEnabled,
+            "browser_fullscreen_enabled" to value.browserFullscreenEnabled,
+            "theme" to value.theme.name,
+            "video_controls" to video.enhancedControls,
+            "video_vertical" to video.verticalGestures,
+            "video_seek" to video.horizontalSeek,
+            "video_hold" to video.holdToBoost,
+            "video_boost" to video.boostRate,
+            "video_landscape" to video.landscapeFullscreen,
+            "video_remember_speed" to video.rememberSpeed,
+            "video_speed" to video.preferredSpeed,
+        )
+        if (confirmed) prefs.commitConfirmed(values) else prefs.edit { putValues(values) }
         return value.copy(video = video)
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,8 @@ import com.mybrowser.data.HistoryManager
 import com.mybrowser.home.HomeShortcut
 import com.mybrowser.home.ShortcutIconChange
 import com.mybrowser.home.ShortcutSaveResult
+import com.mybrowser.search.SearchEngine
+import com.mybrowser.search.SearchSuggestionProvider
 import com.mybrowser.ui.home.HomeDashboard
 
 /**
@@ -101,12 +106,22 @@ fun BrowserScreen(
     onNewTab: () -> Unit = onTabs,
     bottomAddressBar: Boolean = false,
     swipeTabs: Boolean = false,
+    /** The persistent immersive preference; video fullscreen overrides it on screen. */
+    isBrowserFullscreen: Boolean = false,
+    onRevealChrome: () -> Unit = {},
+    onContinueFullscreen: () -> Unit = {},
+    onExitBrowserFullscreen: () -> Unit = {},
     onSwitchTab: (Int) -> Unit = {},
     onRetryPage: () -> Unit = onReloadOrStop,
     onSecurityClick: () -> Unit = {},
     onScanQr: () -> Unit = {},
     bookmarkManager: BookmarkManager? = null,
     historyManager: HistoryManager? = null,
+    searchEngine: SearchEngine = SearchEngine.BAIDU,
+    onlineSuggestionsEnabled: Boolean = false,
+    suggestionProvider: SearchSuggestionProvider? = null,
+    /** Searches the exact text with the current engine, bypassing URL-vs-search guessing. */
+    onOmnibarSearch: (String) -> Unit = {},
     // Read by the caller from TabManager's snapshot state; keeping it in the parameter
     // makes title/favicon mutations recompose this screen even though TabState fields are
     // intentionally lightweight mutable records.
@@ -121,6 +136,21 @@ fun BrowserScreen(
         focusManager.clearFocus()
         state.onOmnibarFocusChange(false)
         keyboard?.hide()
+    }
+
+    // Immersive mode only owns the screen while no video is fullscreen; video keeps its
+    // own controls and hides the floating entry.
+    val immersiveActive = isBrowserFullscreen && !isVideoFullscreen
+    // Revealed chrome is shown in full: the scroll-collapse flag must not eat it.
+    val chromeShown = !isVideoFullscreen && (!isBrowserFullscreen || state.isChromeRevealed)
+    val chromeForced = immersiveActive && state.isChromeRevealed
+    LaunchedEffect(immersiveActive) { state.onImmersiveFullscreenChanged(immersiveActive) }
+
+    // While immersive, back first leaves the revealed state (closing the find bar if it
+    // is up) before the Activity's dispatcher gets to exit fullscreen. Registered before
+    // the omnibar handler below, so omnibar editing still wins when both apply.
+    BackHandler(enabled = immersiveActive && state.isChromeRevealed && !state.isOmnibarFocused) {
+        if (state.isFindBarVisible) onFindClose() else state.hideChrome()
     }
 
     // Only the omnibar-focused case is handled here, because clearing focus needs a
@@ -171,7 +201,7 @@ fun BrowserScreen(
         // Keep the underlying WebView nonzero in a small PiP window. Reserving
         // address/toolbar height there makes Chromium exit HTML fullscreen.
         AnimatedVisibility(
-            visible = !isVideoFullscreen,
+            visible = chromeShown,
             enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Top),
             exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Top),
         ) {
@@ -217,7 +247,7 @@ fun BrowserScreen(
             }
 
             AnimatedVisibility(
-                visible = !state.isToolbarHidden || showHomeDashboard,
+                visible = !state.isToolbarHidden || showHomeDashboard || chromeForced,
                 enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Top),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Top),
             ) {
@@ -290,10 +320,12 @@ fun BrowserScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            // PageOverlay keeps these four inside the page box: a plain AnimatedVisibility here
+            // PageOverlay keeps these five inside the page box: a plain AnimatedVisibility here
             // resolves to the ColumnScope overload of the outer layout instead.
+            // The cast FAB folds into the browser-actions entry while immersive, so the
+            // corner never stacks two floating buttons.
             PageOverlay(
-                visible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused,
+                visible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused && !immersiveActive,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
@@ -318,6 +350,41 @@ fun BrowserScreen(
                 }
             }
 
+            // The immersive entry point: one low-distraction native button that brings
+            // the omnibar and toolbar back. 56dp FAB with a 24dp icon satisfies the
+            // touch-target floor, and the insets padding keeps it clear of cutouts.
+            PageOverlay(
+                visible = immersiveActive && !state.isChromeRevealed,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                        ),
+                    )
+                    .padding(20.dp),
+                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
+                    scaleIn(animationSpec = BrowserMotion.localEnter, initialScale = 0.8f),
+                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
+                    scaleOut(animationSpec = BrowserMotion.localExit, targetScale = 0.85f),
+            ) {
+                FloatingActionButton(
+                    onClick = onRevealChrome,
+                    // Incognito stays visually loud on the entry point, like the top bar tint.
+                    containerColor = if (isIncognito) MaterialTheme.colorScheme.surfaceVariant
+                        else MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = if (isIncognito) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.testTag("browser_fullscreen_fab"),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_fullscreen),
+                        contentDescription = stringResource(R.string.browser_fullscreen_actions),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+
             PageOverlay(
                 visible = state.pageFailure != null,
                 enter = EnterTransition.None,
@@ -339,12 +406,23 @@ fun BrowserScreen(
                             query = state.omnibarValue.text,
                             bookmarkManager = bookmarkManager,
                             historyManager = if (isIncognito) null else historyManager,
+                            searchEngine = searchEngine,
+                            onlineSuggestionsEnabled = onlineSuggestionsEnabled,
+                            suggestionProvider = suggestionProvider,
+                            isIncognito = isIncognito,
+                            hasComposingText = state.omnibarValue.composition != null,
                             onFillSuggestion = { text ->
                                 state.onOmnibarValueChange(androidx.compose.ui.text.input.TextFieldValue(
                                     text, androidx.compose.ui.text.TextRange(text.length)))
                                 keyboard?.show()
                             },
-                            onSuggestionClick = { text -> onNavigate(text); finishEditing() },
+                            onSuggestionAction = { action ->
+                                when (action) {
+                                    is SuggestionAction.Visit -> onNavigate(action.url)
+                                    is SuggestionAction.Search -> onOmnibarSearch(action.query)
+                                }
+                                finishEditing()
+                            },
                             maxHeight = (maxHeight - 8.dp).coerceAtMost(400.dp),
                             modifier = Modifier.align(if (bottomAddressBar) Alignment.BottomCenter else Alignment.TopCenter)
                                 .padding(vertical = 4.dp),
@@ -361,7 +439,7 @@ fun BrowserScreen(
         // inset source instead of two, same result: the bar sits directly on the keyboard
         // when it is up and on the navigation bar when it is not.
         AnimatedVisibility(
-            visible = !isVideoFullscreen,
+            visible = chromeShown,
             enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Bottom),
             exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
         ) {
@@ -369,7 +447,7 @@ fun BrowserScreen(
             // Both placements use one spec, each towards its own screen edge, so scrolling reads the
             // same whichever position the address bar is set to.
             if (bottomAddressBar) AnimatedVisibility(
-                visible = !state.isToolbarHidden || showHomeDashboard,
+                visible = !state.isToolbarHidden || showHomeDashboard || chromeForced,
                 enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Bottom),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
             ) { addressBar() }
@@ -393,6 +471,36 @@ fun BrowserScreen(
                     onPrevious = onFindPrevious,
                     onClose = onFindClose,
                 )
+            }
+
+            // Revealed immersive chrome carries its own way back: collapse without
+            // touching the preference, or turn it off for good. No auto-hide timer.
+            // Placed above the toolbar, which owns the bottom safe-area padding.
+            if (chromeForced) Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = {
+                        finishEditing()
+                        // Same exit order as the back gesture: the find bar goes first.
+                        if (state.isFindBarVisible) onFindClose() else state.hideChrome()
+                        onContinueFullscreen()
+                    },
+                    modifier = Modifier.testTag("browser_fullscreen_continue"),
+                ) {
+                    Text(stringResource(R.string.browser_fullscreen_continue))
+                }
+                TextButton(
+                    onClick = { finishEditing(); onExitBrowserFullscreen() },
+                    modifier = Modifier.testTag("browser_fullscreen_exit"),
+                ) {
+                    Text(stringResource(R.string.browser_fullscreen_exit))
+                }
             }
 
             BrowserToolbar(

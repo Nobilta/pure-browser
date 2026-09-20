@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Touch regression for deferred diagnostics subscriptions and console state."""
 import argparse
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -54,8 +55,22 @@ def enter(command):
     field = next(n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText')
     x1, y1, x2, y2 = ux.bounds(field)
     ux.adb('shell', 'input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-    ux.adb('shell', 'input', 'text', command)
-    time.sleep(.5)
+    # `input text` goes through the device shell, which ends the argument at the first
+    # metacharacter: a JavaScript command arrived as just "setTimeout". Set the field
+    # through the accessibility action instead, then read back what actually landed.
+    encoded = base64.b64encode(command.encode()).decode()
+    for _ in range(3):
+        try:
+            ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false', '/system/bin',
+                   'com.mybrowser.validation.FastUiDump', 'setText', encoded)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass  # An old ART helper can fail while shutting down after the edit already landed.
+        if any(n.get('text') == command for n in ux.nodes()[0].iter('node')
+               if n.get('class') == 'android.widget.EditText'):
+            time.sleep(.3)
+            return
+        time.sleep(.25)
+    raise AssertionError('Console field did not accept ' + command)
 
 
 def back():
@@ -101,6 +116,7 @@ try:
     record('console draft survives tab changes and JavaScript execution returns 42')
     ux.tap('Source')
     wait_text('Pure UX First Page')
+    snapshot('source')
     ux.tap('Info')
     wait_text('Pure UX First Page')
     ux.tap('Console')

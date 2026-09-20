@@ -89,4 +89,54 @@ class SearchEngineManagerTest {
             .getSharedPreferences("search_engines", 0)
         assertFalse(prefs.contains("current_engine_id"))
     }
+
+    @Test
+    fun `optional suggest template round-trips and invalid ones are rejected`() {
+        val withSuggest = manager.addCustomEngine(
+            "Suggested", "https://search.example/?q=%s",
+            "https://search.example/suggest?q={query}",
+        )
+        assertEquals("https://search.example/suggest?q={query}", withSuggest.suggestUrl)
+
+        // A new manager instance re-reads the persisted JSON, including the suggest URL.
+        val reloaded = SearchEngineManager(RuntimeEnvironment.getApplication())
+            .getEngineById(withSuggest.id)
+        assertEquals(withSuggest, reloaded)
+
+        // Blank means "no suggestions", which is always allowed.
+        val withoutSuggest = manager.addCustomEngine("Plain", "https://search.example/p?q=%s", "  ")
+        assertEquals(null, withoutSuggest.suggestUrl)
+
+        val invalidSuggests = listOf(
+            "http://search.example/suggest?q={query}",       // not HTTPS
+            "https://search.example/suggest",                // no placeholder
+            "https://search.example/s?q={query}&r={query}",  // two placeholders
+            "https:///suggest?q={query}",                    // no host
+        )
+        invalidSuggests.forEach { suggest ->
+            try {
+                manager.addCustomEngine("engine-${suggest.hashCode()}", "https://search.example/x?q=%s", suggest)
+                throw AssertionError("accepted invalid suggest template: $suggest")
+            } catch (_: IllegalArgumentException) {
+                // expected
+            }
+        }
+    }
+    @Test fun addingEnginesCannotWriteAnUnreadableAggregate() {
+        val manager = SearchEngineManager(org.robolectric.RuntimeEnvironment.getApplication())
+        val template = "https://example.com/?q={query}&x=" + "\"".repeat(1990)
+        var accepted = 0
+        repeat(12) { index ->
+            val before = manager.getAvailableEngines()
+            try {
+                manager.addCustomEngine("Size $index", template, template)
+                accepted++
+            } catch (_: IllegalArgumentException) {
+                assertEquals(before, manager.getAvailableEngines())
+            }
+        }
+        assertTrue(accepted in 1..11)
+        assertEquals(accepted, manager.getAvailableEngines().count { it.isCustom })
+    }
+
 }

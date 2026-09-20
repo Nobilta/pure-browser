@@ -253,9 +253,11 @@ fn decode_entities(input: &str) -> String {
                     .and_then(char::from_u32),
             }
         });
-        if let Some(character) = decoded {
+        // `decoded` is derived from `end`, so both are present together; binding them in one
+        // match keeps the invariant visible instead of unwrapping it apart.
+        if let (Some(character), Some(end)) = (decoded, end) {
             result.push(character);
-            rest = &rest[end.unwrap() + 1..];
+            rest = &rest[end + 1..];
         } else {
             result.push('&');
         }

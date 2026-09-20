@@ -1,5 +1,6 @@
 package com.mybrowser.search
 
+import com.mybrowser.data.commitConfirmed
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
@@ -78,12 +79,19 @@ class SearchEngineManager(private val context: Context) {
     }
 
     /**
-     * Adds a custom search engine.
+     * Adds a custom search engine. [suggestUrlTemplate] is an optional HTTPS OpenSearch
+     * JSON template used for online suggestions; null or blank disables online
+     * suggestions for this engine without affecting submit-search.
      */
-    fun addCustomEngine(name: String, searchUrlTemplate: String): SearchEngine {
+    fun addCustomEngine(
+        name: String,
+        searchUrlTemplate: String,
+        suggestUrlTemplate: String? = null,
+    ): SearchEngine {
         val cleanName = name.trim()
         val cleanTemplate = searchUrlTemplate.trim()
-        validateCustomEngine(cleanName, cleanTemplate)
+        val cleanSuggest = suggestUrlTemplate?.trim().orEmpty().ifEmpty { null }
+        validateCustomEngine(cleanName, cleanTemplate, cleanSuggest)
 
         val existing = getCustomEngines()
         require(existing.size < MAX_CUSTOM_ENGINES) {
@@ -99,6 +107,7 @@ class SearchEngineManager(private val context: Context) {
             id = id,
             name = cleanName,
             searchUrlTemplate = cleanTemplate,
+            suggestUrl = cleanSuggest,
             isCustom = true,
         )
 
@@ -120,6 +129,46 @@ class SearchEngineManager(private val context: Context) {
         }
     }
 
+    /**
+     * Runs every rule a custom engine list must satisfy, without writing anything:
+     * settings imports call this to reject a bad file before any group is applied.
+     */
+    fun isValidCustomEngineList(engines: List<SearchEngine>): Boolean {
+        if (engines.size > MAX_CUSTOM_ENGINES) return false
+        if (engines.any { !Regex("custom_[A-Za-z0-9_]{1,60}").matches(it.id) || !it.isCustom || it.name.isBlank() }) return false
+        if (engines.map { it.id }.toSet().size != engines.size) return false
+        if (engines.map { it.name.lowercase() }.toSet().size != engines.size) return false
+        for (engine in engines) {
+            if (engine.name.length > MAX_NAME_LENGTH || engine.searchUrlTemplate.length > MAX_TEMPLATE_LENGTH) return false
+            if (!isValidTemplate(engine.searchUrlTemplate)) return false
+            if (!SearchSuggestionProvider.isValidSuggestTemplate(engine.suggestUrl)) return false
+        }
+        if (engines.any { it.id in BUILTIN_IDS || it.name.lowercase() in BUILTIN_NAMES }) return false
+        return buildCustomEnginesJson(engines).length <= MAX_PERSISTED_JSON_LENGTH
+    }
+
+    /** The custom list and its selected id become durable in the same file edit. */
+    fun importSettings(customEngines: List<SearchEngine>?, currentEngineId: String?) {
+        require(customEngines == null || isValidCustomEngineList(customEngines)) { "Invalid custom engine list" }
+        val finalEngines = SearchEngine.BUILTIN_ENGINES + (customEngines ?: getCustomEngines())
+        val finalId = currentEngineId ?: getCurrentEngine().id
+        require(finalEngines.any { it.id == finalId }) { "Current engine does not resolve" }
+        prefs.commitConfirmed(buildMap {
+            customEngines?.let { put(PREF_CUSTOM_ENGINES, buildCustomEnginesJson(it)) }
+            put(PREF_CURRENT_ENGINE_ID, finalId)
+        })
+    }
+
+    fun replaceCustomEngines(engines: List<SearchEngine>): Boolean {
+        if (!isValidCustomEngineList(engines)) return false
+        saveCustomEngines(engines)
+        // A dangling current id (removed by the replacement) falls back via the normal rule.
+        if (prefs.getString(PREF_CURRENT_ENGINE_ID, null)?.let { getEngineById(it) == null } == true) {
+            setCurrentEngineById(DEFAULT_ENGINE_ID)
+        }
+        return true
+    }
+
     private fun getCustomEngines(): List<SearchEngine> {
         val json = prefs.getString(PREF_CUSTOM_ENGINES, null) ?: return emptyList()
         if (json.length > MAX_PERSISTED_JSON_LENGTH) return emptyList()
@@ -132,6 +181,7 @@ class SearchEngineManager(private val context: Context) {
     }
 
     private fun saveCustomEngines(engines: List<SearchEngine>) {
+        require(isValidCustomEngineList(engines)) { "Invalid or oversized custom engine list" }
         val json = buildCustomEnginesJson(engines)
         prefs.edit { putString(PREF_CUSTOM_ENGINES, json) }
     }
@@ -145,7 +195,14 @@ class SearchEngineManager(private val context: Context) {
                 val id = item.optString("id").trim()
                 val rawName = item.optString("name").trim()
                 val rawUrl = item.optString("url").trim()
+                val rawSuggest = item.optString("suggestUrl").trim()
                 if (rawName.length > MAX_NAME_LENGTH || rawUrl.length > MAX_TEMPLATE_LENGTH) {
+                    continue
+                }
+                if (rawSuggest.isNotEmpty() &&
+                    (rawSuggest.length > MAX_TEMPLATE_LENGTH ||
+                        !SearchSuggestionProvider.isValidSuggestTemplate(rawSuggest))
+                ) {
                     continue
                 }
                 val name = rawName
@@ -164,6 +221,7 @@ class SearchEngineManager(private val context: Context) {
                             id = id,
                             name = name,
                             searchUrlTemplate = url,
+                            suggestUrl = rawSuggest.ifEmpty { null },
                             isCustom = true,
                         ),
                     )
@@ -180,13 +238,14 @@ class SearchEngineManager(private val context: Context) {
                 JSONObject()
                     .put("id", engine.id)
                     .put("name", engine.name)
-                    .put("url", engine.searchUrlTemplate),
+                    .put("url", engine.searchUrlTemplate)
+                    .apply { engine.suggestUrl?.let { put("suggestUrl", it) } },
             )
         }
         return array.toString()
     }
 
-    private fun validateCustomEngine(name: String, template: String) {
+    private fun validateCustomEngine(name: String, template: String, suggestTemplate: String?) {
         require(name.isNotEmpty()) { "Search engine name must not be blank" }
         require(name.length <= MAX_NAME_LENGTH) {
             "Search engine name is too long (maximum $MAX_NAME_LENGTH characters)"
@@ -196,6 +255,11 @@ class SearchEngineManager(private val context: Context) {
         }
         require(isValidTemplate(template)) {
             "Search URL must be an HTTP(S) URL with exactly one {query} or %s placeholder"
+        }
+        if (suggestTemplate != null) {
+            require(SearchSuggestionProvider.isValidSuggestTemplate(suggestTemplate)) {
+                "Suggest URL must be HTTPS with a host and exactly one {query} or %s placeholder"
+            }
         }
     }
 

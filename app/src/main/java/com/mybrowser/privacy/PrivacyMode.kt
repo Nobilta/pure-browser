@@ -40,6 +40,9 @@ class PrivacyMode(private val appContext: android.content.Context) {
     var hasRealIsolation: Boolean by mutableStateOf(false)
         private set
 
+    /** Guards the one-per-process shared-jar clear in the fallback path. */
+    private var sharedJarCleared = false
+
     /** Credentials always come from the profile that owns the requesting page. */
     fun cookiesFor(url: String): String? = runCatching {
         val manager = if (isIncognito && hasRealIsolation) IncognitoProfile.cookieManager()
@@ -63,6 +66,19 @@ class PrivacyMode(private val appContext: android.content.Context) {
 
         val isolated = IncognitoProfile.attach(view)
         hasRealIsolation = isolated
+        if (!isolated && !sharedJarCleared) {
+            // The fallback shares the normal cookie jar with everything else. Clear it
+            // once per process before any page loads: a force-killed private session
+            // may have left its cookies behind, and this session must not start on
+            // them (nor on the normal session's logins).
+            sharedJarCleared = true
+            val manager = CookieManager.getInstance()
+            lastCleanupSucceeded = runCatching {
+                manager.removeAllCookies(null)
+                manager.flush()
+                true
+            }.getOrDefault(false)
+        }
 
         view.settings.apply {
             // LOAD_NO_CACHE stops disk cache reads and writes for this WebView. With a
