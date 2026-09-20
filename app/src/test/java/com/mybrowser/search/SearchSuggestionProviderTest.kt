@@ -33,6 +33,29 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SearchSuggestionProviderTest {
+    @Test fun duckDuckGoListEndpointUsesTheNestedOpenSearchSuggestions() = runBlocking {
+        serve("/ddg", body = """["android",["android browser","android studio"]]""")
+        val client = SearchSuggestionProvider(openConnection = { endpoint ->
+            assertEquals("duckduckgo.com", endpoint.host)
+            assertTrue(endpoint.query.contains("type=list"))
+            URL("http://127.0.0.1:${server.address.port}/ddg").openConnection() as HttpURLConnection
+        })
+        val engine = SearchEngine.BUILTIN_ENGINES.single { it.id == "duckduckgo" }
+        assertEquals(listOf("android browser", "android studio"), client.fetch(engine, "android", false))
+    }
+    @Test fun deepJsonFailsClosedForBothFormatsAndTheWorkerCanServeLaterRequests() = runBlocking {
+        val deep = "[".repeat(25_000) + "]".repeat(25_000)
+        assertTrue(SearchSuggestionProvider.parseOpenSearchJson(deep).isEmpty())
+        assertTrue(SearchSuggestionProvider.parseBaiduJsonp("window.baidu.sug({\"s\":$deep});").isEmpty())
+        server.createContext("/deep") { exchange ->
+            val bytes = deep.toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        assertTrue(withTimeout(2000) { provider.fetch(customEngine("http://127.0.0.1:${server.address.port}/deep?q={query}"), "q", false) }.isEmpty())
+        serve("/valid", body = """["q",["valid"]]""")
+        assertEquals(listOf("valid"), provider.fetch(customEngine("http://127.0.0.1:${server.address.port}/valid?q={query}"), "q", false))
+    }
     private val context get() = RuntimeEnvironment.getApplication()
     private lateinit var server: HttpServer
     private lateinit var provider: SearchSuggestionProvider

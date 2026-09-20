@@ -62,6 +62,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -231,7 +233,7 @@ class MainActivity : ComponentActivity(),
         WebsitePermissions(lifecycleScope,
             isGranted = { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED },
             launchRuntime = { runtimePermissionLauncher.launch(it) },
-            onSaveError = { toast(getString(R.string.site_save_failed)) })
+            onSaveError = { toast(getString(R.string.site_permission_not_remembered)) })
     }
     private var scriptImportUrl by mutableStateOf<String?>(null)
 
@@ -502,8 +504,11 @@ class MainActivity : ComponentActivity(),
         // incognito session — private tabs, cookies and temporary grants are never
         // restored, and the normal tab metadata stays available for the next normal start.
         if (!sessionState.initialized && browserPreferences.incognitoEnabled) {
-            privateSites = normalSites.privateSession()
-            privacy.enter()
+            if (privacy.isTransitioning) sessionState.pendingPrivateStart = true
+            else {
+                privateSites = normalSites.privateSession()
+                sessionState.beginPrivateSession()
+            }
         }
 
         // Initialize search engine manager
@@ -595,6 +600,16 @@ class MainActivity : ComponentActivity(),
                     }
                 }
                 dialogs.Render()
+                val cleanupState by privacy.cleanupState.collectAsState()
+                if (cleanupState == com.mybrowser.privacy.PrivacyCleanupBarrier.State.FAILED) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = {},
+                        title = { Text(getString(R.string.privacy_cleanup_title)) },
+                        text = { Text(getString(R.string.privacy_cleanup_failed)) },
+                        confirmButton = { TextButton(onClick = privacy::retryCleanup) { Text(getString(R.string.ui_retry)) } },
+                        dismissButton = { TextButton(onClick = { finish() }) { Text(getString(R.string.ui_exit_browser)) } },
+                    )
+                }
                 val startupApp = application as App
                 val startupOffer by startupApp.startupUpdateOffer.collectAsState()
                 startupOffer?.takeIf { !privacy.isIncognito }?.let { offered ->
@@ -1546,6 +1561,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun createPopupTab(isUserGesture: Boolean): WebView? {
+        if (privacy.isTransitioning) return null
         if (!isUserGesture || !tabManager.canCreateTab) return null
         val old = webViewOrNull ?: return null
         val openerId = tabManager.currentTab?.id ?: return null
@@ -1643,6 +1659,8 @@ class MainActivity : ComponentActivity(),
 
     private fun performIncognitoSwitch(entering: Boolean) {
         if (clearingData || privacy.isTransitioning) return
+        scriptNavigationJob?.cancel()
+        scriptNavigationJob = null
         clearResidentTabs()
         temporaryFilterOrigins = emptySet()
         viewOwnerId = null
@@ -1655,10 +1673,8 @@ class MainActivity : ComponentActivity(),
         // Entering starts a fresh private session and leaving ends one; either way the
         // incognito suggestion cache must not survive the boundary.
         (application as App).searchSuggestionProvider.rotatePrivateSession()
-        // The same boundary scopes private downloads: a new private session's link must
-        // not surface the previous session's task record for the same URL.
-        if (entering) (application as App).downloadHandler.rotatePrivateScope()
-        else (application as App).downloadHandler.endPrivateScope()
+        // BrowserSessionState scopes private downloads on every session start/end,
+        // including a persisted private startup and closing/reopening this window.
         // Do not retain a private session's certificate choices in the normal session.
         webViewOrNull?.clearSslPreferences()
         certificateWarnings.clear()
@@ -1685,20 +1701,15 @@ class MainActivity : ComponentActivity(),
         if (entering) {
             persistNormalSession()
             privateSites = normalSites.privateSession()
-            privacy.enter()
+            sessionState.beginPrivateSession()
             tabManager = incognitoTabManager
         } else {
             privateSites = null
-            val hadRealIsolation = privacy.hasRealIsolation
             incognitoTabManager.clearAllTabs()
             tabManager = normalTabManager
             // The fallback mode shares the normal cookie jar while open. Keep the new
             // WebView blank until the asynchronous cookie wipe has completed.
-            privacy.exit(wipeSharedStorage = !hadRealIsolation) {
-                if (isFinishing || isDestroyed) return@exit
-                loadCurrentTab()
-                toast(getString(if (privacy.lastCleanupSucceeded) R.string.incognito_off else R.string.clear_data_failed))
-            }
+            sessionState.endPrivateSession()
         }
 
         media.clear()
@@ -1707,6 +1718,15 @@ class MainActivity : ComponentActivity(),
         // A profile-bound WebView must be completely unused before attachment. Never
         // borrow an idle normal-profile instance for a mode transition.
         webViewOrNull = acquireFreshPage()
+        if (!entering) {
+            loadCurrentTab()
+            lifecycleScope.launch {
+                privacy.awaitReady()
+                if (!isFinishing && !isDestroyed && !privacy.isIncognito) {
+                    toast(getString(if (privacy.lastCleanupSucceeded) R.string.incognito_off else R.string.clear_data_failed))
+                }
+            }
+        }
         if (entering) {
             loadCurrentTab()
             toast(
@@ -1725,6 +1745,7 @@ class MainActivity : ComponentActivity(),
      * If the tab has saved state, restore it; otherwise load its URL.
      */
     private fun loadCurrentTab() {
+        if (awaitPrivacyReady(::loadCurrentTab)) return
         systemMedia.detach(this)
         cancelWebsitePermissions()
         cancelPendingSslError()
@@ -2742,16 +2763,19 @@ class MainActivity : ComponentActivity(),
     // --- Navigation ---
 
     private fun loadPage(url: String) {
+        if (awaitPrivacyReady { loadPage(url) }) return
         state.onNavigationRequested(url)
         webView.loadUrl(url)
     }
 
     private fun reloadPage() {
+        if (awaitPrivacyReady(::reloadPage)) return
         state.onNavigationRequested(webView.url ?: state.currentUrl)
         webView.reload()
     }
 
     private fun navigateHistory(offset: Int) {
+        if (awaitPrivacyReady { navigateHistory(offset) }) return
         if (!webView.canGoBackOrForward(offset)) return
         val history = webView.copyBackForwardList()
         val target = history.getItemAtIndex(history.currentIndex + offset) ?: return
@@ -2760,6 +2784,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun navigate(input: String) {
+        if (awaitPrivacyReady { navigate(input) }) return
         if (awaitScriptsReady { navigate(input) }) return
         var tabUrl: String? = null
         when (val target = NavigationPolicy.resolve(input, searchEngine)) {
@@ -2781,6 +2806,24 @@ class MainActivity : ComponentActivity(),
 
     private fun goHome() {
         navigate(if (homepageMode == HomepageMode.NAVIGATION) ABOUT_BLANK else homeUrl)
+    }
+
+    private var privacyNavigationJob: Job? = null
+
+    /** Every load/restore waits, including a new Activity or window during old-session cleanup. */
+    private fun awaitPrivacyReady(action: () -> Unit): Boolean {
+        if (!privacy.isTransitioning && !sessionState.pendingPrivateStart) return false
+        privacyNavigationJob?.cancel()
+        privacyNavigationJob = lifecycleScope.launch {
+            privacy.awaitReady()
+            if (isFinishing || isDestroyed) return@launch
+            if (sessionState.pendingPrivateStart) {
+                sessionState.pendingPrivateStart = false
+                performIncognitoSwitch(true)
+            }
+            action()
+        }
+        return true
     }
 
     /** First navigation waits for local script metadata so document-start is deterministic. */
@@ -3348,7 +3391,8 @@ class MainActivity : ComponentActivity(),
                 toggleIncognito()
             }
             if (result.failed.isEmpty()) {
-                toast(getString(R.string.settings_imported, result.applied.size))
+                toast(getString(R.string.settings_imported, result.applied.size) +
+                    if (result.pendingFilterUpdates > 0) "\n" + getString(R.string.settings_import_filter_updates, result.pendingFilterUpdates) else "")
             } else {
                 // Name the failing groups: a count alone cannot tell the user what to re-check.
                 val names = result.failed.map { groupId ->

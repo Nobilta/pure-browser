@@ -19,6 +19,32 @@ import java.io.IOException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class FilterSubscriptionsTest {
+    @Test fun importedEnabledListsFetchFirstRulesAndFailedDownloadsRemainRetryable() = runBlocking {
+        val fetched = mutableListOf<String>()
+        var failDownload = true
+        val filter = FilterController(context)
+        try {
+            val lists = FilterSubscriptions(context, filter, builtIns = emptyList()) { url, _, _ ->
+                fetched += url
+                if (failDownload) throw IOException("offline")
+                TextDownloader.Response("! imported\nfixture.test###imported-rule\n")
+            }
+            val outcome = lists.importConfiguration(emptyMap(), listOf(
+                Triple("Enabled", "https://example.test/enabled", true),
+                Triple("Disabled", "https://example.test/disabled", false),
+            ))
+            assertEquals(1, outcome.pendingUpdates)
+            assertFalse(lists.updateMissing())
+            assertNull(lists.subscriptions.value.first().file)
+            assertNotNull(lists.subscriptions.value.first().error)
+            failDownload = false
+            assertTrue(lists.updateMissing())
+            assertTrue(filter.cosmeticCss("https://fixture.test/page").contains("#imported-rule"))
+            assertTrue(lists.updateMissing())
+            assertEquals(listOf("https://example.test/enabled", "https://example.test/enabled"), fetched)
+            assertNull(lists.subscriptions.value.single { !it.enabled }.file)
+        } finally { filter.close() }
+    }
     @Test fun completedSubscriptionChangesAreAlreadyActiveInTheEngine() = runBlocking {
         val filter = FilterController(context)
         try {

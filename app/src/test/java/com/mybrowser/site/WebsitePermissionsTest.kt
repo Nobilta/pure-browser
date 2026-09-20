@@ -16,6 +16,26 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class WebsitePermissionsTest {
+    @Test fun corruptStorageDoesNotReverseOneTimeConsentOrOverwriteOriginalBytes() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("sites", "broken").commit()
+        val repository = repo()
+        assertTrue(repository.needsRepair.value)
+        var errors = 0
+        val gate = WebsitePermissions(this, { true }, { fail() }, { errors++ })
+        for (allowed in listOf(true, false)) {
+            val answer = CompletableDeferred<Boolean>()
+            gate.request(Any(), "https://example.com", listOf(SiteCapability.CAMERA), false,
+                repository, { true }) { answer.complete(it) }
+            gate.respond(allowed, true)
+            assertEquals(allowed, withTimeout(5000) { answer.await() })
+        }
+        assertEquals(2, errors)
+        assertEquals("broken", prefs.getString("sites", null))
+        assertTrue(repository.needsRepair.value)
+        assertEquals(SitePermission.ASK, repository.get("https://example.com").camera)
+    }
     private fun repo() = SiteSettingsRepository(RuntimeEnvironment.getApplication())
 
     @Test fun androidGrantStillRequiresWebsiteConsentAndRepeatedClicksCompleteOnce() = runBlocking {

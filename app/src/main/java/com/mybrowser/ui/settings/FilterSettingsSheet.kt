@@ -83,7 +83,8 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                             }
                             Text(list.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(res.getString(R.string.filter_source_rule_count, list.ruleCount), style = MaterialTheme.typography.bodySmall)
-                            Text(if (list.updatedAt == 0L) res.getString(R.string.filter_packaged_snapshot)
+                            Text(if (!list.builtIn && list.file == null) res.getString(R.string.filter_pending_download)
+                                else if (list.updatedAt == 0L) res.getString(R.string.filter_packaged_snapshot)
                                 else res.getString(R.string.filter_updated_at, dateFormat.format(Date(list.updatedAt))),
                                 style = MaterialTheme.typography.bodySmall)
                             if (list.checkedAt != 0L) Text(res.getString(R.string.filter_checked_at, dateFormat.format(Date(list.checkedAt))),
