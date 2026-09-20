@@ -25,7 +25,7 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Ad blocking and userscripts**: built-in filter lists, custom filter subscriptions and userscript installation.
 - **Tabs and bookmarks**: tab groups, search, find in page, and bookmark import and export; sign-in popups keep their originating page alive to receive callbacks.
 - **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
-- **Downloads**: pause, resume interrupted transfers and delete in bulk, with configurable save locations; every download is confirmed first and repeat requests are merged, and downloading a new copy keeps the old file.
+- **Downloads**: pause, resume interrupted transfers and delete in bulk, with configurable save locations; every download is confirmed first and repeat requests are merged, and downloading a new copy keeps the old file; long-press image saves confirm a copy without opening Downloads.
 - **Loading and recovery**: loading feedback while waiting for a response, with a built-in recovery page for failed loads.
 - **Immersive fullscreen**: hide the system bars and browser toolbar so the page fills the screen; a floating button keeps browser actions reachable, and exiting takes effect immediately without reloading the page.
 - **Offline QR scanning**: scan with the camera or read a code from an image, without an internet connection.

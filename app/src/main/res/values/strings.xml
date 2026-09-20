@@ -731,4 +731,9 @@
     <string name="download_blocked_existing">A task already exists. Request again to view it, or download a new copy after it finishes. The old file is kept.</string>
     <string name="download_blocked_overflow">%1$d additional requests were not saved (at most 5 are kept). Remove an entry, then trigger the download again on the page.</string>
     <string name="browser_fullscreen_exit_unsaved">Exited fullscreen for this session. Could not save the preference for next launch.</string>
+    <string name="download_copy_title">Save a new copy?</string>
+    <string name="download_copy_note">This link has a completed download. A new copy will be saved; the existing file will be kept.</string>
+    <string name="download_copy_action">Save copy</string>
+    <string name="download_existing_active">This file is already queued or downloading</string>
+    <string name="download_existing_paused">This download is paused. Continue it in Downloads.</string>
 </resources>

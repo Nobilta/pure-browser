@@ -53,6 +53,21 @@ def long_press(label, page=None):
     ux.tap_fixture(label, 'productivity-geometry-' + run, target, url, hold_ms=900)
 
 
+def confirm_image_save():
+    # Re-running this fixture may find a completed download from an earlier run.
+    deadline = time.monotonic() + 10
+    while True:
+        root, _ = ux.nodes()
+        assert ux.match(root, 'Download manager') is None, 'Saving an image opened Downloads'
+        for label in ('Save copy', 'Download'):
+            node = ux.match(root, label)
+            if node is not None:
+                ux.tap_node(node)
+                return
+        assert time.monotonic() < deadline, 'Image download confirmation missing'
+        time.sleep(.2)
+
+
 def edit(text, index=0):
     root, _ = ux.nodes()
     fields = [n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText']
@@ -192,6 +207,7 @@ def browser_checks():
     ux.expect('Open in new tab', present=False)
     before = set(ux.adb('shell', 'ls', '/sdcard/Download').splitlines())
     ux.tap('Save image')
+    confirm_image_save()
     expected = hashlib.sha256(urllib.request.urlopen('http://127.0.0.1:8875/context-image.png').read()).hexdigest()
     deadline = time.monotonic() + 20
     verified = False
@@ -205,6 +221,14 @@ def browser_checks():
         time.sleep(.5)
     assert verified, 'Image download did not match server bytes'
     record('plain image menu saves the correct image through MediaStore')
+    # Cancelled explicit saves must stay usable, regardless of automatic page suppression.
+    for _ in range(2):
+        long_press('Plain test image')
+        ux.tap('Save image')
+        ux.expect('Save a new copy?')
+        ux.expect('Download manager', present=False)
+        ux.tap('Cancel')
+    record('repeated image saves offer a copy in place, including after cancellation')
     long_press('Background destination')
     ux.tap('Share link')
     _, raw = ux.nodes()
