@@ -62,7 +62,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 用户可见行为或限制 | [功能介绍](FEATURES.md) |
 | 安装、依赖、构建或验证方法 | [README](README.md)、[英文 README](README.en.md)及相关指南 |
 | 发布流程 | [发布指南](RELEASING.md) |
-| 版本变化和验证摘要 | [更新日志](CHANGELOG.md)、[Release 说明](release/notes.md) |
+| 版本变化 | [更新日志](CHANGELOG.md)（唯一来源，发布时由 `release/prepare.py` 合并进 Release 说明） |
+| 发布时的验证范围 | [release/notes.md](release/notes.md)（只写验证范围，不重复版本变化） |
 
 ## 提交 Pull Request
 
@@ -81,5 +82,6 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Rust 提交前通过 `cargo fmt`；CI 和发布检查会以 `-D warnings` 运行 clippy。
 - 验证脚本优先使用 Python 标准库，便于直接运行。
 - 新增界面文字同时提供简体中文、繁体中文和英文。`validation/check-localization.py` 会核对资源键和格式化参数。
+- 应用图标的设计源在 `design/app-icon/`（含改动说明），修改时同步 SVG 与 `app/src/main/res/` 中的 XML。
 
 发布由维护者执行，具体步骤见[发布指南](RELEASING.md)。参与讨论和贡献时，请遵守[行为准则](CODE_OF_CONDUCT.md)。

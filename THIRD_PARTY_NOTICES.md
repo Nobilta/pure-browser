@@ -10,18 +10,19 @@ Dependency versions are recorded in [app/gradle.lockfile](app/gradle.lockfile) a
 The `ic_lock`, `ic_lock_open`, `ic_copy`, `ic_share`, `ic_edit`, `ic_add`,
 `ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file` and `ic_pip` drawables are adapted from
 [Google Material Icons](https://github.com/google/material-design-icons), under the
-[Apache License 2.0](third_party/material-icons-LICENSE.txt).
+[Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 Their SVG paths were converted to Android VectorDrawable resources.
 
 ## AndroidX
 
-AndroidX dependencies, including Activity, WebKit, Compose and Material 3, use the Apache License 2.0.
+AndroidX dependencies, including Activity, WebKit, Compose and Material 3, use the
+[Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 The Gradle lockfile records the resolved versions.
 
 ## ZXing
 
 The QR scanner uses [ZXing Core](https://github.com/zxing/zxing), copyright ZXing authors,
-under the [Apache License 2.0](third_party/material-icons-LICENSE.txt).
+under the [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 Only the offline QR decoder is used. Camera capture uses Android Camera2; Google Play services
 and remote recognition services are not required.
 
