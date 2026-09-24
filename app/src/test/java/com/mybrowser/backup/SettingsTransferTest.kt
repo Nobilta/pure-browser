@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import java.lang.reflect.Proxy
 import android.content.Context
 import com.mybrowser.core.TextDownloader
+import com.mybrowser.core.VideoFit
 import com.mybrowser.data.BookmarkFolders
 import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.BrowserPreferencesRepository
@@ -308,6 +309,48 @@ class SettingsTransferTest {
         } finally {
             filter.close()
         }
+    }
+
+    /**
+     * The player's picture shape is one of the migratable site display preferences, so it follows
+     * the same three rules an import applies to the others: absence keeps what the device has,
+     * an unlisted origin returns to the default, and an explicit null is a choice that clears it.
+     */
+    @Test fun thePictureShapeFollowsTheSameImportRulesAsTheOtherSitePreferences() = runBlocking {
+        val sites = SiteSettingsRepository(context)
+        sites.update("https://a.example.com/", { it.copy(videoMirror = false, videoFit = VideoFit.RATIO_16_9) })
+        sites.update("https://b.example.com/", { it.copy(videoMirror = true, videoFit = VideoFit.FILL) })
+        val backup = SettingsBackup(
+            format = SettingsBackup.FORMAT_ID, schemaVersion = SettingsBackup.SCHEMA_VERSION,
+            appVersion = "9.9.9", exportedAt = "2026-09-20T00:00:00Z",
+            settings = BackupSettings(sites = listOf(
+                BackupSite("https://a.example.com", BackupSitePreferences(filtering = true)),
+            )),
+        )
+        val filter = FilterController(context)
+        try {
+            assertEquals(listOf("sites"), transfer(filter, FilterSubscriptions(context, filter), sites).apply(backup).applied)
+            assertEquals(VideoFit.RATIO_16_9, sites.get("https://a.example.com").useVideoFit())
+            // Unlisted, so every migratable choice resets and the entry becomes all-default.
+            assertEquals(VideoFit.NATURAL, sites.get("https://b.example.com").useVideoFit())
+            assertFalse(sites.get("https://b.example.com").useVideoMirror())
+        } finally { filter.close() }
+
+        val clearing = SettingsBackup(
+            format = SettingsBackup.FORMAT_ID, schemaVersion = SettingsBackup.SCHEMA_VERSION,
+            appVersion = "9.9.9", exportedAt = "2026-09-20T00:00:00Z",
+            settings = BackupSettings(sites = listOf(
+                BackupSite("https://a.example.com", BackupSitePreferences(
+                    videoMirror = BackupOptional.Present(null), videoFit = BackupOptional.Present(null),
+                )),
+            )),
+        )
+        val second = FilterController(context)
+        try {
+            assertEquals(listOf("sites"), transfer(second, FilterSubscriptions(context, second), sites).apply(clearing).applied)
+            assertEquals(VideoFit.NATURAL, sites.get("https://a.example.com").useVideoFit())
+            assertFalse(sites.get("https://a.example.com").useVideoMirror())
+        } finally { second.close() }
     }
 
     @Test fun unreadableSiteStoreBlocksOnlyTheSitesGroup() = runBlocking {
@@ -651,6 +694,39 @@ class SettingsTransferTest {
             org.junit.Assert.assertThrows(SettingsBackupException::class.java) {
                 SettingsBackupCodec.decode("""{"format":"pure-browser-settings","schemaVersion":1,"settings":$settings}""")
             }
+        }
+    }
+
+    /**
+     * A closed repository answers a bulk import with zero rows and no error, and a caller cannot
+     * tell that from a merge that added nothing — so the group was reported as applied while
+     * nothing was written. Closing the repositories with the window is what put a running import
+     * in that state; this pins the reporting that hid it.
+     */
+    @Test fun aGroupThatCannotBeWrittenIsReportedAsFailedRatherThanApplied() = runBlocking {
+        val filter = FilterController(context)
+        val subscriptions = FilterSubscriptions(context, filter)
+        val incoming = SettingsBackup(
+            SettingsBackup.FORMAT_ID, SettingsBackup.SCHEMA_VERSION, "test", "2026-09-20T00:00:00Z",
+            BackupSettings(
+                bookmarks = BackupBookmarks(
+                    entries = listOf(BackupBookmark("New", "https://new.example.com/")),
+                ),
+                history = listOf(
+                    BackupHistoryEntry("Fresh", "https://fresh.example.com/", 1_600_000_000_000, 3),
+                ),
+            ),
+        )
+        try {
+            visits = HistoryManager(context).also { it.close() }
+            val result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(incoming)
+            assertTrue("history must be reported as failed", result.failed.contains("history"))
+            assertFalse(result.applied.contains("history"))
+            assertEquals(0, result.importedHistory)
+            // The group that could be written still applied, so this is a reported partial import.
+            assertTrue(result.applied.contains("bookmarks"))
+        } finally {
+            filter.close()
         }
     }
 

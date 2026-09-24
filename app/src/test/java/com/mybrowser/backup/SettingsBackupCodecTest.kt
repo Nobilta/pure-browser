@@ -227,6 +227,41 @@ class SettingsBackupCodecTest {
         assertEquals(BackupOptional.Present(false), sites[2].preferences.enhancedPlayback)
     }
 
+    @Test fun videoShapeTriStateRoundTripsThroughJson() {
+        val base = fullBackup()
+        val backup = base.copy(settings = base.settings.copy(
+            sites = listOf(
+                BackupSite("https://null.example.com", BackupSitePreferences(
+                    videoMirror = BackupOptional.Present(null), videoFit = BackupOptional.Present(null),
+                )),
+                BackupSite("https://unset.example.com", BackupSitePreferences()),
+                BackupSite("https://set.example.com", BackupSitePreferences(
+                    videoMirror = BackupOptional.Present(true), videoFit = BackupOptional.Present("FILL"),
+                )),
+            ),
+        ))
+        val decoded = SettingsBackupCodec.decode(SettingsBackupCodec.encode(backup))
+        val sites = decoded.settings.sites!!
+        assertEquals(BackupOptional.Present(null), sites[0].preferences.videoMirror)
+        assertEquals(BackupOptional.Present(null), sites[0].preferences.videoFit)
+        assertEquals(BackupOptional.Absent, sites[1].preferences.videoFit)
+        assertEquals(BackupOptional.Present(true), sites[2].preferences.videoMirror)
+        assertEquals(BackupOptional.Present("FILL"), sites[2].preferences.videoFit)
+    }
+
+    @Test fun rejectsAPictureShapeThisBuildDoesNotOffer() {
+        // A file may name a preset this build cannot honour. Accepting it would either crop the
+        // picture wrongly or drop the choice silently, so the file is refused instead.
+        reject(edit {
+            it.getJSONObject("settings").getJSONArray("sites").getJSONObject(0)
+                .getJSONObject("preferences").put("videoFit", "RATIO_9_16")
+        })
+        reject(edit {
+            it.getJSONObject("settings").getJSONArray("sites").getJSONObject(0)
+                .getJSONObject("preferences").put("videoMirror", "yes")
+        })
+    }
+
     private fun reject(text: String) {
         try {
             SettingsBackupCodec.decode(text)
@@ -349,6 +384,8 @@ class SettingsBackupCodecTest {
                         webDarkening = false,
                         desktopWidth = 1280,
                         enhancedPlayback = BackupOptional.Present(false),
+                        videoMirror = BackupOptional.Present(true),
+                        videoFit = BackupOptional.Present("RATIO_16_9"),
                     ),
                 ),
             ),

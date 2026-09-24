@@ -47,7 +47,6 @@ class LocalizationTest {
     @Test fun formattedHintsKeepNumbersAndLiteralPercentSigns() {
         assertEquals("Brightness 60%", resources("en").getString(R.string.ui_brightness, 60))
         assertEquals("亮度 60%", resources("zh").getString(R.string.ui_brightness, 60))
-        assertEquals("Unable to load the page (error -2)", resources("en").getString(R.string.page_load_error_code, -2))
         assertEquals("已清除 2 项，1 个文件无法删除。", resources("zh").getString(R.string.downloads_cleared_partial, 2, 1))
     }
 

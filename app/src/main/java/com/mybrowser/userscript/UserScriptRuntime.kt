@@ -56,7 +56,7 @@ class UserScriptRuntime(
                 scope.launch {
                     try {
                         val ok = runCatching { store.changeValue(id, data.optString("operation"), data.optString("key"), data.opt("value")) }.getOrDefault(false)
-                        if (!closed) reply(reply, id, token, requestId, ok)
+                        if (!closed) reply(reply, id, requestId, ok)
                     } finally {
                         inFlight--
                     }
@@ -146,8 +146,19 @@ class UserScriptRuntime(
         identities.clear()
     }
 
-    private fun reply(proxy: JavaScriptReplyProxy, id: String, token: String, request: Int, ok: Boolean) {
-        runCatching { proxy.postMessage(JSONObject().put("id", id).put("token", token).put("requestId", request).put("ok", ok).toString()) }
+    /**
+     * Replies carry the script id and the request id only.
+     *
+     * The token authenticates messages *from* a script and must never travel back out. The
+     * bridge object is exposed to the page's own scripts, which can attach their own
+     * `message` listener, so echoing the token let a page read it and then replay it to write
+     * that script's private storage. The runtime matches replies on the two ids instead — both
+     * are already unique per document. A page can still forge a reply and settle a pending
+     * write early, which costs the script a misleading promise but grants no storage access,
+     * because every inbound message is still checked against the token.
+     */
+    private fun reply(proxy: JavaScriptReplyProxy, id: String, request: Int, ok: Boolean) {
+        runCatching { proxy.postMessage(JSONObject().put("id", id).put("requestId", request).put("ok", ok).toString()) }
     }
 
     private fun sameOrigin(first: Uri, second: Uri): Boolean {

@@ -1,6 +1,7 @@
 package com.mybrowser.backup
 
 import com.mybrowser.core.PlaybackSpeed
+import com.mybrowser.core.VideoFit
 import com.mybrowser.data.BookmarkFolders
 import com.mybrowser.data.BookmarkHtml
 import com.mybrowser.data.ImportedHistory
@@ -147,6 +148,15 @@ object SettingsBackupCodec {
                 when (val enhanced = p.enhancedPlayback) {
                     is BackupOptional.Present -> preferences.put(
                         "enhancedPlayback", enhanced.value ?: JSONObject.NULL)
+                    BackupOptional.Absent -> Unit
+                }
+                when (val mirror = p.videoMirror) {
+                    is BackupOptional.Present -> preferences.put(
+                        "videoMirror", mirror.value ?: JSONObject.NULL)
+                    BackupOptional.Absent -> Unit
+                }
+                when (val fit = p.videoFit) {
+                    is BackupOptional.Present -> preferences.put("videoFit", fit.value ?: JSONObject.NULL)
                     BackupOptional.Absent -> Unit
                 }
                 array.put(JSONObject().put("origin", site.origin).put("preferences", preferences))
@@ -422,6 +432,17 @@ object SettingsBackupCodec {
             if (width != null && width !in SiteSettingsRepository.DESKTOP_WIDTHS) {
                 throw SettingsBackupException("Site desktop width not supported: $width")
             }
+            // An unknown preset is a file this build cannot honour: the names the player sends to
+            // the page are the same ones the file carries, and the stored form has to keep them.
+            val fit = if (!preferencesObject.has("videoFit")) BackupOptional.Absent
+            else if (preferencesObject.isNull("videoFit")) BackupOptional.Present(null)
+            else {
+                val name = string(preferencesObject, "videoFit")
+                if (VideoFit.entries.none { it.name == name }) {
+                    throw SettingsBackupException("Site video fit not supported: $name")
+                }
+                BackupOptional.Present(name)
+            }
             BackupSite(
                 origin = origin,
                 preferences = BackupSitePreferences(
@@ -438,6 +459,12 @@ object SettingsBackupCodec {
                             if (preferencesObject.isNull("enhancedPlayback")) null
                             else requiredBoolean(preferencesObject, "enhancedPlayback"))
                     } else BackupOptional.Absent,
+                    videoMirror = if (preferencesObject.has("videoMirror")) {
+                        BackupOptional.Present(
+                            if (preferencesObject.isNull("videoMirror")) null
+                            else requiredBoolean(preferencesObject, "videoMirror"))
+                    } else BackupOptional.Absent,
+                    videoFit = fit,
                 ),
             )
         }

@@ -412,8 +412,12 @@ private fun DownloadItemRow(
             }
             DownloadStatus.FAILED, DownloadStatus.PAUSED -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onRetry) {
-                        Text(textResources.getString(if (download.status == DownloadStatus.PAUSED) R.string.download_resume else R.string.ui_retry))
+                    // A task of another private session cannot be continued here, and offering the
+                    // button would only report a failure. View, open and delete stay available.
+                    if (download.canResume) {
+                        TextButton(onClick = onRetry) {
+                            Text(textResources.getString(if (download.status == DownloadStatus.PAUSED) R.string.download_resume else R.string.ui_retry))
+                        }
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
@@ -428,8 +432,10 @@ private fun DownloadItemRow(
                     // A finished URL can be fetched again by explicit choice; the file
                     // may be gone from the file manager, or the server may have newer
                     // bytes. Page-driven repeats never reach this path.
-                    TextButton(onClick = onRetry) {
-                        Text(textResources.getString(R.string.download_redownload))
+                    if (download.canResume) {
+                        TextButton(onClick = onRetry) {
+                            Text(textResources.getString(R.string.download_redownload))
+                        }
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
