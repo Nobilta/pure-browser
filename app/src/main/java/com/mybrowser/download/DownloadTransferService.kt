@@ -110,7 +110,7 @@ class DownloadTransferService : Service() {
             0 -> getString(R.string.download_notification_preparing)
             // A private session's running download shows a generic title: the
             // filename belongs to that session and must not leak to the lock screen.
-            1 -> if (primary?.autoResumeAllowed == false) getString(R.string.download_notification_private)
+            1 -> if (primary?.showsFilenameInNotification == false) getString(R.string.download_notification_private)
                 else primary?.filename.orEmpty()
             else -> getString(R.string.download_notification_multiple, active.size)
         }

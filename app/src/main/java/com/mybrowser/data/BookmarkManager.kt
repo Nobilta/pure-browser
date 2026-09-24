@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
+import android.util.Log
 import androidx.core.database.sqlite.transaction
 
 /**
@@ -74,7 +75,10 @@ class BookmarkManager(context: Context) {
             }
             database.setTransactionSuccessful()
             id
-        } catch (_: RuntimeException) {
+        } catch (error: RuntimeException) {
+            // The caller only sees -1, which cannot tell a rejected URL from a full disk or a
+            // closed database, so the reason has to reach the log for a bug report to be useful.
+            Log.w(TAG, "Unable to record bookmark", error)
             -1L
         } finally {
             database.endTransaction()
@@ -219,7 +223,10 @@ class BookmarkManager(context: Context) {
      */
     @Synchronized
     fun backupBookmarks(limit: Int): List<Bookmark> {
-        if (closed || limit <= 0) return emptyList()
+        // Same rule as the bulk import: a closed repository must not answer with an empty list,
+        // because the export it feeds would look like a library with nothing in it.
+        check(!closed)
+        if (limit <= 0) return emptyList()
         return db.readableDatabase.query("bookmarks", COLUMNS, null, null, null, null,
             "folder_id, position, id", limit.toString()).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) }
@@ -228,7 +235,7 @@ class BookmarkManager(context: Context) {
 
     @Synchronized
     fun countBookmarks(): Int {
-        if (closed) return 0
+        check(!closed)
         return db.readableDatabase.rawQuery("SELECT COUNT(*) FROM bookmarks", null).use { cursor ->
             if (cursor.moveToFirst()) cursor.getInt(0) else 0
         }
@@ -401,6 +408,7 @@ class BookmarkManager(context: Context) {
     }
 
     private companion object {
+        const val TAG = "BookmarkManager"
         val COLUMNS = arrayOf("id", "title", "url", "favicon_url", "created_at", "folder_id", "position")
         const val DEFAULT_SEARCH_LIMIT = 50
     }

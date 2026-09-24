@@ -151,6 +151,9 @@ data class BackupSitePreferences(
     val desktopWidth: Int? = null,
     /** Null means "inherit the browser default" and is itself a migratable choice. */
     val enhancedPlayback: BackupOptional<Boolean?> = BackupOptional.Absent,
+    /** Same tri-state: an unset picture shape is a choice the file may carry back. */
+    val videoMirror: BackupOptional<Boolean?> = BackupOptional.Absent,
+    val videoFit: BackupOptional<String?> = BackupOptional.Absent,
 )
 
 /** Anything wrong with a backup file; shown to the user without stack traces. */

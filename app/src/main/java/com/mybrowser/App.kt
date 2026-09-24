@@ -50,6 +50,51 @@ class App : Application() {
     /** Outlives every Activity; only used for work that must not be cancelled by rotation. */
     private val appScope = CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
+    /**
+     * Bookmark and history storage belongs to the process, not to a window.
+     *
+     * A settings import writes several groups in turn, and it must be able to finish after the
+     * window that started it is gone. Closing these with the Activity released the database
+     * underneath the running import, and a closed repository answers a bulk import with zero
+     * rows and no error, which is indistinguishable from a merge that added nothing.
+     */
+    val bookmarks by lazy { com.mybrowser.data.BookmarkManager(this) }
+    val history by lazy { com.mybrowser.data.HistoryManager(this) }
+
+    /**
+     * Process-scoped for the same reason as the storage it writes: every dependency is
+     * process-scoped, and one transfer object keeps the import lock meaningful across windows.
+     */
+    val settingsTransfer by lazy {
+        com.mybrowser.backup.SettingsTransfer(
+            this, filterController, filterSubscriptions, siteSettings, bookmarks, history,
+        )
+    }
+
+    private val importOutcomeState =
+        kotlinx.coroutines.flow.MutableStateFlow<com.mybrowser.backup.ImportOutcome?>(null)
+
+    /** Non-null from the moment an import finishes until a window reports it. */
+    val importOutcome: kotlinx.coroutines.flow.StateFlow<com.mybrowser.backup.ImportOutcome?> =
+        importOutcomeState
+
+    /**
+     * Applies a validated import and publishes its result. The work is process-scoped so the
+     * report always reaches a window: an import is one action over several groups, and half of
+     * it applied with nobody told is worse than either outcome.
+     */
+    fun runSettingsImport(backup: com.mybrowser.backup.SettingsBackup, carriedFullscreenSetting: Boolean) {
+        appScope.launch {
+            val result = settingsTransfer.apply(backup)
+            importOutcomeState.value = com.mybrowser.backup.ImportOutcome(result, carriedFullscreenSetting)
+        }
+    }
+
+    /** Marks the outcome as reported, so a later window does not repeat it. */
+    fun consumeImportOutcome() {
+        importOutcomeState.value = null
+    }
+
     fun updateImportedFilters() {
         appScope.launch { filterSubscriptions.updateMissing() }
     }
@@ -71,7 +116,7 @@ class App : Application() {
     /** Checks once per process when the user left the launch check on; failures stay silent. */
     fun checkForStartupUpdate() {
         val enabled = runCatching { com.mybrowser.data.BrowserPreferencesRepository(this).load().autoCheckUpdates }
-            .onFailure { android.util.Log.w("App", "Unreadable preferences; assuming the startup check is on", it) }
+            .onFailure { android.util.Log.w(TAG, "Unreadable preferences; assuming the startup check is on", it) }
             .getOrDefault(true)
         if (!enabled || !startupUpdateClaimed.compareAndSet(false, true)) return
         appScope.launch {
@@ -82,7 +127,7 @@ class App : Application() {
             } catch (error: Exception) {
                 // Silence is for the user: a check that cannot run must not interrupt startup, and
                 // it must not look like "already up to date" in a bug report either.
-                android.util.Log.w("App", "Startup update check failed", error)
+                android.util.Log.w(TAG, "Startup update check failed", error)
                 null
             }
             if (offered != null && !startupUpdateAnswered.get()) startupUpdateOfferState.value = offered

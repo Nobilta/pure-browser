@@ -3,6 +3,7 @@ package com.mybrowser.search
 import com.mybrowser.data.commitConfirmed
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import org.json.JSONArray
@@ -16,6 +17,7 @@ class SearchEngineManager(private val context: Context) {
         context.getSharedPreferences("search_engines", Context.MODE_PRIVATE)
 
     companion object {
+        private const val TAG = "SearchEngineManager"
         private const val PREF_CURRENT_ENGINE_ID = "current_engine_id"
         private const val PREF_CUSTOM_ENGINES = "custom_engines"
         private const val DEFAULT_ENGINE_ID = "baidu"
@@ -171,11 +173,17 @@ class SearchEngineManager(private val context: Context) {
 
     private fun getCustomEngines(): List<SearchEngine> {
         val json = prefs.getString(PREF_CUSTOM_ENGINES, null) ?: return emptyList()
-        if (json.length > MAX_PERSISTED_JSON_LENGTH) return emptyList()
+        if (json.length > MAX_PERSISTED_JSON_LENGTH) {
+            Log.w(TAG, "Stored custom engines exceed $MAX_PERSISTED_JSON_LENGTH characters; ignoring them")
+            return emptyList()
+        }
         // Simple JSON parsing - format: [{id,name,url}]
         return try {
             parseCustomEnginesJson(json)
         } catch (e: Exception) {
+            // Reporting none hides the engines until something rewrites the preference, so the
+            // reason has to reach the log; nothing here deletes the stored value.
+            Log.w(TAG, "Unreadable custom engines; ignoring them", e)
             emptyList()
         }
     }

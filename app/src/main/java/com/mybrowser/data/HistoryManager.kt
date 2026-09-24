@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
+import android.util.Log
 
 /** One row restored from a backup file; visit time and count are preserved, not re-stamped. */
 data class ImportedHistory(val title: String, val url: String, val visitTime: Long, val visitCount: Int) {
@@ -63,7 +64,10 @@ class HistoryManager(context: Context) {
             }
             database.setTransactionSuccessful()
             id
-        } catch (_: RuntimeException) {
+        } catch (error: RuntimeException) {
+            // The caller only sees -1, which cannot tell a rejected URL from a full disk or a
+            // closed database, so the reason has to reach the log for a bug report to be useful.
+            Log.w(TAG, "Unable to record history visit", error)
             -1L
         } finally {
             database.endTransaction()
@@ -146,7 +150,10 @@ class HistoryManager(context: Context) {
      */
     @Synchronized
     fun backupHistory(limit: Int): List<HistoryEntry> {
-        if (closed || limit <= 0) return emptyList()
+        // Same rule as the bulk import: a closed repository must not answer with an empty list,
+        // because the export it feeds would look like a library with nothing in it.
+        check(!closed)
+        if (limit <= 0) return emptyList()
         return db.readableDatabase.query("history", COLUMNS, null, null, null, null,
             "visit_time DESC, id DESC", limit.toString()).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toHistoryEntry()) }
@@ -155,7 +162,7 @@ class HistoryManager(context: Context) {
 
     @Synchronized
     fun countHistory(): Int {
-        if (closed) return 0
+        check(!closed)
         return db.readableDatabase.rawQuery("SELECT COUNT(*) FROM history", null).use { cursor ->
             if (cursor.moveToFirst()) cursor.getInt(0) else 0
         }
@@ -170,7 +177,12 @@ class HistoryManager(context: Context) {
      */
     @Synchronized
     fun importHistory(entries: List<ImportedHistory>): Int {
-        if (closed || entries.isEmpty()) return 0
+        // Same rule as BookmarkManager.importBookmarks: a closed repository fails loudly rather
+        // than answering with zero rows. A caller cannot tell that zero from a merge that added
+        // nothing, so it reports the group as applied — the shape that let a half-finished
+        // settings import look successful.
+        check(!closed)
+        if (entries.isEmpty()) return 0
         val database = db.writableDatabase
         database.beginTransaction()
         try {
@@ -233,6 +245,7 @@ class HistoryManager(context: Context) {
     }
 
     private companion object {
+        const val TAG = "HistoryManager"
         val COLUMNS = arrayOf("id", "title", "url", "visit_time", "visit_count")
         const val DEFAULT_SEARCH_LIMIT = 50
     }

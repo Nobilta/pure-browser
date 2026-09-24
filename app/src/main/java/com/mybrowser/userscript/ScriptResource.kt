@@ -1,6 +1,7 @@
 package com.mybrowser.userscript
 
 import android.util.Base64
+import com.mybrowser.core.RedirectPolicy
 import com.mybrowser.core.TextDownloader
 import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
@@ -37,10 +38,10 @@ data class ScriptResource(val mime: String, val base64: String) {
                     connection.setRequestProperty("User-Agent", "PureBrowser")
                     when (connection.responseCode) {
                         301, 302, 303, 307, 308 -> {
-                            check(hop < 5)
-                            val next = URL(url, connection.getHeaderField("Location") ?: throw IOException("Missing redirect"))
-                            require(TextDownloader.isHttpUrl(next.toString()) && !(url.protocol == "https" && next.protocol != "https"))
-                            url = next
+                            if (hop == RedirectPolicy.MAX_HOPS) throw IOException("Too many redirects")
+                            val location = connection.getHeaderField("Location") ?: throw IOException("Missing redirect")
+                            url = RedirectPolicy.next(url, location) { TextDownloader.isHttpUrl(it) }
+                                ?: throw IOException("Unsafe redirect")
                         }
                         200 -> {
                             require(connection.contentLengthLong <= MAX_BYTES)
@@ -61,6 +62,7 @@ data class ScriptResource(val mime: String, val base64: String) {
                     }
                 } finally { connection.disconnect() }
             }
+            // The loop above always returns or throws; Kotlin needs a terminal statement anyway.
             throw IOException("Too many redirects")
         }
         fun readMap(value: JSONObject): Map<String, ScriptResource> {

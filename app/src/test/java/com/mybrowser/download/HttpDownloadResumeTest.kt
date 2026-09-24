@@ -9,6 +9,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 import java.net.InetSocketAddress
@@ -72,7 +73,7 @@ class HttpDownloadResumeTest {
     @Test fun processRecoverySkipsCompletedSegmentsAndContinuesPartialSegments() = runBlocking {
         val url = start()
         val ranges = DownloadRanges.split(body.size.toLong(), 3)
-        DownloadCheckpoint(url, body.size.toLong(), "\"stable\"", 3).save(directory)
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"stable\"", 3).save(directory)
         File(directory, "part-0").writeBytes(body.copyOfRange(0, ranges[0].last.toInt() + 1))
         File(directory, "part-1").writeBytes(body.copyOfRange(ranges[1].first.toInt(), ranges[1].first.toInt() + 777))
         val payload = HttpDownloadEngine().download(url, headers, 16, directory) { _, _, _ -> }
@@ -85,7 +86,7 @@ class HttpDownloadResumeTest {
 
     @Test fun changedEntityDiscardsEveryOldByte() = runBlocking {
         val url = start(etag = "\"new\"")
-        DownloadCheckpoint(url, body.size.toLong(), "\"old\"", 1).save(directory)
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"old\"", 1).save(directory)
         File(directory, "part-0").writeBytes(ByteArray(10000) { 99 })
         val payload = HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }
         assertArrayEquals(body, merged(payload))
@@ -94,7 +95,7 @@ class HttpDownloadResumeTest {
 
     @Test fun serverIgnoringIfRangeRestartsWithoutAppendingAFullBody() = runBlocking {
         val url = start(ignoreResume = true)
-        DownloadCheckpoint(url, body.size.toLong(), "\"stable\"", 1).save(directory)
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"stable\"", 1).save(directory)
         File(directory, "part-0").writeBytes(body.copyOfRange(0, 7000))
         val payload = HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }
         assertArrayEquals(body, merged(payload))
@@ -103,7 +104,7 @@ class HttpDownloadResumeTest {
 
     @Test fun failedRevalidationKeepsPartialDataForAnotherRetry() = runBlocking {
         val url = start()
-        DownloadCheckpoint(url, body.size.toLong(), "\"stable\"", 1).save(directory)
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"stable\"", 1).save(directory)
         val part = File(directory, "part-0").apply { writeBytes(body.copyOfRange(0, 1234)) }
         server!!.stop(0)
         try { HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }; fail() }
@@ -120,9 +121,63 @@ class HttpDownloadResumeTest {
     }
 
     @Test fun corruptedCheckpointCannotResumeAnotherUrlOrAnOversizedSegment() {
-        DownloadCheckpoint("https://example.com/a", 100, "\"stable\"", 1).save(directory)
+        DownloadCheckpoint(DownloadCheckpoint.digest("https://example.com/a"), 100, "\"stable\"", 1).save(directory)
         assertNull(DownloadCheckpoint.read(directory, "https://other.example/a"))
         File(directory, "part-0").writeBytes(ByteArray(101))
         assertNull(DownloadCheckpoint.read(directory, "https://example.com/a"))
+    }
+
+    /**
+     * The sidecar lives beside the partial bytes for as long as a task is paused, so it must not
+     * carry the URL: the record JSON is redacted for a private session, and this file would
+     * otherwise be a second copy of the same query string, outliving the session.
+     */
+    @Test fun theSidecarStoresNoUrlOnlyItsDigest() {
+        val directory = tempDirectory()
+        val url = "https://cdn.example.com/movie.m4s?token=secret-value&user=42"
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), 4096, "\"stable\"", 2).save(directory)
+
+        val text = File(directory, DownloadCheckpoint.FILE_NAME).readText()
+        assertFalse("the URL must not be written", text.contains("token"))
+        assertFalse(text.contains("secret-value"))
+        assertFalse(text.contains("cdn.example.com"))
+
+        // Validation still identifies the entity, and only the entity it came from.
+        assertNotNull(DownloadCheckpoint.read(directory, url))
+        assertNull(DownloadCheckpoint.read(directory, "https://cdn.example.com/movie.m4s?token=other"))
+    }
+
+    /** A v1 sidecar is still readable, so an upgrade does not discard bytes someone paused. */
+    @Test fun aSidecarWrittenBeforeTheDigestChangeIsStillResumed() {
+        val directory = tempDirectory()
+        val url = "https://cdn.example.com/file.bin"
+        File(directory, DownloadCheckpoint.FILE_NAME).writeText(
+            listOf(
+                "version=1",
+                "url=$url",
+                "total=4096",
+                "validator=\"stable\"",
+                "threads=1",
+                "entityUrl=$url",
+            ).joinToString("\n", postfix = "\n"),
+        )
+
+        val checkpoint = requireNotNull(DownloadCheckpoint.read(directory, url))
+        assertEquals(DownloadCheckpoint.digest(url), checkpoint.urlDigest)
+        assertEquals(DownloadCheckpoint.digest(url), checkpoint.entityUrlDigest)
+        // A different URL is still refused, and the file is rewritten without the URL on the next
+        // save, which is what clears the plain text from an upgraded install.
+        assertNull(DownloadCheckpoint.read(directory, "https://cdn.example.com/other.bin"))
+        checkpoint.save(directory)
+        assertFalse(File(directory, DownloadCheckpoint.FILE_NAME).readText().contains("cdn.example.com"))
+    }
+
+    private fun tempDirectory(): File {
+        val directory = File(
+            RuntimeEnvironment.getApplication().noBackupFilesDir,
+            "checkpoint-probe-${System.nanoTime()}",
+        )
+        assertTrue(directory.mkdirs() || directory.isDirectory)
+        return directory
     }
 }

@@ -1,6 +1,7 @@
 package com.mybrowser.home
 
 import android.annotation.SuppressLint
+import android.util.Log
 import com.mybrowser.data.commitConfirmed
 import android.content.Context
 import android.graphics.Bitmap
@@ -194,8 +195,12 @@ class HomeRepository(context: Context) {
 
     private fun readRecords(): List<Record> {
         val raw = prefs.getString(KEY_SHORTCUTS, null) ?: return emptyList()
+        // A value this large cannot be read, and it is deliberately not deleted: destroying the
+        // user's shortcuts to recover from a corrupt preference is worse than reporting none of
+        // them for now. The length check above keeps every read cheap, the log makes the failure
+        // diagnosable, and the next persisted edit replaces the value with the valid set.
         if (raw.length > MAX_METADATA_LENGTH) {
-            prefs.edit { remove(KEY_SHORTCUTS) }
+            Log.w(TAG, "Homepage shortcuts exceed $MAX_METADATA_LENGTH characters; ignoring the stored value")
             return emptyList()
         }
         return runCatching {
@@ -223,8 +228,9 @@ class HomeRepository(context: Context) {
                     )
                 }
             }.distinctBy { it.url }
-        }.getOrElse {
-            prefs.edit { remove(KEY_SHORTCUTS) }
+        }.getOrElse { error ->
+            // Same rule as the length check above: report none, keep the value, say why.
+            Log.w(TAG, "Unreadable homepage shortcuts; ignoring the stored value", error)
             emptyList()
         }
     }
@@ -333,6 +339,7 @@ class HomeRepository(context: Context) {
     )
 
     private companion object {
+        const val TAG = "HomeRepository"
         const val PREFS_NAME = "browser_settings"
         const val KEY_MODE = "homepage_mode"
         const val KEY_RESTORE_SESSION = "restore_last_session"

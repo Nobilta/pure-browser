@@ -197,6 +197,36 @@ class SearchSuggestionProviderTest {
         assertEquals(emptyList<String>(), provider.fetch(huge, "q", isPrivate = false))
     }
 
+    @Test fun redirectsAreWalkedUnderTheAppsHopPolicy() = runBlocking {
+        // A same-scheme redirect is still followed, so a moved endpoint keeps working.
+        server.createContext("/moved") { exchange ->
+            exchange.responseHeaders.add("Location", "/final")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.responseBody.close()
+        }
+        serve("/final", body = """["q",["followed"]]""")
+        val followed = customEngine("http://127.0.0.1:${server.address.port}/moved?q={query}")
+        assertEquals(listOf("followed"), provider.fetch(followed, "q", isPrivate = false))
+
+        // A Location that is not http(s) is refused rather than handed to the platform.
+        server.createContext("/scheme") { exchange ->
+            exchange.responseHeaders.add("Location", "file:///etc/hosts")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.responseBody.close()
+        }
+        val scheme = customEngine("http://127.0.0.1:${server.address.port}/scheme?q={query}")
+        assertEquals(emptyList<String>(), provider.fetch(scheme, "q", isPrivate = false))
+
+        // A loop is cut off at the hop cap instead of running until the deadline.
+        server.createContext("/loop") { exchange ->
+            exchange.responseHeaders.add("Location", "/loop")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.responseBody.close()
+        }
+        val loop = customEngine("http://127.0.0.1:${server.address.port}/loop?q={query}")
+        assertEquals(emptyList<String>(), provider.fetch(loop, "q", isPrivate = false))
+    }
+
     @Test fun engineWithoutEndpointNeverHitsTheNetwork() = runBlocking {
         // Every built-in engine now maps to an endpoint, so this covers an unknown id and
         // a custom engine with no suggest template. Neither may reach the network.
