@@ -11,20 +11,30 @@
 包含三语言资源校验、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
 Android 测试会构建 host JNI，Node 使用内置测试运行器。
 调用同一 JNI 库的测试应使用相同的 Robolectric runner 和 `@Config`，避免 JVM 类加载器之间重复加载原生库。
-字符表固定使用 OpenJDK 26.0.2 的 BMP 分类（含该版本补丁），不会随 Android/JDK 自动变化。
-使用对应 JDK 运行 `python3 rust/tools/generate-java-char-tables.py --check` 对比所有 65,536 个值；
+字符表固定使用 OpenJDK 26.0.2 的 BMP 分类（含该版本补丁），不会随 Android/JDK 自动变化：
+用对应 JDK 运行 `python3 rust/tools/generate-java-char-tables.py --check` 对比所有 65,536 个值，
 `--write` 可重建表，修改基线版本时必须审查分类差异。该命令独立于使用其他 JDK 的常规构建。
-源码高亮测试覆盖真实 JNI 的 UTF-16 区间、跨块注释、字符上限和取消；Rust 侧还验证任意 UTF-16 输入及样式数量上限。
-下载确认与同页去重、地址栏链接提取和联想端点解析、设置备份编解码与分组应用均有 Robolectric 单元测试；
-联想测试使用本地 HTTP 服务及可控制暂停的连接，不访问外部搜索引擎；覆盖取消、响应头/正文超时和会话切换后的迟到响应。
-下载回归还覆盖重新下载失败/取消后保留旧文件、当前 Cookie、重复点击合并、标签预算隔离和拦截溢出；
-联想回归包含 GBK 响应与无效编码，导入回归包含重复内置 URL、错误嵌套类型及 JSON 转义后大小上限。
-全屏退出状态测试注入写入失败和交错的启用/退出请求；通知入口测试覆盖旧申请历史迁移。
-显式存图测试覆盖副本确认、重复长按、活动/暂停任务轻提示、预算与无痕隔离；导入预览测试覆盖元数据边界、百万字符拒绝及拼接前有界截断。
-导入测试注入磁盘提交失败，验证六个分组的恢复与错误报告、同组单次提交，以及旧过滤清单迁移后规则和验证器不变。
-提链测试统计字符读取次数，确保嵌套协议头和截断候选保持线性扫描，避免使用不稳定的耗时断言。
-WebView 宿主与弹窗单元测试覆盖 Activity 绑定、交接期间销毁、嵌套/多个窗口、后台导航与来源关闭路由。
-这些 JVM 检查不执行 Chromium 的真实 Autofill 和窗口通信，不能替代设备兼容验证。
+
+具体覆盖以测试源码为准：`app/src/test` 中每个测试的注释说明它为什么存在，
+`validation/*.test.cjs` 覆盖网页侧的媒体探针和用户脚本协议。
+这些都在 JVM 或 Node 上运行，不执行真实的 Chromium，因此不能替代设备验证——
+Autofill、窗口通信、系统媒体、内存压力和真实触摸的行为只能由下面的模拟器回归确认。
+
+过滤引擎的 JNI 决策表和系统登录能力由 `app/src/androidTest` 在设备上核对，不在上面的快速检查里。
+`testInstrumentationRunner` 是一个自定义 `Instrumentation` 而不是 JUnit 用例，
+`./gradlew :app:connectedDebugAndroidTest` 会以零个用例「通过」，必须显式运行：
+
+```bash
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# 决策表：核对发布 ABI 与宿主构建是否给出同一组答案
+adb shell am instrument -w com.mybrowser.debug.test/com.mybrowser.validation.NativeFilterInstrumentation
+# 系统登录：Autofill 与 WebAuthn 的开关随普通/无痕模式切换
+adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser.validation.NativeFilterInstrumentation
+```
+
+两者的结果都在输出的 `report` 里，`"passed":true` 表示通过；失败时同一行会带上 `failure`。
 
 设备验证可在 QA 服务打开 `login-lifecycle-fixture.html`：用虚拟账号测试系统 Autofill；
 分别打开回调/跳转弹窗并完成，确认原页面显示 PASS，回调模式的文档标识与表单不变。
@@ -48,9 +58,10 @@ WebView 宿主与弹窗单元测试覆盖 Activity 绑定、交接期间销毁�
 
 ## 模拟器回归
 
-并发与会话的 JVM 回归覆盖清理回调延迟/失败重试、Activity 等待者替换、ViewModel 结束下载会话、导出前订阅初始化、导入首次规则更新，以及拒绝下载恢复和拦截条目优先级。
-联想测试使用本地响应核对 OpenSearch/JSONP 与深嵌套失败处理；这些测试不能证明远程服务可达或真实 Chromium 的行为。
-备份测试用真实书签与历史存储核对导出合并、上限截断、重复导入不累加，以及非法库字段的整体拒绝。
+JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
+导出前订阅初始化、导入后的首次规则更新等），联想测试用本地 HTTP 服务核对 OpenSearch / JSONP
+与深嵌套失败处理，备份测试用真实书签与历史存储核对导出合并、上限截断和重复导入不累加。
+这些都不能证明远程服务可达，也不能代替下面的设备验证。
 
 三个平台都可以本地运行这套回归：需要 API 30 以上的 `google_apis` 镜像（`adb root` 可用，
 Play Store 镜像不行），ABI 与本机一致——Apple Silicon 用 arm64-v8a，x86_64 主机用 x86_64。
@@ -76,12 +87,12 @@ x86_64 主机（Windows、Linux、Intel Mac）装不上只含 arm64-v8a 的官�
 Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本时设置 `PYTHONUTF8=1`，
 经 `run-regressions.py` 运行时它会代为设置。脚本在 Git Bash 中执行。
 
-下面以 `emulator-5554` 和 0.11 为例，替换为实际序列号与 APK 路径。
+下面以 `emulator-5554` 和 0.13 为例，替换为实际序列号与 APK 路径。
 
 1. 安装并启动应用，部署 UI 辅助程序：
 
    ```bash
-   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.11-release.apk
+   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.13-release.apk
    python3 validation/setup-ui-probe.py emulator-5554
    ```
 
@@ -90,14 +101,14 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 2. 启动 QA 服务，并保持该终端运行：
 
    ```bash
-   python3 validation/qa-server.py --apk PureBrowser-v0.11-release.apk
+   python3 validation/qa-server.py --apk PureBrowser-v0.13-release.apk
    ```
 
 3. 在另一个终端执行回归：
 
    ```bash
-   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.11-release.apk \
-     --label release-011-smoke --profile smoke
+   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.13-release.apk \
+     --label release-013-smoke --profile smoke
    ```
 
 一次只运行一个 UI 脚本，避免同时构建。QA 使用本机 8875/8876 端口，部分夹具使用 8877–8879，
@@ -116,7 +127,7 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 例如，只检查启动更新提示和标签行为：
 
 ```bash
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.11-release.apk \
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.13-release.apk \
   --label update-tabs --stages update-launch resident
 ```
 
