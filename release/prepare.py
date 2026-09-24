@@ -69,12 +69,14 @@ def changelog_body(version):
     return body
 
 
-def compose_notes(version, summary):
-    """The release body: what changed, then what was verified for this artifact."""
-    parts = ['# Pure Browser ' + version, changelog_body(version)]
-    if summary:
-        parts.append(summary)
-    return '\n\n'.join(parts) + '\n'
+def compose_notes(version):
+    """The release body: the changelog section for this version, and nothing else.
+
+    The release page and the update prompt inside the app both render this same text, so it holds
+    only what a user can act on. The verification record lives in release/notes.md: the process
+    requires it and checks that it belongs to this version, but it is not published.
+    """
+    return '# Pure Browser ' + version + '\n\n' + changelog_body(version) + '\n'
 
 
 def prepare(apk, output, notes=None):
@@ -103,9 +105,16 @@ def prepare(apk, output, notes=None):
     if abis != {'arm64-v8a'}:
         raise ValueError('The official release currently ships arm64-v8a only: ' + str(sorted(abis)))
     checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
-    # `--notes` carries the verification summary only; the changes come from CHANGELOG.md.
-    summary = notes.read_text(encoding='utf-8').strip() if notes else ''
-    release_notes = compose_notes(version, summary)
+    # `--notes` is the verification record (release/notes.md) the release process requires. It is
+    # checked against the version being shipped and kept as a local record; it is not part of the
+    # published body, which comes from CHANGELOG.md alone.
+    verification = notes.read_text(encoding='utf-8').strip() if notes else ''
+    if verification:
+        # The record is prose with a heading, so the version is looked for anywhere in it — bounded,
+        # so a record left over from 0.1 is not accepted as 0.13's.
+        if not re.search(r'(?<![\d.])' + re.escape(version) + r'(?!\d)', verification):
+            raise ValueError('the verification record does not name version ' + version)
+    release_notes = compose_notes(version)
     if len(release_notes) > 12_000:
         raise ValueError('Release notes exceed 12,000 characters')
     # These notes become the body of update.json, which is generated here and then published as an
@@ -120,8 +129,7 @@ def prepare(apk, output, notes=None):
                 'releaseNotes': release_notes,
                 'artifacts': [{'abi': 'arm64-v8a', 'assetName': apk.name, 'size': size, 'sha256': checksum}]}
     output.mkdir(parents=True, exist_ok=True)
-    # Written for publish.sh to upload: the composed body is what the release should show, and
-    # `--notes` only ever held the verification half of it.
+    # Written for publish.sh to upload: this composed body is what the release page shows.
     notes_path = output / 'release-notes.md'
     notes_temporary = output / 'release-notes.md.tmp'
     notes_temporary.write_text(release_notes, encoding='utf-8')
@@ -134,7 +142,8 @@ def prepare(apk, output, notes=None):
     (output / 'SHA256SUMS').write_text(f'{checksum}  {apk.name}\n{manifest_hash}  update.json\n', encoding='utf-8')
     details = {'apk': str(apk), 'sha256': checksum, 'signerSha256': next(iter(signers)).lower(), 'tag': 'v' + version,
                'size': size, 'versionCode': code, 'versionName': version, 'minSdk': min_sdk, 'abi': 'arm64-v8a',
-               'releaseNotes': str(notes_path)}
+               'releaseNotes': str(notes_path),
+               'verification': str(notes.resolve()) if notes else None}
     (output / 'package-info.json').write_text(json.dumps(details, indent=2) + '\n', encoding='utf-8')
     return details
 
@@ -144,7 +153,8 @@ def main():
     parser.add_argument('--apk', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT / 'outputs/release')
     parser.add_argument('--notes', type=Path,
-                        help='验证摘要；正文由本脚本从 CHANGELOG.md 取对应版本段落合并而成')
+                        help='验证记录（release/notes.md）：核对版本并留档，不进入发布说明；'
+                             '发布说明由本脚本从 CHANGELOG.md 取对应版本段落生成')
     args = parser.parse_args()
     try:
         details = prepare(args.apk.resolve(), args.output.resolve(), args.notes)
