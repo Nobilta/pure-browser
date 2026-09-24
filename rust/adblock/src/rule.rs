@@ -167,11 +167,23 @@ impl Rule {
             return Err(SkipReason::Unsupported);
         }
 
-        let pattern = if options.match_case {
+        let mut pattern = if options.match_case {
             body.to_string()
         } else {
             body.to_lowercase()
         };
+
+        // A domain anchor only constrains where the match starts, so `||host` also covers
+        // hosts that merely begin with `host` at a label boundary: Adblock Plus matches
+        // `||ads.com` against `ads.com.example.net`, and EasyPrivacy relies on it for the
+        // `||adservice.google.` form that stands in for "any TLD". The trailing `*` states
+        // that explicitly — without it the hostname guard forces the rule's host to equal
+        // the request host, which turned those rules into dead entries — and it also keeps
+        // the rule reachable from the token index, since the domain index only finds whole
+        // host suffixes.
+        if anchor == Anchor::Domain && !anchor_end && is_plain_host(&pattern) {
+            pattern.push('*');
+        }
 
         Ok(Rule {
             pattern,
@@ -288,4 +300,14 @@ fn parse_options(spec: &str) -> Result<RuleOptions, SkipReason> {
         }
     }
     Ok(out)
+}
+
+/// True when a pattern is nothing but a hostname, so the domain anchor is the only thing
+/// constraining it. Patterns carrying a path, separator, wildcard or end anchor already
+/// pin the host down and must keep their exact meaning.
+fn is_plain_host(pattern: &str) -> bool {
+    !pattern.is_empty()
+        && pattern
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
 }

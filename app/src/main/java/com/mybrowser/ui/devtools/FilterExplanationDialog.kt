@@ -21,6 +21,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun FilterExplanationDialog(request: NetworkRequestLog, filter: FilterController, onDismiss: () -> Unit) {
     var result by remember(request.id) { mutableStateOf<FilterController.Explanation?>(null) }
+    // The engine reports rules it had to refuse; without that, a rule the cap dropped would be
+    // shown as one that should have blocked, which reads as the opposite of what happened.
+    val refused by filter.refusedCount.collectAsState()
     var busy by remember(request.id) { mutableStateOf(true) }
     LaunchedEffect(request.id) {
         result = withContext(Dispatchers.Default) { runCatching {
@@ -33,6 +36,8 @@ fun FilterExplanationDialog(request: NetworkRequestLog, filter: FilterController
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.filter_explain_current))
             Text(request.url)
+            if (refused > 0) Text(stringResource(R.string.filter_explain_truncated),
+                color = androidx.compose.material3.MaterialTheme.colorScheme.error)
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             else {
                 val explanation = result
