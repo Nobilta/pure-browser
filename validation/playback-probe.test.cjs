@@ -11,7 +11,21 @@ function fixture(count = 1, options = {}) {
   const doc = {
     baseURI: 'https://example.com/watch', hidden: false, fullscreenElement: null,
     head: { appendChild(style) { styles.push(style); } },
-    createElement() { return { textContent: '', sheet: { cssRules: [{}] }, remove() { const i = styles.indexOf(this); if (i >= 0) styles.splice(i, 1); } }; },
+    // A real style element holds no rules until its text is set, and the probe reads an empty
+    // sheet as "the page refuses our styles" — so the fixture models that instead of handing out
+    // a populated sheet unconditionally.
+    createElement() {
+      return { textContent: '', override: undefined,
+        // A real style element holds no rules until its text is set, and the probe reads an empty
+        // sheet as "the page refuses our styles" — so the fixture models that instead of handing
+        // out a populated sheet unconditionally. Tests that simulate a blocked or vanished sheet
+        // assign `sheet`, so the property stays writable.
+        get sheet() {
+          return this.override !== undefined ? this.override : { cssRules: this.textContent ? [{}] : [] };
+        },
+        set sheet(value) { this.override = value; },
+        remove() { const i = styles.indexOf(this); if (i >= 0) styles.splice(i, 1); } };
+    },
     addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); },
     removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
     querySelectorAll(name) { return name === 'video' || name === 'video,audio' ? videos : []; },
@@ -20,7 +34,16 @@ function fixture(count = 1, options = {}) {
   const videos = Array.from({ length: count }, (_, i) => {
     let rate = 1;
     const attributes = new Map();
+    const declarations = new Map();
     const video = {
+      // A real element carries an inline declaration block; the probe writes the mirror there
+      // because that is the only place a page's own stylesheet cannot outrank.
+      style: {
+        setProperty(name, value, priority) { declarations.set(name, { value: String(value), priority: priority || '' }); },
+        getPropertyValue(name) { const entry = declarations.get(name); return entry ? entry.value : ''; },
+        getPropertyPriority(name) { const entry = declarations.get(name); return entry ? entry.priority : ''; },
+        removeProperty(name) { declarations.delete(name); },
+      },
       tagName: 'VIDEO', currentSrc: `https://example.com/${i}.mp4`, src: '', controls: true,
       paused: false, ended: false, muted: false, currentTime: 20, duration: 120, readyState: 4,
       videoWidth: 1280, videoHeight: 720, defaultPlaybackRate: 1,
@@ -47,12 +70,25 @@ function fixture(count = 1, options = {}) {
     getComputedStyle(element) {
       const staged = styles.length && element.parentElement?.getAttribute('data-pure-browser-stage');
       const hidden = staged && !element.getAttribute('data-pure-browser-stage') && !element.getAttribute('data-pure-browser-controls');
-      return { display: hidden ? 'none' : 'block', visibility: 'visible', opacity: '1', ...element.computedStyle };
+      return { display: hidden ? 'none' : 'block', visibility: 'visible', opacity: '1',
+        // Read back from the inline block, except where the test models a declaration the style
+        // engine refuses: Chromium's `:fullscreen` UA rule forces `transform` (and `rotate`, and
+        // `filter`) to `none` with `!important`, which no author declaration outranks, while the
+        // individual `scale` property is left to the author. `dropTransform` is that reset; the
+        // real page that exposed it was a player that fullscreens its own video.
+        transform: element.dropTransform ? 'none'
+          : (element.style ? element.style.getPropertyValue('transform') : ''),
+        scale: element.dropScale ? 'none'
+          : ((element.style && element.style.getPropertyValue('scale')) || 'none'),
+        ...element.computedStyle };
     },
     setTimeout(fn) { timers.set(++nextTimer, fn); return nextTimer; },
     clearTimeout(id) { timers.delete(id); },
     MutationObserver: class { observe() {} disconnect() {} },
-    addEventListener() {}, removeEventListener() {},
+    // Window listeners land in the same map as the document's, so a test can fire a resize and see
+    // exactly who is registered for it.
+    addEventListener(name, fn) { doc.addEventListener(name, fn); },
+    removeEventListener(name, fn) { doc.removeEventListener(name, fn); },
     mybrowserMediaProbe: { postMessage(raw) { messages.push(JSON.parse(raw)); } },
   };
   if (options.mse) {
@@ -73,9 +109,17 @@ function fixture(count = 1, options = {}) {
     return api.command({ type, id: ++commandId, frameId: target.frameId, videoId: target.videoId, ...values });
   }
   function container(children = []) {
-    const attributes = new Map();
+    const attributes = new Map(), declarations = new Map();
     const element = {
+      style: {
+        setProperty(name, value, priority) { declarations.set(name, { value: String(value), priority: priority || '' }); },
+        getPropertyValue(name) { const entry = declarations.get(name); return entry ? entry.value : ''; },
+        getPropertyPriority(name) { const entry = declarations.get(name); return entry ? entry.priority : ''; },
+        removeProperty(name) { declarations.delete(name); },
+      },
       tagName: 'DIV', parentElement: null, children, isConnected: true,
+      // The picture presets derive their letterbox padding from the box they are fitted into.
+      clientWidth: 640, clientHeight: 360,
       getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 360 }),
       contains(child) { return child === this || this.children.some(item => item.contains(child)); },
       getAttribute(name) { return attributes.get(name) ?? null; },
@@ -85,7 +129,8 @@ function fixture(count = 1, options = {}) {
     children.forEach(child => { child.parentElement = element; });
     return element;
   }
-  return { api, videos, doc, win, event, command, messages, timers, styles, container };
+  return { api, videos, doc, win, event, command, messages, timers, styles, container,
+    listeners: (name) => listeners.get(name)?.size ?? 0 };
 }
 
 test('loaded source stays distinct from src attributes and page resource hints', () => {
@@ -552,4 +597,234 @@ test('a jump into unbuffered data reports buffering once it is not instant', asy
   v.seeking = false;
   v.currentTime += 1;
   assert.equal(f.api.snapshot().buffering, false);
+});
+
+test('a ratio preset is stretched into its box and the mirror is written onto the element', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'RATIO_3_4' }), true);
+  const rules = f.styles[0].textContent;
+  // The ratio travels in the takeover's own stylesheet, which is what keeps the element's box —
+  // the thing the takeover's layout check and the device regression measure — exactly where the
+  // takeover put it. It stretches the picture into that box (`fill`), because picking a ratio asks
+  // to see the picture at that shape rather than letterboxed inside it. The mirror is not here at
+  // all: a page stylesheet outranks this sheet, which is why the flip did nothing on pages that
+  // style their own player, so it is written on the element instead.
+  assert.doesNotMatch(rules, /transform:scaleX/);
+  assert.match(rules, /box-sizing:border-box!important/);
+  assert.match(rules, /object-fit:fill!important/);
+  // The takeover's baseline still declares contain; the preset has to be the later declaration,
+  // because a sheet's own rules are settled by source order.
+  assert.ok(
+    rules.lastIndexOf('object-fit:fill!important') > rules.lastIndexOf('object-fit:contain!important'),
+    'the stretch must be declared after the letterbox baseline',
+  );
+  assert.equal(v.style.getPropertyValue('transform'), 'scaleX(-1)');
+  // A 640x360 viewport holding a 3:4 box leaves 270 px for the picture: 185 px of side padding.
+  assert.match(rules, /padding:0\.00px 185\.00px!important/);
+  // The ratio writes nothing onto the element, and neither the marker nor the controls list is
+  // touched by a preset change: the only thing this feature puts on the element is the mirror.
+  const marker = v.getAttribute('data-pure-browser-controls');
+  const controlsList = v.getAttribute('controlslist');
+  assert.ok(marker, 'the takeover marker owns the element');
+  assert.equal(v.getAttribute('style'), null);
+
+  // Filling the screen crops instead of stretching, and the mirror stays on the element.
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'FILL' }), true);
+  assert.equal(v.style.getPropertyValue('transform'), 'scaleX(-1)');
+  assert.equal(v.style.getPropertyPriority('transform'), 'important');
+  const filled = f.styles[0].textContent;
+  assert.match(filled, /object-fit:cover!important/);
+  assert.doesNotMatch(filled, /padding:\d+\.\d\dpx/);
+
+  assert.equal(v.getAttribute('data-pure-browser-controls'), marker);
+  assert.equal(v.getAttribute('controlslist'), controlsList);
+  assert.equal(v.getAttribute('style'), null);
+
+  // Back to the source's own ratio and orientation: the extra rules leave with the choice.
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('transform'), '', 'clearing the mirror frees the element');
+  const natural = f.styles[0].textContent;
+  assert.doesNotMatch(natural, /transform:scaleX/);
+  assert.doesNotMatch(natural, /object-fit:cover/);
+  assert.doesNotMatch(natural, /object-fit:contain!important;box-sizing/);
+  assert.doesNotMatch(natural, /padding:\d+\.\d\dpx/);
+});
+
+test('a preset survives leaving fullscreen, and an unreadable one is not guessed at', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'RATIO_16_9' }), true);
+  assert.match(f.styles[0].textContent, /padding:0\.00px 0\.00px!important/);
+
+  assert.equal(f.command('restoreControls'), true);
+  assert.equal(f.styles.length, 0, 'leaving fullscreen takes the preset rules with it');
+  assert.equal(v.controls, true);
+
+  // Re-entering fullscreen restores the choice: its rules belong to whichever takeover is live.
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(v.style.getPropertyValue('transform'), 'scaleX(-1)');
+  assert.match(f.styles[0].textContent, /padding:\d+\.\d\dpx/);
+
+  // A preset this build does not know is not a licence to guess: the picture keeps its own ratio.
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'RATIO_9_16' }), true);
+  const rules = f.styles[0].textContent;
+  assert.doesNotMatch(rules, /padding:\d+\.\d\dpx/);
+  assert.doesNotMatch(rules, /transform:scaleX/);
+});
+
+test('the mirror gives the page back its own inline transform', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  // A page that lays its video out with an inline transform has to get it back on exit.
+  v.style.setProperty('transform', 'translateZ(0)', 'important');
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('transform'), 'scaleX(-1)');
+  assert.equal(f.command('restoreControls'), true);
+  assert.equal(v.style.getPropertyValue('transform'), 'translateZ(0)');
+  assert.equal(v.style.getPropertyPriority('transform'), 'important');
+});
+
+test('a video the fullscreen UA rule strips transforms from is mirrored through scale', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  // The video is the fullscreen element: `transform: scaleX(-1)` is written, accepted by the style
+  // object, and then resolved to `none` by the UA rule for `:fullscreen`. `scale` is the
+  // declaration that reaches the screen there, so it has to be what the element carries.
+  v.dropTransform = true;
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('scale'), '-1 1');
+  assert.equal(v.style.getPropertyPriority('scale'), 'important');
+  assert.equal(v.style.getPropertyValue('transform'), '', 'the refused declaration is not left behind');
+  assert.equal(root.style.getPropertyValue('transform'), '', 'the video itself carried the mirror');
+  assert.equal(root.style.getPropertyValue('scale'), '');
+  // Turning it off restores the property that was actually used.
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('scale'), '');
+  // ...and a page's own scale survives the round trip, like its transform does.
+  v.style.setProperty('scale', '1.2 1.2', 'important');
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('scale'), '-1 1');
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('scale'), '1.2 1.2');
+  assert.equal(v.style.getPropertyPriority('scale'), 'important');
+});
+
+test('a video that refuses both declarations still mirrors through the takeover wrapper', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  // A page can refuse the declaration on the video itself: its own !important, an id-scoped rule, a
+  // frozen style object, or a player that paints the video outside the element. The wrapper is the
+  // next layer showing the same thing, and it is the one the takeover already owns.
+  v.dropTransform = true;
+  v.dropScale = true;
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'NATURAL' }), true);
+  assert.equal(v.style.getPropertyValue('transform'), '', 'the video is left as the page had it');
+  assert.equal(root.style.getPropertyValue('transform'), 'scaleX(-1)');
+  assert.equal(root.style.getPropertyPriority('transform'), 'important');
+  // Leaving fullscreen restores that wrapper and nothing else.
+  assert.equal(f.command('restoreControls'), true);
+  assert.equal(root.style.getPropertyValue('transform'), '');
+});
+
+test('a mirror no layer accepts is reported as failed with its reason', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  v.dropTransform = true;
+  v.dropScale = true;
+  root.dropTransform = true;
+  root.dropScale = true;
+  assert.equal(f.command('setVideoTransform', { mirror: true, fit: 'NATURAL' }), false);
+  const state = f.messages.filter((message) => message.type === 'state').pop();
+  assert.match(String(state.lastCommandError), /no layer accepted the mirror declaration/);
+  assert.match(String(state.lastCommandError), /2 elements, 4 declarations/, 'the report says what was tried');
+});
+
+test('the ratio box comes from the viewport, not from the box our own padding sized', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  // Measured on an API 37 device after a rotation: the element reported 606x914 against a 411x914
+  // portrait viewport — the stale landscape padding plus a collapsed content box. Its client box
+  // contains the padding this feature wrote, so deriving the next padding from it computes the
+  // padding from its own output. The viewport is the box the takeover pins the element to.
+  f.win.innerWidth = 411;
+  f.win.innerHeight = 914;
+  root.clientWidth = 606;
+  root.clientHeight = 914;
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'RATIO_3_4' }), true);
+  assert.match(f.styles[0].textContent, /padding:183\.00px 0\.00px!important/);
+});
+
+test('a rotation that reports a zero-sized box is retried until the box is usable', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'RATIO_3_4' }), true);
+  assert.match(f.styles[0].textContent, /padding:0\.00px 185\.00px!important/);
+  // A rotation reports the box at 0x0 for a frame while the new layout is being committed. Deriving
+  // the padding from that would drop it for good: the rotation is the last resize the page hears
+  // about, so nothing would put it back and the picture would stay stretched into a box nothing
+  // sized.
+  const before = f.timers.size;
+  root.clientWidth = 0;
+  root.clientHeight = 0;
+  f.event('resize');
+  assert.doesNotMatch(f.styles[0].textContent, /padding:\d+\.\d\dpx/, 'no padding can be derived from 0x0');
+  assert.equal(f.timers.size, before + 1, 'the probe has to ask again for a usable box');
+  root.clientWidth = 320;
+  root.clientHeight = 640;
+  const pending = [...f.timers.values()];
+  f.timers.clear();
+  pending.forEach(fn => fn());
+  assert.match(f.styles[0].textContent, /padding:106\.67px 0\.00px!important/);
+});
+
+test('a box that never becomes usable is retried a bounded number of times', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'RATIO_3_4' }), true);
+  const retries = [];
+  f.win.setTimeout = (fn) => { retries.push(fn); return retries.length; };
+  root.clientWidth = 0;
+  root.clientHeight = 0;
+  f.event('resize');
+  assert.equal(retries.length, 1, 'a zero-sized box is asked about again');
+  let rounds = 0;
+  while (retries.length && rounds < 6) { retries.shift()(); rounds++; }
+  // Three attempts after the initial one, then quiet: a page whose box never becomes usable must
+  // not leave a timer polling behind it.
+  assert.equal(rounds, 3, 'the retry chain is bounded');
+  assert.equal(retries.length, 0);
+});
+
+test('a ratio preset follows the viewport and releases its listener when it ends', () => {
+  const f = fixture(), v = f.videos[0], root = f.container([v, f.container()]);
+  f.doc.fullscreenElement = root;
+  assert.equal(f.command('nativeControls'), true);
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'RATIO_3_4' }), true);
+  // A rotated viewport changes the padding, so the page has to be listening for it.
+  assert.equal(f.listeners('resize'), 1, 'the ratio preset has to hear about a new viewport');
+  assert.equal(f.listeners('orientationchange'), 1);
+  const before = f.styles[0].textContent;
+  root.clientWidth = 320;
+  root.clientHeight = 640;
+  f.event('resize');
+  assert.notEqual(f.styles[0].textContent, before, 'the padding is derived from the viewport');
+  // Choosing another preset releases it...
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'NATURAL' }), true);
+  assert.equal(f.listeners('resize'), 0, 'a preset that no longer needs a viewport must stop listening');
+  // ...and so does leaving fullscreen, which is the only path that clears a live ratio.
+  assert.equal(f.command('setVideoTransform', { mirror: false, fit: 'RATIO_16_9' }), true);
+  assert.equal(f.listeners('resize'), 1);
+  assert.equal(f.command('restoreControls'), true);
+  assert.equal(f.listeners('resize'), 0, 'leaving fullscreen releases the listener');
+  assert.equal(f.listeners('orientationchange'), 0);
 });

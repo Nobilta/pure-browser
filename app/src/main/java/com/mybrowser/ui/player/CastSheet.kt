@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,6 +59,7 @@ fun CastSheet(
     onSearch: () -> Unit,
     onCast: (MediaSniffer.Candidate, DlnaDevice) -> Unit,
     onCopyUrl: (MediaSniffer.Candidate) -> Unit,
+    onDownload: (MediaSniffer.Candidate) -> Unit,
     onDismiss: () -> Unit,
     preferredCandidate: MediaSniffer.Candidate? = null,
     playingCandidateUrls: Set<String> = emptySet(),
@@ -138,6 +140,9 @@ fun CastSheet(
                         }
                     },
                     onCopy = { onCopyUrl(candidate) },
+                    // A manifest is not a file this engine can fetch as one body, so those rows
+                    // offer no download instead of saving a playlist nobody can play.
+                    onDownload = if (candidate.isStream) null else ({ onDownload(candidate) }),
                 )
             }
 
@@ -217,6 +222,7 @@ private fun MediaRow(
     isPlaying: Boolean,
     onClick: () -> Unit,
     onCopy: () -> Unit,
+    onDownload: (() -> Unit)?,
 ) {
     Row(
         modifier = Modifier
@@ -274,6 +280,11 @@ private fun MediaRow(
         }
         TextButton(onClick = onCopy) {
             Text(stringResource(R.string.cast_copy))
+        }
+        onDownload?.let { download ->
+            TextButton(onClick = download, modifier = Modifier.testTag("cast_download")) {
+                Text(stringResource(R.string.download_confirm_action))
+            }
         }
     }
 }

@@ -28,6 +28,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.mybrowser.R
 import com.mybrowser.core.PlaybackSpeed
+import com.mybrowser.core.VideoFit
 import com.mybrowser.data.VideoPreferences
 import com.mybrowser.ui.theme.MyBrowserTheme
 import kotlin.math.abs
@@ -43,11 +44,14 @@ class FullscreenVideoView(
     private val videoView: View,
     private val preferences: VideoPreferences,
     enhancedPlayback: Boolean,
+    initialMirror: Boolean,
+    initialFit: VideoFit,
     private val tracker: MediaPlaybackTracker,
     private val titleProvider: () -> String,
     private val canCast: () -> Boolean,
     private val onExit: () -> Unit,
     private val onChooseSpeed: (Float) -> Unit,
+    private val onChooseTransform: (Boolean, VideoFit) -> Unit,
     private val castContent: @Composable () -> Unit,
     private val onPictureInPicture: (() -> Unit)? = null,
 ) : FrameLayout(activity) {
@@ -75,6 +79,11 @@ class FullscreenVideoView(
     private var seeking by mutableStateOf(false)
     private var progress by mutableFloatStateOf(0f)
     private var menu by mutableStateOf<PlayerMenu?>(null)
+    // The user's picture shape for this site, held here for the whole playback session and
+    // re-sent whenever a takeover is (re)established, because the page's rules for it live in the
+    // stylesheet the takeover builds.
+    private var mirror by mutableStateOf(initialMirror)
+    private var fit by mutableStateOf(initialFit)
     private var hudMessage by mutableStateOf<String?>(null)
     private val statusSource = PlayerStatusSource(activity)
     private var networkSpeed by mutableStateOf<String?>(null)
@@ -118,6 +127,8 @@ class FullscreenVideoView(
                         rate = state.playbackRate ?: 1f,
                         canCast = canCast(),
                         menu = menu,
+                        mirror = mirror,
+                        fit = fit,
                         hud = hudMessage,
                         buffering = enhanced && state.buffering,
                         networkSpeed = networkSpeed,
@@ -143,6 +154,8 @@ class FullscreenVideoView(
                     onSpeedPreview = { rate -> tracker.setPlaybackRate(rate) },
                     // The panel stays open after a commit so the slider can be adjusted again.
                     onSpeed = { rate -> onChooseSpeed(rate) },
+                    onMirror = { changeTransform(!mirror, fit) },
+                    onFit = { chosen -> changeTransform(mirror, chosen) },
                     castContent = castContent,
                 )
             }
@@ -205,7 +218,32 @@ class FullscreenVideoView(
             enhanced = true
             refreshMode()
             showControls(true)
+            // The page's rules for a preset live in the stylesheet this takeover just built, so
+            // the choice is applied again here rather than only when the user changes it. The
+            // answer is reported: a mirror the page's renderer refuses otherwise looks applied
+            // while the picture on screen is not flipped.
+            tracker.setVideoTransform(mirror, fit) { ok ->
+                if (!ok && mirror) {
+                    showHud(activity.getString(R.string.ui_video_transform_unavailable), 1800)
+                }
+            }
         }
+    }
+
+    /**
+     * Records the user's picture shape and pushes it to the page.
+     *
+     * The value is persisted per site through [onChooseTransform]: a site that needs a ratio or a
+     * mirror needs it for every video it plays, not only for the one that was open at the time.
+     */
+    private fun changeTransform(nextMirror: Boolean, nextFit: VideoFit) {
+        val changed = nextMirror != mirror || nextFit != fit
+        mirror = nextMirror
+        fit = nextFit
+        tracker.setVideoTransform(nextMirror, nextFit) { ok ->
+            if (!ok) showHud(activity.getString(R.string.ui_video_transform_unavailable), 1800)
+        }
+        if (changed) onChooseTransform(nextMirror, nextFit)
     }
 
     private fun disconnectControls() {
