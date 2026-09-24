@@ -24,7 +24,10 @@ case "$(uname -s)" in
     *) echo "Unsupported host for JNI tests" >&2; exit 1 ;;
 esac
 
-cargo build --manifest-path "$(to_native_path "$rust_root/Cargo.toml")" -p adblock -p url_utils
+# --locked keeps the host-test dependency graph identical to the one recorded in Cargo.lock,
+# which the release path already enforces; without it a host test can resolve differently from
+# the library that actually ships.
+cargo build --locked --manifest-path "$(to_native_path "$rust_root/Cargo.toml")" -p adblock -p url_utils
 
 mkdir -p "$destination"
 cp "$CARGO_TARGET_DIR/debug/${prefix}adblock.$extension" "$destination/${prefix}mybrowser_adblock.$extension"

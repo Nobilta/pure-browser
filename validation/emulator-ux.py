@@ -45,6 +45,12 @@ for key in _translations[0]:
             pattern = "(.+?)".join(re.escape(part.replace("%%", "%")) for part in re.split(r"%\d+\$[sdif]", value))
             _formatted_labels.append((re.compile(pattern), arguments, variants))
 
+# Controls owned by apps outside the browser, which the resource scan above cannot know. They
+# follow the device locale, not the app's, so a suite that runs on a Chinese emulator needs the
+# translations here: the capture flow waits for the AOSP camera's shutter and used to time out
+# whenever the device was left in Chinese by an earlier stage.
+_label_variants["Shutter"] = {"Shutter", "快门", "快門"}
+
 
 @lru_cache(maxsize=512)
 def labels(label):

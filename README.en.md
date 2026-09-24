@@ -22,15 +22,15 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 
 ## Features
 
-- **Ad blocking and userscripts**: built-in filter lists, custom filter subscriptions and userscript installation.
-- **Tabs and bookmarks**: tab groups, search, find in page, and bookmark import and export; sign-in popups keep their originating page alive to receive callbacks.
+- **Ad blocking and userscripts**: built-in filter lists, custom subscriptions and userscript installation.
+- **Tabs and bookmarks**: tab groups and search, find in page, and bookmark import and export.
 - **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
-- **Downloads**: pause, resume interrupted transfers and delete in bulk, with configurable save locations; every download is confirmed first and repeat requests are merged, and downloading a new copy keeps the old file; long-press image saves confirm a copy without opening Downloads.
-- **Loading and recovery**: loading feedback while waiting for a response, with a built-in recovery page for failed loads.
-- **Immersive fullscreen**: hide the system bars and browser toolbar so the page fills the screen; a floating button keeps browser actions reachable, and exiting takes effect immediately without reloading the page.
+- **Downloads**: every download is confirmed first, then pause, resume, configurable folders and bulk delete; repeat requests are merged.
+- **Immersive fullscreen**: hide the system bars and toolbar so the page fills the screen, with a floating button for browser actions.
+- **Loading and recovery**: loading progress, with a built-in recovery page for failed loads.
 - **Offline QR scanning**: scan with the camera or read a code from an image, without an internet connection.
-- **Personalisation**: customise the home page, place the address bar at the top or bottom, and choose English, Simplified Chinese or Traditional Chinese; settings can be exported to a file and imported on another device, with each group confirmed only after it has been saved. Enabled subscriptions then download any missing rules.
-- **Privacy controls**: incognito browsing, per-site permissions, and browsing history and site data cleanup; unreadable website settings can be reset after confirmation to restore saving. Page navigation waits for private data cleanup to finish.
+- **Personalisation**: customise the home page, address bar position, theme and three interface languages; settings can be exported to a file and imported on another device.
+- **Privacy controls**: incognito browsing, per-site permissions and browsing data cleanup; page navigation waits for private data cleanup to finish.
 
 See the [feature guide](FEATURES.md) for details, website compatibility and incognito limitations.
 The linked development and reference guides are currently in Chinese.
