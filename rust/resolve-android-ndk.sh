@@ -20,7 +20,7 @@ local_properties="$project_dir/local.properties"
 if [[ -f "$local_properties" ]]; then
     # local.properties follows Java properties escaping, so a Windows path arrives as
     # C\:\\Users\\me\\AppData\\Local\\Android\\Sdk; unescape before testing the directory.
-    configured_sdk="$(sed -n 's/^sdk\.dir=//p' "$local_properties" | head -n 1 | sed -e 's/\\\(.\)/\1/g')"
+    configured_sdk="$(sed -n 's/^sdk\.dir=//p' "$local_properties" | head -n 1 | tr -d '\r' | sed -e 's/\\\(.\)/\1/g')"
     if [[ -n "$configured_sdk" && -d "$configured_sdk" ]]; then
         sdk_dir="$configured_sdk"
     fi
@@ -38,9 +38,14 @@ for root in "${roots[@]}"; do
     [[ -d "$root/ndk" ]] || continue
     for candidate in "$root"/ndk/*; do
         [[ -d "$candidate" ]] || continue
-        if [[ -z "$best" || "$(basename "$candidate")" > "$(basename "$best")" ]]; then
+        # Compare versions numerically. String order puts 26.3 above 26.11, so a host with
+        # both installed silently built against the older NDK.
+        if [[ -z "$best" ]]; then
             best="$candidate"
+            continue
         fi
+        highest="$(printf '%s\n%s\n' "$(basename "$best")" "$(basename "$candidate")" | sort -V | tail -n 1)"
+        [[ "$(basename "$candidate")" == "$highest" ]] && best="$candidate"
     done
 done
 

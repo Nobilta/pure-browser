@@ -95,29 +95,56 @@ export PATH="$toolchain/bin:${PATH:-}"
 # would have added. Elsewhere the wrapper is a real executable and stays the linker.
 linker="$toolchain/bin/$linker_file"
 archiver="$toolchain/bin/llvm-ar"
-rustflags=""
+rust_arguments=()
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         if [[ -f "$toolchain/bin/clang.exe" ]]; then
             linker="$toolchain/bin/clang.exe"
-            rustflags="-C link-arg=--target=${linker_name%-clang}"
+            # Written without a space: an encoded element reaches rustc as one argument, and
+            # "-C link-arg=..." would then be read as the codegen option " link-arg" and rejected
+            # ("unknown codegen option"). The whitespace-split form this replaced only worked
+            # because CARGO_TARGET_<triple>_RUSTFLAGS divided it into two arguments for us.
+            rust_arguments+=("-Clink-arg=--target=${linker_name%-clang}")
         fi
         [[ -f "$toolchain/bin/llvm-ar.exe" ]] && archiver="$toolchain/bin/llvm-ar.exe"
         ;;
 esac
 
+# The released libraries embed the absolute path of every dependency source file — 19 hits
+# across the two arm64 libraries in 0.12 — which puts the build host's home directory inside
+# the APK. Remap the cargo registry and the checkout to fixed roots so the shipped artifacts
+# describe no particular machine and a rebuild is comparable byte for byte.
+cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+rust_arguments+=("--remap-path-prefix=$cargo_home/registry=/cargo/registry")
+rust_arguments+=("--remap-path-prefix=$PROJECT_DIR=/build/pure-browser")
+
+# Passed encoded, because CARGO_TARGET_<triple>_RUSTFLAGS is split on whitespace: a checkout or
+# cargo home whose path contains a space arrives at rustc as two arguments and the build stops
+# with "--remap-path-prefix must contain '='". The encoded form keeps the argument boundaries by
+# joining with 0x1f. Cargo builds one target per invocation here, so the global name is exact.
+encoded_rustflags=""
+for argument in "${rust_arguments[@]}"; do
+    # The separator is appended outside the quoted expansion so the loop reads the same under
+    # any shell; the value itself is a plain byte, never the characters that spell it.
+    [[ -n "$encoded_rustflags" ]] && encoded_rustflags+=$'\x1f'
+    encoded_rustflags+="$argument"
+done
+export CARGO_ENCODED_RUSTFLAGS="$encoded_rustflags"
+
 if [[ "$TARGET" == "aarch64-linux-android" ]]; then
     export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
     export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$archiver"
-    [[ -n "$rustflags" ]] && export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="$rustflags"
 else
     export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$linker"
     export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$archiver"
-    [[ -n "$rustflags" ]] && export CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS="$rustflags"
 fi
 
 echo "Building Rust libraries for $TARGET (linker: $(basename "$linker"))..."
-rustup target add "$TARGET" >/dev/null 2>&1 || true
+if ! rustup target add "$TARGET" >/dev/null 2>&1; then
+    # Already installed is the normal case here, so this is not fatal on its own; a genuine
+    # failure then surfaces from cargo. Reporting it keeps the reason instead of discarding it.
+    echo "Note: rustup could not add the $TARGET target; continuing in case it is installed." >&2
+fi
 cargo_args=(build --release --locked --target "$TARGET" -p adblock -p url_utils)
 case "${PURE_FILTER_OPT:-}" in
     "") ;;
