@@ -59,7 +59,28 @@ class NativeFilterInstrumentation : Instrumentation() {
                     Triple("https://www.google-analytics.com/analytics.js", "https://www.example.org/", ResourceType.SCRIPT),
                     Triple("https://cdn.example.org/ads/banner.js", "https://www.example.org/", ResourceType.SCRIPT),
                     Triple("https://cdn.example.org/movie/segment.m4s?token=" + "abcdef0123456789".repeat(128), "https://www.example.org/", ResourceType.MEDIA))
-                val expected = cases.map { (url, page, type) -> engine.shouldBlockUncached(url, page, type) }
+                // Frozen expectations, not values read back from the engine. Deriving them from
+                // `shouldBlockUncached` only proved the cached and uncached paths agreed, so an
+                // engine that blocked everything passed this check. The list was taken from a
+                // host release build and the bundled lists, and the three blocking entries are
+                // the ad endpoints the lists target; the run then answers a question the host
+                // cannot: whether the shipped ABI agrees with the host profile, which differs in
+                // panic strategy and optimisation level.
+                val expected = listOf(
+                    false, // document
+                    false, // script
+                    false, // image
+                    false, // web font
+                    false, // YouTube player API
+                    false, // googlevideo media
+                    false, // HLS playlist from a page the lists do not target
+                    false, // HLS segment from the same page
+                    true, // googlesyndication ad script
+                    true, // google-analytics script
+                    true, // ad script on a neutral host
+                    false, // long signed media URL
+                )
+                check(expected.size == cases.size) { "expectation table is out of step with cases" }
                 // Alternate order across runs to avoid crediting warm caches to one path.
                 repeat(6) { run ->
                     for (cached in if (run % 2 == 0) listOf(false, true) else listOf(true, false)) {
@@ -70,7 +91,9 @@ class NativeFilterInstrumentation : Instrumentation() {
                                 val time = System.nanoTime()
                                 val value = if (cached) engine.shouldBlock(url, page, type) else engine.shouldBlockUncached(url, page, type)
                                 samples[i++] = System.nanoTime() - time
-                                check(value == expected[index]) { "JNI decision mismatch" }
+                                check(value == expected[index]) {
+                                    "JNI decision mismatch for $url (cached=$cached): expected ${expected[index]}, got $value"
+                                }
                             }
                         }
                         samples.sort()

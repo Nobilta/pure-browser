@@ -29,6 +29,16 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
     val unsupportedRuleCount: Int
         get() = if (handle == 0L) 0 else runCatching { nativeUnsupportedCount(handle) }.getOrDefault(0)
 
+    /**
+     * Rules dropped because a rule set was full.
+     *
+     * Reported apart from [unsupportedRuleCount]: this many rules were refused because the
+     * subscriptions together are longer than the engine holds, which trimming them fixes, while
+     * the unsupported count is syntax the engine does not implement.
+     */
+    val refusedRuleCount: Int
+        get() = if (handle == 0L) 0 else runCatching { nativeRefusedCount(handle) }.getOrDefault(0)
+
     fun cosmeticCss(url: String): String = if (handle == 0L) "" else
         runCatching { nativeCosmeticCss(handle, url).orEmpty() }.getOrDefault("")
 
@@ -118,6 +128,7 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
         ): Boolean
         @JvmStatic private external fun nativeRuleCount(handle: Long): Int
         @JvmStatic private external fun nativeUnsupportedCount(handle: Long): Int
+        @JvmStatic private external fun nativeRefusedCount(handle: Long): Int
         @JvmStatic private external fun nativePrepareDocument(handle: Long, url: String): Long
         @JvmStatic private external fun nativeCheckDocument(handle: Long, url: String, document: Long, type: Int): Int
         @JvmStatic private external fun nativeExplainList(text: String, url: String, document: String, type: Int): String?

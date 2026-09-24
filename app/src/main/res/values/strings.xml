@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="downloads_cleared_partial">Items cleared: %1$d; files that could not be deleted: %2$d.</string>
-    <string name="page_load_error_code">Unable to load the page (error %1$d)</string>
     <string name="cast_network_error">Unable to reach the device. Check your network and try again.</string>
     <string name="video_progress">%1$s / %2$s</string>
     <string name="app_name">Pure Browser</string>
@@ -85,7 +84,7 @@
     <string name="incognito_preference_save_failed">Could not save the incognito setting. The mode was not changed.</string>
     <string name="incognito_badge">Incognito</string>
     <string name="incognito_on">Incognito mode enabled</string>
-    <string name="incognito_off">Incognito mode closed and private data cleared</string>
+    <string name="incognito_off">Incognito mode closed</string>
     <string name="incognito_fallback">Clear data on exit</string>
     <string name="menu_enter_incognito">Enter incognito mode</string>
     <string name="menu_exit_incognito">Exit incognito mode</string>
@@ -93,6 +92,14 @@
     <string name="menu_cast_none">No castable videos on this page</string>
     <string name="menu_cast_no_direct_source">No direct media address detected for this video</string>
     <string name="playback_speed_title">Playback speed</string>
+    <string name="player_video_menu">Display</string>
+    <string name="player_mirror">Mirror</string>
+    <string name="player_fit_natural">Original</string>
+    <string name="player_fit_ratio_3_4">3:4</string>
+    <string name="player_fit_ratio_16_9">16:9</string>
+    <string name="player_fit_fill">Fill screen</string>
+    <string name="ui_video_transform_unavailable">Could not apply the picture setting</string>
+    <string name="ui_video_transform_save_failed">Could not save the display setting. The picture was not changed.</string>
     <string name="playback_speed_applied">Playback speed set to %1$s</string>
     <string name="playback_speed_failed">No controllable video found</string>
     <string name="menu_adblock">Ad blocking</string>
@@ -599,10 +606,12 @@
     <string name="shortcut_unavailable">The launcher could not add this shortcut.</string>
     <string name="filter_explain">Explain filtering</string>
     <string name="filter_explain_current">Rechecked with the currently loaded rules. This may differ from the recorded request after you change filters. Site and global switches still control whether a matching rule is applied.</string>
+    <string name="filter_explain_truncated">Rules were refused at the subscription limit, so a rule shown here may not have been loaded.</string>
     <string name="filter_exception_match">Matched an exception rule</string>
     <string name="filter_block_match">Matched a blocking rule</string>
     <string name="filter_no_match">No matching network rule found</string>
     <string name="filter_unsupported_count">Unsupported network rule lines: %1$d</string>
+    <string name="filter_refused_count">Network rule lines refused because the subscriptions exceed the engine limit: %1$d</string>
     <string name="filter_pause_site">Temporarily disable filtering for this site</string>
     <string name="filter_resume_site">Resume filtering for this site</string>
     <string name="filter_explain_failed">Unable to analyze this request. Reload the filter lists and try again.</string>

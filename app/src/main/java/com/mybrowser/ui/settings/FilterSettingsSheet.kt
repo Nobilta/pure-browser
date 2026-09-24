@@ -29,6 +29,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     val ruleCount by filterController.ruleCount.collectAsState()
     val cosmeticCount by filterController.cosmeticCount.collectAsState()
     val unsupportedCount by filterController.unsupportedCount.collectAsState()
+    val refusedCount by filterController.refusedCount.collectAsState()
     val enabled by filterController.enabled.collectAsState()
     val busy by controller.busy.collectAsState()
     val autoUpdate by controller.autoUpdate.collectAsState()
@@ -51,6 +52,11 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(res.getString(R.string.filter_unsupported_count, unsupportedCount), Modifier.padding(horizontal = 20.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Only when it happened: unlike unsupported syntax, a refused rule is a subscription
+            // the user can trim, so the line is a prompt rather than a permanent statistic.
+            if (refusedCount > 0) Text(res.getString(R.string.filter_refused_count, refusedCount),
+                Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { scope.launch { controller.update() } }, enabled = !busy && lists.any { it.enabled }) {
                     Text(res.getString(if (busy) R.string.ui_working else R.string.filter_update_all))

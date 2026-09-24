@@ -1,6 +1,7 @@
 use adblock::engine::Engine;
 use adblock::matcher::extract_token;
 use adblock::rule::{Anchor, ResourceType, Rule, SkipReason};
+use std::hint::black_box;
 
 fn engine(rules: &[&str]) -> Engine {
     let mut e = Engine::new();
@@ -380,4 +381,140 @@ fn packaged_lists_and_local_subscription_work_together() {
         page,
         ResourceType::Script
     ));
+}
+
+/// Decisions checked against Adblock Plus' own pattern implementation. The audit that
+/// produced these ran `patterns.js` from adblockpluscore; they pin the two cases where this
+/// engine used to disagree with the reference.
+#[test]
+fn abp_reference_decisions_hold() {
+    // `%` is not a separator, so `^` must not match inside a percent-encoded path.
+    let e = engine(&["/ads^"]);
+    assert!(!e.should_block("https://x.com/ads%20foo", DOC, ResourceType::Image));
+    assert!(e.should_block("https://x.com/ads?q=1", DOC, ResourceType::Image));
+    assert!(e.should_block("https://x.com/ads", DOC, ResourceType::Image));
+
+    // A domain anchor constrains only where the match starts, so a bare host also covers
+    // hosts that begin with it. `||ads.com*` already behaved this way, which was the tell.
+    for rule in ["||ads.com", "||ads.com*"] {
+        let e = engine(&[rule]);
+        assert!(e.should_block("https://ads.com/a.js", DOC, ResourceType::Script));
+        assert!(e.should_block("https://x.ads.com/a.js", DOC, ResourceType::Script));
+        assert!(
+            e.should_block("https://ads.com.evil.net/a.js", DOC, ResourceType::Script),
+            "{rule} must cover a host that starts with it"
+        );
+        assert!(!e.should_block("https://notads.com/a.js", DOC, ResourceType::Script));
+    }
+
+    // The separator form keeps the stricter meaning: `.` is not a separator, so the
+    // look-alike host stays allowed.
+    let e = engine(&["||ads.com^"]);
+    assert!(!e.should_block("https://ads.com.evil.net/a.js", DOC, ResourceType::Script));
+    assert!(e.should_block("https://ads.com/x.js", DOC, ResourceType::Script));
+}
+
+/// EasyPrivacy writes "any TLD" as a trailing dot (`||adservice.google.`). Those rules were
+/// dead entries: the hostname guard required the request host to equal the rule host, which
+/// a trailing dot can never satisfy.
+#[test]
+fn trailing_dot_host_rule_covers_any_tld() {
+    let e = engine(&["||adservice.google.", "||142.91.159."]);
+    assert!(e.should_block(
+        "https://adservice.google.com/x.js",
+        DOC,
+        ResourceType::Script
+    ));
+    assert!(e.should_block(
+        "https://adservice.google.co.uk/x.js",
+        DOC,
+        ResourceType::Script
+    ));
+    assert!(e.should_block("https://142.91.159.100/x.js", DOC, ResourceType::Script));
+    assert!(!e.should_block(
+        "https://notadservice.google.com/x.js",
+        DOC,
+        ResourceType::Script
+    ));
+    assert!(!e.should_block(
+        "https://xadservice.google.com/x.js",
+        DOC,
+        ResourceType::Script
+    ));
+    // The anchor only constrains where the match starts, so a host that continues past the
+    // dot is covered too — the same rule as `||ads.com` above.
+    assert!(e.should_block(
+        "https://adservice.google.com.evil.net/x.js",
+        DOC,
+        ResourceType::Other
+    ));
+}
+
+/// A page picks its own URL, so host length must not multiply the cost of the domain probe.
+/// The ratio between a long host and a short one has to stay far below the quadratic
+/// blow-up; this compares the two rather than an absolute time, so a slow machine moves both
+/// numbers together. Before the guard was made single-pass and the suffix probe bounded, a
+/// 4,000-label host cost about 15x the time of a 1,000-label one (and 90 ms in release).
+#[test]
+fn host_length_does_not_multiply_domain_probe_cost() {
+    use std::time::Instant;
+    let mut e = Engine::new();
+    e.add_list(include_str!(
+        "../../../app/src/main/assets/filters/easylist.txt"
+    ));
+    e.add_list(include_str!(
+        "../../../app/src/main/assets/filters/easyprivacy.txt"
+    ));
+    e.add_list(include_str!(
+        "../../../app/src/main/assets/filters/easylist-china.txt"
+    ));
+
+    let measure = |labels: usize| {
+        let url = format!("https://{}google.com/pagead/lvz?x=1", "a.".repeat(labels));
+        let mut best = f64::MAX;
+        for _ in 0..5 {
+            let started = Instant::now();
+            for _ in 0..20 {
+                black_box(e.should_block(&url, DOC, ResourceType::Script));
+            }
+            best = best.min(started.elapsed().as_secs_f64() / 20.0);
+        }
+        best
+    };
+
+    let short = measure(1_000);
+    let long = measure(4_000);
+    assert!(
+        long < short * 8.0,
+        "4x the host length must stay well under 16x the cost: {short:.6}s vs {long:.6}s"
+    );
+}
+
+/// The indices cannot place patterns without a literal triplet, so those are scanned for
+/// every request. The bucket is capped and loads report the shortfall instead of growing
+/// without limit.
+#[test]
+fn fallback_bucket_is_capped_and_reported() {
+    let rules: String = (0..5_000).map(|_| "a*b*c*d*e*\n").collect();
+    let mut e = Engine::new();
+    e.add_list(&rules);
+    assert!(
+        e.stats().refused_by_limit > 0,
+        "the cap must be reported as a capacity refusal"
+    );
+    assert_eq!(
+        e.stats().unsupported_skipped,
+        0,
+        "a truncated list is not unsupported syntax"
+    );
+    assert!(
+        e.rule_count() < 5_000,
+        "rules past the cap are not retained"
+    );
+
+    // The budget must not disturb ordinary decisions: a rule inside the cap still decides.
+    let mut e = Engine::new();
+    e.add_list("a*b*c*d*e*\n/x*y*z*\n");
+    assert!(e.should_block("https://example.com/x1y2z3.js", DOC, ResourceType::Script));
+    assert!(!e.should_block("https://example.com/plain.js", DOC, ResourceType::Script));
 }

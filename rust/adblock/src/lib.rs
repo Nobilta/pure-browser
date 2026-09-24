@@ -25,6 +25,7 @@ struct FilterEngine {
     cosmetic: cosmetic::CosmeticMatcher,
     documents: std::sync::Mutex<documents::Documents>,
     unsupported: usize,
+    refused: usize,
 }
 
 /// Create a new empty engine. Returns an opaque handle (Matcher pointer as jlong).
@@ -77,7 +78,9 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeAddList(
     }
 
     let engine = unsafe { &mut *(handle as *mut FilterEngine) };
-    engine.unsupported += engine.network.load(&text).skipped_unsupported;
+    let loaded = engine.network.load(&text);
+    engine.unsupported += loaded.skipped_unsupported;
+    engine.refused += loaded.refused_by_limit;
     engine.cosmetic.load(&text);
     engine.network.rule_count().min(jint::MAX as usize) as jint
 }
@@ -186,6 +189,19 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCheckDocumen
             .network
             .should_block_context(&url, &document, resource_from_ordinal(resource)),
     )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeRefusedCount(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let engine = unsafe { &*(handle as *const FilterEngine) };
+    engine.refused.min(jint::MAX as usize) as jint
 }
 
 #[no_mangle]

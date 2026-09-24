@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="downloads_cleared_partial">已清除 %1$d 項，%2$d 個文件無法刪除。</string>
-    <string name="page_load_error_code">頁面加載失敗（錯誤 %1$d）</string>
     <string name="cast_network_error">無法連接設備，請檢查網絡後重試。</string>
     <string name="video_progress">%1$s / %2$s</string>
     <string name="app_name">Pure瀏覽器</string>
@@ -85,7 +84,7 @@
     <string name="incognito_preference_save_failed">無法儲存無痕模式設定，模式未改變。</string>
     <string name="incognito_badge">無痕</string>
     <string name="incognito_on">已進入無痕模式</string>
-    <string name="incognito_off">已退出無痕模式，無痕數據已清除</string>
+    <string name="incognito_off">已退出無痕模式</string>
     <string name="incognito_fallback">退出時清除數據</string>
     <string name="menu_enter_incognito">進入無痕模式</string>
     <string name="menu_exit_incognito">退出無痕模式</string>
@@ -93,6 +92,14 @@
     <string name="menu_cast_none">當前頁面無可投送視頻</string>
     <string name="menu_cast_no_direct_source">未偵測到此視頻可直接投送的媒體地址</string>
     <string name="playback_speed_title">播放速度</string>
+    <string name="player_video_menu">畫面</string>
+    <string name="player_mirror">鏡像</string>
+    <string name="player_fit_natural">還原</string>
+    <string name="player_fit_ratio_3_4">3:4</string>
+    <string name="player_fit_ratio_16_9">16:9</string>
+    <string name="player_fit_fill">鋪滿螢幕</string>
+    <string name="ui_video_transform_unavailable">無法套用畫面設定</string>
+    <string name="ui_video_transform_save_failed">無法儲存畫面設定，畫面未改變。</string>
     <string name="playback_speed_applied">播放速度已設為 %1$s</string>
     <string name="playback_speed_failed">未找到正在播放的視頻</string>
     <string name="menu_adblock">廣告攔截</string>
@@ -598,10 +605,12 @@
     <string name="shortcut_unavailable">主畫面啟動器無法加入此捷徑。</string>
     <string name="filter_explain">查看過濾原因</string>
     <string name="filter_explain_current">使用目前已載入的規則重新檢查，修改規則後可能與請求發生時不同。是否執行命中規則仍受網站和全域開關控制。</string>
+    <string name="filter_explain_truncated">有規則因訂閱上限未載入，這裡的結論可能包含未被引擎載入的規則。</string>
     <string name="filter_exception_match">命中放行例外規則</string>
     <string name="filter_block_match">命中封鎖規則</string>
     <string name="filter_no_match">未找到符合的網路規則</string>
     <string name="filter_unsupported_count">不支援的網路規則行數：%1$d</string>
+    <string name="filter_refused_count">訂閱總量超出引擎上限而未載入的網路規則行數：%1$d</string>
     <string name="filter_pause_site">本次工作階段暫時停用此網站過濾</string>
     <string name="filter_resume_site">恢復此網站過濾</string>
     <string name="filter_explain_failed">無法分析此請求，請重新載入過濾清單後重試。</string>

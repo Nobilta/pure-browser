@@ -13,6 +13,8 @@ pub struct LoadStats {
     pub network_rules: usize,
     pub cosmetic_skipped: usize,
     pub unsupported_skipped: usize,
+    /// Rules dropped because a rule set was full; see `matcher::LoadStats::refused_by_limit`.
+    pub refused_by_limit: usize,
     pub skipped_blank: usize,
     pub skipped_comment: usize,
 }
@@ -43,6 +45,7 @@ impl Engine {
         self.stats.network_rules += loaded.blocking_rules + loaded.exceptions;
         self.stats.cosmetic_skipped += loaded.skipped_cosmetic;
         self.stats.unsupported_skipped += loaded.skipped_unsupported;
+        self.stats.refused_by_limit += loaded.refused_by_limit;
         self.stats.skipped_blank += loaded.skipped_blank;
         self.stats.skipped_comment += loaded.skipped_comment;
     }
