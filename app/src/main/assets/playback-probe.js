@@ -6,8 +6,16 @@
   var ids = new WeakMap(), speeds = new WeakMap(), nextId = 0;
   var selected = null, boost = null, nativeControls = null, disposed = false, suspended = false;
   var scheduled = null, pulse = null, observer = null;
+  // The picture fit and mirror the user chose for the video the takeover owns. The rules live in
+  // the takeover's own stylesheet, so leaving fullscreen drops them; this is only what to write
+  // when that stylesheet is built or rebuilt.
+  var transform = null, resizeHandler = null, resizeRetry = null, resizeRetryCount = 0;
+  // The last error a command hit, reported in every state message so the app can log a refused
+  // takeover once instead of leaving the user with a silent fallback to the page's own controls.
+  var lastCommandError = '';
   var controlsAttribute = 'data-pure-browser-controls', stageAttribute = 'data-pure-browser-stage';
   var rootAttribute = 'data-pure-browser-fullscreen', rejectedControls = null;
+  var hasOwn = Function.call.bind(Object.prototype.hasOwnProperty);
   var MIN_RATE = 0.5, MAX_RATE = 5;
   var buffering = false, lastPosition = 0, lastPositionAt = 0, seekingSince = 0;
   function finite(value, fallback) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
@@ -267,7 +275,8 @@
       boosting: !!boost && boost.video === video,
       buffering: buffering && !!video && !video.paused && !video.ended,
       // The resource-timing scan only runs while a rate is actually being shown.
-      receivedBytes: deliveryBytes(video, buffering)
+      receivedBytes: deliveryBytes(video, buffering),
+      lastCommandError: lastCommandError
     };
   }
   function emit(message) {
@@ -316,7 +325,16 @@
         } catch (_) {}
       }
       try { saved.style.remove(); } catch (_) {}
+      if (saved.mirrorVideo) {
+        try {
+          if (saved.mirrorValue) saved.mirrorVideo.style.setProperty(saved.mirrorProperty, saved.mirrorValue, saved.mirrorPriority);
+          else saved.mirrorVideo.style.removeProperty(saved.mirrorProperty);
+        } catch (_) {}
+      }
     }
+    // The preset rules lived in that stylesheet, so nothing is left to keep sized; the choice
+    // itself stays until the page or the app replaces it, so re-entering fullscreen restores it.
+    refreshTransform();
   }
   function controlsIntact(saved) {
     try {
@@ -349,6 +367,201 @@
       return true;
     } catch (_) { return false; }
   }
+  // The takeover pins the video to the viewport with its own !important rules, so a fit or a
+  // mirror the user asked for has to be written into that same stylesheet: it must outrank the
+  // `transform:none` and `object-fit:contain` the takeover declares, and it must disappear with
+  // the takeover rather than linger on the page.
+  //
+  // The ratio presets keep the element's border box exactly where the takeover put it and fit the
+  // picture into the padding box instead of shrinking the element, and a mirror is a transform
+  // about the centre, which leaves the bounding box untouched. Both the takeover's own layout
+  // check and the device regression read "the video element still covers the screen" as the sign
+  // that custom controls own the document, so a preset that moved the element would look like a
+  // broken takeover and get the page's own controls back.
+  function fitRatio(fit) {
+    if (fit === 'RATIO_3_4') return 3 / 4;
+    if (fit === 'RATIO_16_9') return 16 / 9;
+    return 0;
+  }
+  function validFit(fit) {
+    return fit === 'NATURAL' || fit === 'FILL' || fit === 'RATIO_3_4' || fit === 'RATIO_16_9';
+  }
+  function transformRules(selector, root, state) {
+    if (!state || (!state.mirror && state.fit === 'NATURAL')) return '';
+    var text = '', ratio = fitRatio(state.fit);
+    if (state.fit === 'FILL') {
+      // Cover crops instead of letterboxing, which is what filling the screen means for a source
+      // whose ratio differs from the viewport's.
+      text += 'object-fit:cover!important;';
+    } else if (ratio > 0) {
+      // `fill` stretches the picture into the ratio box instead of letterboxing it inside: picking
+      // a ratio asks to see the picture at that shape, the way a television's picture-size override
+      // works, and a source whose own ratio differs would otherwise only look smaller.
+      text += 'box-sizing:border-box!important;object-fit:fill!important;';
+      // The box a preset is fitted into is the viewport, not the element's own client box. The
+      // takeover pins the element to the viewport, so the two agree once the layout has settled —
+      // but the element's box also *contains* the padding this feature wrote, so reading it back is
+      // reading its own output. A rotation reports it mid-layout (measured on an API 37 device:
+      // 606x914 against a 411x914 portrait viewport, the stale landscape padding plus a collapsed
+      // content box), and the padding derived from that is what left the picture stretched into a
+      // box nothing sized. The viewport was correct throughout, so it is what the ratio uses.
+      var width = win.innerWidth || (root.clientWidth || 0);
+      var height = win.innerHeight || (root.clientHeight || 0);
+      if (width > 0 && height > 0) {
+        var boxWidth = Math.min(width, height * ratio);
+        text += 'padding:' + ((height - boxWidth / ratio) / 2).toFixed(2) + 'px ' +
+          ((width - boxWidth) / 2).toFixed(2) + 'px!important;';
+      }
+    }
+    // The mirror deliberately stays out of this sheet: a page stylesheet with a more specific
+    // selector outranks it, which is exactly why the flip did nothing on pages that style their
+    // own player. It is written on the element as an inline `!important` instead — the one
+    // declaration no stylesheet can outrank — by applyMirror().
+    return text ? selector + '{' + text + '}' : '';
+  }
+  /**
+   * The declarations a mirror is written with, in the order they are tried on each element.
+   *
+   * `transform` is the obvious one and works on a video inside someone else's fullscreen wrapper.
+   * It cannot work on the fullscreen element itself: while an element is fullscreen the UA
+   * stylesheet forces `transform` (and `rotate`, and `filter`) to `none` with `!important`, and an
+   * origin-important rule outranks author `!important` — inline or not. Chromium used to fullscreen
+   * the video itself, which is how a page whose player goes fullscreen on its own video ends up
+   * with a flip that is accepted by the style object and then dropped by the renderer. The
+   * individual `scale` property is a separate one the UA reset does not cover, and it flips the
+   * element about its centre exactly as `scaleX(-1)` does, so it is the one that reaches the screen
+   * there.
+   */
+  var MIRROR_DECLARATIONS = [
+    { property: 'transform', value: 'scaleX(-1)' },
+    { property: 'scale', value: '-1 1' }
+  ];
+  /**
+   * How a rotation that reports no measurable box is handled.
+   *
+   * A rotation can report the viewport (and the element) at 0x0 for a frame while the new layout is
+   * being committed. Writing the sheet then drops the padding and stretches the picture into a box
+   * nothing sized, and no further resize event is guaranteed to arrive: the picture stays wrong
+   * until the user picks a preset again. Ask again shortly instead, a bounded number of times so a
+   * page that never reports a size keeps no timer.
+   */
+  var RESIZE_RETRY_LIMIT = 3, RESIZE_RETRY_DELAY = 250;
+  /** The viewport is the box a preset is fitted into; the element's own box is the fallback for a
+   * page that reports no viewport size at all. */
+  function usableBox(root) {
+    if ((win.innerWidth || 0) > 0 && (win.innerHeight || 0) > 0) return true;
+    return !!root && (root.clientWidth || 0) > 0 && (root.clientHeight || 0) > 0;
+  }
+  /**
+   * The elements a mirror may be written on, innermost first.
+   *
+   * The video is the natural target, but a page can refuse the declaration on it: a selector with
+   * an id or its own `!important`, a frozen style object, or a player that paints the video outside
+   * the element. The wrapper the fullscreen takeover already owns is the next place the same flip
+   * has the same effect on screen, and it is not the element a page's player rules are written
+   * against.
+   */
+  function mirrorChain() {
+    var saved = nativeControls, video = saved && saved.video;
+    if (!video) return [];
+    var chain = [video], node = video;
+    while (node && node !== saved.root && chain.length < 8) {
+      node = node.parentElement;
+      if (node && chain.indexOf(node) < 0) chain.push(node);
+    }
+    if (saved.root && chain.indexOf(saved.root) < 0) chain.push(saved.root);
+    return chain.filter(function(element) { return element && element.style; });
+  }
+  function setInlineDeclaration(element, property, value, priority) {
+    try {
+      if (value) element.style.setProperty(property, value, priority);
+      else element.style.removeProperty(property);
+      return true;
+    } catch (_) { return false; }
+  }
+  /** What the style engine resolved, which is not what was asked for: the two differ on a
+   * fullscreen element, and only this side of the call can see it. */
+  function computedProperty(element, property) {
+    try { return String(win.getComputedStyle(element)[property] || ''); } catch (_) { return 'unknown'; }
+  }
+
+  /**
+   * Applies or clears the mirror, remembering which element and which property carry it, and what
+   * that property held before.
+   *
+   * Inline `!important` is the one declaration a stylesheet cannot outrank, so the video is tried
+   * first; each candidate is read back before it is accepted, because what the style engine
+   * resolves is the only thing this side can check. Nothing here reports success it did not see: a
+   * mirror that no layer accepts is reported as a failure, and the reason is recorded for a bug
+   * report.
+   */
+  function applyMirror(on) {
+    var saved = nativeControls;
+    if (!saved) return true;
+    if (!on) {
+      if (saved.mirrorVideo) {
+        setInlineDeclaration(saved.mirrorVideo, saved.mirrorProperty, saved.mirrorValue, saved.mirrorPriority);
+        saved.mirrorVideo = null;
+        saved.mirrorProperty = '';
+        saved.mirrorValue = '';
+        saved.mirrorPriority = '';
+      }
+      return true;
+    }
+    if (saved.mirrorVideo) return true;
+    var chain = mirrorChain();
+    for (var i = 0; i < chain.length; i++) {
+      var element = chain[i];
+      for (var j = 0; j < MIRROR_DECLARATIONS.length; j++) {
+        var declaration = MIRROR_DECLARATIONS[j];
+        var previousValue = element.style.getPropertyValue(declaration.property);
+        var previousPriority = element.style.getPropertyPriority(declaration.property);
+        if (!setInlineDeclaration(element, declaration.property, declaration.value, 'important')) continue;
+        var computed = computedProperty(element, declaration.property);
+        if (computed !== 'none' && computed !== '') {
+          saved.mirrorVideo = element;
+          saved.mirrorProperty = declaration.property;
+          // A value of our own is not this element's original, so it is not what to restore later.
+          saved.mirrorValue = previousValue === declaration.value ? '' : previousValue;
+          saved.mirrorPriority = saved.mirrorValue ? previousPriority : '';
+          return true;
+        }
+        setInlineDeclaration(element, declaration.property, previousValue, previousPriority);
+      }
+    }
+    return false;
+  }
+
+  function refreshTransform() {
+    var saved = nativeControls;
+    if (saved && saved.baseStyle) {
+      saved.style.textContent = saved.baseStyle +
+        transformRules(saved.selector, saved.root, transform);
+    }
+    // The mirror lives on the element rather than in the sheet, so it is (re)applied here: at
+    // takeover, on every choice, and after a rotation.
+    var mirrored = !saved || applyMirror(!!transform && !!transform.mirror);
+    // A rotation changes the viewport, and a ratio preset is derived from it. The listener is
+    // registered while a ratio is in force and released when it is not — including when a takeover
+    // ends, because restoreControls() and dispose() both call this with no takeover left.
+    var needs = !!transform && fitRatio(transform.fit) > 0 && !!saved;
+    if (needs && !resizeHandler) {
+      resizeHandler = function() { refreshTransform(); };
+      win.addEventListener('resize', resizeHandler);
+      win.addEventListener('orientationchange', resizeHandler);
+    } else if (!needs && resizeHandler) {
+      win.removeEventListener('resize', resizeHandler);
+      win.removeEventListener('orientationchange', resizeHandler);
+      resizeHandler = null;
+    }
+    if (needs && !usableBox(saved.root)) {
+      if (resizeRetry === null && resizeRetryCount < RESIZE_RETRY_LIMIT) {
+        resizeRetryCount++;
+        resizeRetry = win.setTimeout(function() { resizeRetry = null; refreshTransform(); }, RESIZE_RETRY_DELAY);
+      }
+    } else resizeRetryCount = 0;
+    return mirrored;
+  }
   function hideControls(video) {
     var root = fullscreenRoot(video), path = controlPath(video, root);
     if (!path) return false;
@@ -357,7 +570,8 @@
       var style = doc.createElement('style'), marker = frameId + '-' + id(video);
       var saved = nativeControls = { video: video, root: root, path: path, controls: video.controls,
         controlsList: video.getAttribute('controlslist'), suppressRotation: root === video,
-        marks: [], marker: marker, style: style, observer: null };
+        marks: [], marker: marker, style: style, observer: null, baseStyle: '', selector: '',
+        mirrorVideo: null, mirrorProperty: '', mirrorValue: '', mirrorPriority: '' };
       function mark(element, name) {
         saved.marks.push({ element: element, name: name, value: element.getAttribute(name) });
         element.setAttribute(name, marker);
@@ -371,7 +585,7 @@
         video.setAttribute('controlslist', (saved.controlsList ? saved.controlsList + ' ' : '') + 'nofullscreen');
       }
       var selector = 'video[' + controlsAttribute + '="' + marker + '"]';
-      style.textContent = selector + '::-webkit-media-controls{display:none!important}' +
+      var base = selector + '::-webkit-media-controls{display:none!important}' +
         selector + '::-webkit-media-controls-enclosure{display:none!important}';
       mark(video, controlsAttribute);
       if (root !== video) {
@@ -382,7 +596,7 @@
         // Keep the media node, source, event listeners and decoder in place. Hide sibling
         // branches (including controls added later) and remove containing-block constraints
         // along its ancestry so a nested, transformed video fills the fullscreen viewport.
-        style.textContent += stage + '> :not(' + stage + '):not(' + selector + '){display:none!important}' +
+        base += stage + '> :not(' + stage + '):not(' + selector + '){display:none!important}' +
           stage + '::before,' + stage + '::after{display:none!important;content:none!important}' +
           stage + '{display:block!important;position:static!important;transform:none!important;' +
           'translate:none!important;rotate:none!important;scale:none!important;perspective:none!important;' +
@@ -400,8 +614,15 @@
           'display:block!important;visibility:visible!important;opacity:1!important;z-index:2147483647!important;' +
           'background:#000!important;pointer-events:none!important;}';
       }
+      saved.baseStyle = base;
+      saved.selector = selector;
+      // The rules go in before the element is attached: a style element with no text yet has no
+      // sheet, and an empty sheet is this function's signal that the page refuses the takeover.
+      style.textContent = base;
       (doc.head || doc.documentElement).appendChild(style);
       if (!style.sheet || !style.sheet.cssRules.length) throw new Error('Control styles unavailable');
+      // Rewritten afterwards so an equal-specificity preset wins over the base rules.
+      refreshTransform();
       saved.observer = new win.MutationObserver(schedule);
       saved.observer.observe(root, { childList: true, subtree: true, attributes: true,
         attributeFilter: ['class', 'style', 'controls', 'controlslist', controlsAttribute, stageAttribute, rootAttribute] });
@@ -478,8 +699,22 @@
         ok = true;
       } else if (message.type === 'nativeControls') {
         if (canUseNativeControls(video)) ok = hideControls(video);
+      } else if (message.type === 'setVideoTransform') {
+        // The choice is kept beyond the takeover that is showing it: the next takeover on this
+        // page writes the same preset, which is what makes it survive a fullscreen round trip.
+        transform = { mirror: message.mirror === true,
+          fit: validFit(message.fit) ? message.fit : 'NATURAL' };
+        // refreshTransform both writes the ratio rules and applies or clears the mirror, and it
+        // answers for the mirror: what the cascade accepted, read back from the element.
+        ok = refreshTransform();
+        if (!ok) {
+          lastCommandError = 'setVideoTransform: no layer accepted the mirror declaration ' +
+            '(tried ' + mirrorChain().length + ' elements, ' +
+            (mirrorChain().length * MIRROR_DECLARATIONS.length) + ' declarations)';
+        }
       }
-    } catch (_) {
+    } catch (error) {
+      lastCommandError = String(message.type) + ': ' + ((error && error.message) || String(error));
       if (message.type === 'nativeControls') restoreControls();
       ok = false;
     }
@@ -543,7 +778,10 @@
     snapshot: snapshot, post: post, command: command, suspend: suspend, pauseAll: pauseAll,
     dispose: function() {
       restoreBoost(); restoreControls(); unwatchDelivery(); disposed = true;
-      win.clearTimeout(scheduled); win.clearTimeout(pulse);
+      transform = null;
+      refreshTransform();
+      win.clearTimeout(scheduled); win.clearTimeout(pulse); win.clearTimeout(resizeRetry);
+      resizeRetry = null; resizeRetryCount = 0;
       if (observer) observer.disconnect();
       events.forEach(function(name) { doc.removeEventListener(name, mediaEvent, true); });
       doc.removeEventListener('fullscreenchange', fullscreenChanged);
