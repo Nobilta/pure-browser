@@ -9,8 +9,9 @@
 未签名 Release 构建及 DEX / Rust JNI 库检查。报告和未签名 APK 附件保留 14 天，执行日志见对应 Actions 运行。
 
 正式签名和设备回归在本地完成。CI 不持有签名密钥，也不自动发布正式版本。
-每版的变化写在 [CHANGELOG.md](CHANGELOG.md)，发布时只把验证范围写入 [release/notes.md](release/notes.md)；
-`release/prepare.py` 把两半合并成 Release 说明，同一段文字因此不需要维护两份。
+每版的变化写在 [CHANGELOG.md](CHANGELOG.md)；发布说明由 `release/prepare.py` 从该版本的段落生成，
+只在仓库外多出这一份，不需要维护两份。验证范围写在 [release/notes.md](release/notes.md)，
+它是仓库内的记录，不进入发布页，也不进入应用内的更新提示。
 历史版本从 [GitHub Releases](https://github.com/Nobilta/pure-browser/releases)查阅。
 
 ## 配置签名
@@ -40,7 +41,8 @@ keyPassword=填写私钥密码
 
    根目录生成 `PureBrowser-v版本号-release.apk`，`outputs/release/` 生成更新清单、校验和及包信息。
 3. 使用该 APK 运行相关设备回归，把实际设备、通过阶段和未覆盖范围简要写入
-   [release/notes.md](release/notes.md)。
+   [release/notes.md](release/notes.md)：这份记录留在仓库里，供review 时核对"这一版到底测了什么"，
+   不对外发布。
    用 suite JSON 的 SHA-256 核对结果属于本次安装包；应用源码变化后重新构建和验证。
 4. 提交源码和文档，确认工作区干净后推送，等待该提交的 CI 通过：
 
@@ -56,8 +58,9 @@ keyPassword=填写私钥密码
 
    脚本要求远程 `main` 与本地 HEAD 一致、该提交 CI 通过、APK 版本与源码一致，
    并检查版本递增和沿用上一正式版的签名。首次发布跳过上一版比较。
-   它先调用 `release/prepare.py`，用 CHANGELOG 的对应段落加 `release/notes.md` 的验证范围
-   合成 Release 说明（`outputs/release/release-notes.md`），草稿上传的是合成结果。
+   它先调用 `release/prepare.py`，由 CHANGELOG 的对应段落生成 Release 说明
+   （`outputs/release/release-notes.md`），草稿上传的是这份说明；`release/notes.md` 只用于核对
+   版本并留档，内容不进发布页，也不进应用内的更新提示。
    草稿包含签名 APK、`update.json` 和 `SHA256SUMS`，标签为 `v` 加版本名。
 6. 核对草稿的提交、说明和附件，再正式发布并设为 latest。草稿和预发布版不进入应用稳定更新入口。
 
