@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="downloads_cleared_partial">已清除 %1$d 项，%2$d 个文件无法删除。</string>
-    <string name="page_load_error_code">页面加载失败（错误 %1$d）</string>
     <string name="cast_network_error">无法连接设备，请检查网络后重试。</string>
     <string name="video_progress">%1$s / %2$s</string>
     <string name="app_name">Pure浏览器</string>
@@ -85,7 +84,7 @@
     <string name="incognito_preference_save_failed">无法保存无痕模式设置，模式未改变。</string>
     <string name="incognito_badge">无痕</string>
     <string name="incognito_on">已进入无痕模式</string>
-    <string name="incognito_off">已退出无痕模式，无痕数据已清除</string>
+    <string name="incognito_off">已退出无痕模式</string>
     <string name="incognito_fallback">退出时清除数据</string>
     <string name="menu_enter_incognito">进入无痕模式</string>
     <string name="menu_exit_incognito">退出无痕模式</string>
@@ -93,6 +92,14 @@
     <string name="menu_cast_none">当前页面无可投送视频</string>
     <string name="menu_cast_no_direct_source">未检测到此视频可直接投送的媒体地址</string>
     <string name="playback_speed_title">播放速度</string>
+    <string name="player_video_menu">画面</string>
+    <string name="player_mirror">镜像</string>
+    <string name="player_fit_natural">还原</string>
+    <string name="player_fit_ratio_3_4">3:4</string>
+    <string name="player_fit_ratio_16_9">16:9</string>
+    <string name="player_fit_fill">铺满全屏</string>
+    <string name="ui_video_transform_unavailable">无法应用画面设置</string>
+    <string name="ui_video_transform_save_failed">无法保存画面设置，画面未改变。</string>
     <string name="playback_speed_applied">播放速度已设为 %1$s</string>
     <string name="playback_speed_failed">未找到正在播放的视频</string>
     <string name="menu_adblock">广告拦截</string>
@@ -598,10 +605,12 @@
     <string name="shortcut_unavailable">桌面启动器无法添加此快捷方式。</string>
     <string name="filter_explain">查看过滤原因</string>
     <string name="filter_explain_current">使用当前已加载规则重新检查，修改规则后可能与请求发生时不同。是否执行命中规则仍受网站和全局开关控制。</string>
+    <string name="filter_explain_truncated">有规则因订阅上限未加载，这里的结论可能包含未被引擎加载的规则。</string>
     <string name="filter_exception_match">命中放行例外规则</string>
     <string name="filter_block_match">命中拦截规则</string>
     <string name="filter_no_match">未找到匹配的网络规则</string>
     <string name="filter_unsupported_count">不支持的网络规则行数：%1$d</string>
+    <string name="filter_refused_count">订阅总量超出引擎上限而未加载的网络规则行数：%1$d</string>
     <string name="filter_pause_site">本次会话暂时停用此网站过滤</string>
     <string name="filter_resume_site">恢复此网站过滤</string>
     <string name="filter_explain_failed">无法分析此请求，请重新加载过滤列表后重试。</string>

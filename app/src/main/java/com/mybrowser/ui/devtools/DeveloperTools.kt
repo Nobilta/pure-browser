@@ -84,7 +84,13 @@ fun DeveloperTools(
         sourceLoading = true
         sourceError = null
         try {
-            val view = webView ?: error(resources.getString(R.string.ui_unable_to_read_page_source))
+            // The parameter is nullable on purpose: the panel stays up while the renderer is being
+            // replaced. Report that the same way a failed read is reported rather than throwing.
+            val view = webView
+            if (view == null) {
+                sourceError = resources.getString(R.string.ui_unable_to_read_page_source)
+                return@LaunchedEffect
+            }
             // Let the selected tab and loading state paint before asking the renderer.
             withFrameNanos { }
             val raw = view.awaitJavascript("(document.documentElement ? document.documentElement.outerHTML : '').slice(0, ${SourceHighlighter.MAX_SOURCE_CHARS + 1})")

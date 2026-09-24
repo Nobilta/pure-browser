@@ -43,6 +43,7 @@ class FilterController(private val appContext: Context) {
     private val _ruleCount = MutableStateFlow(0)
     private val _cosmeticCount = MutableStateFlow(0)
     private val _unsupportedCount = MutableStateFlow(0)
+    private val _refusedCount = MutableStateFlow(0)
     private val firstBuild = CompletableDeferred<Unit>()
     val isReady: Boolean get() = firstBuild.isCompleted
     suspend fun awaitReady() = firstBuild.await()
@@ -51,6 +52,9 @@ class FilterController(private val appContext: Context) {
     val ruleCount: StateFlow<Int> = _ruleCount.asStateFlow()
     val cosmeticCount: StateFlow<Int> = _cosmeticCount.asStateFlow()
     val unsupportedCount: StateFlow<Int> = _unsupportedCount.asStateFlow()
+
+    /** Rules refused because the loaded subscriptions together exceed the engine's capacity. */
+    val refusedCount: StateFlow<Int> = _refusedCount.asStateFlow()
     val blockedCount: Int get() = blocked.get()
 
     @Volatile private var payloads: List<String> = emptyList()
@@ -126,6 +130,7 @@ class FilterController(private val appContext: Context) {
             _ruleCount.value = 0
             _cosmeticCount.value = 0
             _unsupportedCount.value = 0
+            _refusedCount.value = 0
             activeSources = emptyList()
             previous
         }
@@ -157,6 +162,7 @@ class FilterController(private val appContext: Context) {
                 _ruleCount.value = next?.second ?: 0
                 _cosmeticCount.value = next?.first?.cosmeticRuleCount ?: 0
                 _unsupportedCount.value = next?.first?.unsupportedRuleCount ?: 0
+                _refusedCount.value = next?.first?.refusedRuleCount ?: 0
                 activeSources = snapshot.mapIndexed { index, text -> (names.getOrNull(index) ?: "List ${index + 1}") to text }
                 firstBuild.complete(Unit)
                 old
