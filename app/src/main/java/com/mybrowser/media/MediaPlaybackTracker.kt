@@ -13,6 +13,7 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.mybrowser.core.PlaybackSpeed
+import com.mybrowser.core.VideoFit
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -62,17 +63,21 @@ class MediaPlaybackTracker(
         private set
     private var closed = false
     private var listenerInstalled = false
+    /** Last command error the page reported, so a refused takeover is logged once, not silently. */
+    private var lastCommandError: String? = null
     private var scriptHandler: ScriptHandler? = null
     private val handler = Handler(Looper.getMainLooper())
     private val frames = linkedMapOf<String, Frame>()
     private val expireFrames = Runnable { if (!closed) publishCurrent() }
     private val pending = linkedMapOf<Int, Pending>()
+    private val frameOrigins = linkedMapOf<String, FrameOrigin>()
     private var nextCommand = 0
     private var fullscreenTarget: Target? = null
     private var boostTarget: Target? = null
     private var suspended = false
     private val source: String get() = probeSource(webView.context)
 
+    private class FrameOrigin(val key: String, var time: Long)
     private data class Frame(val signal: Signal, val time: Long, val proxy: JavaScriptReplyProxy?)
     private data class Target(val frameId: String, val videoId: String, val proxy: JavaScriptReplyProxy?)
     private data class Pending(val frameId: String, val callback: (Boolean) -> Unit)
@@ -90,14 +95,24 @@ class MediaPlaybackTracker(
                         sourceOrigin: android.net.Uri, isMainFrame: Boolean, replyProxy: JavaScriptReplyProxy) {
                         if (closed || view !== webView || sourceOrigin.scheme !in listOf("http", "https")) return
                         val json = decode(message.data) as? JSONObject ?: return
+                        val frameId = json.optString("frameId").takeIf { it.isNotBlank() } ?: return
+                        if (!claimsFrame(frameId, sourceOrigin)) return
                         if (json.optString("type") == "ack") {
                             val id = json.optInt("id", -1)
                             val request = pending[id] ?: return
-                            if (request.frameId == json.optString("frameId")) {
+                            if (request.frameId == frameId) {
                                 pending.remove(id)
                                 request.callback(json.optBoolean("ok"))
                             }
                         } else {
+                            // The probe keeps the last command error in its state message: a
+                            // refused takeover is otherwise silent apart from a transient hint,
+                            // and which command failed is what a bug report needs.
+                            json.optString("lastCommandError").takeIf { it.isNotBlank() && it != lastCommandError }
+                                ?.let {
+                                    lastCommandError = it
+                                    android.util.Log.w(TAG, "Playback command failed: $it")
+                                }
                             decodeSignal(json)?.let { accept(it, replyProxy) }
                         }
                     }
@@ -225,9 +240,23 @@ class MediaPlaybackTracker(
         }
     }
 
+    /**
+     * Applies the user's picture fit and mirror to the video the takeover owns.
+     *
+     * The command goes to the pinned fullscreen element, not to the best-scoring one: the panel
+     * that offers it is only on screen while that element fills the window, and a page can be
+     * playing several videos at once.
+     */
+    fun setVideoTransform(mirror: Boolean, fit: VideoFit, onResult: (Boolean) -> Unit = {}) {
+        val pinned = fullscreenTarget
+        if (pinned == null) { onResult(false); return }
+        send(pinned, "setVideoTransform", JSONObject().put("mirror", mirror).put("fit", fit.name), onResult)
+    }
+
     private fun activeTarget(): Target? = frames[current.frameId]?.takeIf { it.signal.hasMedia }?.let {
         Target(it.signal.frameId, it.signal.videoId, it.proxy)
     }
+
     private fun target(): Target? = fullscreenTarget ?: activeTarget()
 
     private fun send(target: Target?, type: String, values: JSONObject = JSONObject(), onResult: (Boolean) -> Unit = {}) {
@@ -260,6 +289,42 @@ class MediaPlaybackTracker(
           }catch(e){}}walk(window,0);return $result;})()
     """.trimIndent()
 
+    /**
+     * True when [origin] is allowed to speak for [frameId].
+     *
+     * The bridge is visible to every frame and the probe reports from any of them, so on its
+     * own a frame id is just a string a page chose: any third-party iframe could post a state
+     * message claiming another frame's id and steer the cast candidates and the "now playing"
+     * UI. The probe derives its id from the clock and `Math.random`, which another frame
+     * cannot predict, so binding an id to the origin that first used it means a frame can only
+     * ever report itself — and because the id is unguessable, a binding that ages out is safe
+     * to recreate. Cross-origin embeds keep working: they report under their own id.
+     */
+    internal fun claimsFrame(frameId: String, origin: android.net.Uri): Boolean {
+        val now = SystemClock.uptimeMillis()
+        val key = if (origin.port != -1) "${origin.scheme}://${origin.host}:${origin.port}"
+            else "${origin.scheme}://${origin.host}"
+        val bound = frameOrigins[frameId]
+        if (bound != null) {
+            if (bound.key != key) return false
+            bound.time = now
+            return true
+        }
+        if (frameOrigins.size >= MAX_TRACKED_FRAMES) {
+            // A rejected report never reaches the expiry pass below, so the table has to make
+            // room for itself here: otherwise a page that fills it once would have every later
+            // frame ignored, including its own player, for good. The binding silent longest goes,
+            // not the one bound first: `time` is refreshed on every report, so insertion order
+            // would evict a frame that is still talking ahead of one that has gone quiet.
+            frameOrigins.entries.removeAll { now - it.value.time >= FRAME_TIMEOUT_MS }
+            if (frameOrigins.size >= MAX_TRACKED_FRAMES) {
+                frameOrigins.minByOrNull { it.value.time }?.key?.let { frameOrigins.remove(it) }
+            }
+        }
+        frameOrigins[frameId] = FrameOrigin(key, now)
+        return true
+    }
+
     private fun accept(signal: Signal, proxy: JavaScriptReplyProxy?) {
         if (closed) return
         if (suspended && signal.isPlaying) {
@@ -276,6 +341,10 @@ class MediaPlaybackTracker(
     private fun publishCurrent() {
         val now = SystemClock.uptimeMillis()
         frames.entries.removeAll { now - it.value.time >= FRAME_TIMEOUT_MS }
+        // Bindings age out with the frames they describe. Keeping them for the life of the
+        // document would let a page that keeps creating iframes reach the cap, after which a
+        // legitimate new frame's first report would be dropped.
+        frameOrigins.entries.removeAll { now - it.value.time >= FRAME_TIMEOUT_MS }
         val pinned = fullscreenTarget
         val best = frames.values.filter { it.signal.hasMedia }.maxWithOrNull(
             compareBy<Frame> { it.signal.isFullscreen }
@@ -296,6 +365,7 @@ class MediaPlaybackTracker(
         endBoost()
         fullscreenTarget = null
         frames.clear()
+        frameOrigins.clear()
         handler.removeCallbacks(expireFrames)
         val callbacks = pending.values.toList()
         pending.clear()
@@ -317,6 +387,7 @@ class MediaPlaybackTracker(
         handler.removeCallbacksAndMessages(null)
         pending.clear()
         frames.clear()
+        frameOrigins.clear()
         fullscreenTarget = null
         removeHooks()
     }
@@ -330,7 +401,10 @@ class MediaPlaybackTracker(
     }
 
     companion object {
+        private const val TAG = "MediaPlaybackTracker"
         private const val FRAME_TIMEOUT_MS = 4_000L
+        /** Backstop for the expiry above: frames reporting within one timeout window. */
+        private const val MAX_TRACKED_FRAMES = 256
         private const val BRIDGE = "mybrowserMediaProbe"
         @Volatile private var cachedSource: String? = null
         private fun probeSource(context: Context): String = cachedSource ?: synchronized(this) {

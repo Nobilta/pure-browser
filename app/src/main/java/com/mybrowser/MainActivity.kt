@@ -557,9 +557,11 @@ class MainActivity : ComponentActivity(),
         tabManager = if (privacy.isIncognito) incognitoTabManager else normalTabManager
         sessionState.initialized = true
 
-        // Initialize bookmarks and history managers
-        bookmarkManager = BookmarkManager(this)
-        historyManager = HistoryManager(this)
+        // Bookmark and history storage is process-scoped: a settings import writes into it after
+        // this window may be gone, and closing the repositories here released the database under
+        // the running import. See App.bookmarks.
+        bookmarkManager = (application as App).bookmarks
+        historyManager = (application as App).history
         bookmarkLibrary = com.mybrowser.ui.library.BookmarkLibrary(lifecycleScope, bookmarkManager) {
             toast(getString(R.string.library_update_failed))
         }
@@ -618,6 +620,15 @@ class MainActivity : ComponentActivity(),
                         offered = offered,
                         installAfterDownload = true,
                     )
+                }
+                // The import runs in the process, so its outcome can land after the window that
+                // started it is gone. Whichever window is showing consumes and reports it once.
+                val importOutcome by startupApp.importOutcome.collectAsState()
+                LaunchedEffect(importOutcome) {
+                    importOutcome?.let { outcome ->
+                        startupApp.consumeImportOutcome()
+                        reportImportedSettings(outcome)
+                    }
                 }
                 filterExplanation?.let { com.mybrowser.ui.devtools.FilterExplanationDialog(it, filter) { filterExplanation = null } }
                 if (showClearData) ClearBrowsingDataDialog(privacy.isIncognito, privacy.hasRealIsolation,
@@ -1178,6 +1189,7 @@ class MainActivity : ComponentActivity(),
             onSearch = cast::search,
             onCast = { candidate, device -> cast.cast(candidate, device, ::toast) },
             onCopyUrl = { copyToClipboard(it.url) },
+            onDownload = { downloadMediaCandidate(it) },
             onDismiss = onDismiss,
             preferredCandidate = mediaSnapshot.preferredCandidate,
             playingCandidateUrls = mediaSnapshot.playingCandidateUrls,
@@ -1983,26 +1995,60 @@ class MainActivity : ComponentActivity(),
      * The one entry every download request passes through. Nothing touches the engine
      * before the user confirms; repeats collapse into the existing task or the blocked
      * list instead of stacking dialogs.
+     *
+     * [referer] is the page the address was found on, which is not always the page on screen:
+     * a sniffed candidate carries the frame it was seen in, and a server that checks it must see
+     * that frame rather than the tab's current document.
      */
-    private fun submitDownloadRequest(url: String, userAgent: String?, contentDisposition: String?, mimeType: String?, contentLength: Long = -1, fromUser: Boolean = false) {
+    private fun submitDownloadRequest(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        contentLength: Long = -1,
+        fromUser: Boolean = false,
+        referer: String? = null,
+    ) {
         val filename = downloadHandler.previewFilename(url, contentDisposition, mimeType)
         if (filename == null) {
             toast(getString(R.string.ui_unable_to_start_the_download))
             return
         }
+        val origin = referer ?: state.currentUrl
         val request = com.mybrowser.download.DownloadRequestCoordinator.Request(
             url = url,
             filename = filename,
             mimeType = mimeType,
             userAgent = userAgent,
             contentDisposition = contentDisposition,
-            referer = state.currentUrl,
+            referer = origin,
             isPrivate = privacy.isIncognito,
             cookieHeader = privacy.cookiesFor(url),
-            sourceOrigin = com.mybrowser.site.SiteOrigin.of(state.currentUrl),
+            sourceOrigin = com.mybrowser.site.SiteOrigin.of(origin),
             contentLength = contentLength.takeIf { it >= 0 },
         )
         handleDownloadSubmission(if (fromUser) downloadRequests.submitFromUser(request) else downloadRequests.submit(request))
+    }
+
+    /**
+     * Saves a video the sniffer found rather than the page offering a link.
+     *
+     * Manifests are not offered here: the engine transfers one response body, so an HLS or DASH
+     * address would save a playlist, not the video. The candidate list hides those rows' action
+     * for the same reason — see MediaSniffer.Candidate.isStream.
+     */
+    private fun downloadMediaCandidate(candidate: com.mybrowser.media.MediaSniffer.Candidate) {
+        if (candidate.isStream) return
+        submitDownloadRequest(
+            url = candidate.url,
+            userAgent = webView.settings.userAgentString,
+            contentDisposition = null,
+            mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                MimeTypeMap.getFileExtensionFromUrl(candidate.url),
+            ),
+            fromUser = true,
+            referer = candidate.pageUrl?.takeIf { com.mybrowser.core.UrlUtils.isHttpUrl(it) },
+        )
     }
 
     private fun handleDownloadSubmission(result: com.mybrowser.download.DownloadRequestCoordinator.SubmitResult) {
@@ -2661,16 +2707,20 @@ class MainActivity : ComponentActivity(),
             return
         }
         fullscreenCallback = callback
+        val site = activeSites.get(state.currentUrl)
         val host = FullscreenVideoView(
             activity = this,
             videoView = view,
             preferences = browserPreferences.video,
-            enhancedPlayback = activeSites.get(state.currentUrl).useEnhancedPlayback(browserPreferences.video.enhancedControls),
+            enhancedPlayback = site.useEnhancedPlayback(browserPreferences.video.enhancedControls),
+            initialMirror = site.useVideoMirror(),
+            initialFit = site.useVideoFit(),
             tracker = tracker,
             titleProvider = { state.pageTitle ?: getString(R.string.ui_video_playback) },
             canCast = { media.count > 0 },
             onExit = ::leaveFullscreen,
             onChooseSpeed = ::applyPlaybackSpeed,
+            onChooseTransform = ::rememberVideoTransform,
             castContent = { CurrentCastPicker(onDismiss = {}, embedded = true) },
             onPictureInPicture = if (pipController.isAvailable) ({ pipController.enter(); Unit }) else null,
         )
@@ -2682,6 +2732,24 @@ class MainActivity : ComponentActivity(),
         host.requestFocus()
         applyWindowInsetsPolicy()
         pipController.update()
+    }
+
+    /**
+     * Remembers the player's picture shape for the site that is playing.
+     *
+     * The write goes straight to the site store rather than through [saveSiteSettings]: that path
+     * reloads the page when the saved origin is the one on screen, and reloading the page while
+     * watching would drop the video the choice was just made for. A private session keeps the
+     * choice in its own store, so it disappears with the session like every other site setting.
+     */
+    private fun rememberVideoTransform(mirror: Boolean, fit: com.mybrowser.core.VideoFit) {
+        val origin = SiteOrigin.of(state.currentUrl) ?: return
+        lifecycleScope.launch {
+            runCatching { activeSites.update(origin) { it.copy(videoMirror = mirror, videoFit = fit) } }
+                // The picture is already applied; what failed is remembering it, and the user can
+                // only act on that if the two are named differently.
+                .onFailure { toast(getString(R.string.ui_video_transform_save_failed)) }
+        }
     }
 
     private fun leaveFullscreen() {
@@ -3296,8 +3364,8 @@ class MainActivity : ComponentActivity(),
         webViewOrNull = null
 
         // ViewModel clears tab resources and private storage only when this window ends.
-        if (::bookmarkManager.isInitialized) bookmarkManager.close()
-        if (::historyManager.isInitialized) historyManager.close()
+        // The bookmark and history repositories are process-scoped (App.bookmarks); closing
+        // them here is what throttled a running settings import into a silent partial apply.
 
         super.onDestroy()
     }
@@ -3306,13 +3374,9 @@ class MainActivity : ComponentActivity(),
 
     // --- Settings import/export (single-file, whitelist only) ---
 
-    private val settingsTransfer: com.mybrowser.backup.SettingsTransfer by lazy {
-        val app = application as App
-        com.mybrowser.backup.SettingsTransfer(
-            this, app.filterController, app.filterSubscriptions, app.siteSettings,
-            bookmarkManager, historyManager,
-        )
-    }
+    // Process-scoped, like the repositories it writes: see App.settingsTransfer.
+    private val settingsTransfer: com.mybrowser.backup.SettingsTransfer
+        get() = (application as App).settingsTransfer
 
     private fun exportSettings() {
         val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
@@ -3389,58 +3453,67 @@ class MainActivity : ComponentActivity(),
     private fun applyImportedSettings() {
         val candidate = importCandidate ?: return
         importCandidate = null
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) { settingsTransfer.apply(candidate.first) }
-            // A successful explicit import replaces any session-only exit fallback.
-            if ("browser" in result.applied && candidate.first.settings.browser?.browserFullscreenEnabled != null) {
-                sessionState.fullscreenPreference.acceptImport()
-            }
-            // One coherent runtime refresh; the repositories are now the source of truth.
-            browserPreferences = loadBrowserPreferences()
-            searchEngine = searchEngineManager.getCurrentEngine()
-            availableSearchEngines = searchEngineManager.getAvailableEngines()
-            homeRepository.loadSettings().let { settings ->
-                homepageMode = settings.mode
-                homeUrl = settings.fixedUrl
-                restoreLastSession = settings.restoreLastSession
-            }
-            downloadSettings = downloadSettingsRepository.load()
-            // An incognito wish change goes through the full existing switch flow.
-            if ("browser" in result.applied && browserPreferences.incognitoEnabled != privacy.isIncognito) {
-                toggleIncognito()
-            }
-            if (result.failed.isEmpty()) {
+        // Handed to the process, not to this window: the import writes several groups in turn and
+        // the outcome has to reach whichever window is showing when it finishes. Reporting is
+        // driven by the outcome collector, which also covers a window created after this one.
+        (application as App).runSettingsImport(
+            candidate.first,
+            carriedFullscreenSetting = candidate.first.settings.browser?.browserFullscreenEnabled != null,
+        )
+    }
+
+    /** Refreshes runtime state from the repositories an import has just updated, then reports. */
+    private fun reportImportedSettings(outcome: com.mybrowser.backup.ImportOutcome) {
+        val result = outcome.result
+        // A successful explicit import replaces any session-only exit fallback.
+        if ("browser" in result.applied && outcome.carriedFullscreenSetting) {
+            sessionState.fullscreenPreference.acceptImport()
+        }
+        // One coherent runtime refresh; the repositories are now the source of truth.
+        browserPreferences = loadBrowserPreferences()
+        searchEngine = searchEngineManager.getCurrentEngine()
+        availableSearchEngines = searchEngineManager.getAvailableEngines()
+        homeRepository.loadSettings().let { settings ->
+            homepageMode = settings.mode
+            homeUrl = settings.fixedUrl
+            restoreLastSession = settings.restoreLastSession
+        }
+        downloadSettings = downloadSettingsRepository.load()
+        // An incognito wish change goes through the full existing switch flow.
+        if ("browser" in result.applied && browserPreferences.incognitoEnabled != privacy.isIncognito) {
+            toggleIncognito()
+        }
+        if (result.failed.isEmpty()) {
+            toast(
+                getString(R.string.settings_imported, result.applied.size) +
+                    if (result.pendingFilterUpdates > 0) {
+                        "\n" + getString(R.string.settings_import_filter_updates, result.pendingFilterUpdates)
+                    } else "",
+            )
+            // Say how much browsing data actually landed: a merge can add nothing.
+            if (result.importedBookmarks > 0 || result.importedHistory > 0) {
                 toast(
-                    getString(R.string.settings_imported, result.applied.size) +
-                        if (result.pendingFilterUpdates > 0) {
-                            "\n" + getString(R.string.settings_import_filter_updates, result.pendingFilterUpdates)
-                        } else "",
+                    getString(
+                        R.string.settings_import_library_added,
+                        result.importedBookmarks, result.importedHistory,
+                    ),
                 )
-                // Say how much browsing data actually landed: a merge can add nothing.
-                if (result.importedBookmarks > 0 || result.importedHistory > 0) {
-                    toast(
-                        getString(
-                            R.string.settings_import_library_added,
-                            result.importedBookmarks, result.importedHistory,
-                        ),
-                    )
-                }
-            } else {
-                // Name the failing groups: a count alone cannot tell the user what to re-check.
-                val names = result.failed.map { groupId ->
-                    getString(when (groupId) {
-                        "browser" -> R.string.settings_group_browser
-                        "home" -> R.string.settings_group_home
-                        "search" -> R.string.settings_group_search
-                        "downloads" -> R.string.settings_group_downloads
-                        "filtering" -> R.string.settings_group_filtering
-                        "bookmarks" -> R.string.settings_group_bookmarks
-                        "history" -> R.string.settings_group_history
-                        else -> R.string.settings_group_sites
-                    })
-                }.joinToString("、")
-                toast(getString(R.string.settings_import_partial, result.applied.size, names))
             }
+        } else {
+            // Name the failing groups: a count alone cannot tell the user what to re-check.
+            val names = result.failed.map { groupId ->
+                getString(when (groupId) {
+                    "browser" -> R.string.settings_group_browser
+                    "home" -> R.string.settings_group_home
+                    "search" -> R.string.settings_group_search
+                    "downloads" -> R.string.settings_group_downloads
+                    "filtering" -> R.string.settings_group_filtering
+                    "bookmarks" -> R.string.settings_group_bookmarks
+                    "history" -> R.string.settings_group_history
+                    else -> R.string.settings_group_sites
+                })
+            }.joinToString("、")
+            toast(getString(R.string.settings_import_partial, result.applied.size, names))
         }
     }
 

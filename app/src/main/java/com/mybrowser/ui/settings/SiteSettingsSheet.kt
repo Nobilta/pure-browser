@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.core.VideoFit
 import com.mybrowser.site.*
 import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserBottomSheet
@@ -61,6 +62,25 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 }
                 Text(stringResource(R.string.site_enhanced_playback_summary), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // The player's picture shape belongs to the site for the same reason enhanced
+                // playback does: a source that needs a ratio or a mirror needs it every time.
+                SiteToggle(stringResource(R.string.player_mirror), draft.useVideoMirror(), !busy) {
+                    draft = draft.copy(videoMirror = it)
+                }
+                var fitExpanded by remember { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.player_video_menu), Modifier.weight(1f))
+                    Box {
+                        TextButton(onClick = { fitExpanded = true }, enabled = !busy) {
+                            Text(stringResource(videoFitLabel(draft.useVideoFit())))
+                        }
+                        DropdownMenu(fitExpanded, { fitExpanded = false }) {
+                            VIDEO_FIT_CHOICES.forEach { (label, fit) -> DropdownMenuItem(
+                                text = { Text(stringResource(label)) },
+                                onClick = { draft = draft.copy(videoFit = fit); fitExpanded = false }) }
+                        }
+                    }
+                }
                 var viewportExpanded by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.site_desktop_viewport), Modifier.weight(1f))
@@ -209,3 +229,14 @@ private fun SitePermission.label() = when (this) {
     SitePermission.ALLOW -> R.string.site_allow
     SitePermission.BLOCK -> R.string.site_block
 }
+
+/** The picture presets the player offers, in the order this row lists them. */
+private val VIDEO_FIT_CHOICES = listOf(
+    R.string.player_fit_natural to VideoFit.NATURAL,
+    R.string.player_fit_ratio_3_4 to VideoFit.RATIO_3_4,
+    R.string.player_fit_ratio_16_9 to VideoFit.RATIO_16_9,
+    R.string.player_fit_fill to VideoFit.FILL,
+)
+
+private fun videoFitLabel(fit: VideoFit): Int =
+    VIDEO_FIT_CHOICES.firstOrNull { (_, option) -> option == fit }?.first ?: R.string.player_fit_natural

@@ -1,6 +1,7 @@
 package com.mybrowser.site
 
 import android.app.Application
+import com.mybrowser.core.VideoFit
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -118,6 +119,46 @@ class SiteSettingsTest {
         repo.reset("https://www.example.com")
         assertFalse(repo.get("https://example.com").desktop)
         assertFalse(repo.get("https://m.example.com").desktop)
+    }
+
+    @Test fun thePlayersPictureShapeBelongsToTheOriginThatChoseIt() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val repo = SiteSettingsRepository(context)
+        // Unset is the source's own ratio and an unmirrored picture.
+        assertFalse(repo.get("https://example.com").useVideoMirror())
+        assertEquals(VideoFit.NATURAL, repo.get("https://example.com").useVideoFit())
+
+        repo.update("https://example.com/watch") { it.copy(videoMirror = true, videoFit = VideoFit.RATIO_3_4) }
+        val restored = SiteSettingsRepository(context)
+        assertTrue(restored.get("https://example.com/other").useVideoMirror())
+        assertEquals(VideoFit.RATIO_3_4, restored.get("https://example.com/other").useVideoFit())
+        // Another host, or the same host on another port, keeps its own picture.
+        assertEquals(VideoFit.NATURAL, restored.get("https://other.example").useVideoFit())
+        assertEquals(VideoFit.NATURAL, restored.get("https://example.com:444").useVideoFit())
+
+        // Clearing permissions or opening a private session is no reason to reshape the picture.
+        restored.clearPermissions()
+        assertTrue(restored.get("https://example.com").useVideoMirror())
+        assertEquals(VideoFit.RATIO_3_4, restored.privateSession().get("https://example.com").useVideoFit())
+
+        // Resetting the site is: the shape goes back to the source's own.
+        restored.reset("https://example.com")
+        assertNull(SiteSettingsRepository(context).get("https://example.com").videoFit)
+    }
+
+    @Test fun aStoredPictureShapeThisBuildCannotReadIsIgnoredRatherThanGuessedAt() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString(
+            "sites",
+            """{"https://example.com":{"videoFit":"RATIO_9_16","videoMirror":"yes"}}""",
+        ).commit()
+        val repo = SiteSettingsRepository(context)
+        // A ratio this build does not offer and a mirror that is not a boolean both fall back to
+        // the source's own picture, and unreadable values do not make the store unhealthy.
+        assertFalse(repo.needsRepair.value)
+        assertEquals(VideoFit.NATURAL, repo.get("https://example.com").useVideoFit())
+        assertFalse(repo.get("https://example.com").useVideoMirror())
     }
 
     @Test fun privatePlaybackOverridesDoNotChangeTheSavedWebsiteChoice() = runBlocking {

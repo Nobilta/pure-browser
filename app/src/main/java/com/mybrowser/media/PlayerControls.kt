@@ -11,7 +11,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,9 +35,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.core.PlaybackSpeed
+import com.mybrowser.core.VideoFit
 import com.mybrowser.ui.shell.BrowserMotion
 
-internal enum class PlayerMenu { SPEED, CAST }
+internal enum class PlayerMenu { SPEED, CAST, VIDEO }
 
 internal data class PlayerControlsState(
     val visible: Boolean,
@@ -47,6 +52,8 @@ internal data class PlayerControlsState(
     val rate: Float,
     val canCast: Boolean,
     val menu: PlayerMenu?,
+    val mirror: Boolean,
+    val fit: VideoFit,
     val hud: String?,
     val buffering: Boolean,
     val networkSpeed: String?,
@@ -73,6 +80,8 @@ internal fun PlayerControls(
     onMenu: (PlayerMenu?) -> Unit,
     onSpeedPreview: (Float) -> Unit,
     onSpeed: (Float) -> Unit,
+    onMirror: () -> Unit,
+    onFit: (VideoFit) -> Unit,
     castContent: @Composable () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -95,6 +104,13 @@ internal fun PlayerControls(
                     .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // The immersive bars hide the system status bar, so the controls carry time and
+                // battery themselves. They sit where the system puts its own clock, and the right
+                // end of the row holds the button that opens the picture menu.
+                PlayerStatusStrip(
+                    state.statusTime, state.statusBattery, state.statusCharging,
+                    Modifier.padding(start = 4.dp, end = 8.dp),
+                )
                 PlayerIcon(R.drawable.ic_back, stringResource(R.string.ui_exit_fullscreen), onExit)
                 Text(state.title, Modifier.weight(1f).padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.titleMedium, color = colors.onSurface,
@@ -103,11 +119,10 @@ internal fun PlayerControls(
                     PlayerIcon(R.drawable.ic_pip, stringResource(R.string.picture_in_picture), it)
                 }
                 PlayerIcon(R.drawable.ic_rotate, stringResource(R.string.ui_rotate_screen), onRotate)
-                // The immersive bars hide the system clock, so the controls carry time and
-                // battery for as long as they are on screen; they leave with the bar.
-                PlayerStatusStrip(
-                    state.statusTime, state.statusBattery, state.statusCharging,
-                    Modifier.padding(start = 8.dp, end = 4.dp),
+                PlayerIcon(
+                    R.drawable.ic_more, stringResource(R.string.player_video_menu),
+                    onClick = { onMenu(if (state.menu == PlayerMenu.VIDEO) null else PlayerMenu.VIDEO) },
+                    tint = if (state.menu == PlayerMenu.VIDEO) colors.primary else null,
                 )
             }
         }
@@ -207,12 +222,26 @@ internal fun PlayerControls(
                     val bar = with(density) { barHeight.toDp() }
                     val available = (viewportHeight - bar - 44.dp).coerceAtLeast(48.dp)
                     val popupWidth = if (menu == PlayerMenu.SPEED) 288.dp else 336.dp
-                    val heading = stringResource(if (menu == PlayerMenu.SPEED)
-                        R.string.playback_speed_title else R.string.cd_cast)
+                    // The picture menu holds five rows, which does not fit the strip above the
+                    // control bar on a landscape phone (~247 dp), so it is allowed to use the
+                    // viewport and overlap the bar. The speed and cast panels keep the cap they
+                    // were measured with.
+                    val popupHeight = if (menu == PlayerMenu.VIDEO) {
+                        (viewportHeight - 24.dp).coerceAtLeast(48.dp)
+                    } else minOf(360.dp, available)
+                    val heading = stringResource(when (menu) {
+                        PlayerMenu.SPEED -> R.string.playback_speed_title
+                        PlayerMenu.CAST -> R.string.cd_cast
+                        PlayerMenu.VIDEO -> R.string.player_video_menu
+                    })
                     Surface(
                         Modifier.widthIn(max = popupWidth).fillMaxWidth()
-                            .heightIn(max = minOf(360.dp, available))
-                            .testTag(if (menu == PlayerMenu.SPEED) "player_speed_menu" else "player_cast_menu")
+                            .heightIn(max = popupHeight)
+                            .testTag(when (menu) {
+                                PlayerMenu.SPEED -> "player_speed_menu"
+                                PlayerMenu.CAST -> "player_cast_menu"
+                                PlayerMenu.VIDEO -> "player_video_menu"
+                            })
                             .semantics { paneTitle = heading },
                         shape = RoundedCornerShape(24.dp),
                         color = colors.surfaceContainerHigh, contentColor = colors.onSurface,
@@ -222,12 +251,14 @@ internal fun PlayerControls(
                             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 4.dp, top = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Text(heading, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                PlayerIcon(R.drawable.ic_close, stringResource(R.string.ui_close)) { onMenu(null) }
+                                PlayerIcon(R.drawable.ic_close, stringResource(R.string.ui_close), { onMenu(null) })
                             }
                             HorizontalDivider(color = colors.outlineVariant.copy(alpha = .5f))
-                            if (menu == PlayerMenu.SPEED) {
-                                SpeedPanel(state.rate, onSpeedPreview, onSpeed)
-                            } else castContent()
+                            when (menu) {
+                                PlayerMenu.SPEED -> SpeedPanel(state.rate, onSpeedPreview, onSpeed)
+                                PlayerMenu.CAST -> castContent()
+                                PlayerMenu.VIDEO -> VideoPanel(state.mirror, state.fit, onMirror, onFit)
+                            }
                         }
                     }
                 }
@@ -354,6 +385,66 @@ private fun SpeedPanel(
     }
 }
 
+/** The ratios the picture menu offers, in the order it draws them. */
+private data class FitOption(val label: Int, val fit: VideoFit)
+
+private val FIT_OPTIONS = listOf(
+    FitOption(R.string.player_fit_natural, VideoFit.NATURAL),
+    FitOption(R.string.player_fit_ratio_3_4, VideoFit.RATIO_3_4),
+    FitOption(R.string.player_fit_ratio_16_9, VideoFit.RATIO_16_9),
+    FitOption(R.string.player_fit_fill, VideoFit.FILL),
+)
+
+/**
+ * The picture shape of the video the takeover owns: a mirror and the ratios worth pinning, with
+ * the source's own ratio as the way back.
+ *
+ * The host remembers the choice for the site, so the panel only reports it and stays open.
+ */
+@Composable
+private fun VideoPanel(
+    mirror: Boolean,
+    fit: VideoFit,
+    onMirror: () -> Unit,
+    onFit: (VideoFit) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // The switch itself is inert: the row is the target, so the label and the control are one
+        // accessibility node instead of two.
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("player_mirror_row")
+                .toggleable(value = mirror, role = Role.Switch, onValueChange = { onMirror() }),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(R.string.player_mirror), Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium, color = colors.onSurface)
+            Switch(checked = mirror, onCheckedChange = null)
+        }
+        FIT_OPTIONS.forEach { option ->
+            val selected = fit == option.fit
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .selectable(selected = selected, role = Role.RadioButton) { onFit(option.fit) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    painterResource(if (selected) R.drawable.ic_radio_checked else R.drawable.ic_radio_unchecked),
+                    contentDescription = null,
+                    tint = if (selected) colors.primary else colors.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(16.dp))
+                Text(stringResource(option.label), style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurface)
+            }
+        }
+    }
+}
+
 /**
  * Clock and battery for the top of the immersive player.
  *
@@ -385,9 +476,11 @@ private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, mo
 }
 
 @Composable
-private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit) {
+private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, tint: Color? = null) {
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp),
-        colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = tint ?: MaterialTheme.colorScheme.onSurface,
+        )) {
         Icon(painterResource(icon), description, Modifier.size(24.dp))
     }
 }

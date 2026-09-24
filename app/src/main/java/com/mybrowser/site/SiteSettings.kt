@@ -4,6 +4,7 @@ import com.mybrowser.data.commitConfirmed
 import android.content.Context
 import androidx.core.net.toUri
 import com.mybrowser.core.UrlUtils
+import com.mybrowser.core.VideoFit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,8 +52,16 @@ data class SiteSettings(
     val desktopWidth: Int = 1024,
     // Null inherits the browser default; an explicit choice belongs to this origin only.
     val enhancedPlayback: Boolean? = null,
+    // The enhanced player's picture shape for this origin. Null is the source's own ratio and an
+    // unmirrored picture, which is why an unset choice is pruned like any other default.
+    val videoMirror: Boolean? = null,
+    val videoFit: VideoFit? = null,
 ) {
     fun useEnhancedPlayback(default: Boolean): Boolean = enhancedPlayback ?: default
+
+    fun useVideoMirror(): Boolean = videoMirror ?: false
+
+    fun useVideoFit(): VideoFit = videoFit ?: VideoFit.NATURAL
 
     fun permission(capability: SiteCapability) = when (capability) {
         SiteCapability.CAMERA -> camera
@@ -130,7 +139,7 @@ class SiteSettingsRepository private constructor(
                 if (transform != null) transform(current) else current.copy(
                     filtering = true, javaScript = true, images = true, thirdPartyCookies = true,
                     desktop = false, textZoom = 100, webDarkening = true, desktopWidth = 1024,
-                    enhancedPlayback = null,
+                    enhancedPlayback = null, videoMirror = null, videoFit = null,
                 )
             }.toMutableMap()
             migratable.forEach { (origin, transform) ->
@@ -172,6 +181,8 @@ class SiteSettingsRepository private constructor(
                 .put("externalApps", settings.externalApps.name)
                 .put("webDarkening", settings.webDarkening).put("desktopWidth", settings.desktopWidth)
                 .put("enhancedPlayback", settings.enhancedPlayback)
+                .put("videoMirror", settings.videoMirror)
+                .put("videoFit", settings.videoFit?.name)
             SiteCapability.entries.forEach { entry.put(it.name, settings.permission(it).name) }
             json.put(origin, entry)
         }
@@ -223,7 +234,13 @@ class SiteSettingsRepository private constructor(
                         externalApps = runCatching { SitePermission.valueOf(entry.optString("externalApps")) }.getOrDefault(SitePermission.ASK),
                         webDarkening = entry.optBoolean("webDarkening", true),
                         desktopWidth = entry.optInt("desktopWidth", 1024).takeIf { it in DESKTOP_WIDTHS } ?: 1024,
-                        enhancedPlayback = entry.opt("enhancedPlayback") as? Boolean)
+                        enhancedPlayback = entry.opt("enhancedPlayback") as? Boolean,
+                        // A stored value the app cannot read is a value it must not act on; the
+                        // page is better served by the source's own ratio than by a wrong crop.
+                        videoMirror = entry.opt("videoMirror") as? Boolean,
+                        videoFit = entry.optString("videoFit").takeIf { name ->
+                            VideoFit.entries.any { it.name == name }
+                        }?.let(VideoFit::valueOf))
                     SiteCapability.entries.forEach { capability ->
                         val permission = runCatching { SitePermission.valueOf(entry.optString(capability.name)) }.getOrDefault(SitePermission.ASK)
                         value = value.withPermission(capability, permission)
