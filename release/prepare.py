@@ -45,6 +45,38 @@ def run(*command):
     return subprocess.check_output(command, text=True, encoding='utf-8', stderr=subprocess.STDOUT)
 
 
+def changelog_body(version):
+    """The section CHANGELOG.md holds for this version, without its heading.
+
+    The change list lives in the changelog and nowhere else. The release body is composed from it
+    plus the verification summary, so publishing a release cannot leave the same twenty bullets
+    written out in two files that then drift apart.
+    """
+    lines = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+    named = re.compile(r'^##\s+' + re.escape(version) + r'\s*(?:-|$)')
+    unreleased = re.compile(r'^##\s+未发布\s*$')
+    # A named section is what the version bump writes; `未发布` is where the same work sits until
+    # then, so a release prepared before the rename still finds its notes.
+    start = next((i for i, line in enumerate(lines) if named.match(line)), None)
+    if start is None:
+        start = next((i for i, line in enumerate(lines) if unreleased.match(line)), None)
+    if start is None:
+        raise ValueError('CHANGELOG.md has no "## ' + version + '" or "## 未发布" section')
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
+    body = '\n'.join(lines[start + 1:end]).strip()
+    if not body:
+        raise ValueError('The CHANGELOG.md section for ' + version + ' is empty')
+    return body
+
+
+def compose_notes(version, summary):
+    """The release body: what changed, then what was verified for this artifact."""
+    parts = ['# Pure Browser ' + version, changelog_body(version)]
+    if summary:
+        parts.append(summary)
+    return '\n\n'.join(parts) + '\n'
+
+
 def prepare(apk, output, notes=None):
     if not apk.is_file() or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.apk', apk.name):
         raise ValueError('Choose the signed delivery APK with a filename safe for release assets')
@@ -71,21 +103,29 @@ def prepare(apk, output, notes=None):
     if abis != {'arm64-v8a'}:
         raise ValueError('The official release currently ships arm64-v8a only: ' + str(sorted(abis)))
     checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
-    release_notes = notes.read_text(encoding='utf-8') if notes else ''
+    # `--notes` carries the verification summary only; the changes come from CHANGELOG.md.
+    summary = notes.read_text(encoding='utf-8').strip() if notes else ''
+    release_notes = compose_notes(version, summary)
     if len(release_notes) > 12_000:
         raise ValueError('Release notes exceed 12,000 characters')
     # These notes become the body of update.json, which is generated here and then published as an
     # attachment: a file still describing the previous version would go out with this release and be
-    # shown in the in-app update prompt. Naming the version in the first line is what the notes of
-    # every release already do.
-    first_line = release_notes.splitlines()[0] if release_notes else ''
-    if release_notes and version not in first_line:
+    # shown in the in-app update prompt. The composed body always names its version first, and this
+    # stays as the check that it does.
+    first_line = release_notes.splitlines()[0]
+    if version not in first_line:
         raise ValueError('release notes must name version ' + version + ' in their first line: ' + first_line)
     manifest = {'schemaVersion': 1, 'channel': 'stable', 'packageName': package[1], 'versionCode': code,
                 'versionName': version, 'minSdk': min_sdk,
                 'releaseNotes': release_notes,
                 'artifacts': [{'abi': 'arm64-v8a', 'assetName': apk.name, 'size': size, 'sha256': checksum}]}
     output.mkdir(parents=True, exist_ok=True)
+    # Written for publish.sh to upload: the composed body is what the release should show, and
+    # `--notes` only ever held the verification half of it.
+    notes_path = output / 'release-notes.md'
+    notes_temporary = output / 'release-notes.md.tmp'
+    notes_temporary.write_text(release_notes, encoding='utf-8')
+    notes_temporary.replace(notes_path)
     destination = output / 'update.json'
     temporary = output / 'update.json.tmp'
     temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -93,7 +133,8 @@ def prepare(apk, output, notes=None):
     manifest_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
     (output / 'SHA256SUMS').write_text(f'{checksum}  {apk.name}\n{manifest_hash}  update.json\n', encoding='utf-8')
     details = {'apk': str(apk), 'sha256': checksum, 'signerSha256': next(iter(signers)).lower(), 'tag': 'v' + version,
-               'size': size, 'versionCode': code, 'versionName': version, 'minSdk': min_sdk, 'abi': 'arm64-v8a'}
+               'size': size, 'versionCode': code, 'versionName': version, 'minSdk': min_sdk, 'abi': 'arm64-v8a',
+               'releaseNotes': str(notes_path)}
     (output / 'package-info.json').write_text(json.dumps(details, indent=2) + '\n', encoding='utf-8')
     return details
 
@@ -102,7 +143,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apk', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT / 'outputs/release')
-    parser.add_argument('--notes', type=Path)
+    parser.add_argument('--notes', type=Path,
+                        help='验证摘要；正文由本脚本从 CHANGELOG.md 取对应版本段落合并而成')
     args = parser.parse_args()
     try:
         details = prepare(args.apk.resolve(), args.output.resolve(), args.notes)
