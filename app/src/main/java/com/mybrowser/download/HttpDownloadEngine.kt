@@ -68,10 +68,11 @@ internal class HttpDownloadEngine {
             null
         }
         if (checkpoint != null && probe?.supportsRanges == true && probe.totalBytes == checkpoint.total &&
-            probe.validator == checkpoint.validator && probe.entityUrl == checkpoint.entityUrl) {
+            probe.validator == checkpoint.validator &&
+            DownloadCheckpoint.digest(probe.entityUrl) == checkpoint.entityUrlDigest) {
             try {
                 return@withContext downloadParallel(url, headers, tempDirectory, checkpoint.total,
-                    checkpoint.threads, checkpoint.validator, checkpoint.entityUrl, onProgress)
+                    checkpoint.threads, checkpoint.validator, probe.entityUrl, onProgress)
             } catch (rejected: ResumeRejected) {
                 Log.w(TAG, "Server rejected resume; restarting the entity", rejected)
             }
@@ -89,7 +90,10 @@ internal class HttpDownloadEngine {
             return@withContext downloadSingle(url, headers, tempDirectory, onProgress)
         }
         val rangeProbe = requireNotNull(probe)
-        DownloadCheckpoint(url, rangeProbe.totalBytes, requireNotNull(rangeProbe.validator), threadCount, rangeProbe.entityUrl).save(tempDirectory)
+        DownloadCheckpoint(
+            DownloadCheckpoint.digest(url), rangeProbe.totalBytes,
+            requireNotNull(rangeProbe.validator), threadCount, DownloadCheckpoint.digest(rangeProbe.entityUrl),
+        ).save(tempDirectory)
 
         try {
             downloadParallel(
@@ -179,8 +183,12 @@ internal class HttpDownloadEngine {
 
             val declaredTotal = connection.contentLengthLong.coerceAtLeast(0L)
             val validator = entityValidator(connection)
-            if (declaredTotal > 0 && validator != null) DownloadCheckpoint(url, declaredTotal, validator, 1,
-                connection.url.toExternalForm()).save(tempDirectory)
+            if (declaredTotal > 0 && validator != null) {
+                DownloadCheckpoint(
+                    DownloadCheckpoint.digest(url), declaredTotal, validator, 1,
+                    DownloadCheckpoint.digest(connection.url.toExternalForm()),
+                ).save(tempDirectory)
+            }
             var downloaded = 0L
             var lastUpdateNanos = 0L
             connection.inputStream.use { input ->

@@ -1,6 +1,8 @@
 package com.mybrowser.search
 
 import android.net.Uri
+import com.mybrowser.core.RedirectPolicy
+import com.mybrowser.core.TextDownloader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,6 +56,8 @@ class SearchSuggestionProvider internal constructor(
 ) {
 
     companion object {
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
         /** Per-engine built-in endpoints; keyed by engine id. */
         val BUILTIN_ENDPOINTS: Map<String, SuggestEndpoint> = mapOf(
             "baidu" to SuggestEndpoint(
@@ -272,16 +276,10 @@ class SearchSuggestionProvider internal constructor(
 
     private fun download(url: String, request: Request, format: SuggestFormat): String {
         synchronized(stateLock) { if (request.stopped) throw IOException("Request cancelled") }
-        val connection = openConnection(URL(url))
+        // Headers and timeouts are applied inside: reading the status to spot a redirect
+        // connects the connection, after which a request property would be rejected.
+        val connection = openRedirectingConnection(url, request)
         try {
-            synchronized(stateLock) {
-                if (request.stopped) throw IOException("Request cancelled")
-                request.connection = connection
-            }
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Accept", "application/json, text/javascript, */*")
             val code = connection.responseCode
             if (code !in 200..299) throw IOException("HTTP $code")
             val chunks = java.io.ByteArrayOutputStream()
@@ -309,4 +307,49 @@ class SearchSuggestionProvider internal constructor(
             connection.disconnect()
         }
     }
+
+    /**
+     * Opens [url] and walks its redirects, validating every hop with [RedirectPolicy] — the same
+     * rule `TextDownloader` and the user-script resource fetch use.
+     *
+     * Letting the platform follow them instead sent the user's query to whatever host the
+     * engine's endpoint named, with no check at all. The suggestion engine is still trusted with
+     * the query, so this is consistency and defence in depth rather than a break in the trust
+     * boundary; it also keeps a redirect from reaching the cache under the wrong identity.
+     */
+    private fun openRedirectingConnection(url: String, request: Request): HttpURLConnection {
+        var current = URL(url)
+        var hop = 0
+        while (true) {
+            val connection = openConnection(current)
+            val code = try {
+                synchronized(stateLock) {
+                    if (request.stopped) throw IOException("Request cancelled")
+                    request.connection = connection
+                }
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = TIMEOUT_MS
+                connection.readTimeout = TIMEOUT_MS
+                connection.setRequestProperty("Accept", "application/json, text/javascript, */*")
+                connection.responseCode
+            } catch (error: Throwable) {
+                // The caller never receives this connection, so its own cleanup cannot close it.
+                synchronized(stateLock) { request.connection = null }
+                connection.disconnect()
+                throw error
+            }
+            if (code !in REDIRECT_CODES) return connection
+            val location = connection.getHeaderField("Location")
+            synchronized(stateLock) { request.connection = null }
+            connection.disconnect()
+            if (hop == RedirectPolicy.MAX_HOPS) throw IOException("Too many redirects")
+            hop++
+            // The same predicate the other redirect clients use: it also refuses userinfo and
+            // bounds the length, which the omnibar's navigation policy does not need to.
+            current = RedirectPolicy.next(current, location ?: throw IOException("Missing redirect")) {
+                TextDownloader.isHttpUrl(it)
+            } ?: throw IOException("Unsafe redirect")
+        }
+    }
+
 }

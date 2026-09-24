@@ -66,13 +66,15 @@ class DownloadDedupTest {
 
     @Test fun endedPrivateDownloadSessionCannotClaimTheSameUrlInTheNextSession() {
         val target = url("?private-session")
-        val firstScope = handler.rotatePrivateScope()
+        handler.rotatePrivateScope()
         val first = handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
         assertTrue(first is DownloadHandler.EnqueueOutcome.Started)
         assertNotNull(handler.existingTaskFor(target, true))
         handler.endPrivateScope()
         assertNull(handler.existingTaskFor(target, true))
-        assertNotEquals(firstScope, handler.rotatePrivateScope())
+        // Entering the next session: its scope is unique (DownloadIdentityTest pins that), so the
+        // previous session's record is not claimed and the same URL starts a fresh task below.
+        handler.rotatePrivateScope()
         assertNull(handler.existingTaskFor(target, true))
         val next = handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
         assertTrue(next is DownloadHandler.EnqueueOutcome.Started)
@@ -217,6 +219,37 @@ class DownloadDedupTest {
         val privateTask = handler.enqueueOrGetExisting(url(), null, null, null, isPrivate = true)
         assertTrue(privateTask is DownloadHandler.EnqueueOutcome.Started)
         assertNotEquals(normalId, (privateTask as DownloadHandler.EnqueueOutcome.Started).id)
+    }
+
+    /**
+     * Within one private session the same URL coalesces like any other, and that is what the
+     * session's identity has to provide: a fresh scope per enqueue would still satisfy every other
+     * test in this file while starting a parallel copy of the same file on every re-request.
+     */
+    @Test fun theSameUrlInsideOnePrivateSessionMergesIntoTheExistingTask() {
+        val target = url("?private-same-session")
+        handler.rotatePrivateScope()
+        val first = handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
+        assertTrue(first is DownloadHandler.EnqueueOutcome.Started)
+        val firstId = (first as DownloadHandler.EnqueueOutcome.Started).id
+
+        assertTrue(
+            handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
+                is DownloadHandler.EnqueueOutcome.Existing,
+        )
+        // A fragment is the same resource, as it is outside a private session.
+        assertTrue(
+            handler.enqueueOrGetExisting("$target#frag", null, null, null, isPrivate = true)
+                is DownloadHandler.EnqueueOutcome.Existing,
+        )
+        assertEquals(firstId, handler.existingTaskFor(target, true)?.first)
+
+        // A new session reusing the identical URL starts its own task rather than joining this one.
+        handler.endPrivateScope()
+        handler.rotatePrivateScope()
+        val next = handler.enqueueOrGetExisting(target, null, null, null, isPrivate = true)
+        assertTrue(next is DownloadHandler.EnqueueOutcome.Started)
+        assertNotEquals(firstId, (next as DownloadHandler.EnqueueOutcome.Started).id)
     }
 
     @Test fun previewFilenameMatchesTheEngineSanitization() {

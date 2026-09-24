@@ -41,7 +41,9 @@ function fixture({ url = 'https://www.example.com/page', ready = 'loading', fram
     timersRun() { const jobs = [...timers.values()]; timers.clear(); jobs.forEach(fn => fn()); },
     reply(index = 0, ok = true, override = {}) {
       const sent = posts[index];
-      const data = JSON.stringify({ id: sent.id, token: sent.token, requestId: sent.requestId, ok, ...override });
+      // Mirrors the native reply, which carries no token: the bridge object is visible to the
+      // page's own scripts, so a reply echoing it would hand them a storage write credential.
+      const data = JSON.stringify({ id: sent.id, requestId: sent.requestId, ok, ...override });
       listeners.forEach(listener => listener({ data }));
     },
   };
@@ -102,12 +104,37 @@ test('modern storage API resolves only on the matching native acknowledgement', 
   assert.equal(await api.GM.getValue('count', 0), 2);
   let done = false;
   const promise = api.GM.setValue('count', 3).then(() => { done = true; });
+  // The request authenticates itself with the token; the reply must never carry it back.
   assert.equal(f.posts[0].token, 'private-token');
   assert.equal(f.posts[0].url, 'https://www.example.com/page');
-  f.reply(0, true, { token: 'forged' }); await Promise.resolve(); assert.equal(done, false);
+  f.reply(0, true, { id: 'another-script' }); await Promise.resolve(); assert.equal(done, false);
+  f.reply(0, true, { requestId: 9_999 }); await Promise.resolve(); assert.equal(done, false);
   f.reply(); await promise; assert.equal(done, true);
   assert.equal(api.GM_getValue('count'), 3);
 });
+test('a page-installed toJSON hook never sees the storage credential or a stored value', async () => {
+  const f = fixture();
+  f.inject({ grants: ['GM.setValue', 'GM.getValue'], needsStorage: true, values: '{"config":{"text":"keep"}}' });
+  const api = f.context.apis[0];
+  // The page shares this world and may install a hook on Object.prototype at any time. Both the
+  // request (which carries the credential) and the values this runtime reads, writes and sends are
+  // script-private, so neither may reach that hook — a hook handed a value could read or replace it.
+  vm.runInContext(
+    'globalThis.__seen = []; Object.prototype.toJSON = function () { globalThis.__seen.push(this); return "x"; };',
+    f.context,
+  );
+  // Synchronous: send serialises and posts before returning. An object value, not a number, so the
+  // value itself has to travel through the hook-free copy.
+  api.GM.setValue('count', { nested: [1, 2] }).catch(() => {});
+  const config = await api.GM.getValue('config', null);
+  assert.equal(f.context.__seen.length, 0, 'the page hook must not run at all');
+  // The script still gets an ordinary object back, with the stored content intact. Asserted by
+  // field, not by stringifying: the hook above is still installed in that realm, so even this
+  // test's own comparison would otherwise be answered by the page's function.
+  assert.equal(config.text, 'keep');
+  assert.equal(f.posts[0].value && f.posts[0].value.nested.length, 2);
+});
+
 test('rejected writes restore the previous local value', async () => {
   const f = fixture();
   f.inject({ grants: ['GM_getValue', 'GM_setValue'], needsStorage: true, values: '{"count":2}' });

@@ -39,12 +39,10 @@ class TextDownloader {
                         ?.let { connection.setRequestProperty("If-Modified-Since", it) }
                     when (val code = connection.responseCode) {
                         301, 302, 303, 307, 308 -> {
-                            if (hop == 5) throw IOException("Too many redirects")
-                            val next = URL(current, connection.getHeaderField("Location") ?: throw IOException("Missing redirect"))
-                            if (!isHttpUrl(next.toString()) || (current.protocol == "https" && next.protocol != "https")) {
-                                throw IOException("Unsafe redirect")
-                            }
-                            current = next
+                            if (hop == RedirectPolicy.MAX_HOPS) throw IOException("Too many redirects")
+                            val location = connection.getHeaderField("Location") ?: throw IOException("Missing redirect")
+                            current = RedirectPolicy.next(current, location) { isHttpUrl(it) }
+                                ?: throw IOException("Unsafe redirect")
                         }
                         304 -> {
                             if (etag == null && modified == null) throw IOException("Unexpected HTTP 304")

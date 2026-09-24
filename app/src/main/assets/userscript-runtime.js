@@ -35,6 +35,7 @@
   var encode = JSON.stringify.bind(JSON), decode = JSON.parse.bind(JSON);
   var post = bridge ? bridge.postMessage.bind(bridge) : null;
   var own = Function.call.bind(Object.prototype.hasOwnProperty);
+  var create = Object.create.bind(Object);
   var values = decode(config.values), pending = new Map(), serial = 0, revisions = Object.create(null);
   var warn = console.warn.bind(console), log = console.log.bind(console);
   var send = function (operation, key, value) {
@@ -47,8 +48,20 @@
       }, 15000);
       pending.set(requestId, { resolve: resolve, reject: reject, timer: timer });
       try {
-        post(encode({ id: config.id, token: config.token, requestId: requestId,
-          operation: operation, key: key, value: value, url: location.href }));
+        // The request is built without a prototype. `JSON.stringify` asks any object for
+        // `toJSON` before serialising it, so a `toJSON` the page installs on
+        // `Object.prototype` would be handed the whole request — credential included — even
+        // though the reply no longer carries it. A null prototype has nothing to look up, so
+        // the hook never runs and the token stays in this closure.
+        var message = create(null);
+        message.id = config.id;
+        message.token = config.token;
+        message.requestId = requestId;
+        message.operation = operation;
+        message.key = key;
+        message.value = value;
+        message.url = location.href;
+        post(encode(message));
       } catch (error) {
         clearTimeout(timer); pending.delete(requestId); reject(error);
       }
@@ -57,7 +70,7 @@
   if (bridge) bridge.addEventListener('message', function (event) {
     var data;
     try { data = decode(event.data); } catch (_) { return; }
-    if (data.id !== config.id || data.token !== config.token) return;
+    if (data.id !== config.id) return;
     var task = pending.get(data.requestId);
     if (!task) return;
     pending.delete(data.requestId); clearTimeout(task.timer);
@@ -67,19 +80,42 @@
     return config.grants.indexOf(name) >= 0 || config.grants.indexOf(name.replace('GM_', 'GM.')) >= 0 ||
       (name === 'GM_getResourceURL' && config.grants.indexOf('GM.getResourceUrl') >= 0);
   }
-  function clone(value) {
-    if (value === undefined) return undefined;
-    return decode(encode(value));
+  // A copy with no prototype anywhere in its graph. `JSON.stringify` asks every object it walks
+  // for `toJSON`, and the page shares this realm, so a hook it installed on `Object.prototype`
+  // would otherwise be handed script-private storage values as `this` — the same reason the
+  // request object itself is built without a prototype.
+  function bare(value) {
+    if (value === null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+      var list = [];
+      for (var i = 0; i < value.length; i++) list.push(bare(value[i]));
+      // An array cannot lose its prototype and stay an array, so it gets an own, non-enumerable
+      // `toJSON` instead: `JSON.stringify` only calls the property when it is a function, and an
+      // own one shadows whatever the page put on Array.prototype or Object.prototype.
+      Object.defineProperty(list, 'toJSON', { value: undefined });
+      return list;
+    }
+    var copy = create(null);
+    for (var key in value) if (own(value, key)) copy[key] = bare(value[key]);
+    return copy;
+  }
+  /** The form this runtime keeps and sends: serialised through a hook-free graph. */
+  function stored(value) {
+    return value === undefined ? undefined : bare(decode(encode(bare(value))));
+  }
+  /** The form the script receives: an ordinary JSON value, so its own methods keep working. */
+  function expose(value) {
+    return value === undefined ? undefined : decode(encode(bare(value)));
   }
   function getValue(key, fallback) {
     key = String(key);
-    return own(values, key) ? clone(values[key]) : fallback;
+    return own(values, key) ? expose(values[key]) : fallback;
   }
   function setValue(key, value) {
     key = String(key);
     if (key.length > 256 || value === undefined) return Promise.reject(new Error('Invalid GM value'));
-    value = clone(value);
-    var previous = own(values, key) ? clone(values[key]) : undefined;
+    value = stored(value);
+    var previous = own(values, key) ? stored(values[key]) : undefined;
     var revision = revisions[key] = (revisions[key] || 0) + 1;
     Object.defineProperty(values, key, { value: value, writable: true, enumerable: true, configurable: true });
     return send('set', key, value).catch(function (error) {
@@ -92,7 +128,7 @@
   }
   function deleteValue(key) {
     key = String(key);
-    var previous = own(values, key) ? clone(values[key]) : undefined;
+    var previous = own(values, key) ? stored(values[key]) : undefined;
     var revision = revisions[key] = (revisions[key] || 0) + 1;
     delete values[key];
     return send('delete', key, null).catch(function (error) {

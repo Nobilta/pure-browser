@@ -1,6 +1,8 @@
 package com.mybrowser.backup
 
 import android.content.Context
+import android.util.Log
+import com.mybrowser.core.VideoFit
 import com.mybrowser.data.Bookmark
 import com.mybrowser.data.BookmarkFolders
 import com.mybrowser.data.BookmarkManager
@@ -21,6 +23,7 @@ import com.mybrowser.search.SearchEngineManager
 import com.mybrowser.site.SiteSettings
 import com.mybrowser.site.SiteSettingsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
@@ -85,6 +88,14 @@ data class ApplyResult(
 )
 
 /**
+ * What a finished import has to tell whichever window reports it.
+ *
+ * [carriedFullscreenSetting] travels with the result because the report can be shown by a window
+ * created after the import started, which no longer holds the parsed file.
+ */
+data class ImportOutcome(val result: ApplyResult, val carriedFullscreenSetting: Boolean)
+
+/**
  * Collects a whitelist export and applies an import through the existing repositories.
  *
  * Groups are independent: each commits one preference-file edit and confirms the disk
@@ -105,6 +116,8 @@ class SettingsTransfer(
     private val appContext = context.applicationContext
 
     companion object {
+        private const val TAG = "SettingsTransfer"
+
         /** One import at a time, across every SettingsTransfer instance. */
         private val importLock = Mutex()
 
@@ -209,6 +222,8 @@ class SettingsTransfer(
                             webDarkening = settings.webDarkening,
                             desktopWidth = settings.desktopWidth,
                             enhancedPlayback = BackupOptional.Present(settings.enhancedPlayback),
+                            videoMirror = BackupOptional.Present(settings.videoMirror),
+                            videoFit = BackupOptional.Present(settings.videoFit?.name),
                         ),
                     )
                 },
@@ -298,14 +313,20 @@ class SettingsTransfer(
                 require(finalEngines.any { it.id == finalId }) {
                     "currentEngineId does not resolve: $finalId"
                 }
-            }.onFailure { invalid += "search" }
+            }.onFailure {
+                invalid += "search"
+                Log.w(TAG, "Settings import rejected: search", it)
+            }
         }
 
         settings.filtering?.let { filtering ->
             runCatching {
                 val customs = filtering.customSubscriptions ?: return@runCatching
                 FilterSubscriptions.validateCustomLists(customs.map { Triple(it.name, it.url, it.enabled) })
-            }.onFailure { invalid += "filtering" }
+            }.onFailure {
+                invalid += "filtering"
+                Log.w(TAG, "Settings import rejected: filtering", it)
+            }
         }
         return invalid
     }
@@ -328,13 +349,26 @@ class SettingsTransfer(
             return ApplyResult(applied = emptyList(), failed = groups)
         }
         try {
-            // Nothing is written until every group passes validation: a file with a good
-            // browser group and a bad search template must not apply half of itself.
-            val invalid = validateForApply(backup)
-            if (invalid.isNotEmpty()) {
-                return ApplyResult(applied = emptyList(), failed = invalid)
+            // Validation runs on IO with the writes. It reads the search engine store, which may
+            // still have to reach disk, and the caller is a process-scoped coroutine on the main
+            // dispatcher — see App.runSettingsImport.
+            return withContext(NonCancellable + Dispatchers.IO) {
+                // Nothing is written until every group passes validation: a file with a good
+                // browser group and a bad search template must not apply half of itself.
+                val invalid = validateForApply(backup)
+                if (invalid.isNotEmpty()) {
+                    ApplyResult(applied = emptyList(), failed = invalid)
+                } else {
+                    // Once a file has been validated its groups are written to completion, even if
+                    // the caller's scope is cancelled: cancellation is observed at the first
+                    // suspension point inside a group, which is after earlier groups have
+                    // committed, and the caller then never receives an ApplyResult to explain what
+                    // happened. Finishing is only safe because the repositories this writes through
+                    // outlive the caller — see App.bookmarks — and because the lock above
+                    // serialises imports.
+                    applyValidated(backup)
+                }
             }
-            return withContext(Dispatchers.IO) { applyValidated(backup) }
         } finally {
             importLock.unlock()
         }
@@ -347,6 +381,14 @@ class SettingsTransfer(
         var importedBookmarks = 0
         var importedHistory = 0
         val settings = backup.settings
+
+        // The result carries only the group id, because that is all the user can act on. The
+        // exception is what a bug report needs, and without it a failed group is indistinguishable
+        // from a write that silently did nothing.
+        fun noteFailure(group: String, error: Throwable) {
+            failed += group
+            Log.w(TAG, "Settings import group failed: $group", error)
+        }
 
         settings.browser?.let { browser ->
             runCatching {
@@ -376,7 +418,7 @@ class SettingsTransfer(
                     ))
                 }
                 repository.save(next, confirmed = true)
-            }.onSuccess { applied += "browser" }.onFailure { failed += "browser" }
+            }.onSuccess { applied += "browser" }.onFailure { noteFailure("browser", it) }
         }
 
         settings.home?.let { home ->
@@ -385,7 +427,7 @@ class SettingsTransfer(
                 repository.importSettings(
                     home.mode?.let(HomepageMode::valueOf), home.fixedUrl, home.restoreLastSession,
                 )
-            }.onSuccess { applied += "home" }.onFailure { failed += "home" }
+            }.onSuccess { applied += "home" }.onFailure { noteFailure("home", it) }
         }
 
         settings.search?.let { search ->
@@ -397,7 +439,7 @@ class SettingsTransfer(
                         suggestUrl = it.suggestUrlTemplate, isCustom = true,
                     )
                 }, search.currentEngineId)
-            }.onSuccess { applied += "search" }.onFailure { failed += "search" }
+            }.onSuccess { applied += "search" }.onFailure { noteFailure("search", it) }
         }
 
         settings.downloads?.let { downloads ->
@@ -407,7 +449,7 @@ class SettingsTransfer(
                     downloads.threadCount, downloads.unmeteredOnly,
                     downloads.directoryModeHint == DownloadDestinationMode.SYSTEM_DOWNLOADS.name,
                 )
-            }.onSuccess { applied += "downloads" }.onFailure { failed += "downloads" }
+            }.onSuccess { applied += "downloads" }.onFailure { noteFailure("downloads", it) }
         }
 
         settings.filtering?.let { filtering ->
@@ -430,7 +472,7 @@ class SettingsTransfer(
                 // A scheduler failure cannot turn a committed configuration into a
                 // reported write failure. Missing payloads stay visible for manual retry.
                 if (pendingFilterUpdates > 0) runCatching { onPendingFilterUpdates() }
-            }.onFailure { failed += "filtering" }
+            }.onFailure { noteFailure("filtering", it) }
         }
 
         settings.sites?.takeIf { !sites.needsRepair.value }?.let { siteList ->
@@ -451,12 +493,22 @@ class SettingsTransfer(
                                 is BackupOptional.Present -> enhanced.value
                                 BackupOptional.Absent -> current.enhancedPlayback
                             },
+                            videoMirror = when (val mirror = p.videoMirror) {
+                                is BackupOptional.Present -> mirror.value
+                                BackupOptional.Absent -> current.videoMirror
+                            },
+                            videoFit = when (val fit = p.videoFit) {
+                                is BackupOptional.Present -> fit.value
+                                    ?.takeIf { name -> VideoFit.entries.any { it.name == name } }
+                                    ?.let(VideoFit::valueOf)
+                                BackupOptional.Absent -> current.videoFit
+                            },
                         )
                     }
                 }
                 sites.applyImported(transforms)
-            }.onSuccess { applied += "sites" }.onFailure { failed += "sites" }
-        } ?: settings.sites?.let { failed += "sites" }
+            }.onSuccess { applied += "sites" }.onFailure { noteFailure("sites", it) }
+        } ?: settings.sites?.let { noteFailure("sites", IllegalStateException("Site settings need repair")) }
 
         settings.bookmarks?.let { library ->
             runCatching {
@@ -466,7 +518,7 @@ class SettingsTransfer(
                     library.entries.map { ImportedBookmark(it.title, it.url, it.folderPath) },
                     library.folders,
                 )
-            }.onSuccess { applied += "bookmarks" }.onFailure { failed += "bookmarks" }
+            }.onSuccess { applied += "bookmarks" }.onFailure { noteFailure("bookmarks", it) }
         }
 
         settings.history?.let { entries ->
@@ -475,7 +527,7 @@ class SettingsTransfer(
                 importedHistory = history.importHistory(
                     entries.map { ImportedHistory(it.title, it.url, it.visitTime, it.visitCount) },
                 )
-            }.onSuccess { applied += "history" }.onFailure { failed += "history" }
+            }.onSuccess { applied += "history" }.onFailure { noteFailure("history", it) }
         }
 
         return ApplyResult(applied, failed, pendingFilterUpdates, importedBookmarks, importedHistory)

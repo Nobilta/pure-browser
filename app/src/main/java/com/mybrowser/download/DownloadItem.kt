@@ -15,8 +15,18 @@ data class DownloadItem(
     val canPause: Boolean = false,
     val bytesPerSecond: Long = 0,
     val savingProgress: Int = 0,
-    /** False for private-session tasks; the running notification hides their filename. */
-    val autoResumeAllowed: Boolean = true,
+    /**
+     * False for a private-session task: the running notification shows a generic title instead,
+     * because it outlives the session and is readable from the lock screen.
+     */
+    val showsFilenameInNotification: Boolean = true,
+    /**
+     * False when this task belongs to another private session. It can be viewed, opened and
+     * deleted, but neither continued nor fetched again here — its session's credentials are gone
+     * and its persisted URL no longer carries the query — so the UI offers no action that could
+     * only answer with a failure.
+     */
+    val canResume: Boolean = true,
 )
 
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAITING_NETWORK, SAVING;
