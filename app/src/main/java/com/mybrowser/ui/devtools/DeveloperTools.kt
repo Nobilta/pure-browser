@@ -145,7 +145,7 @@ fun DeveloperTools(
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    fadeIn(BrowserMotion.panelEffects()) togetherWith fadeOut(BrowserMotion.chromeEffects())
+                    fadeIn(BrowserMotion.contentCross()) togetherWith fadeOut(BrowserMotion.chromeFade())
                 },
                 label = "developerTabContent",
             ) { tab ->

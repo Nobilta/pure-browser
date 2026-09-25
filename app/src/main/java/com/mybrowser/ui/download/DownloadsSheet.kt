@@ -113,9 +113,9 @@ fun DownloadsSheet(
 
             AnimatedVisibility(
                 visible = selecting,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     expandVertically(animationSpec = BrowserMotion.chromeSpatial()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                     shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
             ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -330,7 +330,7 @@ private fun DownloadItemRow(
         AnimatedContent(
             targetState = statusIcon,
             transitionSpec = {
-                fadeIn(BrowserMotion.panelEffects()) togetherWith fadeOut(BrowserMotion.chromeEffects())
+                fadeIn(BrowserMotion.contentCross()) togetherWith fadeOut(BrowserMotion.chromeFade())
             },
             label = "downloadStatusIcon",
         ) { icon ->
@@ -344,7 +344,7 @@ private fun DownloadItemRow(
                         DownloadStatus.FAILED -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    animationSpec = BrowserMotion.panelEffects(),
+                    animationSpec = BrowserMotion.contentCross(),
                     label = "downloadStatusTint",
                 ).value,
             )

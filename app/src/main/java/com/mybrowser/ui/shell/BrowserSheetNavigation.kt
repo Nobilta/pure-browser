@@ -107,6 +107,17 @@ internal fun BrowserSheetHost(
     var measured by remember { mutableStateOf(false) }
     val progress = remember { SheetWindowProgress() }
     LaunchedEffect(current) {
+        // Whether this movement is interrupting one that never arrived. Read before anything is
+        // started, and synchronously in the body rather than from the cancelled coroutine's
+        // `finally`: cancellation is dispatched, so a flag set there can lose the race with the
+        // effect that replaces it.
+        //
+        // A position strictly inside the range means the last movement was cut short, because an
+        // animation that finishes lands exactly on its target. Without this a reversal replays the
+        // curve from zero and stops the surface dead first, which is the seam the whole mechanism
+        // exists to remove.
+        val interrupted = progress.visibility.value > 0f && progress.visibility.value < 1f
+        val carried = progress.takeCarried() ?: if (interrupted) progress.visibility.velocity else null
         if (current != null) {
             closing = false
             // The dialog window is created on this frame and its surface is measured a frame or two
@@ -114,15 +125,18 @@ internal fun BrowserSheetHost(
             // then snaps the remainder, so the travel starts from the measured surface instead.
             measured = false
             snapshotFlow { measured }.first { it }
-            launch { progress.scrim.animateTo(1f, progress.effectsSpec()) }
-            progress.visibility.animateTo(1f, progress.spatialSpec())
+            progress.visibility.animateTo(
+                1f,
+                if (carried == null) progress.arriveSpec() else BrowserMotion.resume(),
+                initialVelocity = carried ?: 0f,
+            )
         } else if (leaving.value != null) {
             closing = true
-            // A dismissal gesture that just ended left the surface part-way out and still moving.
-            // Starting the exit at that speed is what makes letting go of a sheet continuous.
-            val thrown = progress.takeHandOff()
-            launch { progress.scrim.animateTo(0f, progress.effectsSpec()) }
-            progress.visibility.animateTo(0f, progress.spatialSpec(), initialVelocity = thrown)
+            progress.visibility.animateTo(
+                0f,
+                if (carried == null) progress.departSpec() else BrowserMotion.resume(),
+                initialVelocity = carried ?: 0f,
+            )
             closing = false
             leaving.value = null
         }
