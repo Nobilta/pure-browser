@@ -3,6 +3,10 @@ package com.mybrowser.ui.devtools
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.webkit.WebView
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,6 +34,7 @@ import com.mybrowser.R
 import com.mybrowser.core.ConsoleLogEntry
 import com.mybrowser.core.ConsoleLogLevel
 import com.mybrowser.core.NetworkRequestLog
+import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.theme.BrowserColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -134,13 +139,24 @@ fun DeveloperTools(
                     }
                 }
             }
-            tabStates.SaveableStateProvider(selectedTab) {
-                when (selectedTab) {
-                    0 -> ConsoleTab(consoleEntries, evaluations, command, { command = it.take(MAX_COMMAND_CHARS) }, execute,
-                        webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput)
-                    1 -> NetworkLogTab(networkEntries, onClearNetwork, onExplainFilter)
-                    2 -> SourceCodeTab(document, sourceLoading, sourceError) { document = null; sourceRevision++ }
-                    3 -> InfoTab(webView, pageUrl, pageGeneration, currentDocument)
+            // The tab row's indicator already slides between tabs; the content was swapping on a
+            // single frame underneath it, which makes the moving indicator look disconnected from
+            // what it is pointing at.
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    fadeIn(BrowserMotion.panelEffects()) togetherWith fadeOut(BrowserMotion.chromeEffects())
+                },
+                label = "developerTabContent",
+            ) { tab ->
+                tabStates.SaveableStateProvider(tab) {
+                    when (tab) {
+                        0 -> ConsoleTab(consoleEntries, evaluations, command, { command = it.take(MAX_COMMAND_CHARS) }, execute,
+                            webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput)
+                        1 -> NetworkLogTab(networkEntries, onClearNetwork, onExplainFilter)
+                        2 -> SourceCodeTab(document, sourceLoading, sourceError) { document = null; sourceRevision++ }
+                        3 -> InfoTab(webView, pageUrl, pageGeneration, currentDocument)
+                    }
                 }
             }
         }

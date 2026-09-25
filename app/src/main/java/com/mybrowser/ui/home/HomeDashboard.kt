@@ -43,6 +43,7 @@ import com.mybrowser.home.HomeShortcut
 import com.mybrowser.home.ShortcutIconChange
 import com.mybrowser.home.ShortcutSaveResult
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.shell.userItemMotion
 
 /** Material 3 navigation homepage rendered above a blank WebView document. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -88,9 +89,12 @@ fun HomeDashboard(
                     EmptyHomeCard()
                 }
             } else {
+                // The tiles are the user's own set: adding or removing one glides the rest to their
+                // new places instead of rebuilding the grid around a hole.
                 items(shortcuts, key = HomeShortcut::id) { shortcut ->
                     HomeShortcutTile(
                         shortcut = shortcut,
+                        modifier = userItemMotion(),
                         onClick = { onOpen(shortcut) },
                         onLongClick = { editingId = shortcut.id },
                     )
@@ -112,10 +116,11 @@ private fun HomeShortcutTile(
     shortcut: HomeShortcut,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val textResources = localizedResources()
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
             .combinedClickable(

@@ -87,12 +87,12 @@ x86_64 主机（Windows、Linux、Intel Mac）装不上只含 arm64-v8a 的官�
 Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本时设置 `PYTHONUTF8=1`，
 经 `run-regressions.py` 运行时它会代为设置。脚本在 Git Bash 中执行。
 
-下面以 `emulator-5554` 和 0.13 为例，替换为实际序列号与 APK 路径。
+下面以 `emulator-5554` 和 0.14 为例，替换为实际序列号与 APK 路径。
 
 1. 安装并启动应用，部署 UI 辅助程序：
 
    ```bash
-   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.13-release.apk
+   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.14-release.apk
    python3 validation/setup-ui-probe.py emulator-5554
    ```
 
@@ -101,14 +101,14 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 2. 启动 QA 服务，并保持该终端运行：
 
    ```bash
-   python3 validation/qa-server.py --apk PureBrowser-v0.13-release.apk
+   python3 validation/qa-server.py --apk PureBrowser-v0.14-release.apk
    ```
 
 3. 在另一个终端执行回归：
 
    ```bash
-   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.13-release.apk \
-     --label release-013-smoke --profile smoke
+   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.14-release.apk \
+     --label release-014-smoke --profile smoke
    ```
 
 一次只运行一个 UI 脚本，避免同时构建。QA 使用本机 8875/8876 端口，部分夹具使用 8877–8879，
@@ -127,13 +127,21 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 例如，只检查启动更新提示和标签行为：
 
 ```bash
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.13-release.apk \
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.14-release.apk \
   --label update-tabs --stages update-launch resident
 ```
 
 `update-launch` 使用 root AVD 写入缓存测试清单，验证配置重建后提示仍存在；
 不会下载或安装更新，结束时还原缓存、深色模式和进程。
 `site-storage` 同样使用 root AVD，验证网站设置损坏提示、取消重置、确认修复和重启后的持久化，结束时还原原设置文件。
+`motion-gesture` 与 `motion-interruption` 用真实 MotionEvent 检查面板的动效：前者按住标题栏读回表面位置，
+确认它跟手、短拖回弹、拉过自身高度约三分之一后关闭；后者在入场 80ms 处反向退出、在退出途中重新打开，
+断言最后没有留下卡住或关不掉的面板。两者都不看"最终状态是什么"，只看"动效进行中表面在哪、被打断后剩下什么"，
+所以其它阶段替代不了它们。
+面板只有停稳之后才接受手指——动效进行中的表面会拒绝手势，这是刻意的，避免窗口动画与手指同时移动同一个值。
+因此这类阶段在手势之前要等表面不再移动，并且要先自己把应用启动到前台。
+面板下拉的"甩出速度"判定没有自动化：速度来自最后约 100ms 内采样点的拟合，而 adb 注入单个事件的耗时与这个窗口同量级，
+无法提供与手指同密度的采样，该路径手工核对。
 页面加载与错误恢复可单独运行 `--stages navigation-recovery`：本地服务延迟响应头，检查地址输入、网页链接、POST 表单的进度提示，以及连续失败、重试成功、停止加载和停止后再次提交表单。下载删除的单元测试覆盖传输取消、临时文件清理和暂停/删除并发。
 每次下载都会先弹出确认对话框（刻意设计，没有跳过设置），下载相关回归在点击链接后显式点击确认再等待传输。
 `video-standard` 使用真实触摸验证倍速滑块拖动，以及 0.5×、5× 和 1.5× 档位；以网页实际播放状态判断结果，轨道点击会校正 Compose 无障碍边界的额外留白。

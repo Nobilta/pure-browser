@@ -4,11 +4,14 @@ import com.mybrowser.download.localizeDownloadDirectory
 import com.mybrowser.download.DownloadItem
 import com.mybrowser.download.DownloadRequestCoordinator
 import com.mybrowser.download.DownloadStatus
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -110,10 +113,10 @@ fun DownloadsSheet(
 
             AnimatedVisibility(
                 visible = selecting,
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
-                    expandVertically(animationSpec = BrowserMotion.chromeShow),
-                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
-                    shrinkVertically(animationSpec = BrowserMotion.chromeHide),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                    expandVertically(animationSpec = BrowserMotion.chromeSpatial()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                    shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
             ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
@@ -315,24 +318,37 @@ private fun DownloadItemRow(
             Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
             Spacer(modifier = Modifier.width(8.dp))
         }
-        // Icon based on status
-        Icon(
-            painter = painterResource(
-                when (download.status) {
-                    DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> R.drawable.ic_download
-                    DownloadStatus.COMPLETED -> R.drawable.ic_file
-                    DownloadStatus.FAILED -> R.drawable.ic_close
-                    DownloadStatus.PAUSED -> R.drawable.ic_pause
-                }
-            ),
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = when (download.status) {
-                DownloadStatus.COMPLETED -> MaterialTheme.colorScheme.primary
-                DownloadStatus.FAILED -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
+        // The status glyph: a download moving from running to done, or failing, changes what this
+        // row means. Fading the glyph and its tint across says that happened, where swapping both on
+        // one frame made the row look replaced.
+        val statusIcon = when (download.status) {
+            DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> R.drawable.ic_download
+            DownloadStatus.COMPLETED -> R.drawable.ic_file
+            DownloadStatus.FAILED -> R.drawable.ic_close
+            DownloadStatus.PAUSED -> R.drawable.ic_pause
+        }
+        AnimatedContent(
+            targetState = statusIcon,
+            transitionSpec = {
+                fadeIn(BrowserMotion.panelEffects()) togetherWith fadeOut(BrowserMotion.chromeEffects())
+            },
+            label = "downloadStatusIcon",
+        ) { icon ->
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = animateColorAsState(
+                    targetValue = when (download.status) {
+                        DownloadStatus.COMPLETED -> MaterialTheme.colorScheme.primary
+                        DownloadStatus.FAILED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    animationSpec = BrowserMotion.panelEffects(),
+                    label = "downloadStatusTint",
+                ).value,
+            )
+        }
 
         Spacer(modifier = Modifier.width(16.dp))
 

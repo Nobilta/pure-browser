@@ -91,10 +91,10 @@ fun BookmarksSheet(
             LibrarySearchField(query, stringResource(R.string.bookmarks_search), onQueryChange)
             AnimatedVisibility(
                 visible = selecting,
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
-                    expandVertically(animationSpec = BrowserMotion.chromeShow),
-                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
-                    shrinkVertically(animationSpec = BrowserMotion.chromeHide),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                    expandVertically(animationSpec = BrowserMotion.chromeSpatial()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                    shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = bookmarks.isNotEmpty() && bookmarks.all { it.id in selected }, onCheckedChange = {

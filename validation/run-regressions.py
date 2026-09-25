@@ -76,7 +76,12 @@ def main():
     stages = [('media-lifecycle', ['media-lifecycle-regression.py', '--output', str(OUT / (prefix + '-media-lifecycle'))]),
               ('omnibar', ['omnibar-regression.py', '--output', str(OUT / (prefix + '-omnibar'))]),
               ('private-lifecycle', ['lifecycle-boundaries-regression.py', '--section', 'private', '--output', str(OUT / (prefix + '-private-lifecycle'))]),
-              ('download-opening', ['download-opening-regression.py', '--output', str(OUT / (prefix + '-download-opening'))])]
+              ('download-opening', ['download-opening-regression.py', '--output', str(OUT / (prefix + '-download-opening'))]),
+              # The sheet's dismissal gesture, and what a mid-flight reversal leaves behind. Both
+              # hold real MotionEvents, so they need the device's own input pipeline rather than a
+              # state assertion: no other stage covers either.
+              ('motion-gesture', ['gesture-dismiss-regression.py', '--output', str(OUT / (prefix + '-motion-gesture'))]),
+              ('motion-interruption', ['motion-interruption-regression.py', '--output', str(OUT / (prefix + '-motion-interruption'))])]
     stages += [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
                for name, script in upgrade]
     stages += [(name, ['system-integration-regression.py', '--section', name, '--package', 'com.mybrowser',
