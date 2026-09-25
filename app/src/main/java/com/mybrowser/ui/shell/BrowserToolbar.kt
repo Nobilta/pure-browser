@@ -124,7 +124,7 @@ private fun RowScope.ToolbarButton(
     val enabledTint = MaterialTheme.colorScheme.onSurfaceVariant
     val tint by animateColorAsState(
         targetValue = if (enabled) enabledTint else disabledTint,
-        animationSpec = BrowserMotion.chromeEffects(),
+        animationSpec = BrowserMotion.chromeFade(),
         label = "toolbarButtonTint",
     )
     Box(

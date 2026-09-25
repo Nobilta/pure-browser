@@ -96,26 +96,24 @@ fun TabsSheet(
                     Surface(shape = MaterialTheme.shapes.medium, color = animateColorAsState(
                         targetValue = if (tab.id == currentId) MaterialTheme.colorScheme.secondaryContainer
                         else MaterialTheme.colorScheme.surfaceContainer,
-                        animationSpec = BrowserMotion.panelEffects(),
+                        animationSpec = BrowserMotion.contentCross(),
                         label = "tabCurrentContainer",
                     ).value,
                         modifier = userItemMotion().fillMaxWidth().clickable { onSelectTab(tab.id) }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(64.dp, 80.dp).clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-                                val thumbnail = tab.thumbnail?.takeIf { !it.isRecycled }
-                                // A captured thumbnail arrives after the row does; fading it over the
-                                // placeholder keeps the row from flashing as the list scrolls.
-                                AnimatedContent(
-                                    targetState = thumbnail,
-                                    transitionSpec = {
-                                        fadeIn(BrowserMotion.panelEffects()) togetherWith
-                                            fadeOut(BrowserMotion.panelEffects())
-                                    },
-                                    label = "tabThumbnail",
-                                ) { shown ->
-                                    if (shown != null) Image(shown.asImageBitmap(), null, Modifier.fillMaxSize())
-                                    else Icon(painterResource(R.drawable.ic_tabs), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val thumbnail = tab.thumbnail
+                                // Deliberately not cross-faded. This is the heaviest list in the app
+                                // — one row per open tab, each with a decoded bitmap — and a
+                                // per-row subcomposition to fade in a thumbnail that usually arrives
+                                // before the row is ever shown costs more on the frame the sheet
+                                // opens than the fade is worth. The row's own entrance is what the
+                                // user is watching; the bitmap is either there or it is not.
+                                if (thumbnail != null && !thumbnail.isRecycled) {
+                                    Image(thumbnail.asImageBitmap(), null, Modifier.fillMaxSize())
+                                } else {
+                                    Icon(painterResource(R.drawable.ic_tabs), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             Spacer(Modifier.width(12.dp))

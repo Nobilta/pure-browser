@@ -48,8 +48,8 @@ internal fun BrowserAlertDialog(
     val shown = remember { Animatable(0f) }
     val scale = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        launch { shown.animateTo(1f, BrowserMotion.panelEffects()) }
-        scale.animateTo(1f, BrowserMotion.panelSpatial())
+        launch { shown.animateTo(1f, BrowserMotion.contentCross()) }
+        scale.animateTo(1f, BrowserMotion.localArrive())
     }
     BasicAlertDialog(onDismissRequest = onDismissRequest, modifier = modifier) {
         Surface(

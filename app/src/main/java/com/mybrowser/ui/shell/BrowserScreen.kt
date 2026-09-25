@@ -222,8 +222,8 @@ fun BrowserScreen(
         ) {
             AnimatedVisibility(
                 visible = isIncognito,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             ) {
                 Row(
                     modifier = Modifier
@@ -258,8 +258,8 @@ fun BrowserScreen(
             // under the omnibar reads as a stalled page.
             AnimatedVisibility(
                 visible = showProgress && state.isProgressVisible,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             ) {
                 if (state.progress <= 0) LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth().height(3.dp),
@@ -330,9 +330,9 @@ fun BrowserScreen(
                     .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .padding(16.dp),
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     scaleIn(animationSpec = BrowserMotion.chromeSpatial(), initialScale = 0.8f),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                     scaleOut(animationSpec = BrowserMotion.chromeSpatial(), targetScale = 0.85f),
             ) {
                 FloatingActionButton(
@@ -363,9 +363,9 @@ fun BrowserScreen(
                         ),
                     )
                     .padding(20.dp),
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     scaleIn(animationSpec = BrowserMotion.chromeSpatial(), initialScale = 0.8f),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                     scaleOut(animationSpec = BrowserMotion.chromeSpatial(), targetScale = 0.85f),
             ) {
                 FloatingActionButton(
@@ -454,9 +454,9 @@ fun BrowserScreen(
             // Find bar appears above the toolbar
             AnimatedVisibility(
                 visible = state.isFindBarVisible,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                     slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
             ) {
                 FindBar(
@@ -539,8 +539,8 @@ fun BrowserScreen(
 private fun PageOverlay(
     visible: Boolean,
     modifier: Modifier = Modifier,
-    enter: EnterTransition = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
-    exit: ExitTransition = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
+    enter: EnterTransition = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+    exit: ExitTransition = fadeOut(animationSpec = BrowserMotion.chromeFade()),
     content: @Composable () -> Unit,
 ) {
     AnimatedVisibility(visible = visible, modifier = modifier, enter = enter, exit = exit) { content() }

@@ -134,9 +134,9 @@ fun Omnibar(
                 // instead of the row rebuilding around it.
                 AnimatedVisibility(
                     visible = !isFocused && !isHomePage,
-                    enter = fadeIn(BrowserMotion.chromeEffects()) +
+                    enter = fadeIn(BrowserMotion.chromeFade()) +
                         expandHorizontally(BrowserMotion.chromeSpatial(), expandFrom = Alignment.Start),
-                    exit = fadeOut(BrowserMotion.chromeEffects()) +
+                    exit = fadeOut(BrowserMotion.chromeFade()) +
                         shrinkHorizontally(BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Start),
                 ) {
                     SecurityIndicator(
@@ -154,8 +154,8 @@ fun Omnibar(
                 AnimatedContent(
                     targetState = isFocused,
                     transitionSpec = {
-                        fadeIn(BrowserMotion.panelEffects()) togetherWith
-                            fadeOut(BrowserMotion.chromeEffects())
+                        fadeIn(BrowserMotion.contentCross()) togetherWith
+                            fadeOut(BrowserMotion.chromeFade())
                     },
                     contentAlignment = Alignment.CenterStart,
                     label = "omnibarContent",
@@ -252,8 +252,8 @@ fun Omnibar(
                     AnimatedContent(
                         targetState = action,
                         transitionSpec = {
-                            fadeIn(BrowserMotion.chromeEffects()) togetherWith
-                                fadeOut(BrowserMotion.chromeEffects())
+                            fadeIn(BrowserMotion.chromeFade()) togetherWith
+                                fadeOut(BrowserMotion.chromeFade())
                         },
                         label = "omnibarAction",
                     ) { shown ->
@@ -273,10 +273,10 @@ fun Omnibar(
             // instead of pushing the field narrower on the frame editing starts.
             AnimatedVisibility(
                 visible = isFocused,
-                enter = fadeIn(BrowserMotion.chromeEffects()) +
-                    expandHorizontally(BrowserMotion.panelSpatial(), expandFrom = Alignment.End),
-                exit = fadeOut(BrowserMotion.chromeEffects()) +
-                    shrinkHorizontally(BrowserMotion.panelSpatial(), shrinkTowards = Alignment.End),
+                enter = fadeIn(BrowserMotion.chromeFade()) +
+                    expandHorizontally(BrowserMotion.localArrive(), expandFrom = Alignment.End),
+                exit = fadeOut(BrowserMotion.chromeFade()) +
+                    shrinkHorizontally(BrowserMotion.localDepart(), shrinkTowards = Alignment.End),
             ) {
                 TextButton(
                     onClick = ::submitInput,

@@ -479,8 +479,8 @@ private fun Modifier.settingsPaneChange(
 ): Modifier = composed {
     val position = remember(paneKey) { Animatable(if (animate) 0f else 1f) }
     val fade = remember(paneKey) { Animatable(if (animate) 0f else 1f) }
-    val positionSpec = BrowserMotion.panelSpatial<Float>()
-    val fadeSpec = BrowserMotion.panelEffects<Float>()
+    val positionSpec = BrowserMotion.pageArrive<Float>()
+    val fadeSpec = BrowserMotion.contentCross<Float>()
     LaunchedEffect(paneKey) {
         if (animate) {
             launch { fade.animateTo(1f, fadeSpec) }
