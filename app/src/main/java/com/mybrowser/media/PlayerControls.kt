@@ -95,9 +95,9 @@ internal fun PlayerControls(
         val topBarVisible = state.visible && !state.locked
         AnimatedVisibility(
             visible = topBarVisible,
-            enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+            enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                 slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { -it },
-            exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+            exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                 slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { -it },
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
@@ -138,8 +138,8 @@ internal fun PlayerControls(
         ) {
             AnimatedVisibility(
                 visible = state.buffering,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             ) {
                 val label = stringResource(R.string.ui_player_buffering)
                 Row(
@@ -172,8 +172,8 @@ internal fun PlayerControls(
             if (state.hud != null) lastHud = state.hud
             AnimatedVisibility(
                 visible = state.hud != null,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             ) {
                 lastHud?.let { message ->
                     // Feedback must stay touch-transparent so consecutive gestures reach the video.
@@ -198,9 +198,9 @@ internal fun PlayerControls(
         // The bar leaves towards the edge it sits on, the way the player's chrome does.
         AnimatedVisibility(
             visible = topBarVisible,
-            enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+            enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                 slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
-            exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+            exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                 slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
@@ -214,10 +214,10 @@ internal fun PlayerControls(
                 if (state.menu != null) lastMenu = state.menu
                 AnimatedVisibility(
                     visible = state.menu != null,
-                    enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                    enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                         scaleIn(animationSpec = BrowserMotion.chromeSpatial(),
                             transformOrigin = TransformOrigin(1f, 1f), initialScale = 0.92f),
-                    exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                    exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                         scaleOut(animationSpec = BrowserMotion.chromeSpatial(),
                             transformOrigin = TransformOrigin(1f, 1f), targetScale = 0.94f),
                 ) {
@@ -288,8 +288,8 @@ internal fun PlayerControls(
                                 AnimatedContent(
                                     targetState = state.playing,
                                     transitionSpec = {
-                                        fadeIn(BrowserMotion.chromeEffects()) togetherWith
-                                            fadeOut(BrowserMotion.chromeEffects())
+                                        fadeIn(BrowserMotion.chromeFade()) togetherWith
+                                            fadeOut(BrowserMotion.chromeFade())
                                     },
                                     label = "playerPlayPause",
                                 ) { playing ->
@@ -312,7 +312,7 @@ internal fun PlayerControls(
                                     // the light fades on instead of the button blinking.
                                     containerColor = animateColorAsState(
                                         targetValue = if (state.menu == PlayerMenu.SPEED) colors.primaryContainer else colors.secondaryContainer,
-                                        animationSpec = BrowserMotion.chromeEffects(),
+                                        animationSpec = BrowserMotion.chromeFade(),
                                         label = "playerSpeedContainer",
                                     ).value,
                                 ),
@@ -328,7 +328,7 @@ internal fun PlayerControls(
                                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                                         containerColor = animateColorAsState(
                                             targetValue = if (state.menu == PlayerMenu.CAST) colors.primaryContainer else colors.secondaryContainer,
-                                            animationSpec = BrowserMotion.chromeEffects(),
+                                            animationSpec = BrowserMotion.chromeFade(),
                                             label = "playerCastContainer",
                                         ).value,
                                     ),
@@ -342,8 +342,8 @@ internal fun PlayerControls(
 
         AnimatedVisibility(
             visible = (state.visible || state.locked) && state.menu == null,
-            enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
-            exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
+            enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+            exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
         ) {
             FilledTonalIconButton(onClick = onLock,
@@ -351,12 +351,12 @@ internal fun PlayerControls(
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                     containerColor = animateColorAsState(
                         targetValue = if (state.locked) colors.primaryContainer else colors.surfaceContainerHigh.copy(alpha = .9f),
-                        animationSpec = BrowserMotion.chromeEffects(),
+                        animationSpec = BrowserMotion.chromeFade(),
                         label = "playerLockContainer",
                     ).value,
                     contentColor = animateColorAsState(
                         targetValue = if (state.locked) colors.onPrimaryContainer else colors.onSurface,
-                        animationSpec = BrowserMotion.chromeEffects(),
+                        animationSpec = BrowserMotion.chromeFade(),
                         label = "playerLockContent",
                     ).value,
                 ),
@@ -468,8 +468,8 @@ private fun VideoPanel(
                 AnimatedContent(
                     targetState = selected,
                     transitionSpec = {
-                        fadeIn(BrowserMotion.chromeEffects()) togetherWith
-                            fadeOut(BrowserMotion.chromeEffects())
+                        fadeIn(BrowserMotion.chromeFade()) togetherWith
+                            fadeOut(BrowserMotion.chromeFade())
                     },
                     label = "playerRadioMark",
                 ) { checked ->
@@ -478,7 +478,7 @@ private fun VideoPanel(
                         contentDescription = null,
                         tint = animateColorAsState(
                             targetValue = if (checked) colors.primary else colors.onSurfaceVariant,
-                            animationSpec = BrowserMotion.chromeEffects(),
+                            animationSpec = BrowserMotion.chromeFade(),
                             label = "playerRadioTint",
                         ).value,
                         modifier = Modifier.size(20.dp),
@@ -509,7 +509,7 @@ private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, mo
     // A low battery turns this red; the change is worth noticing, not worth a jolt.
     val batteryColor by animateColorAsState(
         targetValue = if (alert) MaterialTheme.colorScheme.error else clockColor,
-        animationSpec = BrowserMotion.chromeEffects(),
+        animationSpec = BrowserMotion.chromeFade(),
         label = "playerBattery",
     )
     Row(modifier.semantics(mergeDescendants = true) {}.testTag("player_status_strip"),

@@ -40,7 +40,7 @@ internal fun BrowserSheetHeader(
         AnimatedContent(
             targetState = title,
             transitionSpec = {
-                fadeIn(BrowserMotion.panelEffects()) togetherWith fadeOut(BrowserMotion.panelEffects())
+                fadeIn(BrowserMotion.contentCross()) togetherWith fadeOut(BrowserMotion.contentCross())
             },
             label = "sheetHeaderTitle",
             modifier = Modifier.weight(1f),
