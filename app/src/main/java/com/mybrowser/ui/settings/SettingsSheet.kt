@@ -94,7 +94,7 @@ import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.TextInputDialog
 import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.localizedResources
-import com.mybrowser.ui.shell.pageChangeAlpha
+import kotlinx.coroutines.launch
 
 /** Category navigation stays mounted while pickers and filter lists are open. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -477,14 +477,20 @@ private fun Modifier.settingsPaneChange(
     direction: Float,
     travel: Boolean,
 ): Modifier = composed {
-    val progress = remember(paneKey) { Animatable(if (animate) 0f else 1f) }
+    val position = remember(paneKey) { Animatable(if (animate) 0f else 1f) }
+    val fade = remember(paneKey) { Animatable(if (animate) 0f else 1f) }
+    val positionSpec = BrowserMotion.panelSpatial<Float>()
+    val fadeSpec = BrowserMotion.panelEffects<Float>()
     LaunchedEffect(paneKey) {
-        if (animate) progress.animateTo(1f, if (travel) BrowserMotion.pageChange else BrowserMotion.contentReplace)
+        if (animate) {
+            launch { fade.animateTo(1f, fadeSpec) }
+            position.animateTo(1f, positionSpec)
+        }
     }
     val distance = with(LocalDensity.current) { BrowserMotion.PAGE_CHANGE_DISTANCE.toPx() }
     graphicsLayer {
-        alpha = pageChangeAlpha(progress.value)
-        if (travel) translationX = (1f - progress.value) * distance * direction
+        alpha = fade.value
+        if (travel) translationX = (1f - position.value) * distance * direction
     }
 }
 

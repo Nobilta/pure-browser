@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -116,6 +117,16 @@ private fun RowScope.ToolbarButton(
     onLongClick: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    // MD3 specifies disabled content as onSurface at 38%. A button only becomes disabled when the
+    // page it acts on changes state, and that change is already visible elsewhere; fading the tint
+    // over the effects spring ties the two together instead of the icon blinking.
+    val disabledTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    val enabledTint = MaterialTheme.colorScheme.onSurfaceVariant
+    val tint by animateColorAsState(
+        targetValue = if (enabled) enabledTint else disabledTint,
+        animationSpec = BrowserMotion.chromeEffects(),
+        label = "toolbarButtonTint",
+    )
     Box(
         modifier = Modifier
             .weight(1f)
@@ -134,12 +145,7 @@ private fun RowScope.ToolbarButton(
             painter = painterResource(icon),
             contentDescription = stringResource(description),
             modifier = Modifier.size(22.dp),
-            // MD3 specifies disabled content as onSurface at 38%.
-            tint = if (enabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            },
+            tint = tint,
         )
     }
 }

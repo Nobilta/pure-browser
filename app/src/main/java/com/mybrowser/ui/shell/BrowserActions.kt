@@ -30,7 +30,7 @@ internal fun BrowserSheetHeader(
     // when a page swaps its close button for a back button, instead of both jumping.
     val startPadding by animateDpAsState(
         targetValue = if (onBack == null) 24.dp else 4.dp,
-        animationSpec = BrowserMotion.headerShift,
+        animationSpec = BrowserMotion.chromeSpatial(),
         label = "sheetHeaderStart",
     )
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
@@ -40,7 +40,7 @@ internal fun BrowserSheetHeader(
         AnimatedContent(
             targetState = title,
             transitionSpec = {
-                fadeIn(BrowserMotion.contentReplace) togetherWith fadeOut(BrowserMotion.contentReplace)
+                fadeIn(BrowserMotion.panelEffects()) togetherWith fadeOut(BrowserMotion.panelEffects())
             },
             label = "sheetHeaderTitle",
             modifier = Modifier.weight(1f),

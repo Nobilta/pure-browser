@@ -1,5 +1,10 @@
 package com.mybrowser.ui.menu
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.tabs.TabState
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
@@ -84,15 +90,33 @@ fun TabsSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(filtered, key = { it.id }) { tab ->
                     var itemMenu by remember { mutableStateOf(false) }
-                    Surface(shape = MaterialTheme.shapes.medium, color = if (tab.id == currentId)
-                        MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                    // Switching tabs moves the highlight from one row to the next; fading it
+                    // across that change reads as the selection travelling instead of two rows
+                    // swapping colours on one frame.
+                    Surface(shape = MaterialTheme.shapes.medium, color = animateColorAsState(
+                        targetValue = if (tab.id == currentId) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surfaceContainer,
+                        animationSpec = BrowserMotion.panelEffects(),
+                        label = "tabCurrentContainer",
+                    ).value,
                         modifier = userItemMotion().fillMaxWidth().clickable { onSelectTab(tab.id) }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(64.dp, 80.dp).clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-                                val thumbnail = tab.thumbnail
-                                if (thumbnail != null && !thumbnail.isRecycled) Image(thumbnail.asImageBitmap(), null, Modifier.fillMaxSize())
-                                else Icon(painterResource(R.drawable.ic_tabs), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val thumbnail = tab.thumbnail?.takeIf { !it.isRecycled }
+                                // A captured thumbnail arrives after the row does; fading it over the
+                                // placeholder keeps the row from flashing as the list scrolls.
+                                AnimatedContent(
+                                    targetState = thumbnail,
+                                    transitionSpec = {
+                                        fadeIn(BrowserMotion.panelEffects()) togetherWith
+                                            fadeOut(BrowserMotion.panelEffects())
+                                    },
+                                    label = "tabThumbnail",
+                                ) { shown ->
+                                    if (shown != null) Image(shown.asImageBitmap(), null, Modifier.fillMaxSize())
+                                    else Icon(painterResource(R.drawable.ic_tabs), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {

@@ -1,6 +1,7 @@
 package com.mybrowser.ui.shell
 
 import androidx.compose.animation.core.Animatable
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,10 +27,13 @@ import androidx.compose.ui.unit.dp
  * Material 3 (1.4.0) does not provide — there `AlertDialog` appears without any transition, and the
  * `BasicAlertDialog` override hook that could add one is internal to the library.
  *
- * The surface fades in from a 0.96 scale with the same [BrowserMotion.localEnter] spec as any other
- * local surface, so a confirm dialog and a panel read as the same kind of arrival. The platform dim
- * still belongs to the window and appears with it, and the answer callback still runs exactly once,
- * at commit: this wrapper only owns the presentation.
+ * The container's scale is spatial and its opacity is an effect, so each runs on the spec Material 3
+ * gives that kind of change instead of sharing one progress value. The exit belongs to the platform:
+ * a caller removes this dialog by dropping it from the composition, and the dialog window's own
+ * animation covers that, so there is nothing here to retain.
+ *
+ * Only the presentation is this wrapper's business — the platform dim still belongs to the window
+ * and appears with it, and the answer callback still runs exactly once, at commit.
  */
 @Composable
 internal fun BrowserAlertDialog(
@@ -41,16 +45,21 @@ internal fun BrowserAlertDialog(
     title: (@Composable () -> Unit)? = null,
     text: (@Composable () -> Unit)? = null,
 ) {
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { progress.animateTo(1f, BrowserMotion.localEnter) }
+    val shown = remember { Animatable(0f) }
+    val scale = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        launch { shown.animateTo(1f, BrowserMotion.panelEffects()) }
+        scale.animateTo(1f, BrowserMotion.panelSpatial())
+    }
     BasicAlertDialog(onDismissRequest = onDismissRequest, modifier = modifier) {
         Surface(
             modifier = Modifier.graphicsLayer {
-                val shown = progress.value
-                alpha = shown
-                val scale = 0.96f + 0.04f * shown
-                scaleX = scale
-                scaleY = scale
+                alpha = shown.value
+                // A dialog's container is one of the surfaces Material 3 lets scale as it arrives;
+                // the geometry is the app's, the spring it runs on is the scheme's.
+                val grown = 0.96f + 0.04f * scale.value
+                scaleX = grown
+                scaleY = grown
             },
             shape = AlertDialogDefaults.shape,
             color = AlertDialogDefaults.containerColor,

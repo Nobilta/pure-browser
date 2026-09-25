@@ -1,6 +1,5 @@
 package com.mybrowser.ui.shell
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -13,6 +12,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /** The route stack owns navigation; a presentation owns callbacks from one mounted sheet. */
 internal class BrowserSheetNavigation {
@@ -88,7 +88,9 @@ internal class BrowserSheetNavigation {
  *
  * The host owns the window's progress, so it also owns the exit: when the stack empties the last
  * page stays composed while the panel travels out, which keeps the closing transition showing a
- * real page instead of an empty window. A route opened mid-exit reverses from the current position.
+ * real page instead of an empty window. A route opened mid-exit reverses from the current
+ * position — and, because both directions run on springs, from the current velocity as well, so
+ * changing your mind about a sheet reads as catching it rather than as restarting it.
  */
 @Composable
 internal fun BrowserSheetHost(
@@ -103,7 +105,7 @@ internal fun BrowserSheetHost(
     if (current != null) leaving.value = current
     var closing by remember { mutableStateOf(false) }
     var measured by remember { mutableStateOf(false) }
-    val visibility = remember { Animatable(0f) }
+    val progress = remember { SheetWindowProgress() }
     LaunchedEffect(current) {
         if (current != null) {
             closing = false
@@ -112,10 +114,15 @@ internal fun BrowserSheetHost(
             // then snaps the remainder, so the travel starts from the measured surface instead.
             measured = false
             snapshotFlow { measured }.first { it }
-            visibility.animateTo(1f, BrowserMotion.sheetEnter)
+            launch { progress.scrim.animateTo(1f, progress.effectsSpec()) }
+            progress.visibility.animateTo(1f, progress.spatialSpec())
         } else if (leaving.value != null) {
             closing = true
-            visibility.animateTo(0f, BrowserMotion.sheetExit)
+            // A dismissal gesture that just ended left the surface part-way out and still moving.
+            // Starting the exit at that speed is what makes letting go of a sheet continuous.
+            val thrown = progress.takeHandOff()
+            launch { progress.scrim.animateTo(0f, progress.effectsSpec()) }
+            progress.visibility.animateTo(0f, progress.spatialSpec(), initialVelocity = thrown)
             closing = false
             leaving.value = null
         }
@@ -133,7 +140,7 @@ internal fun BrowserSheetHost(
 
     if (shown != null) {
         BrowserSheetWindow(
-            visibility = visibility.asState(),
+            progress = progress,
             onDismissRequest = { navigation.current?.let(navigation::back) },
             onMeasured = { measured = true },
         ) {
