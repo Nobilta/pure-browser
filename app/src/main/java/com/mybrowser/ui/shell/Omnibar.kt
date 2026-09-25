@@ -1,5 +1,12 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -41,6 +48,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mybrowser.core.UrlUtils
 import com.mybrowser.R
@@ -121,8 +129,16 @@ fun Omnibar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Hidden while focused: the indicator describes the loaded page, and keeping
-                // it visible next to a half-typed URL would be claiming something untrue.
-                if (!isFocused && !isHomePage) {
+                // it visible next to a half-typed URL would be claiming something untrue. It
+                // collapses into its own edge rather than vanishing, so the address slides over
+                // instead of the row rebuilding around it.
+                AnimatedVisibility(
+                    visible = !isFocused && !isHomePage,
+                    enter = fadeIn(BrowserMotion.chromeEffects()) +
+                        expandHorizontally(BrowserMotion.chromeSpatial(), expandFrom = Alignment.Start),
+                    exit = fadeOut(BrowserMotion.chromeEffects()) +
+                        shrinkHorizontally(BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Start),
+                ) {
                     SecurityIndicator(
                         url = currentUrl,
                         certificateError = certificateError,
@@ -131,98 +147,120 @@ fun Omnibar(
                     )
                 }
 
-                if (!isFocused) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onFocusChange(true) }
-                            .semantics { contentDescription = textResources.getString(R.string.ui_edit_address) }
-                            .padding(vertical = 4.dp),
-                    ) {
-                        Text(
-                            text = displayTitle.ifBlank { stringResource(R.string.omnibar_hint) },
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        currentUrl?.let(UrlUtils::hostOf)?.takeIf { it.isNotBlank() }?.let { host ->
+                // Reading the page and editing its address are two states of one slot, so the
+                // change is a content replace: the arriving side fades in as the leaving one fades
+                // out. Swapping them on a single frame is what made focusing the omnibar feel like
+                // the bar had been rebuilt rather than opened for editing.
+                AnimatedContent(
+                    targetState = isFocused,
+                    transitionSpec = {
+                        fadeIn(BrowserMotion.panelEffects()) togetherWith
+                            fadeOut(BrowserMotion.chromeEffects())
+                    },
+                    contentAlignment = Alignment.CenterStart,
+                    label = "omnibarContent",
+                    modifier = Modifier.weight(1f),
+                ) { editing ->
+                    if (!editing) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onFocusChange(true) }
+                                .semantics { contentDescription = textResources.getString(R.string.ui_edit_address) }
+                                .padding(vertical = 4.dp),
+                        ) {
                             Text(
-                                text = host,
-                                style = MaterialTheme.typography.labelSmall,
+                                text = displayTitle.ifBlank { stringResource(R.string.omnibar_hint) },
+                                style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
-                        }
-                    }
-                } else BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester)
-                        .semantics { contentDescription = textResources.getString(R.string.ui_address_field) }
-                        // IME candidate windows and initial attachment may report
-                        // lost focus without the user finishing their editing session.
-                        .onFocusChanged { if (it.isFocused) onFocusChange(true) },
-                    singleLine = true,
-                    textStyle = LocalTextStyle.current.merge(
-                        MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Go,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onGo = {
-                            submitInput()
-                        },
-                    ),
-                    decorationBox = { innerTextField ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (value.text.isEmpty()) {
+                            currentUrl?.let(UrlUtils::hostOf)?.takeIf { it.isNotBlank() }?.let { host ->
                                 Text(
-                                    text = stringResource(R.string.omnibar_hint),
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    text = host,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            innerTextField()
                         }
-                    },
-                )
+                    } else BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .semantics { contentDescription = textResources.getString(R.string.ui_address_field) }
+                            // IME candidate windows and initial attachment may report
+                            // lost focus without the user finishing their editing session.
+                            .onFocusChanged { if (it.isFocused) onFocusChange(true) },
+                        singleLine = true,
+                        textStyle = LocalTextStyle.current.merge(
+                            MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Go,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onGo = {
+                                submitInput()
+                            },
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (value.text.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.omnibar_hint),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                }
 
-                if (isFocused) {
-                    IconButton(onClick = {
-                        onClear()
-                        focusRequester.requestFocus()
-                        keyboard?.show()
-                    }, modifier = Modifier.size(48.dp)) {
+                // One button, two jobs: clearing while editing, and reloading, stopping or scanning
+                // a code otherwise. The button itself never moves, so only the glyph changes — and
+                // it changes as a content replace rather than a painter swapped under a still icon.
+                val action = when {
+                    isFocused -> OmnibarAction(R.drawable.ic_stop, R.string.cd_clear, 18.dp)
+                    isHomePage -> OmnibarAction(R.drawable.ic_qr_scan, R.string.qr_scan, 24.dp)
+                    isLoading -> OmnibarAction(R.drawable.ic_stop, R.string.cd_stop, 24.dp)
+                    else -> OmnibarAction(R.drawable.ic_reload, R.string.cd_reload, 24.dp)
+                }
+                val clearField: () -> Unit = {
+                    onClear()
+                    focusRequester.requestFocus()
+                    keyboard?.show()
+                }
+                IconButton(
+                    onClick = when {
+                        isFocused -> clearField
+                        isHomePage -> onScanQr
+                        else -> onRefresh
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    AnimatedContent(
+                        targetState = action,
+                        transitionSpec = {
+                            fadeIn(BrowserMotion.chromeEffects()) togetherWith
+                                fadeOut(BrowserMotion.chromeEffects())
+                        },
+                        label = "omnibarAction",
+                    ) { shown ->
                         Icon(
-                            painter = painterResource(R.drawable.ic_stop),
-                            contentDescription = stringResource(R.string.cd_clear),
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    // The navigation home has no page to reload. Its action scans a QR.
-                    IconButton(
-                        onClick = if (isHomePage) onScanQr else onRefresh,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            painter = painterResource(
-                                if (isHomePage) R.drawable.ic_qr_scan else if (isLoading) R.drawable.ic_stop else R.drawable.ic_reload,
-                            ),
-                            contentDescription = stringResource(
-                                if (isHomePage) R.string.qr_scan else if (isLoading) R.string.cd_stop else R.string.cd_reload,
-                            ),
-                            modifier = Modifier.size(24.dp),
+                            painter = painterResource(shown.icon),
+                            contentDescription = stringResource(shown.label),
+                            modifier = Modifier.size(shown.size),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -231,8 +269,15 @@ fun Omnibar(
 
             // A visible action keeps navigation usable when a hardware/soft keyboard is not
             // available.  The same URL-vs-search classifier as the navigation path drives the
-            // label, so a host reads "访问" and ordinary text reads "搜索".
-            if (isFocused) {
+            // label, so a host reads "访问" and ordinary text reads "搜索". It opens its own space
+            // instead of pushing the field narrower on the frame editing starts.
+            AnimatedVisibility(
+                visible = isFocused,
+                enter = fadeIn(BrowserMotion.chromeEffects()) +
+                    expandHorizontally(BrowserMotion.panelSpatial(), expandFrom = Alignment.End),
+                exit = fadeOut(BrowserMotion.chromeEffects()) +
+                    shrinkHorizontally(BrowserMotion.panelSpatial(), shrinkTowards = Alignment.End),
+            ) {
                 TextButton(
                     onClick = ::submitInput,
                     enabled = value.text.isNotBlank(),
@@ -248,3 +293,6 @@ fun Omnibar(
 
     }
 }
+
+/** The glyph the omnibar's trailing button shows, and what it means. */
+private data class OmnibarAction(val icon: Int, val label: Int, val size: Dp)

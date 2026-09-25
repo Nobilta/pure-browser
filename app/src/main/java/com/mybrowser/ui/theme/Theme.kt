@@ -2,7 +2,6 @@ package com.mybrowser.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -52,7 +51,14 @@ private val DarkColors = darkColorScheme(
     inversePrimary = Color(0xFF365F91),
 )
 
-/** Wallpaper colours on Android 12+, with stable palettes on Android 10–11. */
+/**
+ * Wallpaper colours on Android 12+, with stable palettes on Android 10–11.
+ *
+ * Motion is not installed here: Material 3 1.4.0 keeps `MotionScheme` internal, so the app's own
+ * springs are declared in `BrowserMotion` using that scheme's standard token values — the same
+ * ones the library's components resolve internally — which keeps one rhythm without reaching into
+ * an internal API.
+ */
 @Composable
 fun MyBrowserTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -70,8 +76,11 @@ fun MyBrowserTheme(
     } else {
         if (dark) DarkColors else LightColors
     }
-    // Browser forms and libraries use fixed edges, including nested pickers/dialogs.
-    CompositionLocalProvider(LocalIsDarkTheme provides dark, LocalOverscrollFactory provides null) {
+    // The platform scroll effect is deliberately left in place: on Android 12+ a list stretches
+    // under a fling at its edge, and that stretch is the app's most frequently felt motion. A
+    // surface that must not move with it opts out where it is scrolled, instead of every scroll
+    // in the app being switched off at once.
+    CompositionLocalProvider(LocalIsDarkTheme provides dark) {
         MaterialTheme(colorScheme = colors, content = content)
     }
 }

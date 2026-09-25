@@ -202,8 +202,8 @@ fun BrowserScreen(
         // address/toolbar height there makes Chromium exit HTML fullscreen.
         AnimatedVisibility(
             visible = chromeShown,
-            enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Top),
-            exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Top),
+            enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Top),
+            exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Top),
         ) {
         Column(
             modifier = Modifier
@@ -222,8 +222,8 @@ fun BrowserScreen(
         ) {
             AnimatedVisibility(
                 visible = isIncognito,
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter),
-                exit = fadeOut(animationSpec = BrowserMotion.localExit),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
             ) {
                 Row(
                     modifier = Modifier
@@ -248,8 +248,8 @@ fun BrowserScreen(
 
             AnimatedVisibility(
                 visible = !state.isToolbarHidden || showHomeDashboard || chromeForced,
-                enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Top),
-                exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Top),
+                enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Top),
+                exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Top),
             ) {
                 if (!bottomAddressBar) addressBar()
             }
@@ -258,8 +258,8 @@ fun BrowserScreen(
             // under the omnibar reads as a stalled page.
             AnimatedVisibility(
                 visible = showProgress && state.isProgressVisible,
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter),
-                exit = fadeOut(animationSpec = BrowserMotion.localExit),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
             ) {
                 if (state.progress <= 0) LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth().height(3.dp),
@@ -330,10 +330,10 @@ fun BrowserScreen(
                     .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .padding(16.dp),
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
-                    scaleIn(animationSpec = BrowserMotion.localEnter, initialScale = 0.8f),
-                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
-                    scaleOut(animationSpec = BrowserMotion.localExit, targetScale = 0.85f),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                    scaleIn(animationSpec = BrowserMotion.chromeSpatial(), initialScale = 0.8f),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                    scaleOut(animationSpec = BrowserMotion.chromeSpatial(), targetScale = 0.85f),
             ) {
                 FloatingActionButton(
                     onClick = onCast,
@@ -363,10 +363,10 @@ fun BrowserScreen(
                         ),
                     )
                     .padding(20.dp),
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
-                    scaleIn(animationSpec = BrowserMotion.localEnter, initialScale = 0.8f),
-                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
-                    scaleOut(animationSpec = BrowserMotion.localExit, targetScale = 0.85f),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                    scaleIn(animationSpec = BrowserMotion.chromeSpatial(), initialScale = 0.8f),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                    scaleOut(animationSpec = BrowserMotion.chromeSpatial(), targetScale = 0.85f),
             ) {
                 FloatingActionButton(
                     onClick = onRevealChrome,
@@ -440,24 +440,24 @@ fun BrowserScreen(
         // when it is up and on the navigation bar when it is not.
         AnimatedVisibility(
             visible = chromeShown,
-            enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Bottom),
-            exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
+            enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Bottom),
+            exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Bottom),
         ) {
         Column {
             // Both placements use one spec, each towards its own screen edge, so scrolling reads the
             // same whichever position the address bar is set to.
             if (bottomAddressBar) AnimatedVisibility(
                 visible = !state.isToolbarHidden || showHomeDashboard || chromeForced,
-                enter = expandVertically(animationSpec = BrowserMotion.chromeShow, expandFrom = Alignment.Bottom),
-                exit = shrinkVertically(animationSpec = BrowserMotion.chromeHide, shrinkTowards = Alignment.Bottom),
+                enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Bottom),
+                exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Bottom),
             ) { addressBar() }
             // Find bar appears above the toolbar
             AnimatedVisibility(
                 visible = state.isFindBarVisible,
-                enter = fadeIn(animationSpec = BrowserMotion.localEnter) +
-                    slideInVertically(animationSpec = BrowserMotion.overlayEnter) { it },
-                exit = fadeOut(animationSpec = BrowserMotion.localExit) +
-                    slideOutVertically(animationSpec = BrowserMotion.overlayExit) { it },
+                enter = fadeIn(animationSpec = BrowserMotion.chromeEffects()) +
+                    slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
+                exit = fadeOut(animationSpec = BrowserMotion.chromeEffects()) +
+                    slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
             ) {
                 FindBar(
                     query = state.findQuery,
@@ -539,8 +539,8 @@ fun BrowserScreen(
 private fun PageOverlay(
     visible: Boolean,
     modifier: Modifier = Modifier,
-    enter: EnterTransition = fadeIn(animationSpec = BrowserMotion.localEnter),
-    exit: ExitTransition = fadeOut(animationSpec = BrowserMotion.localExit),
+    enter: EnterTransition = fadeIn(animationSpec = BrowserMotion.chromeEffects()),
+    exit: ExitTransition = fadeOut(animationSpec = BrowserMotion.chromeEffects()),
     content: @Composable () -> Unit,
 ) {
     AnimatedVisibility(visible = visible, modifier = modifier, enter = enter, exit = exit) { content() }

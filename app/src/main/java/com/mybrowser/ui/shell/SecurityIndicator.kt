@@ -44,6 +44,10 @@ fun SecurityIndicator(
             .clickable(enabled = !isNativeHomepage, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
+        // Deliberately not animated. Every other glyph in the app replaces itself across a
+        // transition, but this one describes the page currently loaded: fading a lock out over an
+        // insecure page would show the previous page's security for as long as the fade lasted, and
+        // a security indicator must never be one frame behind what it is reporting.
         Icon(
             // about:blank is the backing document for Pure's native navigation home,
             // not a failed or dangerous network connection.
