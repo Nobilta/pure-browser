@@ -1,11 +1,20 @@
 ## 验证范围
 
-被测产物为本地构建的 0.13.3（versionCode 31）签名 Release，SHA-256 `a2a224665bac2361eef6169ce8508afd1614af7ac7cf23d144368df6ea2513a6`
+被测产物为本地构建的 0.13.4（versionCode 32）签名 Release，SHA-256 `8a3bb0f1945ac04ee88229b484f6e50ca7d783cd490de4887b623c35da8a2ee3`
 （与 `SHA256SUMS`、`outputs/release/package-info.json` 一致）。设备为 API 37 的 `google_apis`
 arm64-v8a 模拟器（数据重建、系统默认区域设置、font scale 1.0）；签名、zipalign、R8 与 ABI 校验在
 打包时通过。下面逐项给出的是实测数值。
 
-- 自动检查：Android/JVM **533 项**测试通过，其中 8 项是 `BrowserMotionTest`，断言的是动效**形状**：
+- 地址栏鬼畜的修复，用同一次慢速拖动做前后对比（同样是 14 次按住移动、每步 45px）：
+  修复前同一次拖动里 HIDE 与 REVEAL 各出现 3 次（约每秒一轮），修复后只有 **1 次 HIDE**，之后保持折叠；
+  真实向上滑动仍能唤回地址栏（实测累计 −75.8dp 越过 56.4dp 阈值，阈值取自实测的地址栏高度 147px）。
+  这条循环的机制由日志定量确认：折叠后 Chromium 会把页面自己顶回约 34dp、展开时顶前约 23dp，
+  走的是与手指相同的滚动回调，而原阈值 24dp 低于这次跳动。新增单元测试模拟这条循环：
+  折叠 → 页面被顶回 → 手指继续向下，4 轮都必须保持折叠，且真实向上滑动仍能展开。
+- 面板遮罩闪烁的修复（0.13.3 已做，本轮复测）：设备上打开面板后 dump 全部窗口，整份 dump 里不再出现
+  `DIM_BEHIND`；页面顶部条带亮度由 234.8 降到 159.6，比值 0.68 = 1 − 0.32，正是设计的遮罩强度；
+  面板内容列边界仍为 `[0, 210, 1080, 2337]`，逐像素未变。
+- 自动检查：Android/JVM **534 项**测试通过，其中 8 项是 `BrowserMotionTest`，断言的是动效**形状**：
   到达曲线在时长头 10% 内走完 55%~75%（前置），退出曲线中点低于 25%（规范的 accelerate 本身偏后），
   两条曲线都单调、都精确落在端点上，曲线与时长逐项等于 Material 3 的令牌值，每条退出都短于它对应的进入，
   遮罩均匀过渡、且时长与其表面完全一致（时长直接取自表面的 spec，因此不可能走散）。
@@ -18,11 +27,17 @@ arm64-v8a 模拟器（数据重建、系统默认区域设置、font scale 1.0�
      正好是设计中的 `SCRIM_ALPHA`，说明现在只有应用自己这一层遮罩在起作用、强度正确。
   3. 面板位置逐像素不变：内容列边界仍为 `[0, 210, 1080, 2337]`（与改动画曲线之前完全相同），
      说明换对话框主题没有动到布局与 inset。
-- 模拟器回归：本版改动涉及的 12 个阶段在设备上重跑，11 个通过，每个阶段的 `apkSha256` 都与上面的
-  交付包一致（`api37-motion-suite.json`）：`omnibar`、`motion-gesture`、`motion-interruption`、
-  `menu-navigation`、`security`、`download`、`developer-tools`、`browser`、`features-dialogs`、
-  `settings-back`、`settings` 通过；`home-shortcut` 失败，见下。所有与面板、遮罩、inset 相关的阶段
-  都通过，说明"换对话框主题 + 遮罩独立一条时长相同的进度"没有影响各页面的进入/退出/换页与布局。
+- 模拟器回归：本版改动涉及的 12 个阶段在设备上**全部通过**，每个阶段的 `apkSha256` 都与上面的
+  交付包一致（`api37-motion-suite.json`，冷启动模拟器、`input` 往返 20ms）：`omnibar`、`menu-navigation`、
+  `settings-back`、`browser`、`settings`、`home-shortcut`、`developer-tools`、`download`、
+  `features-dialogs`、`security`、`motion-gesture`、`motion-interruption`。
+  与滚动、折叠、面板、遮罩、inset 相关的阶段都在其中，说明这两处修复没有影响各页面行为与布局。
+- 过程中的一次黄：`developer-tools` 在同一交付包上先失败一次（旋转到横屏并唤起输入法后找不到 Run 按钮），
+  随后单独重跑与整轮重跑都通过。该阶段的旋转断言取的是无障碍树第一个节点的边界（状态栏窗口 1080×136，
+  永远宽大于高），因此它无法证明旋转是否已经生效，会在重排尚未完成时就去点 Run；
+  这是该阶段的弱点，不是本版改动引起（本版未触及开发工具面板与对话框 inset）。
+- 环境退化：模拟器连续跑自动化数小时后，adb 注入输入的单次往返会从 20ms 涨到 1.4s，此时所有按墙钟计时的
+  断言都会失败。本轮遇到后冷启动模拟器恢复，未把降级状态下的结果计入。
 - 动效定向检查（`motion-gesture`）：按住菜单面板标题栏移动 160px 时面板跟随；160px 短拖释放后回弹；
   拉过自身高度 45% 后 dismiss；拉到阈值以下释放则回弹。两条判定路径各自隔离，互不代偿。
 - 动效定向检查（`motion-interruption`）：入场进行到 80ms 时反向退出，3 次都收尾为关闭；

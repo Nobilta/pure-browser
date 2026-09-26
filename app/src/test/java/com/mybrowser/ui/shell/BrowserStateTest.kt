@@ -98,6 +98,36 @@ class BrowserStateTest {
     }
 
     @Test
+    fun thePagesShiftFromCollapsingCannotUndoTheCollapse() {
+        // Measured on device: collapsing the chrome changes the WebView's height, and Chromium
+        // compensates a moment later by shifting the page back about 34 dp — through the same
+        // scroll listener the finger comes through. With a reveal threshold under that shift the
+        // collapse undoes itself: hiding shifts the page back past the threshold, the chrome
+        // returns, the shift reverses, the user's continuing drag hides it again, once a second
+        // for as long as the finger keeps moving. This is that loop.
+        val state = loadedState()
+        state.onCollapsibleChromeHeightChanged(heightPx = 147, density = 2.625f) // a 56 dp bar
+        var y = 400
+        state.onPageScroll(y, 0, 2.625f) // drag down far enough to collapse it
+        assertTrue(state.isToolbarHidden)
+        repeat(4) { cycle ->
+            // The page shifts back because the chrome collapsed under it.
+            state.onPageScroll(y - 90, y, 2.625f)
+            assertTrue(
+                "cycle $cycle: a shift the collapse itself caused must not reveal the chrome",
+                state.isToolbarHidden,
+            )
+            // The finger keeps moving down, which is what closes the loop on device.
+            y += 120
+            state.onPageScroll(y, y - 120 - 90, 2.625f)
+            assertTrue("cycle $cycle: and the drag must not re-open it either", state.isToolbarHidden)
+        }
+        // A real upward scroll still brings it back, and does not need to be a large one.
+        state.onPageScroll(y - 220, y, 2.625f)
+        assertFalse("scrolling up for real still reveals the chrome", state.isToolbarHidden)
+    }
+
+    @Test
     fun editingFindingAndLoadingKeepToolbarVisible() {
         val state = loadedState()
         state.onPageScroll(200, 0, 1f)

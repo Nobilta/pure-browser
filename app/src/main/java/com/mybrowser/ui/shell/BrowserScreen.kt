@@ -56,6 +56,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mybrowser.R
@@ -165,6 +167,10 @@ fun BrowserScreen(
         finishEditing()
     }
 
+    // Read once here: both placements report the address bar's own height to the state, which uses
+    // it to tell the page's compensation for the collapse apart from the user scrolling back up.
+    val screenDensity = LocalDensity.current.density
+
     val addressBar: @Composable () -> Unit = {
                 Omnibar(
                     value = state.omnibarValue,
@@ -251,7 +257,16 @@ fun BrowserScreen(
                 enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Top),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Top),
             ) {
-                if (!bottomAddressBar) addressBar()
+                // Report the bar's own height while it still has one: collapsing it changes the
+                // page's viewport, and the state needs that size to tell the page's compensating
+                // shift apart from the user scrolling back up.
+                Box(Modifier.onSizeChanged { size ->
+                    if (size.height > 0) {
+                        state.onCollapsibleChromeHeightChanged(size.height, screenDensity)
+                    }
+                }) {
+                    if (!bottomAddressBar) addressBar()
+                }
             }
 
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting
@@ -450,7 +465,13 @@ fun BrowserScreen(
                 visible = !state.isToolbarHidden || showHomeDashboard || chromeForced,
                 enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Bottom),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Bottom),
-            ) { addressBar() }
+            ) {
+                Box(Modifier.onSizeChanged { size ->
+                    if (size.height > 0) {
+                        state.onCollapsibleChromeHeightChanged(size.height, screenDensity)
+                    }
+                }) { addressBar() }
+            }
             // Find bar appears above the toolbar
             AnimatedVisibility(
                 visible = state.isFindBarVisible,
