@@ -125,6 +125,7 @@ internal fun BrowserSheetHost(
             // then snaps the remainder, so the travel starts from the measured surface instead.
             measured = false
             snapshotFlow { measured }.first { it }
+            launch { progress.scrim.animateTo(1f, progress.arriveScrimSpec()) }
             progress.visibility.animateTo(
                 1f,
                 if (carried == null) progress.arriveSpec() else BrowserMotion.resume(),
@@ -132,6 +133,12 @@ internal fun BrowserSheetHost(
             )
         } else if (leaving.value != null) {
             closing = true
+            // The dim leaves with the surface: an interrupted movement keeps the spring, and a
+            // dim on a curve would then outlive or under-run it, so it follows the same spring.
+            launch {
+                if (carried == null) progress.scrim.animateTo(0f, progress.departScrimSpec())
+                else progress.scrim.animateTo(0f, BrowserMotion.resume())
+            }
             progress.visibility.animateTo(
                 0f,
                 if (carried == null) progress.departSpec() else BrowserMotion.resume(),
