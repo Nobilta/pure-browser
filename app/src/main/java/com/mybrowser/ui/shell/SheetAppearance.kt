@@ -29,6 +29,18 @@ internal fun ApplySheetSystemBars(fullscreen: Boolean = false) {
         // overlays that leave by being unmounted, such as a picker opened by a page. Keeping it
         // means no window disappears without a transition while those entries are converted.
         window?.setWindowAnimations(R.style.BrowserSheetAnimation)
+        // Take the platform's own dim away before anything else, and in this frame rather than the
+        // next one. Compose picks a dialog theme carrying `backgroundDimEnabled` for an
+        // edge-to-edge dialog, so the window arrives dimming the page at the platform's amount and
+        // the app's own scrim then fades in on top — one dark frame, then a light one, then a slow
+        // fade is exactly the flicker a user sees on the tallest sheets. The app draws the dim
+        // itself, so the platform must not draw one at all. Material 3's own edge-to-edge dialog
+        // theme leaves it off for the same reason.
+        if (window != null) {
+            window.clearFlags(LayoutParams.FLAG_DIM_BEHIND)
+            window.setDimAmount(0f)
+            window.attributes = window.attributes.apply { dimAmount = 0f }
+        }
         // The pinned Material3 version configures its dialog window after composition.
         // Apply the app preference after that update instead of following the OS theme.
         val apply = Runnable {

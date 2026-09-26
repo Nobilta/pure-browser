@@ -133,6 +133,37 @@ class BrowserMotionTest {
     }
 
     @Test
+    fun theDimRampsEvenlyOverTheSurfaceSDuration() {
+        // Two properties, both of them about not flickering. It must not share the surface's curve,
+        // because a front-loaded dim reaches most of its strength in the first frame or two and
+        // reads as a flash; and it must take exactly as long as the surface, or it arrives before
+        // the thing it is dimming for (or lingers after it has gone).
+        val surfaces = listOf(
+            BrowserMotion.panelArrive<Float>(), BrowserMotion.panelDepart<Float>(),
+            BrowserMotion.windowArrive<Float>(), BrowserMotion.windowDepart<Float>(),
+        )
+        for (surface in surfaces) {
+            val scrim = BrowserMotion.scrimFor(surface)
+            val surfaceMs = (surface as TweenSpec<Float>).durationMillis
+            assertEquals("the dim must run as long as the surface", surfaceMs, (scrim as TweenSpec<Float>).durationMillis)
+            for (point in listOf(.1f, .25f, .5f, .75f)) {
+                assertEquals(
+                    "the dim must ramp evenly, not follow the surface's curve",
+                    point, sample(scrim, point), 1e-3f,
+                )
+            }
+        }
+        // Only meaningful against the arrivals: an exit's accelerate curve is *more* back-loaded
+        // than a straight line, so the dim is legitimately ahead of it early on.
+        for (arrive in listOf(BrowserMotion.panelArrive<Float>(), BrowserMotion.windowArrive<Float>())) {
+            assertTrue(
+                "the dim must not jump the way an arriving surface does",
+                sample(BrowserMotion.scrimFor(arrive), .1f) < sample(arrive, .1f),
+            )
+        }
+    }
+
+    @Test
     fun motionAFingerDrivesCanContinueFromASpeed() {
         // The other half of the system: these are springs, because a tween started mid-flight
         // restarts its easing from zero and stops the surface dead.

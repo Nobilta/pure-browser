@@ -2,6 +2,8 @@ package com.mybrowser.ui.shell
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -120,6 +122,18 @@ internal object BrowserMotion {
     /** A header inset that settles with a page change instead of jumping. */
     fun <T> headerShift(): FiniteAnimationSpec<T> = tween(SHORT_4, easing = Standard)
 
+    /**
+     * The dim behind a surface, over exactly the surface's own duration — read off its spec rather
+     * than written out again, so the two can never drift apart in time.
+     *
+     * Linear, and deliberately not the surface's curve. An arriving surface is front-loaded, which
+     * is what makes it feel immediate; a dim on that same curve reaches two thirds of its strength
+     * within the first frame or two, and a dim that snaps on reads as a flash. A scrim is not
+     * something the eye should be drawn to, so it ramps evenly and arrives with the surface.
+     */
+    fun scrimFor(surface: FiniteAnimationSpec<Float>): FiniteAnimationSpec<Float> =
+        tween((surface as? TweenSpec<Float>)?.durationMillis ?: MEDIUM_1, easing = LinearEasing)
+
     // ---- Motion a finger or a scroll drives -----------------------------------------------
 
     /**
@@ -191,11 +205,14 @@ internal data class SheetShape(val fullscreen: Boolean, val height: Int, val col
  * [visibility] belongs to the window, so an entrance and its exit are one motion and a reversal
  * continues from where it is. [content] belongs to this route instead: it stays settled for the
  * first page of a window (the window carries that entrance) and animates when this page replaced
- * another one inside the same window. The dim behind the surface is not a third progress — it
- * tracks [visibility], because a dim on its own clock arrives before the surface it is dimming for.
+ * another one inside the same window. [scrim] and [visibility] run over one duration but not one
+ * curve: a dim that shared the surface's front-loaded curve would snap on, and a dim on a shorter
+ * clock would arrive before the surface it is dimming for.
  */
 internal class SheetMotion(
     val visibility: State<Float>,
+    /** The dim behind the surface. */
+    val scrim: State<Float>,
     /** Position of this route's content inside the window. */
     val content: State<Float>,
     /** Opacity of this route's content. Its own clock: alpha and travel are different jobs. */
