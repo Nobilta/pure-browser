@@ -60,6 +60,29 @@ class BrowserState {
         private set
     private var scrollDistance = 0f
 
+    /**
+     * How far the page has to be scrolled back up before the chrome returns.
+     *
+     * This is a correctness bound, not a gesture preference. Collapsing the chrome changes the
+     * WebView's height, and Chromium compensates by shifting the page's scroll offset — a shift the
+     * app then reads back through the same scroll listener as if the user had produced it. Measured
+     * on device with a held drag: collapsing moved the page back by about 34 dp and expanding moved
+     * it forward by about 23 dp, arriving a moment after each change rather than in the same frame.
+     *
+     * With a reveal threshold below that shift, a collapse undoes itself: the chrome hides, the page
+     * jumps back past the threshold, the chrome comes back, the page jumps forward, the user's
+     * continuing drag hides it again — a loop that repeats about once a second for as long as the
+     * finger keeps moving. So the threshold has to exceed the largest shift the chrome's own height
+     * change can cause. That shift is bounded by the height that collapsed, which is why the screen
+     * reports it, and the floor keeps a layout that reports nothing from leaving it at zero.
+     */
+    private var revealScrollDp = MIN_REVEAL_SCROLL_DP
+
+    /** [heightPx] is the collapsed chrome's own height, measured while it was still laid out. */
+    fun onCollapsibleChromeHeightChanged(heightPx: Int, density: Float) {
+        revealScrollDp = (heightPx / density.coerceAtLeast(1f)).coerceAtLeast(MIN_REVEAL_SCROLL_DP)
+    }
+
     // --- Immersive browser fullscreen ---
 
     /** Mirror of the fullscreen preference combined with "no video fullscreen", set by the screen. */
@@ -108,10 +131,10 @@ class BrowserState {
         if (delta == 0f) return
         if (delta * scrollDistance < 0) scrollDistance = 0f
         scrollDistance += delta
-        if (scrollDistance >= 48f) {
+        if (scrollDistance >= HIDE_SCROLL_DP) {
             isToolbarHidden = true
             scrollDistance = 0f
-        } else if (scrollDistance <= -24f) {
+        } else if (scrollDistance <= -revealScrollDp) {
             revealToolbar()
         }
     }
@@ -293,5 +316,11 @@ class BrowserState {
 
     private companion object {
         const val ABOUT_BLANK = "about:blank"
+
+        /** Downward travel that collapses the chrome; comfortably above the ~23 dp a reveal shifts. */
+        const val HIDE_SCROLL_DP = 48f
+
+        /** Reveal distance before a height has been reported, for a chrome that takes no room. */
+        const val MIN_REVEAL_SCROLL_DP = 24f
     }
 }
