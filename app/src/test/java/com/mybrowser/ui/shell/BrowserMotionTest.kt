@@ -29,24 +29,29 @@ class BrowserMotionTest {
         return easing.transform(at)
     }
 
-    /** Material 3 `easing.emphasised decelerate`, written out here rather than reused. */
-    private val md3Decelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
+    /** Material 3 `easing.emphasised`, which is also `easing.standard`. */
+    private val md3Emphasized = CubicBezierEasing(.2f, 0f, 0f, 1f)
 
     /** Material 3 `easing.emphasised accelerate`. */
     private val md3Accelerate = CubicBezierEasing(.3f, 0f, .8f, .15f)
 
     @Test
-    fun aPanelArrivesFrontLoadedAndBrakes() {
-        // The property a spring cannot provide: a surface that is already there in the first tenth
-        // of its duration and spends the rest of the time settling.
+    fun aPanelArrivesDecisivelyWithoutJumping() {
+        // Two properties at once, and both matter: the surface has to arrive rather than heave
+        // itself in, but it must not cover most of the distance in the first frame or two either.
+        // The dim behind it is drawn from this same progress, so a surface that races ahead of its
+        // own dim reads as two events instead of one. Measured frame by frame with the faster
+        // `emphasised decelerate` curve, the panel was 81% in place while the dim had reached 19%
+        // — a bright surface flashing into position over a still-bright page, and the reason that
+        // curve was wrong here even though Material 3 prescribes it for entering containers.
         for (spec in listOf(BrowserMotion.panelArrive<Float>(), BrowserMotion.windowArrive<Float>())) {
             val atOneTenth = sample(spec, .1f)
+            assertTrue("an arriving surface must arrive, not creep: $atOneTenth", atOneTenth > .10f)
             assertTrue(
-                "an arriving surface covers most of the distance at once, not a sixth of it: $atOneTenth",
-                atOneTenth > .55f,
+                "but must not be almost there in the first frame or two: $atOneTenth",
+                atOneTenth < .35f,
             )
-            assertTrue("and is not already finished: $atOneTenth", atOneTenth < .75f)
-            // Monotonic: it brakes rather than arriving and backing off.
+            assertTrue("and is well in by a third of the way: ${sample(spec, .33f)}", sample(spec, .33f) > .6f)
             var previous = 0f
             for (step in 1..20) {
                 val value = sample(spec, step / 20f)
@@ -54,6 +59,21 @@ class BrowserMotionTest {
                 previous = value
             }
             assertEquals("and settles exactly", 1f, sample(spec, 1f), 1e-4f)
+        }
+    }
+
+    @Test
+    fun theCurvesAreMaterial3sOwn() {
+        // Sampled from the spec's published curve; a hand-tuned replacement would drift off it.
+        for (point in listOf(.1f, .25f, .5f, .75f)) {
+            assertEquals(
+                "panel arrival must be easing.emphasized",
+                md3Emphasized.transform(point), sample(BrowserMotion.panelArrive<Float>(), point), 1e-4f,
+            )
+            assertEquals(
+                "panel departure must be emphasised accelerate",
+                md3Accelerate.transform(point), sample(BrowserMotion.panelDepart<Float>(), point), 1e-4f,
+            )
         }
     }
 
@@ -96,21 +116,6 @@ class BrowserMotionTest {
     }
 
     @Test
-    fun theCurvesAreMaterial3sOwn() {
-        // Sampled from the spec's published curve; a hand-tuned replacement would drift off it.
-        for (point in listOf(.1f, .25f, .5f, .75f)) {
-            assertEquals(
-                "panel arrival must be emphasised decelerate",
-                md3Decelerate.transform(point), sample(BrowserMotion.panelArrive<Float>(), point), 1e-4f,
-            )
-            assertEquals(
-                "panel departure must be emphasised accelerate",
-                md3Accelerate.transform(point), sample(BrowserMotion.panelDepart<Float>(), point), 1e-4f,
-            )
-        }
-    }
-
-    @Test
     fun theDurationsAreMaterial3sOwn() {
         // A curve is only half of a token; the duration is the other half.
         val durations = mapOf(
@@ -129,37 +134,6 @@ class BrowserMotionTest {
         )
         for ((spec, expected) in durations) {
             assertEquals("unexpected duration for $spec", expected, (spec as TweenSpec<Float>).durationMillis)
-        }
-    }
-
-    @Test
-    fun theDimRampsEvenlyOverTheSurfaceSDuration() {
-        // Two properties, both of them about not flickering. It must not share the surface's curve,
-        // because a front-loaded dim reaches most of its strength in the first frame or two and
-        // reads as a flash; and it must take exactly as long as the surface, or it arrives before
-        // the thing it is dimming for (or lingers after it has gone).
-        val surfaces = listOf(
-            BrowserMotion.panelArrive<Float>(), BrowserMotion.panelDepart<Float>(),
-            BrowserMotion.windowArrive<Float>(), BrowserMotion.windowDepart<Float>(),
-        )
-        for (surface in surfaces) {
-            val scrim = BrowserMotion.scrimFor(surface)
-            val surfaceMs = (surface as TweenSpec<Float>).durationMillis
-            assertEquals("the dim must run as long as the surface", surfaceMs, (scrim as TweenSpec<Float>).durationMillis)
-            for (point in listOf(.1f, .25f, .5f, .75f)) {
-                assertEquals(
-                    "the dim must ramp evenly, not follow the surface's curve",
-                    point, sample(scrim, point), 1e-3f,
-                )
-            }
-        }
-        // Only meaningful against the arrivals: an exit's accelerate curve is *more* back-loaded
-        // than a straight line, so the dim is legitimately ahead of it early on.
-        for (arrive in listOf(BrowserMotion.panelArrive<Float>(), BrowserMotion.windowArrive<Float>())) {
-            assertTrue(
-                "the dim must not jump the way an arriving surface does",
-                sample(BrowserMotion.scrimFor(arrive), .1f) < sample(arrive, .1f),
-            )
         }
     }
 

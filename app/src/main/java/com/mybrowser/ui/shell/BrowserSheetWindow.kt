@@ -105,12 +105,6 @@ internal class SheetWindowProgress(initial: Float = 0f) {
     val visibility = Animatable(initial)
 
     /**
-     * The dim behind the surface. Its own progress, because it must not follow the surface's curve
-     * (see `BrowserMotion.scrimFor`), but the same duration, so the two still arrive together.
-     */
-    val scrim = Animatable(initial)
-
-    /**
      * Whether the mounted container covers the window. A bottom sheet and a full-window page
      * travel on different tokens, and the host has to choose before the window animation starts;
      * the container publishes this as it mounts, which is always earlier, because the window
@@ -189,7 +183,6 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
         var measured by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             snapshotFlow { measured }.first { it }
-            launch { progress.scrim.animateTo(1f, progress.arriveScrimSpec()) }
             progress.visibility.animateTo(1f, progress.arriveSpec())
         }
         BrowserSheetWindow(progress, onDismissRequest, onMeasured = { measured = true }) {
@@ -228,13 +221,6 @@ internal fun SheetWindowProgress.arriveSpec(): FiniteAnimationSpec<Float> =
 
 internal fun SheetWindowProgress.departSpec(): FiniteAnimationSpec<Float> =
     if (fullscreen) BrowserMotion.windowDepart() else BrowserMotion.panelDepart()
-
-/** The dim's own curve, over the same duration as the movement it accompanies. */
-internal fun SheetWindowProgress.arriveScrimSpec(): FiniteAnimationSpec<Float> =
-    BrowserMotion.scrimFor(arriveSpec())
-
-internal fun SheetWindowProgress.departScrimSpec(): FiniteAnimationSpec<Float> =
-    BrowserMotion.scrimFor(departSpec())
 
 /**
  * Runs this page's own transition and republishes the surface a later route may replace.
@@ -283,7 +269,6 @@ private fun sheetMotion(fullscreen: Boolean, color: Color, height: Int): SheetMo
     }
     return SheetMotion(
         visibility = progress.visibility.asState(),
-        scrim = progress.scrim.asState(),
         content = content.asState(),
         contentFade = contentFade.asState(),
         direction = if (presentation.depth > 1) 1f else -1f,
@@ -347,7 +332,6 @@ private fun sheetDrag(
                         val share = (offset.floatValue / limit).coerceIn(0f, 1f)
                         scope.launch {
                             progress.visibility.snapTo(1f - share)
-                            progress.scrim.snapTo(1f - share)
                             progress.handOff(velocity / limit)
                             offset.floatValue = 0f
                             onDismiss()
@@ -435,7 +419,7 @@ internal fun BrowserBottomSheet(
             // a draw lambda instead re-records the full-window dim on every frame of the animation,
             // which is real work on the two tallest sheets in the app.
             Box(Modifier.matchParentSize()
-                .graphicsLayer { alpha = motion.scrim.value.coerceIn(0f, 1f) }
+                .graphicsLayer { alpha = motion.visibility.value.coerceIn(0f, 1f) }
                 .background(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA))
                 .pointerInput(onDismissRequest) { detectTapGestures { onDismissRequest() } }
                 .semantics {
@@ -496,7 +480,7 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
             // Hidden behind the opaque page at rest; it dims the page while a full-screen page
             // enters or leaves, from the surface's own progress so the two stay together.
             Box(Modifier.matchParentSize()
-                .graphicsLayer { alpha = motion.scrim.value.coerceIn(0f, 1f) }
+                .graphicsLayer { alpha = motion.visibility.value.coerceIn(0f, 1f) }
                 .background(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA)))
             motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - motion.content.value, shape) }
             Surface(Modifier.fillMaxSize().graphicsLayer {
