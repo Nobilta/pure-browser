@@ -11,7 +11,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 /** The route stack owns navigation; a presentation owns callbacks from one mounted sheet. */
@@ -103,7 +105,14 @@ internal fun BrowserSheetHost(
     // The page that is leaving: kept composed until the exit finishes, then dropped.
     val leaving = remember { mutableStateOf<BrowserSheetNavigation.Presentation?>(null) }
     if (current != null) leaving.value = current
-    var closing by remember { mutableStateOf(false) }
+    // Whether the last exit has finished, rather than whether one is in progress. The difference is
+    // load-bearing: a "closing" flag only becomes true when the effect runs, which is the frame
+    // *after* the one that cleared the route — so for that frame there is no page to show, and the
+    // window is torn down and immediately rebuilt to run the exit. The rebuilt window draws with
+    // the shared progress still near one, which is the sheet blinking back after it has closed: its
+    // dim was measured at 0.94 on the last frame before the window went away. This starts true
+    // (nothing to show yet) and is cleared when a route opens, so it never depends on a later write.
+    var exitFinished by remember { mutableStateOf(true) }
     var measured by remember { mutableStateOf(false) }
     val progress = remember { SheetWindowProgress() }
     LaunchedEffect(current) {
@@ -119,7 +128,7 @@ internal fun BrowserSheetHost(
         val interrupted = progress.visibility.value > 0f && progress.visibility.value < 1f
         val carried = progress.takeCarried() ?: if (interrupted) progress.visibility.velocity else null
         if (current != null) {
-            closing = false
+            exitFinished = false
             // The dialog window is created on this frame and its surface is measured a frame or two
             // later. Animating straight away spends most of the entrance on an invisible panel and
             // then snaps the remainder, so the travel starts from the measured surface instead.
@@ -131,17 +140,24 @@ internal fun BrowserSheetHost(
                 initialVelocity = carried ?: 0f,
             )
         } else if (leaving.value != null) {
-            closing = true
-            progress.visibility.animateTo(
-                0f,
-                if (carried == null) progress.departSpec() else BrowserMotion.resume(),
-                initialVelocity = carried ?: 0f,
-            )
-            closing = false
-            leaving.value = null
+            try {
+                progress.visibility.animateTo(
+                    0f,
+                    if (carried == null) progress.departSpec() else BrowserMotion.resume(),
+                    initialVelocity = carried ?: 0f,
+                )
+            } finally {
+                // The page is gone either way, so the position has to end at zero even when this
+                // coroutine is cancelled part-way — which is what happens whenever the host is
+                // recomposed out from under it. Left mid-flight, that value is still what the page
+                // draws with, so a last frame would show a nearly-open sheet.
+                withContext(NonCancellable) { progress.visibility.snapTo(0f) }
+                exitFinished = true
+                leaving.value = null
+            }
         }
     }
-    val shown = current ?: leaving.value?.takeIf { closing }
+    val shown = current ?: leaving.value?.takeIf { !exitFinished }
 
     // Saved state is released only once nothing is displaying that route any more.
     val knownKeys = remember { mutableSetOf<Long>() }
