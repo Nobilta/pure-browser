@@ -70,6 +70,11 @@ internal fun ApplySheetSystemBars(fullscreen: Boolean = false) {
             controller?.isAppearanceLightStatusBars = light
             controller?.isAppearanceLightNavigationBars = light
         }
+        // Applied now as well as posted: everything here is idempotent, and a window laid out for
+        // even one frame with the theme's insets fitting is a frame the panel can visibly jump in.
+        // The posted pass stays because the library configures the window after composition and
+        // the app's preference has to be the one that wins.
+        apply.run()
         view.post(apply)
         onDispose {
             view.removeCallbacks(apply)
