@@ -20,15 +20,18 @@ import androidx.compose.ui.unit.dp
  * wrong one for either is what makes motion feel wrong rather than merely fast or slow.
  *
  * **A transition the user asked for** — a sheet opening, a page pushing in, a dialog appearing —
- * has a beginning, an end, and a shape. Material 3 gives that shape as an easing curve, and the
- * shape matters: `emphasised decelerate` covers 62% of the distance in the first tenth of its
- * duration. It is *front-loaded*, so the surface is already there and then brakes. A spring
- * released from rest cannot do that. Its response is second-order, so it swells in and only reaches
- * 90% of the distance about two thirds of the way through — measurably back-loaded, and the reason
- * a tall sheet can feel like it heaves itself into place instead of arriving. Fitting a spring to
- * Material 3's decelerate curve as closely as a second-order system allows still leaves it 21% of
- * the travel behind one tenth of the way in, so [panelArrive] and its siblings are the spec's own
- * curve and duration tokens rather than an approximation of them.
+ * has a beginning, an end, and a shape. Material 3 gives that shape as an easing curve, so these
+ * are the spec's own curve and duration tokens. A spring is the wrong tool: its response is
+ * second-order, so it swells in and only reaches 90% of the distance about two thirds of the way
+ * through, which is the back-loaded shape that makes a tall sheet feel like it heaves itself into
+ * place instead of arriving. Fitting a spring to the spec's curve as closely as a second-order
+ * system allows still leaves it 21% of the travel behind one tenth of the way in.
+ *
+ * Which curve, though, depends on what the surface carries. Material 3 prescribes
+ * `emphasised decelerate` for a container's enter transition, and it covers 62% of the distance in
+ * the first tenth of its duration — right for content replacing content, too abrupt for a surface
+ * with a dim behind it, which is why [panelArrive] uses the gentler `easing.emphasized` and says
+ * what was measured to decide that.
  *
  * **Motion a finger or a scroll drives** — bars collapsing under a scroll, a row gliding to a new
  * place, a sheet settling after a drag — has no shape to preserve, because the input wrote it. What
@@ -38,6 +41,10 @@ import androidx.compose.ui.unit.dp
  *
  * [resume] is the bridge between the two: a transition interrupted mid-flight, or handed over by a
  * gesture, finishes on a spring so it never restarts, and everything else runs on the curve.
+ *
+ * When one slot swaps its content, the newcomer fades in over the slower token while the old content
+ * leaves on the faster one — [contentCross] against [chromeFade] — so the slot is never briefly
+ * empty in between. Reading those pairs as an inconsistency is the easy mistake; they are one rule.
  *
  * The curve and duration values are Material 3's own tokens, taken from the same constants the
  * library resolves internally (`MotionTokens`), so a browser surface and the Material component
@@ -96,13 +103,10 @@ internal object BrowserMotion {
     /** A page pushing or popping inside one window; the direction only flips the travel. */
     fun <T> pageArrive(): FiniteAnimationSpec<T> = tween(MEDIUM_1, easing = StandardDecelerate)
 
-    fun <T> pageDepart(): FiniteAnimationSpec<T> = tween(SHORT_4, easing = EmphasizedAccelerate)
-
     /**
      * A surface that takes the whole window: settings, bookmarks, the QR scanner. Further to travel
-     * than a panel, so Material 3 gives it a longer duration — and a front-loaded curve carries that
-     * easily, because most of the distance is covered in the first tenth either way and the extra
-     * time only lengthens the settle.
+     * than a panel, so Material 3 gives it a longer duration; the extra time goes into the settle
+     * rather than a slower start.
      */
     fun <T> windowArrive(): FiniteAnimationSpec<T> = tween(LONG_2, easing = Standard)
 
@@ -124,9 +128,6 @@ internal object BrowserMotion {
 
     /** Small chrome fades that are not the main event: a badge, a load bar. */
     fun <T> chromeFade(): FiniteAnimationSpec<T> = tween(SHORT_3, easing = Standard)
-
-    /** A header inset that settles with a page change instead of jumping. */
-    fun <T> headerShift(): FiniteAnimationSpec<T> = tween(SHORT_4, easing = Standard)
 
     // ---- Motion a finger or a scroll drives -----------------------------------------------
 
