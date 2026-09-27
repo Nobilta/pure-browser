@@ -189,7 +189,6 @@
     <string name="ui_retry">Retry</string>
     <string name="ui_delete_download">Delete download</string>
     <string name="ui_also_delete_local_files">Also delete local files</string>
-    <string name="ui_when_off_only_records_are_removed_from_pure">When off, only records are removed from Pure Browser</string>
     <string name="ui_delete_records_and_files">Delete records and files</string>
     <string name="ui_delete_records_only">Delete records only</string>
     <string name="ui_shortcuts_homepage">Shortcuts homepage</string>

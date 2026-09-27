@@ -1,6 +1,6 @@
 ## 验证范围
 
-被测产物为本地构建的 0.13.6（versionCode 34）签名 Release，SHA-256 `356842b72aa2205829cbd022e36122f5572dcd1a4c2599f455f7c9f511631377`
+被测产物为本地构建的 0.13.6（versionCode 34）签名 Release，SHA-256 `1808e20a72bc082cb02c168916040d070cddc8d896ef833b000265f965adfbc9`
 （与 `SHA256SUMS`、`outputs/release/package-info.json` 一致）。设备为 API 37 的 `google_apis`
 arm64-v8a 模拟器（冷启动、数据重建、系统默认区域设置、font scale 1.0）；签名、zipalign、R8 与 ABI 校验在
 打包时通过。
@@ -34,6 +34,14 @@ arm64-v8a 模拟器（冷启动、数据重建、系统默认区域设置、font
   并把地址栏高度上报的两份重复实现合并为一个 Modifier 扩展。lint 在清理中发现了一个真实缺陷：
   新写的扩展返回 `Modifier.onSizeChanged` 而丢弃了接收者，`Modifier.padding(x).reportsCollapsibleHeight(...)`
   会静默丢掉 padding；改为在接收者上追加后 lint 0 error。改动后重新构建，12 个阶段全部通过。
+- 最后一处改动是删掉下载删除对话框里勾选项下的一行小字（「关闭后只从 Pure 浏览器中移除记录」），
+  因为确认按钮本身已经会随勾选状态变成「删除记录和文件」/「仅删除记录」，那行是把同一件事说了两遍；
+  同时删掉了三种语言里的这条字符串（本地化一致性检查 743 条通过）。这项**只改了文案**：
+  在设备上打开该对话框逐条读回文本，确认小字已不在、勾选项与两个按钮都在
+  （Clear finished records? / Completed and failed download records will be cleared. /
+  Also delete local files / Cancel / Delete records and files）；`download` 阶段通过；
+  lint 0 error；533 项单元测试通过。上一版（`356842b7`）记录的 12/12 仍然成立，
+  与本次交付包的差别只有这一行文案。
 - 未覆盖：真机（扫码预览方向、实体接收器投屏、真实账号登录）、升级数据保留的专项断言、
   非 arm64-v8a 以及低于 API 30 的设备。完整 46 阶段矩阵只跑了改动相关的 12 个阶段。
 - 本机局限：模拟器是软件 GPU，面板打开时每秒只渲染约 1–3 帧，动画本身的顺滑度在模拟器上无法判断；
