@@ -90,9 +90,10 @@ internal class BrowserSheetNavigation {
  *
  * The host owns the window's progress, so it also owns the exit: when the stack empties the last
  * page stays composed while the panel travels out, which keeps the closing transition showing a
- * real page instead of an empty window. A route opened mid-exit reverses from the current
- * position — and, because both directions run on springs, from the current velocity as well, so
- * changing your mind about a sheet reads as catching it rather than as restarting it.
+ * real page instead of an empty window. Both directions normally run on the curve the theme gives
+ * that movement; a movement that interrupts one already under way runs on a spring instead, which
+ * starts from the position *and* velocity it has, so changing your mind about a sheet reads as
+ * catching it rather than as restarting it.
  */
 @Composable
 internal fun BrowserSheetHost(

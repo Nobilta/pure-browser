@@ -102,10 +102,11 @@ class BrowserMotionTest {
     @Test
     fun everyExitIsShorterThanTheEntranceItMirrors() {
         // Material 3's rule, and the only thing that keeps a back-loaded exit from feeling slow.
+        // No page pair here: a page pushed inside a window has an arrival but no departure of its
+        // own, because the surface it replaced is faded out on the arrival's own progress.
         val pairs = listOf(
             BrowserMotion.panelArrive<Float>() to BrowserMotion.panelDepart<Float>(),
             BrowserMotion.windowArrive<Float>() to BrowserMotion.windowDepart<Float>(),
-            BrowserMotion.pageArrive<Float>() to BrowserMotion.pageDepart<Float>(),
             BrowserMotion.localArrive<Float>() to BrowserMotion.localDepart<Float>(),
         )
         for ((arrive, depart) in pairs) {
@@ -124,7 +125,6 @@ class BrowserMotionTest {
             BrowserMotion.windowArrive<Float>() to 500,
             BrowserMotion.windowDepart<Float>() to 250,
             BrowserMotion.pageArrive<Float>() to 250,
-            BrowserMotion.pageDepart<Float>() to 200,
             BrowserMotion.localArrive<Float>() to 150,
             BrowserMotion.localDepart<Float>() to 100,
             BrowserMotion.contentCross<Float>() to 200,

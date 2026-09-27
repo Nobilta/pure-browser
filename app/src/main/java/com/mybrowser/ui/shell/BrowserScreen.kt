@@ -167,10 +167,6 @@ fun BrowserScreen(
         finishEditing()
     }
 
-    // Read once here: both placements report the address bar's own height to the state, which uses
-    // it to tell the page's compensation for the collapse apart from the user scrolling back up.
-    val screenDensity = LocalDensity.current.density
-
     val addressBar: @Composable () -> Unit = {
                 Omnibar(
                     value = state.omnibarValue,
@@ -257,14 +253,7 @@ fun BrowserScreen(
                 enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Top),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Top),
             ) {
-                // Report the bar's own height while it still has one: collapsing it changes the
-                // page's viewport, and the state needs that size to tell the page's compensating
-                // shift apart from the user scrolling back up.
-                Box(Modifier.onSizeChanged { size ->
-                    if (size.height > 0) {
-                        state.onCollapsibleChromeHeightChanged(size.height, screenDensity)
-                    }
-                }) {
+                Box(Modifier.reportsCollapsibleHeight(state)) {
                     if (!bottomAddressBar) addressBar()
                 }
             }
@@ -466,11 +455,7 @@ fun BrowserScreen(
                 enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Bottom),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Bottom),
             ) {
-                Box(Modifier.onSizeChanged { size ->
-                    if (size.height > 0) {
-                        state.onCollapsibleChromeHeightChanged(size.height, screenDensity)
-                    }
-                }) { addressBar() }
+                Box(Modifier.reportsCollapsibleHeight(state)) { addressBar() }
             }
             // Find bar appears above the toolbar
             AnimatedVisibility(
@@ -547,6 +532,23 @@ fun BrowserScreen(
             )
         }
         }
+    }
+}
+
+/**
+ * Reports a collapsible bar's own height while it still has one.
+ *
+ * Collapsing the address bar changes the page's viewport, and Chromium answers by shifting the
+ * page's scroll offset — through the same scroll callback a finger comes through. The state needs
+ * that height to tell the page's compensating shift apart from the user scrolling back up, so both
+ * placements of the bar report it in the same way. A collapsed bar reports zero and is ignored, so
+ * the last height it had while it was on screen is the one that sticks.
+ */
+@Composable
+private fun Modifier.reportsCollapsibleHeight(state: BrowserState): Modifier {
+    val density = LocalDensity.current.density
+    return onSizeChanged { size ->
+        if (size.height > 0) state.onCollapsibleChromeHeightChanged(size.height, density)
     }
 }
 

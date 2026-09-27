@@ -53,11 +53,6 @@ def main():
         node = ux.match(root, 'browser_menu')
         return node is not None and ux.visible(node)
 
-    def sheet_top():
-        root, _ = ux.window_nodes()
-        node = ux.match(root, 'browser_menu')
-        return ux.bounds(node)[1] if node is not None else None
-
     def open_menu():
         ux.tap_resource('cd_menu')
 
