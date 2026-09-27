@@ -1,51 +1,34 @@
 ## 验证范围
 
-被测产物为本地构建的 0.13.6（versionCode 34）签名 Release，SHA-256 `1808e20a72bc082cb02c168916040d070cddc8d896ef833b000265f965adfbc9`
+被测产物为本地构建的 0.13.7（versionCode 36）签名 Release，SHA-256 `dda042a74537ab52858f8ca57f97d181a39b1286d7def7d97e3f5a56dc964b91`
 （与 `SHA256SUMS`、`outputs/release/package-info.json` 一致）。设备为 API 37 的 `google_apis`
-arm64-v8a 模拟器（冷启动、数据重建、系统默认区域设置、font scale 1.0）；签名、zipalign、R8 与 ABI 校验在
+arm64-v8a 模拟器（数据重建、系统默认区域设置、font scale 1.0）；签名、zipalign、R8 与 ABI 校验在
 打包时通过。
 
-本版修掉的是面板**开**与**关**两个方向各自的闪烁，两次都是先用逐帧录像定位、再改、再用同一把尺子复量。
+本版改的是投屏设备发现搜不到设备，根因在平台而不在应用，结论是量出来的：
 
-- 打开时：面板与遮罩不是一个动作。面板用规范给「容器入场」的 `emphasised decelerate`（头 10% 走 62%），
-  遮罩按时间均匀淡入，逐帧量到 **面板走完 81% 时遮罩只到 19%** —— 明亮面板先闪到位、背景随后才暗下来。
-  现在遮罩由面板自己的进度算出（结构上不可能走散），入场曲线改为 `easing.emphasized`（头 10% 走 16%、
-  三分之一处 74%）。遮罩余下值仍做 `coerceIn(0, 1)`。
-- 关闭时：窗口被拆掉又重建。表示"正在关闭"的标志只在 `LaunchedEffect` 里置位，即清空路由的**下一帧**，
-  于是中间那一帧没有页面可显示 → 窗口销毁 → 紧接着为播退出动画重建，重建的那一帧用仍接近 1 的进度，
-  逐帧量到 **关闭后最后一帧遮罩为 0.94**，整个面板以几乎全开的样子闪一下才消失。
-  改成判断"上一次退出是否已结束"（初始 true、打开路由时清除）后，实测日志里只有一次挂载与一次销毁，
-  遮罩从 1.0 直接到 0.0；逐帧录像中关闭全过程单调变亮到 0 并保持 0，**没有任何变暗事件**。
-- 退出动画在协程被取消时也在 `NonCancellable` 内落到 0，避免残留中间值成为窗口最后一帧。
-- 遮罩自身的渐变（慢放逐帧）：243.8 → 165.7 = 1 − 0.32，单调无台阶。
-- 面板停稳位置逐像素不变：`[0, 210, 1080, 2337]`；设备上整份窗口 dump 里不出现 `DIM_BEHIND`；
-  打开面板不会改变 WebView 视口（尺寸与 inset 回调都没有触发）。
+- 现象：真机上 M-SEARCH **一个包都发不出去**。诊断报告（临时构建，`dlna/CastDiagnostics.kt`，已删除）
+  在 API 37 上给出：公网 TCP `ok`、公网 UDP `ok`、**局域网单播 UDP 与 SSDP 组播组发送全部
+  `IOException sendto failed: EPERM`**，且与组播锁、`Network.bindSocket`、`MulticastSocket` 都无关；
+  无 VPN、出口网卡正确、省电/流量节省三项限制标志全为关。
+- 机制：`targetSdk` ≥ 36 时平台把 `ACCESS_LOCAL_NETWORK` 这个 app op 强制设为 `ignore`——
+  `cmd appops set`（含 `--uid`）都改不动，平台上 1452 个权限中也**不存在**可声明或可申请的相关权限。
+- 阈值：用同一份源码只改 `targetSdk` 在 API 37 上实测：**34/35 全部 `ok`（含组播），36/37 全部 `BLOCKED`**。
+  这也解释了同一台手机上相册与其它投屏应用能搜到：它们 `targetSdk` 更老，不受此限制。
+- 修法：`targetSdk` 固定 35（仍强制 edge-to-edge 的最高值，界面行为不变），原因写在
+  `gradle/libs.versions.toml` 与 `ARCHITECTURE.md` 里，并注明将来 Android 提供可申请权限后如何升回去。
+- 另外补上 `ssdp:all`：原注释声称会发它，代码里其实从未发出（第二个目标是 `service:AVTransport:1`）。
 - 自动检查：Android/JVM **533 项**测试通过；Rust 与 Node 测试、三语言资源一致性、Rust fmt/clippy 与
   Android lint（0 error）通过。
-- 模拟器回归：改动涉及的 12 个阶段在**一个 scope 内全部通过**，`apkSha256` 都等于上面的交付包
+- 模拟器回归：改动涉及的 12 个阶段在**一个 scope 内全部通过**，`apkSha256` 等于上面的交付包
   （`api37-motion-suite.json`）：`omnibar`、`motion-gesture`、`motion-interruption`、`menu-navigation`、
   `security`、`download`、`developer-tools`、`browser`、`features-dialogs`、`settings-back`、`settings`、
-  `home-shortcut`。
-- 环境退化的重复：`developer-tools` 曾在连续跑数小时、adb 注入输入由 19ms 退化到 1.4s 的模拟器上失败
-  （横屏 + 输入法后找不到 Run），冷启动后同一交付包通过；该阶段的旋转断言读的是无障碍树第一个节点
-  （状态栏窗口 1080×136，永远宽大于高），证明不了旋转是否生效，会在重排未完成时就去点 Run。
-- 交付前的代码审查与清理（本版最后一次改动，改动后重新构建并重跑上述 12 个阶段）：删掉迭代中遗留的
-  两个已无引用的动效令牌与一个已无引用的测试辅助函数，修正 5 处与最终行为不符的注释，
-  并把地址栏高度上报的两份重复实现合并为一个 Modifier 扩展。lint 在清理中发现了一个真实缺陷：
-  新写的扩展返回 `Modifier.onSizeChanged` 而丢弃了接收者，`Modifier.padding(x).reportsCollapsibleHeight(...)`
-  会静默丢掉 padding；改为在接收者上追加后 lint 0 error。改动后重新构建，12 个阶段全部通过。
-- 最后一处改动是删掉下载删除对话框里勾选项下的一行小字（「关闭后只从 Pure 浏览器中移除记录」），
-  因为确认按钮本身已经会随勾选状态变成「删除记录和文件」/「仅删除记录」，那行是把同一件事说了两遍；
-  同时删掉了三种语言里的这条字符串（本地化一致性检查 743 条通过）。这项**只改了文案**：
-  在设备上打开该对话框逐条读回文本，确认小字已不在、勾选项与两个按钮都在
-  （Clear finished records? / Completed and failed download records will be cleared. /
-  Also delete local files / Cancel / Delete records and files）；`download` 阶段通过；
-  lint 0 error；533 项单元测试通过。上一版（`356842b7`）记录的 12/12 仍然成立，
-  与本次交付包的差别只有这一行文案。
-- 未覆盖：真机（扫码预览方向、实体接收器投屏、真实账号登录）、升级数据保留的专项断言、
-  非 arm64-v8a 以及低于 API 30 的设备。完整 46 阶段矩阵只跑了改动相关的 12 个阶段。
-- 本机局限：模拟器是软件 GPU，面板打开时每秒只渲染约 1–3 帧，动画本身的顺滑度在模拟器上无法判断；
-  上面的结论都来自可量化的量（位置、亮度、窗口标志、视口回调、挂载/销毁日志），手感仍以真机为准。
+  `home-shortcut`。因为 `targetSdk` 会影响 edge-to-edge 与 inset 行为，其中与面板几何、inset 有关的阶段
+  （`settings-back`、`menu-navigation`、`motion-gesture` 会逐像素断言面板边界）是这次最该看的部分。
+- **未覆盖（必须说明）**：模拟器的局域网里没有 DLNA 设备，所以"改完能不能搜到你的电视"**只能在你的真机上确认**；
+  模拟器能证明的只是"包现在发得出去了"（组播发送由 `BLOCKED` 变为 `ok`）。
+- 未覆盖：真机上的其它投屏功能（投送、播放控制）、升级数据保留、非 arm64-v8a 与低于 API 30 的设备。
+  完整 46 阶段矩阵只跑了改动相关的 12 个阶段。
 
 ## 本版未覆盖的动效
 
