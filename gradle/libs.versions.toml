@@ -8,7 +8,17 @@ kotlinCompose = "2.2.10"
 
 compileSdk = "37"
 minSdk = "29"
-targetSdk = "37"
+# Pinned below 36 on purpose. Android 16+ hard-denies local-network traffic to apps targeting 36
+# or higher: the platform sets the ACCESS_LOCAL_NETWORK app op to "ignore", refuses to change it
+# even for the shell, exposes no permission an app can declare or request for it, and then fails
+# every send to a LAN address or the SSDP multicast group with EPERM. Measured on API 37 by
+# building the same source at 34/35/36/37: at 36 and 37 every local-network and multicast send is
+# refused, at 35 and below they all succeed. That kills DLNA discovery outright, so the app would
+# find no cast device at all on a modern device. 35 is the highest value that still gets enforced
+# edge-to-edge (that starts at 35), so nothing about the layout changes. Revisit once Android
+# ships a permission an app can request for this; then declare it, request it, and raise this
+# again.
+targetSdk = "35"
 
 activity = "1.13.0"
 core = "1.19.0"

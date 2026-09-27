@@ -43,12 +43,15 @@ object SsdpDiscovery {
     private const val MX_SECONDS = 3
 
     /**
-     * Two search targets. MediaRenderer is the correct one, but a fair number of TVs and
-     * receivers only answer to ssdp:all, so both go out.
+     * Three search targets. MediaRenderer is the correct one for a renderer, and a device that
+     * holds the AVTransport *service* is worth asking for directly — but a fair number of TVs and
+     * receivers answer only to `ssdp:all`, so that goes out too. The three are cheap: SSDP is one
+     * datagram each, and a device that hears the same search twice ignores the second.
      */
     private val SEARCH_TARGETS = listOf(
         "urn:schemas-upnp-org:device:MediaRenderer:1",
         "urn:schemas-upnp-org:service:AVTransport:1",
+        "ssdp:all",
     )
 
     /**

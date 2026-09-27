@@ -125,6 +125,13 @@ PiP 复用原视图，使用进入前的画面区域；停止、视频消失、�
 `MediaCandidateStore` 将网络线索和实际视频来源关联，保留完整签名参数。
 DLNA 的 `CastController` 由进程持有，发现和轮询随面板可见性启停，控制动作串行执行；
 SetURI / Play 被接受与设备返回 PLAYING 是不同状态。
+设备发现用 SSDP：向 `239.255.255.250:1900` 发 M-SEARCH（包含 `ssdp:all`），收单播回复，再取设备描述。
+**`targetSdk` 固定在 35，不要顺手升到 36+**：Android 16 起对 `targetSdk` ≥ 36 的应用硬性拒绝
+本地网络与组播流量——平台把 `ACCESS_LOCAL_NETWORK` 这个 app op 强制设为 `ignore`，连 shell 都改不动，
+也不存在可声明或可申请的权限对应它，于是发往局域网地址与组播组的包全部在发送阶段被 `EPERM` 拒绝，
+SSDP 一个包都发不出去、永远发现不了设备。在 API 37 上用同一份源码只改 `targetSdk` 实测：
+34/35 正常，36/37 全部被拒；35 是仍强制 edge-to-edge 的最高值，所以界面不受影响。
+将来 Android 提供可申请的权限后，声明并申请它，再把 `targetSdk` 升回去。
 
 ## 网站身份与隐私
 
