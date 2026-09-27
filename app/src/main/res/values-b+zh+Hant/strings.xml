@@ -189,7 +189,6 @@
     <string name="ui_retry">重試</string>
     <string name="ui_delete_download">刪除下載</string>
     <string name="ui_also_delete_local_files">同時刪除本地文件</string>
-    <string name="ui_when_off_only_records_are_removed_from_pure">關閉後只從 Pure 瀏覽器中移除記錄</string>
     <string name="ui_delete_records_and_files">刪除記錄和文件</string>
     <string name="ui_delete_records_only">僅刪除記錄</string>
     <string name="ui_shortcuts_homepage">導航首頁</string>

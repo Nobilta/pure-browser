@@ -491,14 +491,9 @@ private fun DeleteDownloadDialog(
                         onCheckedChange = { deleteFiles = it },
                     )
                     Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text(textResources.getString(R.string.ui_also_delete_local_files))
-                        Text(
-                            text = textResources.getString(R.string.ui_when_off_only_records_are_removed_from_pure),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    // Just the label: the confirm button already says which of the two things will
+                    // happen, so a second line explaining the unchecked case said it twice.
+                    Text(textResources.getString(R.string.ui_also_delete_local_files))
                 }
             }
         },
