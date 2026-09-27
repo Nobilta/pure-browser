@@ -55,9 +55,9 @@ private val DarkColors = darkColorScheme(
  * Wallpaper colours on Android 12+, with stable palettes on Android 10–11.
  *
  * Motion is not installed here: Material 3 1.4.0 keeps `MotionScheme` internal, so the app's own
- * springs are declared in `BrowserMotion` using that scheme's standard token values — the same
- * ones the library's components resolve internally — which keeps one rhythm without reaching into
- * an internal API.
+ * motion tokens are declared in `BrowserMotion` using the library's own easing, duration and spring
+ * values — the same ones its components resolve internally — which keeps one rhythm without
+ * reaching into an internal API.
  */
 @Composable
 fun MyBrowserTheme(
