@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.flow.first
 import android.net.Uri
+import androidx.core.net.toUri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -145,18 +146,24 @@ class PageFileDownloadTest {
         val context = connectedContext()
         val handler = DownloadHandler(context)
         try {
+            // A destination the system will not create. The write must fail at publish time, not at
+            // creation time, so the tree carries a persisted write grant and looks writable to the
+            // settings layer while no provider answers for it. This is deliberately not a trick with
+            // the part file: a directory reports a size on Linux and macOS but zero on Windows, so
+            // the previous version of this test passed on two hosts and failed on the third.
+            val tree = "content://com.example.missing/tree/nothing".toUri()
+            context.contentResolver.takePersistableUriPermission(
+                tree,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            DownloadSettingsRepository(context).useCustomDirectory(tree, "Missing provider")
             val outcome = handler.enqueueOrGetExisting(
                 url = "page-file://publish", userAgent = null, contentDisposition = null, mimeType = null,
                 pageFile = offer(64, "publish.bin").copy(url = "blob:https://example.com/publish"),
             )
             val id = (outcome as DownloadHandler.EnqueueOutcome.Started).id
-            // A directory standing in for a part: its length satisfies the size check, and reading
-            // it throws. That is exactly what a destination the system refuses to open looks like
-            // from the caller's side, without needing a real Storage Access Framework provider.
-            val directory = File(context.cacheDir, "not-a-part-\$id").apply { mkdirs() }
-            val declared = directory.length()
-            assertTrue("a directory must report a size for this probe", declared > 0)
-            handler.onPageFileFinished(id, null, listOf(directory), declared)
+            val part = File(context.cacheDir, "publish-part").apply { writeBytes(ByteArray(64)) }
+            handler.onPageFileFinished(id, null, listOf(part), part.length())
             withTimeout(5_000) {
                 handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
             }
