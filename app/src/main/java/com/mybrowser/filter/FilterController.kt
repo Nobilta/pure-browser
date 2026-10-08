@@ -78,7 +78,7 @@ class FilterController(private val appContext: Context) {
     fun replaceLists(rules: List<String>, names: List<String> = emptyList()): Job? {
         if (closed.get()) return null
         val sizes = rules.map { utf8Bytes(it) }
-        if (rules.size > 35 || sizes.any { it > FilterListFormat.MAX_BYTES } ||
+        if (rules.size > FilterListFormat.MAX_LISTS || sizes.any { it > FilterListFormat.MAX_BYTES } ||
             sizes.sum() > FilterListFormat.MAX_TOTAL_BYTES) return null
         payloads = rules.toList()
         sourceNames = names.toList()

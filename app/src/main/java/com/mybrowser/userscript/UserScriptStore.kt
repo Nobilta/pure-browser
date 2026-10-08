@@ -6,6 +6,7 @@ import com.mybrowser.core.TextDownloader
 import com.mybrowser.core.writeUtf8
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,6 +27,59 @@ class UserScriptStore(context: Context) {
         private set
     var loadFailed = false
         private set
+
+    /**
+     * GM values written during a private session, held here and nowhere else.
+     *
+     * A private session wipes its WebView profile and its cookies on exit; a script's values are
+     * the one thing in that session this app would otherwise write to disk under a name that
+     * outlives it. They are keyed by script id in memory, so two private tabs of the same script
+     * see the same values while the session lasts, and nothing survives it.
+     */
+    private val privateValues = mutableMapOf<String, String>()
+
+    /**
+     * A nonce that advances whenever a script's injected program would differ.
+     *
+     * A runtime watches this alongside the script list: private GM values are not part of any
+     * [InstalledUserScript], so a private write changes what a script is injected with while every
+     * script stays equal, and a list-keyed observer would never be woken at all. The runtime then
+     * compares the values themselves per script, so the wake-up costs one script's rebuild rather
+     * than every installed program.
+     */
+    private val programRevision = MutableStateFlow(0L)
+    val programs: StateFlow<Long> = programRevision.asStateFlow()
+
+    /** Raises [programs]; callers that mutate values reach the runtime through this. */
+    fun notifyChanged() {
+        programRevision.value = programRevision.value + 1
+    }
+
+    /**
+     * A private session's values were just discarded; the next one must not inherit them.
+     *
+     * [notifyChanged] is the same signal a saved-script edit raises, so a runtime that is watching
+     * the store rebuilds what it injects. Without it a private write would be invisible to the
+     * runtime, which caches the program per script and would keep handing the next document the
+     * values from before the write.
+     */
+    fun beginPrivateSession() {
+        synchronized(privateValues) { privateValues.clear() }
+        notifyChanged()
+    }
+
+    fun endPrivateSession() {
+        synchronized(privateValues) { privateValues.clear() }
+        notifyChanged()
+    }
+
+    /**
+     * The values to hand a script's next document, from the place that owns them for this session:
+     * the private map while browsing privately, the saved script otherwise.
+     */
+    fun valuesFor(id: String, private: Boolean): String =
+        if (private) synchronized(privateValues) { privateValues[id] } ?: "{}"
+        else _scripts.value.find { it.metadata.id == id }?.values ?: "{}"
 
     suspend fun initialize() = withContext(Dispatchers.IO) {
         mutex.withLock { initializeLocked() }
@@ -111,15 +165,52 @@ class UserScriptStore(context: Context) {
             persist(next)
             _scripts.value = next
             if (Regex("[a-f0-9]{32}").matches(id)) valuesFile(id).delete()
+            // A private session’s values live in memory only, so deleting the file does not
+            // reach them. Leaving them behind means removing and reinstalling the same script in
+            // one session brings the previous state back.
+            if (synchronized(privateValues) { privateValues.remove(id) } != null) notifyChanged()
         }
     }
 
-    /** Native side checks the current grant again, including after a script is disabled. */
-    suspend fun changeValue(id: String, operation: String, key: String, value: Any?): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * Native side checks the current grant again, including after a script is disabled.
+     *
+     * [private] routes the write to the session map instead of the file. The validation is the same
+     * either way — a private session grants a script no more storage than a normal one, it only
+     * decides where the result may live.
+     */
+    suspend fun changeValue(
+        id: String,
+        operation: String,
+        key: String,
+        value: Any?,
+        private: Boolean = false,
+    ): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val script = _scripts.value.find { it.metadata.id == id && it.enabled } ?: return@withLock false
             val grant = when (operation) { "set" -> "GM_setValue"; "delete" -> "GM_deleteValue"; else -> return@withLock false }
             if (!script.metadata.grants(grant) || key.length > 256 || key.contains('\u0000')) return@withLock false
+            /*
+             * A private write is one read-modify-write *under the same monitor a session boundary
+             * takes*. The store's own mutex does not cover [beginPrivateSession] — that runs on the
+             * main thread when the mode is entered — so reading the map here and writing it a few
+             * statements later would let a session that ended in between have its values written
+             * back, and the next session would inherit them. Doing all of it inside the monitor is
+             * what makes that impossible rather than merely unlikely.
+             */
+            if (private) {
+                val text = synchronized(privateValues) {
+                    val values = JSONObject(privateValues[id] ?: "{}")
+                    if (operation == "delete") values.remove(key) else values.put(key, value ?: JSONObject.NULL)
+                    if (values.length() > 256) return@synchronized null
+                    val encoded = values.toString()
+                    if (encoded.toByteArray().size > MAX_VALUES_BYTES) return@synchronized null
+                    privateValues[id] = encoded
+                    encoded
+                } ?: return@withLock false
+                notifyChanged()
+                return@withLock true
+            }
             val values = JSONObject(script.values)
             if (operation == "delete") values.remove(key) else values.put(key, value ?: JSONObject.NULL)
             if (values.length() > 256) return@withLock false

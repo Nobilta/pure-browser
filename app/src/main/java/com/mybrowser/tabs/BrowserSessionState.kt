@@ -24,15 +24,31 @@ class BrowserSessionState(application: Application) : AndroidViewModel(applicati
      */
     val downloadRequests = DownloadRequestCoordinator((application as App).downloadHandler)
 
+    /**
+     * Every beginning of a private session goes through here, so the in-memory state that belongs to
+     * one is dropped at the same moment the session is created rather than only when the user
+     * toggles the mode by hand. A cold start that opens straight into incognito, an Activity
+     * recreation, and the menu action all arrive at the same place.
+     */
     fun beginPrivateSession() {
         check(!privacy.isTransitioning)
         if (privacy.isIncognito) return
         app.downloadHandler.rotatePrivateScope()
+        // A script's GM values are the private session's: held in memory and dropped with it. The
+        // store is process-scoped, so the session has to say when it begins; a session that starts
+        // without this inherits whatever the last one left behind.
+        app.userScripts.beginPrivateSession()
         privacy.enter()
     }
 
+    /**
+     * The other end: [onCleared] is the only place a session can end without the user toggling the
+     * mode — closing the last browser window destroys the Activity and keeps the process — and it
+     * has to drop the same values, or the next launch in this process reads them.
+     */
     fun endPrivateSession() {
         app.downloadHandler.endPrivateScope()
+        app.userScripts.endPrivateSession()
         if (privacy.isIncognito) privacy.exit(wipeSharedStorage = !privacy.hasRealIsolation)
     }
 

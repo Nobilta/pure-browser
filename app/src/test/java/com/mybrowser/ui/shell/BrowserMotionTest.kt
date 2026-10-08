@@ -32,34 +32,37 @@ class BrowserMotionTest {
     /** Material 3 `easing.emphasised`, which is also `easing.standard`. */
     private val md3Emphasized = CubicBezierEasing(.2f, 0f, 0f, 1f)
 
+    /** Material 3 `easing.emphasised decelerate`, the curve a surface enters the screen on. */
+    private val md3Decelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
+
     /** Material 3 `easing.emphasised accelerate`. */
     private val md3Accelerate = CubicBezierEasing(.3f, 0f, .8f, .15f)
 
     @Test
-    fun aPanelArrivesDecisivelyWithoutJumping() {
-        // Two properties at once, and both matter: the surface has to arrive rather than heave
-        // itself in, but it must not cover most of the distance in the first frame or two either.
-        // The dim behind it is drawn from this same progress, so a surface that races ahead of its
-        // own dim reads as two events instead of one. Measured frame by frame with the faster
-        // `emphasised decelerate` curve, the panel was 81% in place while the dim had reached 19%
-        // — a bright surface flashing into position over a still-bright page, and the reason that
-        // curve was wrong here even though Material 3 prescribes it for entering containers.
-        for (spec in listOf(BrowserMotion.panelArrive<Float>(), BrowserMotion.windowArrive<Float>())) {
-            val atOneTenth = sample(spec, .1f)
-            assertTrue("an arriving surface must arrive, not creep: $atOneTenth", atOneTenth > .10f)
-            assertTrue(
-                "but must not be almost there in the first frame or two: $atOneTenth",
-                atOneTenth < .35f,
-            )
-            assertTrue("and is well in by a third of the way: ${sample(spec, .33f)}", sample(spec, .33f) > .6f)
-            var previous = 0f
-            for (step in 1..20) {
-                val value = sample(spec, step / 20f)
-                assertTrue("arrival must not go backwards at $step/20", value >= previous)
-                previous = value
-            }
-            assertEquals("and settles exactly", 1f, sample(spec, 1f), 1e-4f)
+    fun aPanelArrivesOnTheCurveTheSpecGivesAnEnteringSurface() {
+        // Material 3's pair for "enter the screen" is emphasised decelerate over 400 ms, and a
+        // bottom sheet is the example it names. The panel and its dim share one progress value, so
+        // the two cannot drift apart whatever the curve is; that guarantee is what lets the spec's
+        // own shape apply instead of a hand-picked gentler one.
+        val spec = BrowserMotion.panelArrive<Float>()
+        assertEquals(
+            "a panel enters on easing.emphasized decelerate",
+            md3Decelerate.transform(.1f), sample(spec, .1f), 1e-4f,
+        )
+        assertEquals(
+            "for the 400 ms the spec gives an entering surface",
+            400, (spec as TweenSpec<Float>).durationMillis,
+        )
+        val atOneTenth = sample(spec, .1f)
+        assertTrue("an entering surface arrives decisively: $atOneTenth", atOneTenth > .5f)
+        assertTrue("and is well in by a third of the way: ${sample(spec, .33f)}", sample(spec, .33f) > .8f)
+        var previous = 0f
+        for (step in 1..20) {
+            val value = sample(spec, step / 20f)
+            assertTrue("arrival must not go backwards at $step/20", value >= previous)
+            previous = value
         }
+        assertEquals("and settles exactly", 1f, sample(spec, 1f), 1e-4f)
     }
 
     @Test
@@ -67,8 +70,8 @@ class BrowserMotionTest {
         // Sampled from the spec's published curve; a hand-tuned replacement would drift off it.
         for (point in listOf(.1f, .25f, .5f, .75f)) {
             assertEquals(
-                "panel arrival must be easing.emphasized",
-                md3Emphasized.transform(point), sample(BrowserMotion.panelArrive<Float>(), point), 1e-4f,
+                "a surface beginning and ending on screen uses easing.emphasized",
+                md3Emphasized.transform(point), sample(BrowserMotion.windowArrive<Float>(), point), 1e-4f,
             )
             assertEquals(
                 "panel departure must be emphasised accelerate",
@@ -120,7 +123,8 @@ class BrowserMotionTest {
     fun theDurationsAreMaterial3sOwn() {
         // A curve is only half of a token; the duration is the other half.
         val durations = mapOf(
-            BrowserMotion.panelArrive<Float>() to 300,
+            // The spec's own "suggested easing and duration pairs": 400 ms enters the screen.
+            BrowserMotion.panelArrive<Float>() to 400,
             BrowserMotion.panelDepart<Float>() to 200,
             BrowserMotion.windowArrive<Float>() to 500,
             BrowserMotion.windowDepart<Float>() to 250,

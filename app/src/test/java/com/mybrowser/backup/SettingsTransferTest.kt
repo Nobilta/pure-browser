@@ -243,6 +243,62 @@ class SettingsTransferTest {
         }
     }
 
+    @Test fun aCrowdedExportIsTrimmedToAFileTheImporterAccepts() = runBlocking {
+        // Titles and addresses that cost three bytes per character are what a character-counted
+        // budget gets wrong. This seeds enough history to pass the old estimate and then checks the
+        // file the importer would actually be handed.
+        val subscriptions = FilterSubscriptions(context, filter = null).also { it.initialize() }
+        val existing = visits
+        val manager = existing ?: HistoryManager(context).also { visits = it }
+        val title = "中文标题".repeat(40)
+        val baseUrl = "https://example.com/" + "路径".repeat(60)
+        // Enough rows that a character-counted budget would keep them all and still produce a
+        // file over the limit (three UTF-8 bytes per CJK character), which is the bug this pins.
+        repeat(12_000) { index -> manager.addHistory(title + index, baseUrl + "/" + index) }
+        val exported = transfer(FilterController(context), subscriptions, SiteSettingsRepository(context)).collect("0.13.10")
+        val encoded = SettingsBackupCodec.encode(exported.backup)
+        assertTrue(
+            "an exported file has to fit the importer's limit: " + encoded.toByteArray().size,
+            encoded.toByteArray().size <= SettingsBackupCodec.MAX_FILE_BYTES,
+        )
+        // And it has to be readable back, which is the point of the limit.
+        SettingsBackupCodec.decode(encoded)
+        Unit
+    }
+
+    @Test fun theTrimLoopAlwaysMakesProgress() {
+        // The loop drops a quarter of its rows each pass. Below four rows a quarter is zero, which is
+        // the case that made it spin forever; this drives it with a size function that never comes
+        // under the limit, so only the loop's own progress can end it.
+        val rows = (0 until 3).toList()
+        var calls = 0
+        org.junit.Assert.assertThrows(IOException::class.java) {
+            trimToBudget(rows, limit = 10) { calls++; 100 }
+        }
+        assertTrue("the loop must not call the encoder more times than it has rows", calls <= 4)
+    }
+
+    @Test fun aLibraryThatIsTooLargeOnItsOwnStillExports() = runBlocking {
+        // Bookmarks are trimmed against the whole budget before history is looked at. With the old
+        // history-first order a bookmark set that overran the file on its own made the history trim
+        // throw before the bookmark trim could run, and the export failed outright.
+        val subscriptions = FilterSubscriptions(context, filter = null).also { it.initialize() }
+        val existing = library
+        val manager = existing ?: BookmarkManager(context).also { library = it }
+        // Characters JSON must escape are what a per-row estimate under-counts: one character of
+        // text is two bytes in the file. Enough of them and the bookmark payload passes the
+        // estimate while the encoded file is far past the importer\u2019s limit.
+        val title = "\"".repeat(400)
+        val baseUrl = "https://example.com/" + "\\".repeat(400)
+        repeat(8_000) { index -> manager.addBookmark(title + index, baseUrl + "/" + index) }
+        val exported = transfer(FilterController(context), subscriptions, SiteSettingsRepository(context)).collect("0.13.10")
+        val encoded = SettingsBackupCodec.encode(exported.backup)
+        assertTrue(encoded.toByteArray().size <= SettingsBackupCodec.MAX_FILE_BYTES)
+        assertTrue("some bookmarks have to be reported as left out", exported.omittedBookmarks > 0)
+        SettingsBackupCodec.decode(encoded)
+        Unit
+    }
+
     @Test fun absentGroupsKeepCurrentSettings() = runBlocking {
         val preferences = BrowserPreferencesRepository(context)
         preferences.save(preferences.load().copy(theme = ThemeMode.DARK, bottomAddressBar = true))
@@ -457,6 +513,60 @@ class SettingsTransferTest {
             assertEquals(listOf("ghost-list"), preview.unknownBuiltInIds)
             assertFalse(preview.directoryHintCustom)
             assertFalse(preview.siteStoreUnreadable)
+        } finally {
+            filter.close()
+        }
+    }
+
+    @Test fun handWrittenRulesTravelWithAFileAndSurviveOneThatNeverHadThem() = runBlocking {
+        val filter = FilterController(context)
+        val subscriptions = FilterSubscriptions(context, filter) { _, _, _ ->
+            TextDownloader.Response("! fixture\n||ads.example.com^\n", "\"v1\"", "yesterday")
+        }
+        try {
+            subscriptions.initialize()
+            assertTrue(subscriptions.addUserRule("127.0.0.1##.ad-slot") == FilterSubscriptions.RuleChange.ADDED)
+
+            // An export carries them: they are the one thing in the filtering group nobody can
+            // rebuild from a subscription list.
+            val exported = transfer(filter, subscriptions, SiteSettingsRepository(context)).collect("0.13.8")
+            assertEquals(listOf("127.0.0.1##.ad-slot"), exported.backup.settings.filtering!!.userRules)
+
+            // A file written before they existed must not clear the ones on this device.
+            val older = SettingsBackup(
+                format = SettingsBackup.FORMAT_ID,
+                schemaVersion = SettingsBackup.SCHEMA_VERSION,
+                appVersion = "0.13.0",
+                exportedAt = "2026-09-01T00:00:00Z",
+                settings = BackupSettings(filtering = BackupFiltering(
+                    builtIns = listOf(BackupBuiltInSubscription("easylist", false)),
+                )),
+            )
+            var result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(older)
+            assertEquals(listOf("filtering"), result.applied)
+            assertEquals(listOf("127.0.0.1##.ad-slot"), subscriptions.userRules.value)
+
+            // An explicit list replaces them, including with nothing.
+            val replacing = older.copy(settings = older.settings.copy(filtering = BackupFiltering(
+                userRules = listOf("example.com##.promo", "||ads.example.com^"),
+            )))
+            result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(replacing)
+            assertEquals(listOf("filtering"), result.applied)
+            assertEquals(listOf("example.com##.promo", "||ads.example.com^"), subscriptions.userRules.value)
+
+            val clearing = older.copy(settings = older.settings.copy(filtering = BackupFiltering(userRules = emptyList())))
+            result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(clearing)
+            assertEquals(listOf("filtering"), result.applied)
+            assertTrue(subscriptions.userRules.value.isEmpty())
+
+            // A rule the engine would drop is refused with the group, rather than imported as
+            // though it had been applied.
+            val unpalatable = older.copy(settings = older.settings.copy(filtering = BackupFiltering(
+                userRules = listOf("example.com##body"),
+            )))
+            result = transfer(filter, subscriptions, SiteSettingsRepository(context)).apply(unpalatable)
+            assertTrue(result.applied.isEmpty())
+            assertTrue(subscriptions.userRules.value.isEmpty())
         } finally {
             filter.close()
         }

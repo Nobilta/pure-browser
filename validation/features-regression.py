@@ -182,7 +182,7 @@ class Regression:
 
     def imports(self):
         self.page()
-        ux.open_settings("隐私与过滤")
+        ux.open_settings("扩展")
         ux.tap("油猴脚本")
         ux.tap(ux._translations[0]["script_paste"])
         self.enter_source("// ==UserScript==\n// @name Pure paste fixture\n// @namespace pure.validation\n"
@@ -197,7 +197,7 @@ class Regression:
         self.wait(lambda s: s.get("pasted") == "yes")
         self.record("pasted source is reviewed, installed and executed")
         ux.adb("push", str(ROOT / "feature-dom.user.js"), "/sdcard/Download/PureDOM.user.js")
-        ux.open_settings("隐私与过滤")
+        ux.open_settings("扩展")
         ux.tap("油猴脚本")
         ux.tap(ux._translations[0]["script_import_file"])
         ux.choose_download_document("PureDOM.user.js")
@@ -209,7 +209,7 @@ class Regression:
         self.wait(lambda s: s["domReady"] != "")
         self.record("system file picker imports and executes a local user script")
         for name in ["Pure paste fixture", "Pure DOM fixture"]:
-            ux.open_settings("隐私与过滤")
+            ux.open_settings("扩展")
             ux.tap("油猴脚本")
             self.card_action(name, "删除")
             self.confirm_delete()
@@ -260,24 +260,42 @@ class Regression:
         else:
             assert popup["dependency"] == "dependency-ok" and popup["styleApplied"]
         self.record("popup transport preserves script timing and supported GM storage", legacyWebView=legacy)
-        ux.open_settings("隐私与过滤")
+        ux.open_settings("扩展")
         ux.tap("油猴脚本")
         self.set_switch("Pure DOM fixture", False)
         self.snapshot("script-list")
         self.page()
         self.wait(lambda s: s["ready"] == "complete" and s["domReady"] == "")
         self.record("disabled script stops on the next navigation")
-        ux.open_settings("隐私与过滤")
+        ux.open_settings("扩展")
         ux.tap("油猴脚本")
         self.set_switch("Pure DOM fixture", True)
         self.page()
+        # Settle first: the storage script reads its value asynchronously, so a count sampled the
+        # instant the page reports can be one visit behind the one that is actually stored.
+        before_private = self.wait(lambda s: s["ready"] == "complete" and s["domReady"] != "")
+        baseline = before_private["storageCount"]
+        time.sleep(1.5)
+        before_private = self.wait(lambda s: s["storageCount"] == baseline and s["domReady"] != "")
+        baseline = before_private["storageCount"]
         ux.menu_item("进入无痕模式")
         self.page()
-        self.wait(lambda s: s["ready"] == "complete" and s["domReady"] == "" and s["storageCount"] == 0)
-        self.record("incognito executes neither DOM scripts nor privileged scripts")
+        # Scripts run in incognito too. What must not cross the boundary is their own stored data:
+        # a private session starts from no GM values (so the storage fixture counts its first visit
+        # as the first one), and on a WebView without document-start support the privileged script
+        # still stays out while the DOM one runs.
+        private = self.wait(lambda s: s["ready"] == "complete" and s["domReady"] != ""
+                            and s["storageCount"] == (0 if legacy else 1))
+        self.record("incognito runs user scripts against a session-only GM store", visits=private["storageCount"])
         ux.menu_item("退出无痕模式")
         self.page()
         self.wait(lambda s: s["domReady"] != "")
+        if not legacy:
+            # The private visit counted towards a store of its own, not the normal one's: a normal
+            # reload straight afterwards sees exactly one more visit than it did before, which
+            # proves the private writes were never persisted where a normal session reads.
+            after = self.wait(lambda s: s["storageCount"] >= baseline + 1)
+            self.record("private GM writes never reached the normal session's store", visits=after["storageCount"])
         ux.tap("Install unsupported fixture")
         root, _ = ux.nodes()
         ux.tap("替换脚本" if ux.match(root, "替换脚本") is not None else "安装脚本")
@@ -288,7 +306,7 @@ class Regression:
         self.snapshot("unsupported-script")
         for name in ["Pure unsupported fixture", "Pure DOM fixture", "Pure storage fixture"]:
             self.page()
-            ux.open_settings("隐私与过滤")
+            ux.open_settings("扩展")
             ux.tap("油猴脚本")
             self.card_action(name, "删除")
             self.confirm_delete()
@@ -301,7 +319,7 @@ class Regression:
         urllib.request.urlopen(request, timeout=5).close()
 
     def filter_settings(self):
-        ux.open_settings("隐私与过滤")
+        ux.open_settings("扩展")
         ux.tap("自定义广告过滤规则")
         ux.expect("广告过滤设置")
 

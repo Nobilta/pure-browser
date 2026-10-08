@@ -64,13 +64,26 @@ internal fun BrowserIconAction(icon: Int, label: String, enabled: Boolean = true
     }
 }
 
+/**
+ * One action in a sheet.
+ *
+ * [detail] carries the exact thing the action will write — a rule, a file name. It is not a
+ * description of the action; the label already does that. An action whose result a user cannot
+ * predict from its label has to show the result it is about to produce.
+ */
 @Composable
-internal fun BrowserActionRow(icon: Int, label: String, onClick: () -> Unit) {
+internal fun BrowserActionRow(icon: Int, label: String, detail: String? = null, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(painterResource(icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(16.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            detail?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

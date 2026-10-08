@@ -49,6 +49,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,8 +94,11 @@ import com.mybrowser.core.DefaultBrowser
 import com.mybrowser.core.PageContextTarget
 import com.mybrowser.core.PageContextMenuController
 import com.mybrowser.dlna.CastController
+import com.mybrowser.filter.BlockRules
+import com.mybrowser.filter.ElementPicker
 import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.FilterSubscriptions
+import com.mybrowser.filter.PageHide
 import com.mybrowser.userscript.UserScriptStore
 import com.mybrowser.userscript.UserScriptRuntime
 import com.mybrowser.media.MediaCandidateStore
@@ -130,6 +135,7 @@ import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.data.Bookmark
 import com.mybrowser.data.HistoryEntry
 import com.mybrowser.ui.shell.BrowserScreen
+import com.mybrowser.ui.shell.ElementPickerState
 import com.mybrowser.ui.shell.BrowserState
 import com.mybrowser.ui.shell.BrowserSheetNavigation
 import com.mybrowser.ui.shell.BrowserSheetNavigation.Destination as Sheet
@@ -322,6 +328,10 @@ class MainActivity : ComponentActivity(),
             override fun onNavigation(url: String) { updatePopupDocument(page, url) }
             override fun onStarted(url: String) {
                 downloadRequests.startDocument(page.tabId)
+                // The popup’s old document is going away with its blob: addresses, so a
+                // transfer reading one of them has to end here just as it does for the main frame.
+                pageFileDownloads[view]?.onDocumentChanged()
+                scriptRuntimes[view]?.onDocumentChanged(url)
                 page.loading = true
                 page.failure = null
                 page.certificateError = false
@@ -336,6 +346,7 @@ class MainActivity : ComponentActivity(),
                 val settings = activeSites.get(url)
                 if (settings.desktop) WebViewConfig.applyDesktopViewport(view, settings.desktopWidth)
                 if (!privacy.isIncognito && page.failure == null) addToHistory(url, view.title ?: url)
+                // Cleared at the start of the load; see the main frame path.
                 scriptRuntimes[view]?.onPageFinished(url)
             }
             override fun onError(url: String, code: Int, description: String) {
@@ -739,6 +750,11 @@ class MainActivity : ComponentActivity(),
                         webView.clearMatches()
                         state.hideFindBar()
                     },
+                    elementPicker = elementPicker,
+                    onPickerParent = { pickerOwner?.let { view -> elementPickers[view]?.step(towardsParent = true) } },
+                    onPickerChild = { pickerOwner?.let { view -> elementPickers[view]?.step(towardsParent = false) } },
+                    onPickerBlock = ::blockPickedElement,
+                    onPickerCancel = ::stopElementPicker,
                     isIncognito = privacy.isIncognito,
                     hasPrivateIsolation = privacy.hasRealIsolation,
                     onRetryPage = ::retryFailedPage,
@@ -769,9 +785,21 @@ class MainActivity : ComponentActivity(),
                 )
 
                 BrowserSheetHost(sheetNavigation) { entry ->
+                    // The outline the page draws is the app's own accent, so a pick reads as part of
+                    // the browser rather than as something the page put there. Both of these have to
+                    // be read while a composition is available: the action they belong to runs later,
+                    // from a click, with no composition to read the theme or the density from.
+                    val pickerAccent = MaterialTheme.colorScheme.primary.toArgb()
+                    // Dp, not pixels: the page measures itself in CSS pixels, which are dp, while the
+                    // device is measured in pixels — the two differ by the screen density.
+                    val pickerInset = PICKER_BAR_INSET.value.toInt()
                     when (entry.destination) {
                         Sheet.MENU -> MenuSheet(
                             isIncognito = privacy.isIncognito,
+                            // Read from the runtime of the WebView that is on screen, so the row
+                            // describes this page and not the previous one.
+                            userScriptStatus = currentUserScriptStatus(),
+                            onManageUserScripts = { showUserScripts = true },
                             isFilterEnabled = filter.enabled.collectAsState().value,
                             blockedCount = filter.blockedCount,
                             mediaCount = mediaSnapshot.count,
@@ -781,6 +809,11 @@ class MainActivity : ComponentActivity(),
                             isBrowserFullscreen = browserPreferences.browserFullscreenEnabled,
                             isCurrentPageBookmarked = currentPageBookmarked,
                             canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
+                            onBlockElement = {
+                                sheetAction(entry) {
+                                    startElementPicker(accent = pickerAccent, bottomInset = pickerInset)
+                                }
+                            },
                             onOpenSiteSettings = {
                                 SiteOrigin.of(state.currentUrl)?.let { origin ->
                                     if (sheetNavigation.push(entry, Sheet.SITE_SETTINGS)) showSiteOrigin = origin
@@ -1089,7 +1122,12 @@ class MainActivity : ComponentActivity(),
                 }
                 if (showUserScripts) {
                     UserScriptsSheet(userScripts, scriptImportUrl, onUrlConsumed = { scriptImportUrl = null },
-                        onDismiss = { showUserScripts = false; scriptImportUrl = null })
+                        onDismiss = { showUserScripts = false; scriptImportUrl = null },
+                        pageUrl = state.currentUrl, isIncognito = privacy.isIncognito,
+                        // The recorded set, not a fresh match: the two surfaces have to agree about
+                        // whether a script is running here, and the menu already uses it.
+                        runningHere = currentUserScriptStatus()?.runningIds.orEmpty(),
+)
                 }
 
                 bookmarkDraft?.let { draft ->
@@ -1110,6 +1148,15 @@ class MainActivity : ComponentActivity(),
                         onCopy = { url -> pageContextTarget = null; copyToClipboard(url) },
                         onShare = { url -> pageContextTarget = null; shareUrl(url) },
                         onSaveImage = { url -> pageContextTarget = null; downloadImage(url) },
+                        onBlockResource = { rule ->
+                            pageContextTarget = null
+                            addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))
+                        },
+                        onBlockHost = { rule ->
+                            pageContextTarget = null
+                            addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))
+                        },
+                        onHideHere = { url -> pageContextTarget = null; hideImageForNow(url) },
                         onDismiss = { pageContextTarget = null })
                 }
 
@@ -1187,7 +1234,17 @@ class MainActivity : ComponentActivity(),
             devices = castSnapshot.devices,
             isSearching = castSnapshot.isSearching,
             onSearch = cast::search,
-            onCast = { candidate, device -> cast.cast(candidate, device, ::toast) },
+            onCast = { candidate, device ->
+                // The renderer starts from zero unless it is told otherwise, and the phone may be
+                // half an hour into the same video. Only that video's own position is handed over:
+                // the page can offer several candidates, and seeking a different one to where another
+                // is playing would skip its content or run past its end.
+                val signal = mediaTrackers.trackerOf(webView)?.current
+                val playing = candidate.url == mediaSnapshot.playingCandidateUrl
+                cast.cast(candidate, device,
+                    if (playing) cast.startPositionFor(signal?.position ?: 0.0, signal?.duration ?: 0.0) else null,
+                    ::toast)
+            },
             onCopyUrl = { copyToClipboard(it.url) },
             onDownload = { downloadMediaCandidate(it) },
             onDismiss = onDismiss,
@@ -1200,9 +1257,11 @@ class MainActivity : ComponentActivity(),
             playback = castSnapshot.playback,
             statusUnavailable = castSnapshot.statusUnavailable,
             isControlling = castSnapshot.isControlling,
+            playbackRevision = castSnapshot.playbackRevision,
             onPause = { cast.pause(::toast) }, onResume = { cast.resume(::toast) },
             onStop = { cast.stop(::toast) }, onVolume = { cast.setVolume(it, ::toast) },
-            onSeek = { cast.seek(it, ::toast) }, onRefreshStatus = cast::refreshStatus,
+            onSeek = { cast.seek(it, ::toast) }, onSkip = { cast.skip(it, ::toast) },
+            onRefreshStatus = cast::refreshStatus,
             onDisconnect = cast::disconnect,
             embedded = embedded,
         )
@@ -1324,6 +1383,14 @@ class MainActivity : ComponentActivity(),
         view.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
             if (webViewOrNull !== view) return@setDownloadListener
             if (onUserScriptUrl(url)) return@setDownloadListener
+            // A blob: address is a file the page is holding in its own memory. Nothing can fetch it and
+            // its name means nothing outside the document that made it, so the page is asked what it
+            // has; the ordinary confirmation follows from that answer instead of from this callback.
+            if (url.startsWith(BLOB_SCHEME) &&
+                pageFileDownloads[view]?.inspect(url, state.currentUrl, mimeType) == true
+            ) {
+                return@setDownloadListener
+            }
             submitDownloadRequest(url, userAgent, contentDisposition, mimeType, contentLength)
         }
 
@@ -1347,9 +1414,24 @@ class MainActivity : ComponentActivity(),
         applySiteSettings(view, state.currentUrl)
 
         installMediaPlaybackTracker(view)
+        // Same reason as the media probe and the script runtime above: the message channel is
+        // attached while the WebView is being configured, which is always before anything has
+        // loaded. See ElementPicker.install for what attaching it later costs.
+        //
+        // Replaced rather than overwritten, like the script runtime below: if this WebView is ever
+        // configured a second time the old picker still holds a live listener, and install() is
+        // per instance — leaving it in place would attach a second listener and let one message
+        // report twice. dispose() drops the old listener before the new one is created.
+        elementPickers.remove(view)?.dispose()
+        elementPickers[view] = ElementPicker(view).also { it.install() }
+        // Same attachment rules as the picker above. The page half is loaded with the same channel
+        // so that a blob: download in the very first document is already covered.
+        pageFileDownloads.remove(view)?.close()
+        pageFileDownloads[view] = com.mybrowser.download.PageFileDownload(view)
+            .also { it.listener = pageFileListener; it.install(); it.startScript() }
         scriptRuntimes.remove(view)?.close()
         scriptRuntimes[view] = UserScriptRuntime(view, userScripts, lifecycleScope,
-            isAllowed = { !privacy.isIncognito }, isCurrent = { webViewOrNull === view }).also { it.install() }
+            isPrivate = { privacy.isIncognito }, isCurrent = { webViewOrNull === view }).also { it.install() }
     }
 
     /** Installs one media probe per pooled WebView and replaces stale Activity callbacks. */
@@ -1396,6 +1478,16 @@ class MainActivity : ComponentActivity(),
             hasVideo = false
         }
         mediaTrackers.remove(view)?.close()
+        // Everything above is one WebView's helpers; the picker's channel is one of them, and a
+        // pick running on it has nothing left to report to.
+        elementPickers.remove(view)?.dispose()
+        if (pickerOwner === view) {
+            pickerOwner = null
+            elementPicker = null
+        }
+        // A transfer still running on this channel has nowhere left to write: the task is failed and
+        // its partial file removed, exactly as a cancel does.
+        pageFileDownloads.remove(view)?.close()
     }
 
     private fun applyPlaybackSpeed(speed: Float) {
@@ -1584,6 +1676,10 @@ class MainActivity : ComponentActivity(),
         val popup = runCatching { acquireFreshPage() }.getOrNull() ?: return null
         mediaTrackers.trackerOf(popup)?.prepareForPopup()
         scriptRuntimes[popup]?.prepareForPopup()
+        // A document-start registration does not survive the popup content replacement Chromium
+        // performs on this WebView, so the page half is dropped here and reinstalled in
+        // onPopupContentsAttached — the same window the media probe and script runtime use.
+        pageFileDownloads[popup]?.prepareForPopup()
         cancelWebsitePermissions()
         cancelPendingSslError()
         dismissPageContext()
@@ -1713,6 +1809,9 @@ class MainActivity : ComponentActivity(),
         if (entering) {
             persistNormalSession()
             privateSites = normalSites.privateSession()
+            // The session owns the script values too: it drops them on the way in and on the way
+            // out, so every path that opens incognito — this one, a cold start, the ViewModel
+            // going away — is covered in one place instead of each caller remembering.
             sessionState.beginPrivateSession()
             tabManager = incognitoTabManager
         } else {
@@ -1771,6 +1870,10 @@ class MainActivity : ComponentActivity(),
         val priorFiltering = workerDocument.filtering && filter.enabled.value
         readyWebViewTabId = null
         dismissPageContext()
+        // The pick belongs to the page it was started on, and that page is about to stop being the
+        // one on screen. Stopping it here rather than when the next pick starts is what keeps a
+        // parked tab from going on ignoring every touch until it is looked at again.
+        stopElementPicker()
         leaveFullscreen()
         state.revealToolbar()
         mediaProbeJob?.cancel()
@@ -2031,6 +2134,86 @@ class MainActivity : ComponentActivity(),
     }
 
     /**
+     * Starts the byte transfer for a confirmed page file.
+     *
+     * The page half that reported the offer is looked up by URL rather than assumed to be the visible
+     * tab: a confirmation can outlive a tab switch, and the bytes belong to the document that made
+     * them.
+     */
+    private fun startPageFile(id: Long, offer: com.mybrowser.download.PageFileOffer): Boolean {
+        val source = pageFileSourceFor(offer) ?: return false
+        if (!source.isOwnedBy(webViewOrNull)) {
+            // The tab changed between the confirmation and this start. Nothing has been handed over
+            // yet, and a background document's blob address is not the one the user confirmed.
+            return false
+        }
+        // The handler binds the source itself, before its pump can run; see startPageFile.
+        return downloadHandler.startPageFile(id, offer, source)
+    }
+
+    /**
+     * What the page half of the page-file channel reports.
+     *
+     * Every callback arrives on the WebView's callback thread, so anything touching the UI is posted.
+     * A page file follows the same privacy rules as any other download: inside a private session the
+     * record is scoped to that session and its URL is not persisted, which the handler already
+     * applies through the request's identity.
+     */
+    private val pageFileListener = object : com.mybrowser.download.PageFileDownload.Listener {
+        override fun onOffer(offer: com.mybrowser.download.PageFileOffer) {
+            runOnUiThread { submitPageFileRequest(offer) }
+        }
+
+        override fun onUnavailable() {
+            runOnUiThread { toast(getString(R.string.download_page_file_unavailable)) }
+        }
+
+        override fun onReady() = Unit
+
+        override fun onFailed(id: Long, reason: String) {
+            // The writer owns the partial file, so it cleans up; this only reports that the task
+            // ended in failure rather than completing.
+            runOnUiThread { toast(getString(R.string.download_page_file_failed)) }
+        }
+    }
+
+    /**
+     * The handler that owns [offer]: whichever configured WebView's channel reported it.
+     *
+     * The listener is shared, so the reporting instance has to be found by identity rather than
+     * assumed to be the one on screen; a background tab's channel can legitimately answer.
+     */
+    private fun pageFileSourceFor(offer: com.mybrowser.download.PageFileOffer): com.mybrowser.download.PageFileDownload? =
+        pageFileDownloads.values.firstOrNull { it.owns(offer.url) }
+
+    /**
+     * A page built a file in memory and clicked a link to it.
+     *
+     * There is nothing to fetch, so the ordinary request path cannot describe it: the confirmation is
+     * fed from the page's own answer instead of from a response. The download engine's length is not
+     * known yet, and the page's own progress display is what the user has already seen.
+     */
+    private fun submitPageFileRequest(offer: com.mybrowser.download.PageFileOffer) {
+        if (pageFileSourceFor(offer) == null) return
+        val placeholder = com.mybrowser.download.DownloadHandler.PAGE_FILE_PREFIX + offer.url
+        val request = com.mybrowser.download.DownloadRequestCoordinator.Request(
+            url = placeholder,
+            filename = downloadHandler.previewFilename(placeholder, null, offer.mimeType)
+                ?: offer.name?.takeIf { it.isNotBlank() } ?: getString(R.string.download_file),
+            mimeType = offer.mimeType,
+            userAgent = null,
+            contentDisposition = null,
+            referer = offer.pageUrl,
+            isPrivate = privacy.isIncognito,
+            cookieHeader = null,
+            sourceOrigin = com.mybrowser.site.SiteOrigin.of(offer.pageUrl),
+            contentLength = offer.size,
+            pageFile = offer,
+        )
+        handleDownloadSubmission(downloadRequests.submit(request))
+    }
+
+    /**
      * Saves a video the sniffer found rather than the page offering a link.
      *
      * Manifests are not offered here: the engine transfers one response body, so an HLS or DASH
@@ -2076,8 +2259,18 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun confirmDownloadRequest() {
+        val offer = downloadRequests.pending.value?.request?.pageFile
         when (val outcome = downloadRequests.confirmPending()) {
-            is com.mybrowser.download.DownloadHandler.EnqueueOutcome.Started -> downloadAdded(outcome.id)
+            is com.mybrowser.download.DownloadHandler.EnqueueOutcome.Started -> {
+                if (offer != null && !startPageFile(outcome.id, offer)) {
+                    // The bytes could not start moving: fail and drop the task now rather than leave
+                    // a row that would sit at zero forever.
+                    downloadHandler.cancel(outcome.id)
+                    toast(getString(R.string.download_page_file_failed))
+                } else {
+                    downloadAdded(outcome.id)
+                }
+            }
             is com.mybrowser.download.DownloadHandler.EnqueueOutcome.Existing -> {
                 downloadFocusId = outcome.id
                 toast(getString(R.string.download_already_known))
@@ -2389,6 +2582,9 @@ class MainActivity : ComponentActivity(),
         leaveFullscreen()
         rememberedVideo = null
         workerDocument = documentFor(url)
+        // The document the pick was started on is gone, and the pick went with it: what would be
+        // left otherwise is a bar over a page that no longer has anything selected.
+        stopElementPicker()
         state.onPageStarted(url)
         networkLogs.beginPage(url)
         consoleLogs.clear()
@@ -2401,6 +2597,13 @@ class MainActivity : ComponentActivity(),
         // A new document invalidates the old one's download answers: pending
         // confirmations and per-page rejections die here, confirmed tasks keep running.
         viewOwnerId?.let { downloadRequests.selectTab(it); downloadRequests.startDocument(it) }
+        // A blob: address and the question asked about it belong to the document that produced them,
+        // so an answer that arrives after this navigation is not about anything on screen.
+        pageFileDownloads[webView]?.onDocumentChanged()
+        // The status describes the document on screen. It is cleared here, at the start of the
+        // load, rather than at its end: clearing it immediately before repopulating it left the
+        // previous page's scripts named in the menu for the whole of the next page's load.
+        scriptRuntimes[webView]?.onDocumentChanged(url)
         // Update current tab URL
         tabManager.currentTab?.url = url
         tabManager.notifyChanged()
@@ -2440,6 +2643,9 @@ class MainActivity : ComponentActivity(),
         // Detect the active media element for cast preference. The document-start tracker
         // handles cross-origin iframes; older providers use the one-shot polling fallback.
         startPlayingVideoDetection()
+        // The status was cleared when this load started; this is what fills it in from the
+        // registrations that existed then. Calling onDocumentChanged here as well would retake the
+        // snapshot after any registration made during the load, crediting a script that never ran.
         scriptRuntimes[webView]?.onPageFinished(url)
         val target = webView
         val documentEpoch = permissionEpoch
@@ -2794,6 +3000,7 @@ class MainActivity : ComponentActivity(),
             if (!isDestroyed && !isFinishing && pool.owns(view)) {
                 mediaTrackers.trackerOf(view)?.onPopupContentsAttached()
                 scriptRuntimes[view]?.onPopupContentsAttached()
+                pageFileDownloads[view]?.onPopupContentsAttached()
             }
         } finally {
             pendingPopupTransfers.remove(view)?.close()
@@ -2974,7 +3181,19 @@ class MainActivity : ComponentActivity(),
                 bookmarkDocuments.dismissPreview()
                 scriptImportUrl = null
                 bookmarkDraft = null
-                navigate(url)
+                // A URL handed over by another app is a request to open *that* page, not to
+                // replace the one being read, so it gets its own tab the way every other
+                // browser behaves. Three cases still reuse the current tab, because none of
+                // them is a page the user asked to keep: a home/new-tab document (a cold start
+                // with a VIEW intent never loaded one, and leaving it behind would show an
+                // empty tab next to the requested page), a tab with no URL yet, and a browser
+                // already at the tab limit — where a new tab is impossible and reusing the
+                // current one beats swallowing the link.
+                if (onUserScriptUrl(url)) return
+                val current = state.currentUrl
+                if (isHomeDocument(current) || tabManager.currentTab?.url.isNullOrBlank() ||
+                    !tabManager.canCreateTab) navigate(url)
+                else openUrlInNewTab(url)
             }
         }
     }
@@ -3033,6 +3252,10 @@ class MainActivity : ComponentActivity(),
                 dismissSheet(sheetNavigation.current!!)
                 return true
             }
+            elementPicker != null -> {
+                stopElementPicker()
+                return true
+            }
             state.isFindBarVisible -> {
                 webView.clearMatches()
                 state.hideFindBar()
@@ -3080,6 +3303,10 @@ class MainActivity : ComponentActivity(),
                         if (fullscreenView?.handleBack() != true) leaveFullscreen()
                     }
                     sheetNavigation.current != null -> dismissSheet(sheetNavigation.current!!)
+                    // A pick is the last thing put over the page and has no other way out: the page
+                    // cannot be touched while it is running, so cancel it before anything the page
+                    // itself would answer.
+                    elementPicker != null -> stopElementPicker()
                     // Every overlay is closed and the chrome is hidden: back is the user's
                     // way out of immersion, not a page-history step.
                     isBrowserFullscreenImmersive -> setBrowserFullscreenEnabled(false)
@@ -3521,6 +3748,213 @@ class MainActivity : ComponentActivity(),
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Stores one rule the user built by hand, and says what became of it.
+     *
+     * The store is the only thing that knows whether a rule was new, already there, or refused, so
+     * every outcome gets its own message: a tap that blocked nothing must not be reported as a
+     * block, and a rule the app would not keep must not be reported as saved. [added] is the one
+     * message that differs between the ways a rule is made, because where to undo it from depends
+     * on what was blocked.
+     */
+    private fun addUserRule(rule: String, added: String) {
+        lifecycleScope.launch {
+            when (customFilter.addUserRule(rule)) {
+                FilterSubscriptions.RuleChange.ADDED -> toast(added)
+                FilterSubscriptions.RuleChange.ALREADY_PRESENT -> toast(getString(R.string.filter_user_rule_present))
+                FilterSubscriptions.RuleChange.INVALID -> toast(getString(R.string.filter_user_rule_invalid))
+                FilterSubscriptions.RuleChange.FULL -> toast(getString(R.string.filter_user_rule_full))
+                FilterSubscriptions.RuleChange.TOO_LARGE -> toast(getString(R.string.filter_user_rule_too_large))
+                FilterSubscriptions.RuleChange.SAVE_FAILED -> toast(getString(R.string.filter_user_rule_failed))
+            }
+        }
+    }
+
+    /**
+     * Adds one rule and hands its outcome to [then] on the main thread.
+     *
+     * The picker's own confirmation has to describe what happened to the rule: hiding the element
+     * unconditionally made a refused rule look applied, and the element was back on the next load
+     * with the user believing it was blocked.
+     */
+    private fun addUserRuleAnd(rule: String, added: String, then: (Boolean) -> Unit) {
+        lifecycleScope.launch {
+            when (customFilter.addUserRule(rule)) {
+                // The rule is in the list either way, so the element is hidden either way; only the
+                // message differs. A rule that was refused never hides anything, so the picker does
+                // not leave the user with an element gone and nothing stored to bring it back.
+                FilterSubscriptions.RuleChange.ADDED -> { toast(added); then(true) }
+                FilterSubscriptions.RuleChange.ALREADY_PRESENT -> { toast(getString(R.string.filter_user_rule_present)); then(true) }
+                FilterSubscriptions.RuleChange.INVALID -> { toast(getString(R.string.filter_user_rule_invalid)); then(false) }
+                FilterSubscriptions.RuleChange.FULL -> { toast(getString(R.string.filter_user_rule_full)); then(false) }
+                FilterSubscriptions.RuleChange.TOO_LARGE -> { toast(getString(R.string.filter_user_rule_too_large)); then(false) }
+                FilterSubscriptions.RuleChange.SAVE_FAILED -> { toast(getString(R.string.filter_user_rule_failed)); then(false) }
+            }
+        }
+    }
+
+    /**
+     * The rule itself is written for the engine, not for reading: the message names what the user
+     * pointed at instead, which is what they can still recognise.
+     */
+    private fun subjectOf(rule: String): String = rule.removePrefix("||").removeSuffix("^")
+
+    /**
+     * Hides one image in the document that is open right now, without storing anything.
+     *
+     * The image keeps its own address, so it is matched by that: the same file served from the same
+     * address elsewhere on this page goes away with it, which is usually the same ad in a second
+     * slot. The hiding lives in the document and dies with it, so a reload brings the image back —
+     * that is the point of this action rather than a limitation, and the message says so.
+     */
+    private fun hideImageForNow(url: String) {
+        val target = webViewOrNull ?: return
+        // evaluateJavascript runs against whatever document the WebView holds when the script is
+        // executed, and that is asynchronous. A navigation started in between would hide the image
+        // at this address in the *new* page — a document the user asked nothing about — so the
+        // document is captured and re-checked before the script is sent.
+        val epoch = permissionEpoch
+        val documentUrl = target.url
+        if (!isSameDocument(target, epoch, documentUrl)) return
+        // The message follows what happened: an address that names no image on the page is said out
+        // loud rather than reported as a hide that did not occur.
+        PageHide.hideMatchingImage(target, url) { hidden ->
+            if (!isSameDocument(target, epoch, documentUrl)) return@hideMatchingImage
+            toast(getString(if (hidden > 0) R.string.filter_user_rule_hidden else R.string.filter_user_rule_hidden_none))
+        }
+    }
+
+    /**
+     * Whether [view] is still showing the document a deferred action was started on.
+     *
+     * The epoch advances on every navigation, and the URL catches a reload that reuses the same
+     * WebView without the epoch having moved. Both halves are needed: one names the document, the
+     * other names what it contains.
+     */
+    private fun isSameDocument(view: WebView, epoch: Long, url: String?): Boolean =
+        !isFinishing && !isDestroyed && permissionEpoch == epoch &&
+            webViewOrNull === view && view.url == url
+
+    /**
+     * The picker for the WebView it was started on, and what it has to say for itself.
+     *
+     * A pick belongs to one document: the page's own copy of it is gone the moment that document
+     * is, so nothing about it is kept past a page change.
+     */
+    private var elementPicker by mutableStateOf<ElementPickerState?>(null)
+    private var pickerOwner: WebView? = null
+
+    /** One message channel per pooled WebView, installed in [configure] and dropped with it. */
+    private val elementPickers = mutableMapOf<WebView, ElementPicker>()
+
+    /**
+     * The page-file channel per pooled WebView, installed in [configure] and dropped with it.
+     *
+     * It is the same kind of attachment as the picker's, for the same reason: a listener added to a
+     * document that has already settled has taken the process down inside `libwebviewchromium`, so
+     * it has to exist before the first load.
+     */
+    private val pageFileDownloads = mutableMapOf<WebView, com.mybrowser.download.PageFileDownload>()
+
+    /** Null for a WebView that was never configured, which is what [ElementPicker.start] refuses. */
+    private fun pickerFor(view: WebView): ElementPicker? = elementPickers[view]
+
+    /**
+     * What the userscript layer is doing for the page on screen, as Compose state.
+     *
+     * Reading `.value` from a composable subscribes to nothing: the runtime publishes through a
+     * StateFlow, and a snapshot taken during composition only changes when something *else*
+     * recomposes this scope. Disabling or enabling a script from the panel is exactly such an
+     * update, and it used to leave the sheet showing the state before the tap. Collecting the flow
+     * makes the runtime's own publications the thing that recomposes.
+     *
+     * The WebView is read through [webViewOrNull], which is Compose state, so the answer also
+     * follows a tab switch to a runtime that was not the one last read.
+     */
+    @androidx.compose.runtime.Composable
+    private fun currentUserScriptStatus(): com.mybrowser.userscript.UserScriptStatus? {
+        val view = webViewOrNull ?: return null
+        val runtime = scriptRuntimes[view] ?: return null
+        return runtime.status.collectAsState().value
+    }
+
+    /** Starts a pick: the page outlines what a finger is over, and the bar writes the rule. */
+    private fun startElementPicker(accent: Int, bottomInset: Int) {
+        val target = webViewOrNull ?: return
+        if (elementPicker != null) return
+        pickerOwner = target
+        val started = pickerFor(target)?.start(
+            accent, bottomInset,
+            onSelection = { selection ->
+                // No selection means the pick ended: either the page refused it or it was stopped
+                // from this side, and in both cases the bar has nothing left to say.
+                elementPicker = selection?.let {
+                    ElementPickerState.Chosen(it.selector, it.matchCount, it.canParent, it.canChild)
+                }
+            },
+            onEnd = { reason ->
+                // The page can refuse after start() has already answered true — an embedded frame
+                // looks like a page until its own script runs. This is the only place the reason is
+                // known; without it the bar would vanish with no explanation.
+                if (reason == ElementPicker.End.REFUSED) toast(getString(R.string.picker_unavailable))
+            },
+        )
+        if (started != true) {
+            toast(getString(R.string.picker_unavailable))
+            return
+        }
+        elementPicker = ElementPickerState.Picking
+    }
+
+    private fun stopElementPicker() {
+        pickerOwner?.let { elementPickers[it]?.stop() }
+        elementPicker = null
+    }
+
+    /**
+     * Writes the rule for the chosen element, and takes it off the page at once.
+     *
+     * The rule is stored first, and the page is told to hide the element separately rather than
+     * waiting for the engine's next stylesheet: the bar is gone by the time the element disappears,
+     * so what the user sees is the element going away after they asked for it, with nothing left on
+     * screen suggesting they have to ask twice.
+     */
+    private fun blockPickedElement(allSites: Boolean) {
+        val chosen = elementPicker as? ElementPickerState.Chosen ?: return
+        val target = webViewOrNull ?: return
+        // The rule is written asynchronously, and the element it hides belongs to this document.
+        // Navigating in between would apply the selector to the page that replaced it.
+        val epoch = permissionEpoch
+        val documentUrl = target.url
+        val rule = BlockRules.elementRule(BlockRules.hostOf(state.currentUrl), chosen.selector, allSites)
+        stopElementPicker()
+        if (rule == null) {
+            // The engine would drop it without a word, so an element this app will not write a rule
+            // for is said out loud instead of being left on screen as though it were blocked.
+            toast(getString(R.string.filter_user_rule_invalid))
+            return
+        }
+        // Hiding is tied to the rule being stored, not to the gesture having happened: the picker
+        // can report a selector the engine would drop (a page can post whatever it likes to the
+        // channel), and hiding that element anyway would show the user an element that went away,
+        // with a toast saying no rule was written and an empty list where the rule should be. The
+        // same applies to a write that failed — the element must not disappear until the rule that
+        // would keep it hidden is actually in the list.
+        addUserRuleAnd(
+            rule,
+            getString(
+                if (allSites) R.string.filter_user_rule_element_added_all
+                else R.string.filter_user_rule_element_added
+            ),
+        ) { stored ->
+            if (stored && BlockRules.isUsableElementSelector(chosen.selector) &&
+                isSameDocument(target, epoch, documentUrl)
+            ) {
+                PageHide.apply(target, chosen.selector)
+            }
+        }
+    }
+
     private fun copyToClipboard(text: String) {
         getSystemService(ClipboardManager::class.java)
             ?.setPrimaryClip(ClipData.newPlainText(null, text))
@@ -3528,7 +3962,15 @@ class MainActivity : ComponentActivity(),
     }
 
     private companion object {
+        /** The scheme a page uses to hand its own memory out as a download. */
+        const val BLOB_SCHEME = "blob:"
         const val ABOUT_BLANK = "about:blank"
+        /**
+         * How much of the bottom of the page the picker's own bar covers, so the element being
+         * outlined can be brought up from behind it. An estimate on purpose: it is a nudge to keep
+         * the selection visible, and being a few dp out costs nothing but a slightly larger gap.
+         */
+        val PICKER_BAR_INSET = 176.dp
         const val EXIT_CONFIRM_WINDOW_MS = 2_000L
         const val NORMAL_TABS_PREFS = "normal_tabs"
         const val STATE_NORMAL_TABS = "normal_tab_snapshot"

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blob Download Lab</title>
+<body style="margin:0;font:18px system-ui">
+<button id="go" style="display:block;padding:24px;font:inherit">Build file then save (blob)</button>
+<a id="direct" style="display:block;padding:24px">Direct http download</a>
+<div id="pct" style="padding:24px">idle</div>
+<script>
+// The page reads the body itself and reports its own progress. Only when the last byte has arrived
+// does it hand the finished Blob to an <a download>. That is the shape of a download the browser
+// cannot fetch: the address that gets clicked exists only inside this document. Each press builds a
+// new Blob under a new name, so a second save also proves the first transfer released its slot.
+var params = new URLSearchParams(location.search);
+var key = params.get('case') || String(Date.now());
+var source = 'download-test.bin?case=' + encodeURIComponent(key);
+var count = 0;
+
+document.getElementById('direct').href = source;
+document.getElementById('direct').download = 'direct-' + key + '.bin';
+document.getElementById('go').addEventListener('click', async function () {
+  var percent = document.getElementById('pct');
+  var index = ++count;
+  percent.textContent = 'reading ' + index;
+  var res = await fetch(source);
+  if (!res.ok) { percent.textContent = 'source unavailable ' + res.status; return; }
+  var reader = res.body.getReader(), chunks = [], done = 0;
+  var total = Number(res.headers.get('Content-Length') || 0);
+  for (;;) {
+    var next = await reader.read();
+    if (next.done) break;
+    chunks.push(next.value); done += next.value.length;
+    percent.textContent = total ? 'progress ' + Math.round(done * 100 / total) + '%'
+                                : 'progress ' + done + ' bytes';
+  }
+  var blob = new Blob(chunks, { type: 'application/octet-stream' });
+  percent.textContent = 'progress 100% - handing over ' + blob.size + ' bytes (file ' + index + ')';
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = key + '-' + index + '.bin';
+  document.body.appendChild(a);
+  a.click();
+});
+</script>
+</body></html>

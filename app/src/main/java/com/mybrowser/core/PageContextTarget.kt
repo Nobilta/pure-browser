@@ -5,6 +5,16 @@ import android.os.Looper
 import android.webkit.WebView
 
 data class PageContextTarget(val linkUrl: String?, val imageUrl: String?, val title: String) {
+    /**
+     * The one address the blocking rows act on.
+     *
+     * The image wins when there is one: the press was on the image, and an image inside a link would
+     * otherwise offer to block the href — on a site's own gallery that is the site being browsed, so
+     * "block everything from this site" would take the whole page with it. The hide row next to the
+     * block rows is the same image, so every row stays about one request.
+     */
+    val blockAddress: String get() = imageUrl ?: linkUrl.orEmpty()
+
     companion object {
         fun create(linkUrl: String?, imageUrl: String?, title: String? = null): PageContextTarget? {
             fun safe(value: String?): String? = value?.trim()?.takeIf {

@@ -1,6 +1,7 @@
 package com.mybrowser.backup
 
 import android.content.Context
+import java.io.IOException
 import android.util.Log
 import com.mybrowser.core.VideoFit
 import com.mybrowser.data.Bookmark
@@ -39,6 +40,8 @@ data class ImportPreview(
     val engineReplaces: Pair<Int, Int>?,
     /** (new, old) custom subscription counts when the file replaces the list. */
     val subscriptionReplaces: Pair<Int, Int>?,
+    /** (new, old) hand-written rule counts when the file replaces them. */
+    val ruleReplaces: Pair<Int, Int>?,
     /** (new, old) site counts when the file replaces migratable site preferences. */
     val siteReplaces: Pair<Int, Int>?,
     val unknownBuiltInIds: List<String>,
@@ -60,6 +63,23 @@ data class ExportResult(
     val omittedBookmarks: Int = 0,
     val omittedHistory: Int = 0,
 )
+
+/**
+ * Drops rows until the encoded file fits, always removing at least one per pass.
+ *
+ * A quarter at a time keeps the number of encodes logarithmic in the row count. The
+ * `coerceAtLeast(1)` is what guarantees progress: with fewer than four rows a quarter is no rows at
+ * all, and a loop that cannot shrink its input never ends. Throwing once the rows are gone says the
+ * file cannot be written at all, which is better than writing one the importer refuses.
+ */
+internal fun <T> trimToBudget(rows: List<T>, limit: Int, encodedSize: (List<T>) -> Int): List<T> {
+    var kept = rows
+    while (encodedSize(kept) > limit) {
+        if (kept.isEmpty()) throw IOException("Settings too large to export")
+        kept = kept.subList(0, kept.size - (kept.size / 4).coerceAtLeast(1))
+    }
+    return kept
+}
 
 /**
  * Keeps rows in order until the byte budget is spent. Row counts alone cannot bound the
@@ -140,10 +160,13 @@ class SettingsTransfer(
             BookmarkFolders.path(folderId, folders).map { it.title }
         }.getOrDefault(emptyList())
         val paths = folders.associate { it.id to pathOf(it.id) }
-        // JSON escaping and key names are covered by the constant slack per row.
+        // Costs are UTF-8 bytes, not characters: the file is written as UTF-8 and the importer
+        // refuses it at 8 MiB, so a budget counted in characters lets a Chinese title spend three
+        // bytes for one. The per-row slack covers the JSON keys and escaping of one row.
+        fun utf8(text: String): Int = text.toByteArray(Charsets.UTF_8).size
         fun bookmarkCost(row: Bookmark): Int =
-            row.title.length + row.url.length + paths[row.folderId].orEmpty().sumOf { it.length } + 48
-        fun historyCost(row: HistoryEntry): Int = row.title.length + row.url.length + 40
+            utf8(row.title) + utf8(row.url) + paths[row.folderId].orEmpty().sumOf(::utf8) + 96
+        fun historyCost(row: HistoryEntry): Int = utf8(row.title) + utf8(row.url) + 96
 
         val budget = SettingsBackupCodec.MAX_FILE_BYTES - SETTINGS_RESERVE_BYTES
         val bookmarkRows = fitBackupBudget(
@@ -153,10 +176,15 @@ class SettingsTransfer(
             history.backupHistory(SettingsBackupCodec.MAX_BACKUP_HISTORY),
             budget - bookmarkRows.sumOf(::bookmarkCost), ::historyCost,
         )
+        // Every group except bookmarks and history is fixed-size, so the encoded size of the file
+        // is a function of how many history rows it carries. The budgets above are estimates —
+        // UTF-8 costs are exact, but the settings groups they reserve room for are only bounded,
+        // not measured — so the file is built once and trimmed until it actually fits. An export
+        // that passed the importer’s limit only by estimate would be a file that cannot be read
+        // back, which is the one outcome this must never produce.
         val omittedBookmarks = (bookmarks.countBookmarks() - bookmarkRows.size).coerceAtLeast(0)
         val omittedHistory = (history.countHistory() - historyRows.size).coerceAtLeast(0)
-
-        val backup = SettingsBackup(
+        fun build(bookmarkRows: List<Bookmark>, historyRows: List<HistoryEntry>) = SettingsBackup(
             format = SettingsBackup.FORMAT_ID,
             schemaVersion = SettingsBackup.SCHEMA_VERSION,
             appVersion = appVersion,
@@ -208,6 +236,10 @@ class SettingsTransfer(
                         .filter { it.builtIn }.map { BackupBuiltInSubscription(it.id, it.enabled) },
                     customSubscriptions = subscriptions
                         .filter { !it.builtIn }.map { BackupCustomSubscription(it.name, it.url, it.enabled) },
+                    // Always written, even when empty: an export is a full picture of the settings,
+                    // and a rule the user wrote by hand is the one thing here they cannot rebuild
+                    // from a subscription list.
+                    userRules = filterSubscriptions.userRules.value,
                 ),
                 sites = sites.entries.value.map { (origin, settings) ->
                     BackupSite(
@@ -241,7 +273,24 @@ class SettingsTransfer(
                 },
             ),
         )
-        return ExportResult(backup, omittedBookmarks, omittedHistory)
+
+        // History first, bookmarks only if that was not enough: a bookmark is something the user
+        // chose to keep, and a bookmark whose title is mostly escape sequences can overrun the
+        // estimate on its own. The old loop only ever dropped history, so a file that was still too
+        // large with no history left simply failed to export.
+        // Bookmarks first, against the whole budget: they are the part that may be too large on
+        // their own, and a history-first order would throw before the bookmark trim ever ran.
+        val keptBookmarks = trimToBudget(bookmarkRows, SettingsBackupCodec.MAX_FILE_BYTES) { rows ->
+            SettingsBackupCodec.encode(build(rows, emptyList())).toByteArray(Charsets.UTF_8).size
+        }
+        val keptHistory = trimToBudget(historyRows, SettingsBackupCodec.MAX_FILE_BYTES) { rows ->
+            SettingsBackupCodec.encode(build(keptBookmarks, rows)).toByteArray(Charsets.UTF_8).size
+        }
+        return ExportResult(
+            build(keptBookmarks, keptHistory),
+            (omittedBookmarks + (bookmarkRows.size - keptBookmarks.size)).coerceAtLeast(0),
+            (omittedHistory + (historyRows.size - keptHistory.size)).coerceAtLeast(0),
+        )
     }
 
     fun preview(backup: SettingsBackup): ImportPreview {
@@ -270,6 +319,9 @@ class SettingsTransfer(
             },
             subscriptionReplaces = settings.filtering?.customSubscriptions?.let { new ->
                 new.size to filterSubscriptions.subscriptions.value.count { !it.builtIn }
+            },
+            ruleReplaces = settings.filtering?.userRules?.let { new ->
+                new.size to filterSubscriptions.userRules.value.size
             },
             siteReplaces = settings.sites?.let { new ->
                 new.size to sites.entries.value.size
@@ -464,6 +516,9 @@ class SettingsTransfer(
                     ?.map { Triple(it.name, it.url, it.enabled) }
                 val outcome = filterSubscriptions.importConfiguration(
                     builtInStates, customs, filtering.enabled, filtering.autoUpdate,
+                    // Absent in the file means an older export: keep what is here rather than
+                    // clearing rules this device wrote and the file never knew about.
+                    userRules = filtering.userRules,
                 )
                 require(outcome.ok) { "Unable to import filter configuration" }
                 pendingFilterUpdates = outcome.pendingUpdates

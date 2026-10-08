@@ -2,6 +2,7 @@ package com.mybrowser.filter
 
 import android.content.Context
 import android.util.AtomicFile
+import android.util.Log
 import androidx.core.content.edit
 import com.mybrowser.data.commitConfirmed
 import com.mybrowser.R
@@ -65,9 +66,75 @@ class FilterSubscriptions(
     val lastError = _lastError.asStateFlow()
     val autoUpdate = _autoUpdate.asStateFlow()
 
+    /**
+     * What happened to a rule the user wrote; the caller says which, so a tap that blocked nothing
+     * is never reported as a block.
+     */
+    enum class RuleChange { ADDED, ALREADY_PRESENT, INVALID, FULL, TOO_LARGE, SAVE_FAILED }
+
+    /**
+     * Rules the user added by hand, oldest first.
+     *
+     * Kept in the same preference entry group as the subscription manifest rather than as a
+     * [Subscription]: a subscription is something the app downloads, updates and can fail to fetch,
+     * and a hand-written rule is none of those. It is loaded as one more payload in the same engine
+     * snapshot, so it participates in blocking exactly like a list rule does.
+     */
+    private val _userRules = MutableStateFlow<List<String>>(emptyList())
+    val userRules = _userRules.asStateFlow()
+
     suspend fun initialize() = withContext(Dispatchers.IO) {
         mutex.withLock { initializeLocked() }
     }
+
+    /**
+     * Adds one hand-written rule.
+     *
+     * The in-memory list is only advanced after the preference write is confirmed, so a rule that
+     * did not reach disk is not reported as applied.
+     */
+    suspend fun addUserRule(rule: String): RuleChange = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            initializeLocked()
+            val line = rule.trim()
+            if (!BlockRules.isValid(line)) return@withLock RuleChange.INVALID
+            val current = _userRules.value
+            if (current.any { it == line }) return@withLock RuleChange.ALREADY_PRESENT
+            if (current.size >= MAX_USER_RULES) return@withLock RuleChange.FULL
+            val next = current + line
+            // Hand-written rules share one budget with the subscriptions in the engine snapshot,
+            // so a rule that would push the combined payload past the limit has to be refused here.
+            // Accepting it would persist a rule the engine then rejects wholesale, leaving the user
+            // with a rule the settings show and the filter never applies.
+            if (!fitsPayloadLimit(next)) return@withLock RuleChange.TOO_LARGE
+            if (!persistUserRules(next)) return@withLock RuleChange.SAVE_FAILED
+            _userRules.value = next
+            rebuild()
+            RuleChange.ADDED
+        }
+    }
+
+    /** Removes one rule. False when it was not there, so the caller does not claim a removal. */
+    suspend fun removeUserRule(rule: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            initializeLocked()
+            val line = rule.trim()
+            val current = _userRules.value
+            if (current.none { it == line }) return@withLock false
+            val next = current.filterNot { it == line }
+            if (!persistUserRules(next)) return@withLock false
+            _userRules.value = next
+            rebuild()
+            true
+        }
+    }
+
+    /** True when the write was confirmed; the caller must not publish the change otherwise. */
+    private fun persistUserRules(rules: List<String>): Boolean = runCatching {
+        val text = rules.joinToString("\n")
+        require(text.length <= MAX_USER_RULES_BYTES)
+        prefs.commitConfirmed(mapOf(USER_RULES_KEY to text))
+    }.isSuccess
 
     private suspend fun initializeLocked() {
         if (initialized) return
@@ -103,8 +170,38 @@ class FilterSubscriptions(
                 error = appContext.getString(R.string.filter_missing_snapshot))
             else list.copy(ruleCount = FilterListFormat.validate(payload), bytes = payload.toByteArray().size)
         }
+        _userRules.value = readUserRules()
         initialized = true
         rebuild()
+    }
+
+    /**
+     * Reads the hand-written rules, dropping any that are no longer rules.
+     *
+     * A rule this app wrote always passes [BlockRules.isValid], so a line that fails here came from
+     * an older version or an edited preference file. It is dropped rather than loaded, because an
+     * unparseable line makes the whole payload uncountable and the engine would then keep its
+     * previous snapshot. The cleaned list is written back on the next change, not here: reading
+     * must not write.
+     */
+    private fun readUserRules(): List<String> {
+        val stored = prefs.getString(USER_RULES_KEY, null) ?: return emptyList()
+        if (stored.length > MAX_USER_RULES_BYTES) {
+            // Refusing the whole blob discards every rule the user wrote, which they cannot tell
+            // apart from the rules never having been saved. Nothing else here writes a blob this
+            // large, so it means the file was edited or truncated; the log is the only trace.
+            Log.w(TAG, "Hand-written rules exceeded $MAX_USER_RULES_BYTES bytes and were not loaded")
+            return emptyList()
+        }
+        return stored.lineSequence()
+            .map(String::trim)
+            .filter(BlockRules::isValid)
+            // `addUserRule` refuses a duplicate, so a repeated line can only come from an edited
+            // preference file; it is still dropped here, because the settings list keys its rows by
+            // the rule text and two identical keys throw when the list is composed.
+            .distinct()
+            .take(MAX_USER_RULES)
+            .toList()
     }
 
     private fun decode(value: JSONObject?, defaults: Subscription): Subscription {
@@ -121,6 +218,9 @@ class FilterSubscriptions(
         if (raw.length > 256 * 1024) return
         runCatching {
             val values = JSONArray(raw)
+            // Built aside from [loaded], which belongs to the caller: a refused migration must
+            // leave the in-memory list exactly as it was, not merely skip the write.
+            val candidates = mutableListOf<Subscription>()
             for (i in 0 until minOf(values.length(), MAX_CUSTOM_LISTS)) {
                 val item = values.optJSONObject(i) ?: continue
                 val id = item.optString("id")
@@ -133,9 +233,19 @@ class FilterSubscriptions(
                     val text = old.inputStream().use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
                     entry = stage(entry, text)
                 }
-                loaded += entry
+                candidates += entry
             }
-            persist(loaded)
+            // The same three ceilings every other write path checks. A migration that saved an
+            // over-budget set would leave every list shown as enabled with a rule count while the
+            // engine quietly kept its previous snapshot — the exact state checkSize exists to
+            // prevent, and the one path that used to skip it.
+            checkSize(loaded + candidates)
+            persist(loaded + candidates)
+            loaded += candidates
+        }.onFailure { error ->
+            // Nothing was persisted and nothing was added: the legacy store is left for a later
+            // build, and the user is no worse off than before this ran.
+            Log.w(TAG, "Legacy filter lists were not migrated: ${error.message}")
         }
     }
 
@@ -147,6 +257,9 @@ class FilterSubscriptions(
 
     suspend fun setEnabled(id: String, value: Boolean): Boolean = mutate {
         val next = _subscriptions.value.map { if (it.id == id) it.copy(enabled = value) else it }
+        // Enabling a list adds its rules to the engine snapshot, so it has to pass the same budget
+        // a new rule does. Disabling only shrinks the snapshot and passes on its own.
+        checkSize(next)
         persist(next)
         _subscriptions.value = next
         true
@@ -188,13 +301,16 @@ class FilterSubscriptions(
      *
      * A null [customLists] means the file said nothing about custom subscriptions and
      * the current ones are kept untouched; an explicit (possibly empty) list replaces
-     * them wholesale, so "absent" and "cleared" stay distinguishable.
+     * them wholesale, so "absent" and "cleared" stay distinguishable. Hand-written rules
+     * follow the same rule, for the same reason: an older file that never carried them
+     * must not silently wipe the ones a user wrote on this device.
      */
     suspend fun importConfiguration(
         builtInStates: Map<String, Boolean>,
         customLists: List<Triple<String, String, Boolean>>?,
         enabled: Boolean? = null,
         autoUpdate: Boolean? = null,
+        userRules: List<String>? = null,
     ): ImportOutcome = withContext(Dispatchers.IO) {
         mutex.withLock {
             _busy.value = true
@@ -210,6 +326,15 @@ class FilterSubscriptions(
                         subscription
                     }
                 }
+                val nextRules = userRules?.let { rules ->
+                    // Refused here rather than written and dropped: the engine ignores a rule it
+                    // cannot read, so a file carrying one has to fail the group instead of
+                    // importing as though it had been applied.
+                    val cleaned = rules.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                    require(cleaned.size <= MAX_USER_RULES) { "User rule limit reached" }
+                    require(cleaned.all(BlockRules::isValid)) { "Unsupported user rule" }
+                    cleaned
+                } ?: _userRules.value
                 if (customLists != null) {
                     next = next.filter { it.builtIn } // custom lists are replaced wholesale
                     require(customLists.size <= MAX_CUSTOM_LISTS) { "Subscription limit reached" }
@@ -223,9 +348,13 @@ class FilterSubscriptions(
                             ?: Subscription(TextDownloader.sha256(cleanUrl).take(16), cleanName, cleanUrl, enabled = enabled))
                     }
                 }
-                checkSize(next)
-                persist(next, enabled, autoUpdate)
+                checkSize(next, nextRules)
+                // Only an import that carries rules writes that key: a file that said nothing about
+                // them leaves the stored text exactly as it was, including a version of it written
+                // by a newer build than the one doing the importing.
+                persist(next, enabled, autoUpdate, userRules?.let { nextRules })
                 _subscriptions.value = next
+                _userRules.value = nextRules
                 filter?.reloadEnabledPreference()
                 _autoUpdate.value = prefs.getBoolean("auto_update", true)
                 // Scheduling is derived from the durable preference and retried at app
@@ -307,8 +436,28 @@ class FilterSubscriptions(
         }
     }
 
-    private fun checkSize(lists: List<Subscription>) {
-        if (lists.sumOf { it.bytes.toLong() } > FilterListFormat.MAX_TOTAL_BYTES) throw IOException("Filter storage limit reached")
+    /**
+     * Refuses a configuration the engine would reject as a whole.
+     *
+     * Every path that changes what is enabled runs this, because the engine takes one snapshot of
+     * subscription payloads plus the hand-written rules and refuses the whole set when any of the
+     * three ceilings is passed. Checking only the subscription files leaves a configuration that
+     * saves, shows as enabled, and then silently keeps the previous snapshot in the engine.
+     *
+     * A payload that cannot be read is counted as absent rather than as zero: the rebuild would
+     * skip it too, and refusing a change over a list the engine will never see would be wrong.
+     *
+     * [rules] defaults to the stored hand-written rules, but every caller that is about to commit
+     * a *different* set has to pass it: an import writes its rules after this check, so judging it
+     * against the old ones would let a file through that the engine then refuses.
+     */
+    internal fun checkSize(lists: List<Subscription>, rules: List<String> = _userRules.value) {
+        if (lists.sumOf { it.bytes.toLong() } > FilterListFormat.MAX_TOTAL_BYTES) {
+            throw IOException("Filter storage limit reached")
+        }
+        val sizes = lists.filter { it.enabled }.mapNotNull { readPayload(it)?.toByteArray(Charsets.UTF_8)?.size }
+        val rulesBytes = if (rules.isEmpty()) 0 else rules.joinToString("\n").toByteArray(Charsets.UTF_8).size
+        if (!fitsPayloadLimit(sizes, rulesBytes)) throw IOException("Filter storage limit reached")
     }
 
     private fun stage(list: Subscription, text: String): Subscription {
@@ -339,12 +488,55 @@ class FilterSubscriptions(
             }.getOrNull()
         }
 
-    private suspend fun rebuild() {
-        val enabled = _subscriptions.value.filter { it.enabled }.mapNotNull { list -> readPayload(list)?.let { list.name to it } }
-        filter?.replaceLists(enabled.map { it.second }, enabled.map { it.first })?.join()
+    /**
+     * Whether [rules] leave room for them inside the engine’s aggregate payload limit.
+     *
+     * The same three ceilings [FilterController.replaceLists] enforces are checked here, before the
+     * rule is written: per-payload, total payload, and count. Checking only the file size would still
+     * let the combined snapshot be refused, which is the failure this exists to prevent.
+     */
+    private fun fitsPayloadLimit(rules: List<String>): Boolean {
+        val enabled = _subscriptions.value.filter { it.enabled }
+        val sizes = enabled.mapNotNull { readPayload(it)?.let { text -> text.toByteArray(Charsets.UTF_8).size } }
+        return fitsPayloadLimit(sizes, rules.joinToString("\n").toByteArray(Charsets.UTF_8).size)
     }
 
-    private fun persist(lists: List<Subscription>, enabled: Boolean? = null, autoUpdate: Boolean? = null) {
+    /**
+     * The arithmetic behind [fitsPayloadLimit], over sizes the caller already has.
+     *
+     * Split out so the three ceilings the engine enforces can be pinned directly: seeding payloads
+     * near the 32 MiB limit just to watch one comparison fail would cost the test more than the
+     * check it covers.
+     */
+    internal fun fitsPayloadLimit(existingPayloadBytes: List<Int>, rulesBytes: Int): Boolean {
+        if (rulesBytes > FilterListFormat.MAX_BYTES) return false
+        if (existingPayloadBytes.size + 1 > FilterListFormat.MAX_LISTS) return false
+        return existingPayloadBytes.sumOf { it.toLong() } + rulesBytes <= FilterListFormat.MAX_TOTAL_BYTES
+    }
+
+    private suspend fun rebuild() {
+        val enabled = _subscriptions.value.filter { it.enabled }.mapNotNull { list -> readPayload(list)?.let { list.name to it } }
+        val rules = _userRules.value
+        // One payload, named in the settings and in the "why was this blocked" report like any
+        // other source. An empty list is left out rather than sent as an empty payload, which
+        // FilterListFormat would reject for having no rules.
+        val payloads = if (rules.isEmpty()) enabled
+            else enabled + (appContext.getString(R.string.filter_user_rules) to rules.joinToString("\n"))
+        // Null means the engine refused the whole set — over one of the three ceilings — and is
+        // still holding its previous snapshot. Nothing else can reach this point once the write
+        // paths pre-check, so a null here means a check and the payloads have drifted apart; it is
+        // logged rather than assumed impossible.
+        val job = filter?.replaceLists(payloads.map { it.second }, payloads.map { it.first })
+        if (filter != null && job == null) Log.w(TAG, "Filter engine refused the ${payloads.size}-list snapshot")
+        job?.join()
+    }
+
+    private fun persist(
+        lists: List<Subscription>,
+        enabled: Boolean? = null,
+        autoUpdate: Boolean? = null,
+        userRules: List<String>? = null,
+    ) {
         val array = JSONArray()
         lists.forEach { list ->
             array.put(JSONObject().put("id", list.id).put("name", list.name).put("url", list.url)
@@ -353,10 +545,14 @@ class FilterSubscriptions(
         }
         val text = array.toString()
         require(text.length <= 256 * 1024) { "Subscription manifest too large" }
+        // Hand-written rules ride in the same confirmed write: an import either lands whole or
+        // leaves the previous configuration in place, never half of each.
+        val rules = userRules?.joinToString("\n")?.also { require(it.length <= MAX_USER_RULES_BYTES) }
         prefs.commitConfirmed(buildMap {
             put(MANIFEST_KEY, text)
             enabled?.let { put("enabled", it) }
             autoUpdate?.let { put("auto_update", it) }
+            rules?.let { put(USER_RULES_KEY, it) }
         })
         // The old AtomicFile is read only until the first successful migration/write.
         // Its payload filenames and HTTP validators are preserved verbatim in the JSON.
@@ -381,7 +577,18 @@ class FilterSubscriptions(
             }
         }
 
+        private const val TAG = "FilterSubscriptions"
         private const val MANIFEST_KEY = "subscriptions_manifest"
+
+        /** Hand-written rules. In the same preference file so a settings import commits them too. */
+        private const val USER_RULES_KEY = "user_rules"
+
+        /**
+         * Ceiling on hand-written rules. Small on purpose: every rule is matched against every
+         * request, and a list this size is already far past what someone types by hand.
+         */
+        const val MAX_USER_RULES = 500
+        private const val MAX_USER_RULES_BYTES = 64 * 1024
         const val MAX_CUSTOM_LISTS = 32
         private val ID = Regex("[a-f0-9]{16}")
         private val SNAPSHOT = Regex("[a-z0-9-]+-[a-f0-9]{64}\\.txt")

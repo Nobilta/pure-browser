@@ -33,6 +33,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -70,6 +71,15 @@ class DownloadHandler(context: Context) : Closeable {
     /** Survives replacement of a cancelled job that was itself waiting for an older job. */
     private val transferLocks = ConcurrentHashMap<Long, Mutex>()
     private val interrupted = ConcurrentHashMap.newKeySet<Long>()
+    /**
+     * Tasks whose bytes arrive from the page instead of from an address.
+     *
+     * The Blob behind such a task lives in the renderer that made it, so its placeholder URL must
+     * never be fetched and its record can never be resumed. Membership is in memory only: after a
+     * restart the record comes back without it and simply offers no resume, which is the same answer
+     * for a file nobody can fetch again.
+     */
+    private val fromPageTasks = ConcurrentHashMap.newKeySet<Long>()
     private val lastProgressPersist = AtomicLong(0L)
     /** Serialises JSON snapshots so completion and deletion cannot overwrite one another. */
     private val metadataLock = Any()
@@ -160,10 +170,22 @@ class DownloadHandler(context: Context) : Closeable {
         isPrivate: Boolean = false,
         cookieHeader: String? = if (isPrivate) null else runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull(),
         newCopy: Boolean = false,
+        /**
+         * The length the page reported for a file it built in memory; see
+         * [PageFileDownload]. Presence is what makes this a page-file task: the address is the
+         * page's own metadata URI, nothing about it is fetchable, and the transfer that follows is
+         * driven by [startPageFile] rather than by the engine.
+         */
+        pageFile: PageFileOffer? = null,
     ): EnqueueOutcome {
         if (closed) return EnqueueOutcome.Rejected
-        val cleanUrl = validHttpUrl(url) ?: return EnqueueOutcome.Rejected
-        val dedupUrl = cleanUrl.substringBefore('#')
+        val offer = pageFile
+        // A page file is recorded under its placeholder address, never under the blob: address the
+        // page used. The placeholder is what identifies the record as one after a restart, and what
+        // [validHttpUrl] refuses so nothing can ever try to fetch it.
+        val cleanUrl = if (offer != null) PAGE_FILE_PREFIX + offer.url
+        else validHttpUrl(url) ?: return EnqueueOutcome.Rejected
+        val dedupUrl = offer?.let { PAGE_FILE_PREFIX + it.url } ?: cleanUrl.substringBefore('#')
         val safeMime = mimeType?.substringBefore(';')?.let(::sanitizeMime).orEmpty()
             .ifEmpty { "application/octet-stream" }
         val safeUserAgent = sanitizeHeader(userAgent, MAX_USER_AGENT_LENGTH).orEmpty()
@@ -194,19 +216,32 @@ class DownloadHandler(context: Context) : Closeable {
                 contentDisposition = safeDisposition,
                 mimeType = safeMime,
                 filename = uniqueFilename(
-                    sanitizeFilename(FilenameParser.resolve(safeDisposition, cleanUrl, safeMime)),
+                    sanitizeFilename(
+                        offer?.name?.takeIf { it.isNotBlank() }
+                            ?: FilenameParser.resolve(safeDisposition, cleanUrl, safeMime),
+                    ),
                 ),
                 referer = safeReferer,
                 timestamp = System.currentTimeMillis(),
                 status = DownloadStatus.QUEUED,
-                unmeteredOnly = settings.unmeteredOnly,
+                // The length the page reported and the user confirmed. It is what the finished file
+                // is checked against, so a page that stops early becomes a failure rather than a
+                // silently truncated download.
+                totalBytes = offer?.size?.coerceAtLeast(0L) ?: 0L,
+                // A page file is exempt: its bytes are already in the renderer, so there is no
+                // network to wait for. Everything else keeps the user setting, which this line
+                // used to overwrite for every download.
+                unmeteredOnly = offer == null && settings.unmeteredOnly,
                 identity = identity,
-                configuredThreadCount = settings.threadCount,
-                actualThreadCount = settings.threadCount,
+                // The bytes come from the renderer, so there is no segmented transfer to configure
+                // and nothing metered to defer: the page already has them.
+                configuredThreadCount = if (offer != null) 1 else settings.threadCount,
+                actualThreadCount = if (offer != null) 1 else settings.threadCount,
                 destinationMode = settings.destinationMode,
                 customTreeUri = settings.customTreeUri,
                 destinationLabel = settings.destinationLabel,
             )
+            if (offer != null) fromPageTasks.add(id)
             metadata[id] = created
             created
         }
@@ -220,6 +255,234 @@ class DownloadHandler(context: Context) : Closeable {
         launchTransfer(id)
         return EnqueueOutcome.Started(id)
     }
+
+    /**
+     * Starts a page-built file moving into [id]'s task.
+     *
+     * The bytes are pulled one slice at a time: a slice arrives on the WebView's thread, is copied
+     * into a queue there, and is only then written to disk — after which the next slice is asked for.
+     * Nothing accumulates the file in memory, and the page is never ahead of the disk by more than the
+     * one slice in flight. That is what makes a page free to build something far larger than this
+     * process should ever hold.
+     *
+     * The whole transfer runs on one coroutine so the ordering is structural rather than defended: the
+     * writer reads the queue in order, and only this coroutine ever touches the output stream.
+     */
+    fun startPageFile(id: Long, offer: PageFileOffer, source: PageFileSource): Boolean {
+        if (closed || metadata[id] == null) return false
+        val directory = temporaryDirectory(id)
+        if (!(directory.mkdirs() || directory.isDirectory)) return false
+        val partFile = File(directory, "part-0")
+        if (!partFile.delete() && partFile.exists()) return false
+
+        val queue = java.util.ArrayDeque<ByteArray>()
+        val result = java.util.concurrent.atomic.AtomicReference<String?>(null)
+        val lock = Object()
+
+        // LAZY for the same reason the engine's transfers use it: a page that answers synchronously
+        // can finish before the job has been placed in the cancellation map, and the map would then
+        // hold a completed job forever.
+        val job = transferScope.launch(start = CoroutineStart.LAZY) {
+            // This coroutine's own job, so the finish hook can prove the task is still owned by
+            // it rather than by the retry that replaced it.
+            val pump = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])
+            var output: java.io.BufferedOutputStream? = null
+            // Counted here rather than read from the sink: this is the number of bytes actually on
+            // disk, and it is what the next slice is requested from. The two agree in practice — the
+            // page sends exactly one slice per request — and this stays correct if they ever do not.
+            var written = 0L
+            try {
+                output = java.io.BufferedOutputStream(java.io.FileOutputStream(partFile))
+                while (true) {
+                    val next = synchronized(lock) { if (queue.isEmpty()) null else queue.poll() }
+                    if (next != null) {
+                        output.write(next)
+                        output.flush()
+                        written += next.size.toLong()
+                        onPageFileProgress(id, written)
+                        if (!source.requestNext(id, written)) break
+                        continue
+                    }
+                    // Nothing queued. The page's end marker may have arrived between the last write
+                    // and this poll, in which case the transfer is simply over.
+                    if (!source.isTransferring(id)) break
+                    delay(PUMP_IDLE_DELAY_MS)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e(TAG, "Page file write failed: $id", error)
+                result.compareAndSet(null, "write")
+            } finally {
+                runCatching { output?.close() }
+                // The file was closed here, so the publish happens here too and the entry is recorded
+                // by the shared path the HTTP transfers use.
+                onPageFileFinished(
+                    id, result.get(), temporaryDirectory(id).listFiles().orEmpty().filter { it.isFile }, written,
+                    owner = pump,
+                )
+            }
+        }
+        jobs[id] = job
+
+        val sink = PageFileSink { bytes ->
+            // Handed off, not written: this runs on the WebView's thread and must not touch the disk.
+            synchronized(lock) { queue.addLast(bytes) }
+        }
+        if (!source.start(id, offer.url, offer.size, sink)) {
+            job.cancel()
+            partFile.delete()
+            jobs.remove(id, job)
+            return false
+        }
+        // Bound before the pump starts, not after: a page file small enough to finish inside the
+        // launch would otherwise have its source removed by the finish path and then re-added by
+        // the caller, leaving the WebView pinned by a task that is already over.
+        pageFileSources[id] = source
+        job.start()
+        // The first slice has to be asked for: the pump only asks again once one has been written, and
+        // the page only sends a slice once it has been asked. It can fail on its own — the channel
+        // closed between start() and here — and the pump would then wait for a slice nothing is
+        // sending, so the task is failed here rather than left spinning.
+        if (!source.requestNext(id, 0L)) {
+            // The channel answered but would not ask the page for bytes, so nothing will ever put
+            // one in the queue. Stopping the source is what lets the pump exit on its own poll
+            // rather than wait for a slice that is not coming.
+            source.cancel()
+            job.cancel()
+            failPageFile(id, "unavailable")
+            // False, not true: the caller must not keep a source for a task that has already failed.
+            return false
+        }
+        startTransferService()
+        return true
+    }
+
+    /** Called by [PageFileDownload] for each slice so the sheet and notification keep up. */
+    fun onPageFileProgress(id: Long, written: Long) {
+        val transferJob = jobs[id]
+        synchronized(taskLock) {
+            metadata.computeIfPresent(id) { _, current ->
+                if (transferJob != null && jobs[id] !== transferJob) current
+                else if (!current.status.active &&
+                    current.status != DownloadStatus.SAVING
+                ) current
+                else current.copy(
+                    bytesDownloaded = written.coerceAtLeast(0L),
+                    // The declared length is the only total a page file has; it was fixed when the
+                    // user confirmed, so progress stays a fraction of what they agreed to.
+                    totalBytes = if (current.totalBytes > 0) current.totalBytes else written,
+                )
+            }
+        }
+        publishSnapshots()
+    }
+
+    /**
+     * Reports the end of a page-file transfer: publish the bytes, or clean up after a failure.
+     *
+     * The failure half is the same for both kinds of transfer — the remains of a download that never
+     * finished are deleted rather than left in the user's storage — and the success half continues in
+     * the coroutine that was writing the slices, so the file it just closed is the file that gets
+     * published.
+     */
+    suspend fun onPageFileFinished(
+        id: Long,
+        reason: String?,
+        parts: List<File>,
+        totalBytes: Long,
+        /**
+         * The pump that wrote these bytes, when there is one.
+         *
+         * Passing it rather than reading the map here is the point: by the time a superseded pump
+         * reaches this method its entry has been replaced, and reading the map would name the
+         * replacement as the owner of bytes it never wrote. Null means "whoever owns the task now",
+         * which is what a direct caller in a test wants.
+         */
+        owner: Job? = null,
+    ) {
+        if (closed) return
+        fromPageTasks.remove(id)
+        // Taken out here rather than in failPageFile, because this method is the production path
+        // and it used to remove the source *before* delegating — so the cancel inside failPageFile
+        // found nothing, and a failed write left the page still reporting a transfer it would never
+        // finish. The reference is dropped either way; only a failure also stops the source.
+        val source = pageFileSources.remove(id)
+        val entry = metadata[id] ?: return
+        val publishing = owner ?: jobs[id] ?: return
+        if (reason == null && parts.sumOf { it.length() } >= entry.totalBytes) {
+            try {
+                publishParts(id, parts, parts.sumOf { it.length() }, actualThreads = 1, clearSource = true, owner = publishing)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // The destination refused the file — a revoked tree, a full volume, a provider that
+                // will not open. The task has to end in FAILED here: letting this escape the
+                // writer’s finally would leave the record in SAVING with its parts on disk.
+                Log.e(TAG, "Page file publish failed: $id", error)
+                source?.cancel()
+                failPageFile(id, "publish")
+                return
+            } finally {
+                // The published copy is a separate file; the temporary parts behind it are this
+                // path's to remove, exactly as the engine's own finally does after publishing.
+                val latest = metadata[id]
+                if (latest == null || latest.status == DownloadStatus.COMPLETED) {
+                    cleanupTemporaryFiles(id)
+                    transferLocks.remove(id)
+                }
+                jobs.remove(id)
+                persistMetadata()
+                publishSnapshots()
+                if (latest?.status == DownloadStatus.COMPLETED && latest.identity.notifyOnCompletion) {
+                    DownloadNotifications.completed(appContext, localItem(latest))
+                }
+            }
+            return
+        }
+        source?.cancel()
+        failPageFile(id, reason ?: "short")
+    }
+
+    /**
+     * Ends a page-file task in failure.
+     *
+     * Nothing is published, the partial file is deleted, and the record is marked failed rather than
+     * left pretending to be in progress.
+     */
+    fun failPageFile(id: Long, reason: String) {
+        if (closed) return
+        fromPageTasks.remove(id)
+        // Stopping the source matters as much as forgetting it: while it still reports a
+        // transfer, the page next blob download is refused because this one looks running.
+        pageFileSources.remove(id)?.cancel()
+        metadata[id] ?: return
+        Log.w(TAG, "Page file download failed: $id ($reason)")
+        cleanupTemporaryFiles(id)
+        transferLocks.remove(id)
+        synchronized(taskLock) {
+            metadata.computeIfPresent(id) { _, current ->
+                if (current.status.active || current.status == DownloadStatus.SAVING)
+                    current.copy(status = DownloadStatus.FAILED) else current
+            }
+        }
+        jobs.remove(id)
+        persistMetadata()
+        publishSnapshots()
+    }
+
+    /**
+     * Whether [entry] is a download whose bytes came from the page rather than from an address.
+     *
+     * The in-memory set is the live answer; the placeholder prefix is what survives a restart, and a
+     * restored record has to be recognised too — otherwise it comes back offering a resume that
+     * [retry] would refuse.
+     */
+    private fun isPageFile(entry: DownloadMetadata): Boolean =
+        entry.id in fromPageTasks || entry.url.startsWith(PAGE_FILE_PREFIX)
+
+    /** The [PageFileSource] filling each task, so cancel, delete and failure can stop it. */
+    private val pageFileSources = ConcurrentHashMap<Long, PageFileSource>()
 
     /** The newest non-failed task already owning [identityUrl] in the given context, if any. */
     fun existingTaskFor(identityUrl: String, isPrivate: Boolean): Pair<Long, DownloadStatus>? =
@@ -311,6 +574,10 @@ class DownloadHandler(context: Context) : Closeable {
         if (closed) return
         val entry = metadata.remove(id) ?: return
         interrupted.remove(id)
+        // The record dies here, so the page must stop handing bytes over: the sink they reach would
+        // otherwise keep writing into a task nothing is watching.
+        pageFileSources.remove(id)?.cancel()
+        fromPageTasks.remove(id)
         synchronized(taskLock) { jobs.remove(id)?.cancel() }
         if (entry.backend == DownloadBackend.LEGACY_SYSTEM) {
             transferScope.launch { legacyManager.remove(id) }
@@ -383,6 +650,9 @@ class DownloadHandler(context: Context) : Closeable {
 
     /** Pausing keeps validated partial bytes; cancellation removes the whole task. */
     fun pause(id: Long) {
+        // A page file is not pausable: the document that held its bytes cannot hand them over again,
+        // so pausing would leave a partial file behind for a transfer nothing can continue.
+        if (metadata[id]?.let(::isPageFile) == true) return
         synchronized(taskLock) {
             if (closed) return
             var paused = false
@@ -402,12 +672,15 @@ class DownloadHandler(context: Context) : Closeable {
 
     /** Only tasks interrupted while running are resumed automatically, once foregrounded. */
     fun resumeInterrupted() {
-        interrupted.toList().forEach { id -> if (interrupted.remove(id)) retry(id) }
+        interrupted.toList().forEach { id -> if (interrupted.remove(id) && id !in fromPageTasks) retry(id) }
     }
 
     fun retry(id: Long): Long? {
         val old = metadata[id] ?: return null
         if (closed) return null
+        // A page file can never be fetched again: its bytes were handed over by the document that
+        // built them and that document is gone. Offering a resume would only produce a failure.
+        if (isPageFile(old)) return null
         if (old.status == DownloadStatus.COMPLETED) {
             // A new generation never owns/deletes the old file or record. Active copies
             // still coalesce so repeated taps cannot create parallel identical transfers.
@@ -463,6 +736,9 @@ class DownloadHandler(context: Context) : Closeable {
             } finally { jobs.remove(id, requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])) }
         }
         jobs[id] = job
+        // A page-file task is driven by the slices the page hands over, not by this coroutine: its
+        // placeholder address is not fetchable, and starting the job would only log a failure.
+        if (metadata[id]?.let(::isPageFile) == true) return@synchronized
         if (startTransferService()) job.start() else pause(id)
     }
 
@@ -500,7 +776,12 @@ class DownloadHandler(context: Context) : Closeable {
             entries.forEach { entry ->
                 val fileDeleted = !deleteFiles || deleteStoredFile(entry)
                 if (fileDeleted) {
-                    if (metadata.remove(entry.id, entry)) { removed++; cleanupRemovedTask(entry.id) }
+                    if (metadata.remove(entry.id, entry)) {
+                        pageFileSources.remove(entry.id)?.cancel()
+                        fromPageTasks.remove(entry.id)
+                        removed++
+                        cleanupRemovedTask(entry.id)
+                    }
                 } else {
                     failed++
                 }
@@ -518,7 +799,7 @@ class DownloadHandler(context: Context) : Closeable {
 
     /** Called when Android's foreground-service time budget expires. */
     fun pauseActiveTransfers() {
-        metadata.values.filter { it.backend == DownloadBackend.LOCAL && it.status.active }
+        metadata.values.filter { it.backend == DownloadBackend.LOCAL && it.status.active && it.id !in fromPageTasks }
             .map { it.id }.forEach(::pause)
     }
 
@@ -599,6 +880,92 @@ class DownloadHandler(context: Context) : Closeable {
         }
     }
 
+    /**
+     * Publishes verified temporary parts and marks [id] complete.
+     *
+     * This is the half of a download that has nothing to do with where the bytes came from: the parts
+     * are already on disk and validated, and what is left is opening the destination, copying them in,
+     * recording the result or deleting the file again if the record vanished underneath us. Both
+     * transfer kinds share it — [performDownload] after the engine fetched segments, and
+     * [onPageFileFinished] after the page handed slices over.
+     *
+     * The caller owns the terminal state of its own coroutine ([jobs], temporary cleanup); this only
+     * moves the task through SAVING to COMPLETED.
+     */
+    private suspend fun publishParts(
+        id: Long,
+        parts: List<File>,
+        totalBytes: Long,
+        actualThreads: Int,
+        /** Cleared once published: a page file has no address to redownload from. */
+        clearSource: Boolean,
+        /**
+         * The transfer publishing these bytes.
+         *
+         * A pause followed immediately by a retry replaces the job but keeps the task id, and the
+         * retry reuses the same temporary directory. The previous transfer therefore has to prove
+         * it is still the one that owns the record before it marks anything SAVING or COMPLETED:
+         * without that, a transfer that had just been superseded published its stale parts under
+         * the new task, set it COMPLETED, and then deleted the directory the new transfer was
+         * about to write into.
+         */
+        owner: Job,
+    ) {
+        synchronized(taskLock) {
+            metadata.computeIfPresent(id) { _, current ->
+                if (jobs[id] !== owner || !current.status.active) current
+                else current.copy(status = DownloadStatus.SAVING)
+            }
+        }
+        publishSnapshots()
+        // Superseded while finishing: the retry owns the record now, and writing here would
+        // overwrite its state and publish bytes that belong to the transfer it replaced.
+        if (jobs[id] !== owner) return
+        val current = metadata[id] ?: return
+        val published = destinationWriter.publish(
+            settings = DownloadSettings(
+                destinationMode = current.destinationMode,
+                customTreeUri = current.customTreeUri,
+                customDirectoryLabel = current.destinationLabel,
+                threadCount = current.configuredThreadCount,
+            ),
+            preferredName = current.filename,
+            mimeType = current.mimeType,
+            parts = parts,
+            onProgress = { percent ->
+                synchronized(taskLock) {
+                    metadata.computeIfPresent(id) { _, latest ->
+                        if (jobs[id] !== owner || latest.status != DownloadStatus.SAVING) latest
+                        else latest.copy(savingProgress = percent)
+                    }
+                }
+                publishSnapshots()
+            },
+        )
+        var accepted = false
+        synchronized(taskLock) {
+            metadata.computeIfPresent(id) { _, latest ->
+                if (jobs[id] !== owner || latest.status != DownloadStatus.SAVING) latest
+                else {
+                    accepted = true
+                    latest.copy(
+                        filename = published.displayName,
+                        destinationUri = published.uri.toString(),
+                        status = DownloadStatus.COMPLETED,
+                        cookie = null,
+                        referer = if (clearSource) null else latest.referer,
+                        bytesDownloaded = totalBytes,
+                        totalBytes = totalBytes,
+                        actualThreadCount = actualThreads,
+                    )
+                }
+            }
+        }
+        // Cancellation can remove metadata between publishing and the atomic update. Never leave an
+        // untracked file behind in that race.
+        if (!accepted) destinationWriter.delete(published.uri.toString())
+    }
+
     private suspend fun performDownload(id: Long) {
         val entry = metadata[id] ?: return
         val tempDirectory = temporaryDirectory(id)
@@ -633,50 +1000,9 @@ class DownloadHandler(context: Context) : Closeable {
                     if (now - previous > 2_000 && lastProgressPersist.compareAndSet(previous, now)) persistMetadata()
                 },
             ) }
-            metadata.computeIfPresent(id) { _, current ->
-                if (jobs[id] === transferJob && current.status == DownloadStatus.DOWNLOADING) current.copy(status = DownloadStatus.SAVING) else current
-            }
-            publishSnapshots()
-            val current = metadata[id] ?: return
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val published = destinationWriter.publish(
-                settings = DownloadSettings(
-                    destinationMode = current.destinationMode,
-                    customTreeUri = current.customTreeUri,
-                    customDirectoryLabel = current.destinationLabel,
-                    threadCount = current.configuredThreadCount,
-                ),
-                preferredName = current.filename,
-                mimeType = current.mimeType,
-                parts = payload.parts,
-                onProgress = { percent ->
-                    metadata.computeIfPresent(id) { _, latest ->
-                        if (jobs[id] === transferJob && latest.status == DownloadStatus.SAVING) latest.copy(savingProgress = percent) else latest
-                    }
-                    publishSnapshots()
-                },
-            )
-            var accepted = false
-            synchronized(taskLock) {
-                metadata.computeIfPresent(id) { _, latest ->
-                    if (jobs[id] !== transferJob || latest.status != DownloadStatus.SAVING) latest
-                    else {
-                        accepted = true
-                        latest.copy(
-                    filename = published.displayName,
-                    destinationUri = published.uri.toString(),
-                    status = DownloadStatus.COMPLETED,
-                    cookie = null,
-                    bytesDownloaded = payload.totalBytes,
-                    totalBytes = payload.totalBytes,
-                    actualThreadCount = payload.actualThreadCount,
-                        )
-                    }
-                }
-            }
-            // Cancellation can remove metadata between publishing and the atomic update.
-            // Never leave an untracked file behind in that race.
-            if (!accepted) destinationWriter.delete(published.uri.toString())
+            publishParts(id, payload.parts, payload.totalBytes, payload.actualThreadCount, clearSource = false,
+                owner = transferJob)
         } catch (cancelled: CancellationException) {
             // An explicit cancel removes metadata first. close() changes surviving entries to
             // PAUSED, so there is no state to publish from this coroutine.
@@ -751,11 +1077,13 @@ class DownloadHandler(context: Context) : Closeable {
         timestamp = entry.timestamp,
         threadCount = entry.actualThreadCount,
         destinationLabel = entry.destinationLabel,
-        canPause = true,
+        // A page file is never paused: its bytes are in the renderer and a pause would leave the
+        // user's partial file for a transfer that cannot be continued from anywhere else.
+        canPause = !isPageFile(entry),
         bytesPerSecond = entry.bytesPerSecond,
         savingProgress = entry.savingProgress,
         showsFilenameInNotification = entry.identity.showsFilenameInNotification,
-        canResume = entry.identity.canResumeIn(sessionIdentity),
+        canResume = !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity),
     )
 
     private fun publishSnapshots() = synchronized(metadataLock) {
@@ -850,7 +1178,17 @@ class DownloadHandler(context: Context) : Closeable {
                 }
                 val id = obj.optLong("id", 0L)
                 if (id == 0L || (backend == DownloadBackend.LEGACY_SYSTEM && id < 0L)) continue
-                val url = validHttpUrl(obj.optString("url")) ?: continue
+                // A page-file record is stored under its placeholder address on purpose: the URL
+                // is the only surviving way to tell it apart from an ordinary task after a restart,
+                // and it is what keeps that record from ever being fetched. The prefix is validated
+                // rather than accepted blindly so a corrupted snapshot cannot smuggle in an address
+                // the rest of the app would treat as http(s).
+                val rawUrl = obj.optString("url")
+                val url = if (rawUrl.startsWith(PAGE_FILE_PREFIX)) {
+                    if (rawUrl.length <= MAX_URL_LENGTH + PAGE_FILE_PREFIX.length) rawUrl else continue
+                } else {
+                    validHttpUrl(rawUrl) ?: continue
+                }
                 val filename = sanitizeFilename(obj.optString("filename"))
                 val userAgent = sanitizeHeader(
                     obj.optString("userAgent"),
@@ -1073,6 +1411,9 @@ class DownloadHandler(context: Context) : Closeable {
             // plain-URL checkpoints written before the sidecar switched to digests.
             val keep = entry?.backend == DownloadBackend.LOCAL &&
                 entry.status != DownloadStatus.COMPLETED &&
+                // A page file can never be resumed (the document holding its bytes is gone),
+                // so keeping its partial data would hold disk space until the record expired.
+                !isPageFile(entry) &&
                 entry.identity.canResumeIn(sessionIdentity)
             if (!keep) directory.deleteRecursively()
         }
@@ -1146,7 +1487,7 @@ class DownloadHandler(context: Context) : Closeable {
         val destinationUri: String? = null,
     )
 
-    private companion object {
+    companion object {
         const val TAG = "DownloadHandler"
         const val PREFS_NAME = "downloads"
         const val KEY_ENTRIES = "entries"
@@ -1164,6 +1505,21 @@ class DownloadHandler(context: Context) : Closeable {
         const val MAX_MIME_LENGTH = 256
         const val MAX_FILENAME_LENGTH = 127
         const val MAX_DESTINATION_LABEL_LENGTH = 120
+        /**
+         * Scheme of the placeholder address a page-file task is recorded under.
+         *
+         * Deliberately not http(s): [validHttpUrl] refuses it, so such a record can never be handed
+         * to the transfer engine, and no page can collide with one by serving that address.
+         */
+        const val PAGE_FILE_PREFIX = "page-file:"
+        /**
+         * How long the page-file writer waits when its queue is empty.
+         *
+         * The sink runs on the WebView's thread, so the writer cannot block on a signal it would have
+         * to be handed from that thread. It polls instead; a slice arrives well inside this interval,
+         * so the poll costs one wake-up per slice and nothing while idle.
+         */
+        const val PUMP_IDLE_DELAY_MS = 2L
         val MIME_PATTERN = Regex("[A-Za-z0-9!#$&^_.+\\-]+/[A-Za-z0-9!#$&^_.+\\-]+")
     }
 }

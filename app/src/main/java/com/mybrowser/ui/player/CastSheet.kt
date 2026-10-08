@@ -69,11 +69,14 @@ fun CastSheet(
     playback: com.mybrowser.dlna.AvTransport.PlaybackStatus? = null,
     statusUnavailable: Boolean = false,
     isControlling: Boolean = false,
+    /** Advances on every device report; see RemotePlaybackControls. */
+    playbackRevision: Long = 0,
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
     onStop: () -> Unit = {},
     onVolume: (Int) -> Unit = {},
     onSeek: (Long) -> Unit = {},
+    onSkip: (Long) -> Unit = {},
     onRefreshStatus: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     lastError: String? = null,
@@ -111,7 +114,8 @@ fun CastSheet(
         ) {
             item {
                 if (connectedDevice != null) RemotePlaybackControls(connectedDevice, playback, statusUnavailable,
-                    isCasting || isControlling, onPause, onResume, onStop, onVolume, onSeek, onRefreshStatus, onDisconnect)
+                    isCasting || isControlling, onPause, onResume, onStop, onVolume, onSeek, onSkip, onRefreshStatus,
+                    onDisconnect, playbackRevision)
                 if (isCasting) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(textResources.getString(R.string.cast_sending, pendingDevice?.displayName(textResources).orEmpty()),

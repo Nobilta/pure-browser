@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.userscript.UserScriptStatus
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
@@ -54,6 +55,7 @@ fun MenuSheet(
     onPinWebsite: () -> Unit = {},
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
+    onBlockElement: () -> Unit = {},
     onToggleDesktopMode: () -> Unit,
     onToggleBrowserFullscreen: (Boolean) -> Unit,
     onOpenFind: () -> Unit,
@@ -65,6 +67,9 @@ fun MenuSheet(
     onToggleBookmark: () -> Unit,
     onClearData: () -> Unit,
     onOpenDeveloperTools: () -> Unit = {},
+    onManageUserScripts: () -> Unit = {},
+    /** What the userscript layer did for this page; null while no page is loaded. */
+    userScriptStatus: UserScriptStatus? = null,
     onScanQr: () -> Unit = {},
     onExit: () -> Unit,
     onDismiss: () -> Unit,
@@ -80,21 +85,28 @@ fun MenuSheet(
             BrowserSheetHeader(stringResource(R.string.menu_title), onDismiss = onDismiss)
             Column(Modifier.weight(1f, fill = false).verticalScroll(scrollState)
                 .padding(start = 12.dp, end = 12.dp, bottom = 24.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                QuickMenuAction(if (isCurrentPageBookmarked) R.drawable.ic_bookmark_remove else R.drawable.ic_bookmark_add,
-                    stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
-                QuickMenuAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind, Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth()) {
-                QuickMenuAction(R.drawable.ic_bookmark, stringResource(R.string.menu_bookmarks), true, onOpenBookmarks, Modifier.weight(1f))
-                QuickMenuAction(R.drawable.ic_download, stringResource(R.string.menu_downloads), true, onOpenDownloads, Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth()) {
-                QuickMenuAction(R.drawable.ic_site_settings, stringResource(R.string.site_settings), canUsePageActions, onOpenSiteSettings, Modifier.weight(1f))
-                QuickMenuAction(R.drawable.ic_settings, stringResource(R.string.menu_settings), true, onOpenSettings, Modifier.weight(1f))
+            // Destinations and page-wide shortcuts. Site settings is not here: it edits the site
+            // the page belongs to, so it sits with the other page-scoped rows instead of looking
+            // like a peer of the browser-wide Settings destination.
+            MenuSection(title = stringResource(R.string.menu_section_shortcuts)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    QuickMenuAction(if (isCurrentPageBookmarked) R.drawable.ic_bookmark_remove else R.drawable.ic_bookmark_add,
+                        stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark), canUsePageActions, onToggleBookmark, Modifier.weight(1f))
+                    QuickMenuAction(R.drawable.ic_search, stringResource(R.string.menu_find), canUsePageActions, onOpenFind, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    QuickMenuAction(R.drawable.ic_bookmark, stringResource(R.string.menu_bookmarks), true, onOpenBookmarks, Modifier.weight(1f))
+                    QuickMenuAction(R.drawable.ic_history, stringResource(R.string.menu_history), true, onOpenHistory, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    QuickMenuAction(R.drawable.ic_download, stringResource(R.string.menu_downloads), true, onOpenDownloads, Modifier.weight(1f))
+                    QuickMenuAction(R.drawable.ic_settings, stringResource(R.string.menu_settings), true, onOpenSettings, Modifier.weight(1f))
+                }
             }
 
             MenuSection(title = stringResource(R.string.menu_section_page)) {
+                MenuRow(iconRes = R.drawable.ic_site_settings, title = stringResource(R.string.site_settings),
+                    subtitle = "", enabled = canUsePageActions, onClick = onOpenSiteSettings)
                 MenuRow(iconRes = R.drawable.ic_home, title = stringResource(R.string.pin_website),
                     subtitle = "", enabled = canUsePageActions && !isIncognito, onClick = onPinWebsite)
                 MenuRow(
@@ -146,15 +158,6 @@ fun MenuSheet(
                 )
             }
 
-            MenuSection(title = stringResource(R.string.menu_section_data)) {
-                MenuRow(
-                    iconRes = R.drawable.ic_history,
-                    title = stringResource(R.string.menu_history),
-                    subtitle = "",
-                    onClick = onOpenHistory,
-                )
-            }
-
             MenuSection(title = stringResource(R.string.menu_section_privacy)) {
                 MenuRow(
                     iconRes = R.drawable.ic_incognito,
@@ -183,6 +186,13 @@ fun MenuSheet(
                     },
                 )
                 MenuRow(
+                    iconRes = R.drawable.ic_block,
+                    title = stringResource(R.string.menu_block_element),
+                    subtitle = "",
+                    enabled = canUsePageActions,
+                    onClick = onBlockElement,
+                )
+                MenuRow(
                     iconRes = R.drawable.ic_delete,
                     title = stringResource(R.string.menu_clear_data),
                     subtitle = "",
@@ -190,7 +200,21 @@ fun MenuSheet(
                 )
             }
 
-            MenuSection(title = stringResource(R.string.menu_section_tools)) {
+            MenuSection(title = stringResource(R.string.menu_section_extensions)) {
+                val scriptStatus = userScriptStatus
+                MenuRow(
+                    iconRes = R.drawable.ic_code,
+                    title = stringResource(R.string.script_title),
+                    // Only a script that is running on this page is worth a line. "None matched"
+                    // and "this WebView cannot run them" are both the ordinary case for most
+                    // pages, and a row that explains the absence every time trains the reader to
+                    // ignore the row that would matter. Incognito is the same: scripts run there
+                    // like anywhere else, so there is nothing to say.
+                    subtitle = scriptStatus?.running?.takeIf { it.isNotEmpty() }
+                        ?.let { stringResource(R.string.script_status_running, it.joinToString(", ")) }
+                        .orEmpty(),
+                    onClick = onManageUserScripts,
+                )
                 MenuRow(R.drawable.ic_qr_scan, stringResource(R.string.qr_scan), "", onScanQr)
                 MenuRow(
                     iconRes = R.drawable.ic_code,
