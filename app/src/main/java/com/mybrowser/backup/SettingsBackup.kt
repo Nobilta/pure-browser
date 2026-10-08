@@ -116,6 +116,8 @@ data class BackupFiltering(
     val builtIns: List<BackupBuiltInSubscription>? = null,
     /** Null = keep current custom subscriptions; a list replaces them all. */
     val customSubscriptions: List<BackupCustomSubscription>? = null,
+    /** Null = keep the rules written on this device; a list replaces them all. */
+    val userRules: List<String>? = null,
 )
 
 data class BackupBuiltInSubscription(val id: String, val enabled: Boolean)

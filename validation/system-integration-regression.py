@@ -38,7 +38,7 @@ def main():
             assert result['outcome'] in ['AbortError', 'NotAllowedError', 'NotSupportedError', 'SecurityError', 'TypeError'], result
             ux.expect('System login fixture')
             record('Synthetic passkey request returns a visible cancellation/provider error without leaving the page', result=result, capability=ready)
-            ux.open_settings('隐私与过滤'); find('Passwords and passkeys')
+            ux.open_settings('隐私与安全'); find('Passwords and passkeys')
             ux.expect('Open system settings'); (a.output / 'login-capabilities.xml').write_text(ux.nodes()[1], encoding="utf-8")
             ux.tap('Close'); page()
             record('System login capability and provider requirements are visible in settings')

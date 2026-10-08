@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -103,6 +104,12 @@ fun BrowserScreen(
     onFindNext: () -> Unit,
     onFindPrevious: () -> Unit,
     onFindClose: () -> Unit,
+    /** Non-null while an element pick is running over the page. */
+    elementPicker: ElementPickerState? = null,
+    onPickerParent: () -> Unit = {},
+    onPickerChild: () -> Unit = {},
+    onPickerBlock: (Boolean) -> Unit = {},
+    onPickerCancel: () -> Unit = {},
     isIncognito: Boolean = false,
     hasPrivateIsolation: Boolean = false,
     onNewTab: () -> Unit = onTabs,
@@ -329,7 +336,40 @@ fun BrowserScreen(
             // The cast FAB folds into the browser-actions entry while immersive, so the
             // corner never stacks two floating buttons.
             PageOverlay(
-                visible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused && !immersiveActive,
+                visible = elementPicker != null,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    // The toolbar below carries the bottom inset while it is on screen; with it
+                    // hidden the picker bar is the last thing above the navigation bar and has to
+                    // carry the inset itself.
+                    .windowInsetsPadding(
+                        if (chromeShown) WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+                        else WindowInsets.safeDrawing
+                    )
+                    .padding(16.dp),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
+                    slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
+                    slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
+            ) {
+                // The state is remembered past the end of the pick so the bar fades out showing what
+                // was chosen, rather than swapping to the empty prompt on its way off screen.
+                val last = remember { mutableStateOf<ElementPickerState>(ElementPickerState.Picking) }
+                SideEffect { elementPicker?.let { last.value = it } }
+                ElementPickerBar(
+                    state = last.value,
+                    onParent = onPickerParent,
+                    onChild = onPickerChild,
+                    onBlock = onPickerBlock,
+                    onCancel = onPickerCancel,
+                )
+            }
+
+            PageOverlay(
+                // Not while a pick is running: this corner button is drawn over the picker's bar and
+                // would cover the end of it.
+                visible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused && !immersiveActive
+                    && elementPicker == null,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))

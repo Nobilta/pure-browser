@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pure block element fixture</title>
+<style>
+  body{font:18px system-ui;padding:16px;background:#fafafa;color:#172027}
+  .sponsor-unit,#hero-unit{padding:16px;margin:12px 0;background:#ffe0aa;border:1px solid #d9a441}
+  #sponsor-image{display:block;width:160px;height:96px;margin:12px 0;border:1px solid #d9a441}
+  #content{padding:16px;background:#d9f2e2}
+  .rail-unit{padding:8px;margin:4px 0;background:#ffe0aa;border:1px solid #d9a441}
+</style>
+</head><body>
+<h1>Block element fixture</h1>
+<p id="content">Article content stays</p>
+<section id="sponsor-region">
+  <div class="sponsor-unit">Sponsored unit A</div>
+  <div class="sponsor-unit">Sponsored unit B</div>
+</section>
+<div id="hero-unit">Hero advertisement</div>
+<img id="sponsor-image" src="/context-image.png" width="160" height="96" alt="Sponsored image">
+<!--
+  Thirteen identical siblings: more than the picker will name by class, so its only remaining
+  answer is the exact path through the tree — a selector with a descendant or child combinator in
+  it. That is the common case, not an edge one, and it is the one a whitespace-rejecting rule check
+  used to refuse while still hiding the element locally.
+-->
+<section id="rail-region">
+  <div class="rail-unit">Rail ad 1</div>
+  <div class="rail-unit">Rail ad 2</div>
+  <div class="rail-unit">Rail ad 3</div>
+  <div class="rail-unit">Rail ad 4</div>
+  <div class="rail-unit">Rail ad 5</div>
+  <div class="rail-unit">Rail ad 6</div>
+  <div class="rail-unit">Rail ad 7</div>
+  <div class="rail-unit">Rail ad 8</div>
+  <div class="rail-unit">Rail ad 9</div>
+  <div class="rail-unit">Rail ad 10</div>
+  <div class="rail-unit">Rail ad 11</div>
+  <div class="rail-unit">Rail ad 12</div>
+  <div class="rail-unit">Rail ad 13</div>
+</section>
+<script>
+const caseId = new URLSearchParams(location.search).get('case') || 'block-element';
+const slots = () => Array.from(document.querySelectorAll('.sponsor-unit'));
+const rails = () => Array.from(document.querySelectorAll('.rail-unit'));
+// checkVisibility accounts for an ancestor that is hidden, which is what a rule for a container
+// does: the slots themselves keep their own display value while nothing of them is on screen, and
+// a metric that missed that would call a hidden region a visible one.
+const shown = (el) => !!el && (el.checkVisibility ? el.checkVisibility() : getComputedStyle(el).display !== 'none');
+  const computedHidden = (el) => !!el && getComputedStyle(el).display === 'none';
+// A rect in CSS pixels plus the viewport width: the harness maps these onto the device's screen, so
+// it can press exactly what the picker will find under the finger, with no accessibility node needed.
+const rect = (el) => {
+  if (!el) return { left: 0, top: 0, width: 0, height: 0 };
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+};
+function report() {
+  const image = document.querySelector('#sponsor-image');
+  fetch('/__state?case=' + encodeURIComponent(caseId), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: location.href.split('?')[0],
+      ready: document.readyState,
+      viewportWidth: document.documentElement.clientWidth,
+      viewportHeight: document.documentElement.clientHeight,
+      slotA: rect(slots()[0]), slotB: rect(slots()[1]), hero: rect(document.querySelector('#hero-unit')),
+      image: rect(image),
+      railA: rect(rails()[0]),
+      // The count the picker shows and the number of elements that go away have to agree: they are
+      // the same number, and a rule that hides more than promised is the failure this catches.
+      unitsVisible: slots().filter(shown).length,
+      railsVisible: rails().filter(shown).length,
+      heroVisible: shown(document.querySelector('#hero-unit')),
+      contentVisible: shown(document.querySelector('#content')),
+      regionVisible: shown(document.querySelector('#sponsor-region')),
+      imageVisible: shown(image),
+      imageLoaded: !!image && image.naturalWidth > 0,
+      // Two hiding mechanisms, counted apart because they promise different things. An inline
+      // declaration is the app's temporary hide ("hidden on this page"), which dies with the
+      // document; a stylesheet rule is what both the picker's preview and the saved rule apply, so
+      // a preview is only honest if it is counted here rather than as an inline style.
+      inlineHidden: slots().filter((el) => el.style.getPropertyValue('display') === 'none').length
+        + (document.querySelector('#hero-unit').style.getPropertyValue('display') === 'none' ? 1 : 0)
+        + rails().filter((el) => el.style.getPropertyValue('display') === 'none').length,
+      // Directly hidden -- the element's own computed display is none -- rather than through an
+      // ancestor, which is what a container rule does and is already reported by the *Visible
+      // metrics. display does not inherit, so an ancestor's none never lands in this count.
+      previewHidden: (function () {
+        var sheet = document.getElementById('__purePickerPreview');
+        if (!sheet || !sheet.textContent) return 0;
+        return slots().filter(computedHidden).length
+          + (computedHidden(document.querySelector('#hero-unit')) ? 1 : 0)
+          + rails().filter(computedHidden).length;
+      })()
+    })
+  }).catch(() => {});
+}
+setInterval(report, 600); addEventListener('load', report);
+</script></body></html>

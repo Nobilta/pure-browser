@@ -81,7 +81,14 @@ def main():
               # hold real MotionEvents, so they need the device's own input pipeline rather than a
               # state assertion: no other stage covers either.
               ('motion-gesture', ['gesture-dismiss-regression.py', '--output', str(OUT / (prefix + '-motion-gesture'))]),
-              ('motion-interruption', ['motion-interruption-regression.py', '--output', str(OUT / (prefix + '-motion-interruption'))])]
+              ('motion-interruption', ['motion-interruption-regression.py', '--output', str(OUT / (prefix + '-motion-interruption'))]),
+              # Blocking by hand: a long press on a resource, and the element picker. Both
+              # end in a rule the engine may quietly drop, so both are checked against the
+              # page's own report of what is still showing afterwards.
+              ('block-element', ['block-element-regression.py']),
+              # A file the page built in memory. Its bytes never travel over an address any engine
+              # can fetch, so nothing else in this list covers it.
+              ('blob-download', ['blob-download-regression.py', '--output', str(OUT / (prefix + '-blob-download'))])]
     stages += [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
                for name, script in upgrade]
     stages += [(name, ['system-integration-regression.py', '--section', name, '--package', 'com.mybrowser',

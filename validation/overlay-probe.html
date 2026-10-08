@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Overlay probe</title>
+<style>body{font:18px system-ui;padding:16px;background:#fafafa;color:#172027}
+#host{margin:16px 0}
+</style>
+</head><body>
+<!--
+  A bench, not a regression stage: it exists to answer "what does an overlay cost this WebView",
+  in isolation from any one feature. Run it with qa-server.py and read /__state?case=<id> to see
+  how far it got. It was what ruled the page's own DOM and CSS out as the cause of the
+  libwebviewchromium crash described in ARCHITECTURE.md, section 手动屏蔽.
+-->
+<h1>Overlay probe</h1>
+<div id="host">Probe host</div>
+<p id="note">Watching which declaration takes the app down.</p>
+<script>
+// Declarations are applied one at a time, each followed by a mark, so the last mark that arrives
+// names the declaration that killed the process. A page can do this without any app help: the
+// question is what a fixed overlay costs this WebView, not what any one feature does.
+const caseId = new URLSearchParams(location.search).get('case') || 'overlay-probe';
+const steps = [
+  ['position-fixed', 'position', 'fixed'],
+  ['z-index', 'zIndex', '2147483646'],
+  ['pointer-events', 'pointerEvents', 'none'],
+  ['box-sizing', 'boxSizing', 'border-box'],
+  ['width', 'width', '120px'],
+  ['height', 'height', '40px'],
+  ['border', 'border', '2px solid #6750a4'],
+  ['border-radius', 'borderRadius', '3px'],
+  ['box-shadow-one', 'boxShadow', '0 0 0 1px rgba(0,0,0,.35)'],
+  ['box-shadow-two', 'boxShadow', '0 0 0 1px rgba(0,0,0,.35), 0 0 10px rgba(0,0,0,.25)'],
+  ['max-width', 'maxWidth', '92vw'],
+  ['padding', 'padding', '1px 6px'],
+  ['font-shorthand', 'font', '11px/16px monospace'],
+  ['white-space', 'whiteSpace', 'nowrap'],
+  ['overflow', 'overflow', 'hidden'],
+  ['text-overflow', 'textOverflow', 'ellipsis'],
+  ['background', 'backgroundColor', '#6750a4'],
+  ['color', 'color', '#fff'],
+  ['top', 'top', '40px'],
+  ['left', 'left', '8px'],
+];
+function mark(step) {
+  fetch('/__state?case=' + encodeURIComponent(caseId), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: location.href.split('?')[0], step: step, at: Date.now() }) }).catch(() => {});
+}
+// mode=dom rebuilds exactly what the picker's own script puts on the page, so the difference
+// between this and the declaration walk above is the difference that matters.
+if (new URLSearchParams(location.search).get('mode') === 'dom') {
+  const style = document.createElement('style');
+  style.id = '__purePickerStyle';
+  style.textContent = '#__purePickerBox{position:fixed;z-index:2147483646;pointer-events:none;box-sizing:border-box;'
+    + 'border:2px solid #6750a4;border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 0 10px rgba(0,0,0,.25)}'
+    + '#__purePickerLabel{position:fixed;z-index:2147483647;pointer-events:none;max-width:92vw;padding:1px 6px;'
+    + 'border-radius:4px;background:#6750a4;color:#fff;font:11px/16px monospace;white-space:nowrap;'
+    + 'overflow:hidden;text-overflow:ellipsis}';
+  (document.head || document.documentElement).appendChild(style);
+  mark('dom-style-element');
+  const box = document.createElement('div');
+  box.id = '__purePickerBox';
+  (document.body || document.documentElement).appendChild(box);
+  mark('dom-box');
+  const label = document.createElement('div');
+  label.id = '__purePickerLabel';
+  (document.body || document.documentElement).appendChild(label);
+  mark('dom-label');
+  box.style.display = 'none';
+  label.style.display = 'none';
+  mark('dom-hidden');
+  setInterval(function () { mark('alive'); }, 1000);
+}
+
+else {
+  const host = document.querySelector('#host');
+  const probe = document.createElement('div');
+  probe.id = 'overlay-probe';
+  probe.textContent = 'probe';
+  host.appendChild(probe);
+  mark('start');
+  let index = 0;
+  function next() {
+    if (index >= steps.length) { mark('all-applied'); setInterval(() => mark('alive'), 1000); return; }
+    const [label, property, value] = steps[index++];
+    probe.style[property] = value;
+    mark('applied-' + label + '=' + probe.style[property]);
+    setTimeout(next, 700);
+  }
+  setTimeout(next, 300);
+}
+</script></body></html>

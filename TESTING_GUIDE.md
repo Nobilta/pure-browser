@@ -144,6 +144,9 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 无法提供与手指同密度的采样，该路径手工核对。
 页面加载与错误恢复可单独运行 `--stages navigation-recovery`：本地服务延迟响应头，检查地址输入、网页链接、POST 表单的进度提示，以及连续失败、重试成功、停止加载和停止后再次提交表单。下载删除的单元测试覆盖传输取消、临时文件清理和暂停/删除并发。
 每次下载都会先弹出确认对话框（刻意设计，没有跳过设置），下载相关回归在点击链接后显式点击确认再等待传输。
+`blob-download` 覆盖网页在内存里生成的文件：夹具自己读取正文、显示自己的进度，再把 Blob 交给 `<a download>`，
+回归断言确认框内容、多分片写入的字节一致性和第二次传输；纯页面半部的协议（分片顺序、越界、取消、映射上限）
+由 `validation/blob-download.test.cjs` 在 Node 上覆盖。
 `video-standard` 使用真实触摸验证倍速滑块拖动，以及 0.5×、5× 和 1.5× 档位；以网页实际播放状态判断结果，轨道点击会校正 Compose 无障碍边界的额外留白。
 画中画尺寸以系统 pinned task 的实际边界与网页 viewport 比对，避免横竖屏切换后无障碍树的过期坐标造成误报。
 控制台命令通过无障碍 `setText` 写入并读回校验：`adb shell input text` 会在首个 shell 元字符处截断 JavaScript 命令，开发工具回归不能改回逐字符注入。

@@ -163,6 +163,33 @@ class SettingsBackupCodecTest {
         reject(dupUrl.toString())
     }
 
+    @Test fun rejectsHandWrittenRulesTheEngineWouldDrop() {
+        // A rule the engine cannot read is not a harmless line in a file: it would be imported as
+        // though it had been applied, and then silently block nothing.
+        reject(edit { root ->
+            val rules = JSONArray()
+            rules.put("example.com##body")
+            root.getJSONObject("settings").getJSONObject("filtering").put("userRules", rules)
+        })
+        reject(edit { root ->
+            val rules = JSONArray()
+            rules.put(JSONObject().put("rule", "||ads.example.com^"))
+            root.getJSONObject("settings").getJSONObject("filtering").put("userRules", rules)
+        })
+        reject(edit { root ->
+            val rules = JSONArray()
+            repeat(com.mybrowser.filter.FilterSubscriptions.MAX_USER_RULES + 1) { rules.put("##.ad-$it") }
+            root.getJSONObject("settings").getJSONObject("filtering").put("userRules", rules)
+        })
+        // Absent and empty are different: one keeps what is here, the other clears it.
+        assertNull(SettingsBackupCodec.decode(edit { root ->
+            root.getJSONObject("settings").getJSONObject("filtering").remove("userRules")
+        }).settings.filtering?.userRules)
+        assertEquals(emptyList<String>(), SettingsBackupCodec.decode(edit { root ->
+            root.getJSONObject("settings").getJSONObject("filtering").put("userRules", JSONArray())
+        }).settings.filtering?.userRules)
+    }
+
     @Test fun rejectsInvalidSites() {
         reject(edit {
             it.getJSONObject("settings").getJSONArray("sites").getJSONObject(0).put("origin", "https://EXAMPLE.com")
@@ -370,6 +397,7 @@ class SettingsBackupCodecTest {
                 customSubscriptions = listOf(
                     BackupCustomSubscription("Fixture", "https://filters.example.com/list.txt", false),
                 ),
+                userRules = listOf("example.com##.promo", "||ads.example.com^"),
             ),
             sites = listOf(
                 BackupSite(

@@ -23,8 +23,16 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         val cookieHeader: String?,
         val sourceOrigin: String?,
         val contentLength: Long? = null,
+        /**
+         * Set when the page built the file in memory; see [PageFileDownload].
+         *
+         * Such a request is decided against the page's own address rather than the placeholder one it
+         * carries, so the download engine never sees it.
+         */
+        val pageFile: PageFileOffer? = null,
     ) {
-        val identity: String get() = url.substringBefore('#')
+        val identity: String
+            get() = pageFile?.let { DownloadHandler.PAGE_FILE_PREFIX + it.url } ?: url.substringBefore('#')
     }
 
     enum class BlockedReason { REJECTED, LIMIT, BUDGET, EXISTING }
@@ -136,7 +144,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         return handler.enqueueOrGetExisting(
             request.url, request.userAgent, request.contentDisposition, request.mimeType,
             referer = request.referer, isPrivate = request.isPrivate, cookieHeader = request.cookieHeader,
-            newCopy = newCopy,
+            newCopy = newCopy, pageFile = request.pageFile,
         )
     }
 

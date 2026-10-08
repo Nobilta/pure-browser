@@ -1,5 +1,7 @@
 package com.mybrowser.ui.shell
 
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.foundation.background
@@ -37,6 +39,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.mybrowser.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -77,6 +80,36 @@ internal class SheetPresentation(
 
 private val LocalSheetWindow = staticCompositionLocalOf<SheetWindowState?> { null }
 private val LocalSheetInsets = staticCompositionLocalOf<WindowInsets?> { null }
+
+/**
+ * A sheet that can be followed by a back gesture.
+ *
+ * The window owns the progress and the surface owns the drag offset, so a predictive gesture goes
+ * through both exactly as a finger drag does — the two are the same movement, one driven by the
+ * system's cancellable callback instead of by touch.
+ */
+internal interface SheetBackGesture {
+    /** Takes the gesture at [progress] (0..1 of the sheet's height) and a speed in the same units per second. */
+    fun start(progress: Float, velocity: Float): Float?
+
+    /** Continues a gesture already started, in the same units. */
+    fun move(progress: Float, velocity: Float): Boolean
+
+    /** The gesture completed: close the sheet, keeping the speed it was thrown at. */
+    fun commit()
+
+    /**
+     * Close the sheet outright, for the press the handler consumed without a gesture to follow.
+     *
+     * A Back that arrives as a single completion — a key event, or a device that has no predictive
+     * gesture — is still the user asking to close this sheet, and the handler has already taken the
+     * press; this is what answers it.
+     */
+    fun close()
+
+    /** The gesture was let go or taken away: put the sheet back where it was. */
+    fun cancel()
+}
 
 /**
  * Reports that the window's surface has been laid out at least once.
@@ -143,6 +176,16 @@ internal fun BrowserSheetWindow(
     progress: SheetWindowProgress,
     onDismissRequest: () -> Unit,
     onMeasured: () -> Unit = {},
+    /**
+     * True when the caller animates the exit in Compose and unmounts this window only afterwards.
+     *
+     * The window carries its own exit animation for the surfaces that leave by being unmounted
+     * with nothing left composed to run a spring on — a picker a page opens for itself. A sheet a
+     * route host presents is not one of those: the host animates it out first, so the window
+     * animation would play a second time on content that has already left the screen, holding the
+     * window (and its scrim) alive for another 250 ms after the user has seen it go.
+     */
+    composeDrivenExit: Boolean,
     content: @Composable () -> Unit,
 ) {
     val window = remember { SheetWindowState() }
@@ -159,7 +202,7 @@ internal fun BrowserSheetWindow(
         decorFitsSystemWindows = true,
         dismissOnClickOutside = false,
     )) {
-        ApplySheetSystemBars(fullscreen = true)
+        ApplySheetSystemBars(fullscreen = true, windowExitAnimation = !composeDrivenExit)
         CompositionLocalProvider(
             LocalSheetWindow provides window,
             LocalSheetInsets provides contentInsets,
@@ -185,7 +228,8 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
             snapshotFlow { measured }.first { it }
             progress.visibility.animateTo(1f, progress.arriveSpec())
         }
-        BrowserSheetWindow(progress, onDismissRequest, onMeasured = { measured = true }) {
+        BrowserSheetWindow(progress, onDismissRequest, onMeasured = { measured = true },
+            composeDrivenExit = false) {
             SheetWindowContent(onDismissRequest, content)
         }
     } else {
@@ -262,6 +306,63 @@ private fun sheetMotion(fullscreen: Boolean, color: Color, height: Int): SheetMo
             settleSpec = { BrowserMotion.resume() },
         )
     }
+    // A back gesture on a sheet the user can throw away is the same movement as a finger drag, one
+    // driven by the system's cancellable callback: the surface follows the gesture and letting go
+    // either commits it or springs it back. Enabled only for a settled panel, because an enabled
+    // handler consumes the gesture — claiming one it cannot follow would swallow the press and leave
+    // the user with nothing happening at all.
+    val backGesture = drag?.backGesture?.invoke()
+    // Only a settled panel claims the back gesture. A handler that is enabled consumes whatever it
+    // is given, and this one cannot know before the press whether a predictive gesture is coming —
+    // so it claims nothing while the surface is arriving or leaving, where the page that is leaving
+    // would otherwise be dismissed a second time.
+    //
+    // Read through derivedStateOf: the progress is an Animatable, so reading it directly here would
+    // recompose this whole container — the sheet's content included — on every frame of every
+    // open/close. The derived value changes only when the answer does.
+    val settled by remember(progress) {
+        derivedStateOf { progress.visibility.value >= 1f && progress.visibility.targetValue >= 1f }
+    }
+    PredictiveBackHandler(enabled = backGesture != null && settled) { back: Flow<BackEventCompat> ->
+        // The gesture's speed is not reported, so it is derived: progress per second between two
+        // samples. That is the unit the window's hand-off already expects, so nothing here has to
+        // know how tall the sheet is.
+        var lastProgress = 0f
+        var lastFrame = 0L
+        // The first sample starts the movement and every one after it moves the sheet. The collect
+        // never returns normally — the dispatcher cancels it when the gesture ends — so this flag,
+        // not the return value, is what says whether there is a surface to put back.
+        var following = false
+        var committed = false
+        try {
+            back.collect { event: BackEventCompat ->
+                val seconds = if (lastFrame == 0L) 0f else (event.frameTimeMillis - lastFrame) / 1000f
+                val velocity = if (seconds > 0f) (event.progress - lastProgress) / seconds else 0f
+                lastProgress = event.progress
+                lastFrame = event.frameTimeMillis
+                val surface = backGesture ?: return@collect
+                if (!following) following = surface.start(event.progress, velocity) != null
+                else surface.move(event.progress, velocity)
+            }
+            committed = true
+        } finally {
+            // Three endings, and they are not the same:
+            //  - no progress arrived at all: this was a plain Back (a key, or a device without the
+            //    predictive gesture), and the sheet still has to close — the press was consumed here
+            //    rather than reaching the Activity, so falling through would swallow it;
+            //  - progress arrived and the flow completed: the gesture finished, close as thrown;
+            //  - progress arrived and the flow was cancelled: the user let go without completing, or
+            //    the composition went away, and the surface goes back where it was.
+            val surface = backGesture
+            when {
+                surface == null -> Unit
+                !following -> surface.close()
+                committed -> surface.commit()
+                else -> surface.cancel()
+            }
+        }
+    }
+
     // The route can close under an active gesture — a Back press, a toolbar action. The finger no
     // longer owns the position then, so the drag lets go of it instead of springing back.
     DisposableEffect(drag) {
@@ -303,6 +404,71 @@ private fun sheetDrag(
     var settling: Job? = null
     val settle = Animatable(0f)
     val scale = density.density
+    // The predictive-back gesture writes the same offset a finger does, so the surface cannot tell
+    // the two apart: following the system's progress, springing back on release, and handing the
+    // release speed to the window's exit are the same mechanics either way.
+    var backGesture: SheetBackGesture? = null
+    var backVelocity = 0f
+    // Only a settled sheet can be followed: one still arriving or already leaving is driven by the
+    // window, and a gesture taking it over as well would put two things on the same position.
+    fun ready() = height().let { it > 0 } && progress.visibility.value >= 1f &&
+        progress.visibility.targetValue >= 1f
+    backGesture = object : SheetBackGesture {
+        override fun start(progress: Float, velocity: Float): Float? {
+            if (!ready()) return null
+            settling?.cancel()
+            dragging = false
+            backVelocity = velocity
+            offset.floatValue = (progress.coerceIn(0f, 1f) * height()).coerceIn(0f, height().toFloat())
+            return offset.floatValue
+        }
+
+        override fun move(progress: Float, velocity: Float): Boolean {
+            // A gesture that has been resolved while still under the finger — a second Back press —
+            // must not keep writing the position it no longer owns. [ready] is what says so: a
+            // commit snaps the window progress below 1 and a plain Back dismisses outright, and both
+            // leave the surface unsettled. (The object holding this method is itself the non-null
+            // value of the enclosing reference, so testing that reference here proved nothing.)
+            if (!ready()) return false
+            backVelocity = velocity
+            offset.floatValue = (progress.coerceIn(0f, 1f) * height()).coerceIn(0f, height().toFloat())
+            return true
+        }
+
+        override fun close() {
+            if (offset.floatValue != 0f) {
+                // Nothing can resume a position written by a gesture that never reported, so the
+                // surface is put back first: the window's exit measures from rest.
+                offset.floatValue = 0f
+            }
+            onDismiss()
+        }
+
+        override fun commit() {
+            val limit = height().toFloat()
+            if (limit <= 0f) { offset.floatValue = 0f; return }
+            val share = (offset.floatValue / limit).coerceIn(0f, 1f)
+            val thrown = backVelocity
+            scope.launch {
+                // The same hand-off a released finger performs: the position is folded into the
+                // window's progress and the speed is left for the exit to start from.
+                settle.snapTo(offset.floatValue)
+                progress.visibility.snapTo(1f - share)
+                // The speed is already in progress units per second, which is what the window wants.
+                progress.handOff(thrown)
+                offset.floatValue = 0f
+                onDismiss()
+            }
+        }
+
+        override fun cancel() {
+            settling?.cancel()
+            settling = scope.launch {
+                settle.snapTo(offset.floatValue)
+                settle.animateTo(0f, settleSpec()) { offset.floatValue = value }
+            }
+        }
+    }
     return SheetDrag(
         offset = offset,
         onDrag = { delta ->
@@ -349,7 +515,7 @@ private fun sheetDrag(
             dragging = false
             offset.floatValue = 0f
         },
-    )
+    ).also { drag -> drag.backGesture = { backGesture } }
 }
 
 /** One sheet shape for both containers, so a container change swaps rounded edges only. */
@@ -360,14 +526,18 @@ private fun sheetShape(): Shape = MaterialTheme.shapes.extraLarge.copy(
 
 /** A faded copy of the surface a route replaced, so switching containers does not pop. */
 @Composable
-private fun ReplacedSurface(shape: SheetShape, alpha: Float, sheetShape: Shape) {
+private fun ReplacedSurface(shape: SheetShape, alpha: () -> Float, sheetShape: Shape) {
+    // The alpha is a provider rather than a value on purpose: reading the animation's state here
+    // would observe it in composition, and this call sits next to the whole page, so the entire
+    // sheet would recompose on every frame of a route change. Inside the layer it is a draw-time
+    // read and only the layer's own properties are rewritten.
     if (shape.fullscreen) {
-        Box(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.background(shape.color))
+        Box(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha() }.background(shape.color))
     } else {
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
                 .height(with(LocalDensity.current) { shape.height.toDp() })
-                .graphicsLayer { this.alpha = alpha }
+                .graphicsLayer { this.alpha = alpha() }
                 .background(shape.color, sheetShape))
         }
     }
@@ -426,7 +596,7 @@ internal fun BrowserBottomSheet(
                     contentDescription = dismissLabel
                     onClick { onDismissRequest(); true }
                 })
-            motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - motion.content.value, shape) }
+            motion.replaced?.let { replaced -> ReplacedSurface(replaced, { 1f - motion.content.value }, shape) }
             Box(Modifier.fillMaxSize()
                 .windowInsetsPadding(safeInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .imePadding().padding(top = 16.dp)) {
@@ -482,7 +652,7 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
             Box(Modifier.matchParentSize()
                 .graphicsLayer { alpha = motion.visibility.value.coerceIn(0f, 1f) }
                 .background(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA)))
-            motion.replaced?.let { replaced -> ReplacedSurface(replaced, 1f - motion.content.value, shape) }
+            motion.replaced?.let { replaced -> ReplacedSurface(replaced, { 1f - motion.content.value }, shape) }
             Surface(Modifier.fillMaxSize().graphicsLayer {
                 // A page covers the window instead of sliding through it: it fades in from a short
                 // offset, so a settings or bookmarks page does not drag the whole screen.

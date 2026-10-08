@@ -193,7 +193,17 @@ fun SettingsSheet(
                                     SettingsCategory.BROWSING -> "${currentSearchEngine.displayName(textResources)} · " +
                                         if (restoreLastSession) textResources.getString(R.string.ui_restore_previous_pages) else textResources.getString(R.string.ui_open_homepage_on_startup)
                                     SettingsCategory.APPEARANCE -> textResources.getString(preferences.theme.labelRes)
-                                    SettingsCategory.PRIVACY -> if (isFilterEnabled) textResources.getString(R.string.ui_ad_filtering_on) else textResources.getString(R.string.ui_ad_filtering_off)
+                                    // The summary answers the category's own question: privacy is
+                                    // whether the browser is currently private, extensions is what
+                                    // filtering is doing and where the installed pieces live.
+                                    SettingsCategory.PRIVACY -> textResources.getString(
+                                        if (isIncognito) R.string.settings_privacy_incognito_on
+                                        else R.string.settings_privacy_incognito_off)
+                                    SettingsCategory.EXTENSIONS -> listOfNotNull(
+                                        textResources.getString(
+                                            if (isFilterEnabled) R.string.ui_ad_filtering_on else R.string.ui_ad_filtering_off),
+                                        textResources.getString(R.string.script_settings_summary),
+                                    ).joinToString(" · ")
                                     SettingsCategory.DOWNLOADS -> textResources.getString(R.string.ui_connections_2ad3d3, downloadSettings.displayDestinationLabel(textResources), downloadSettings.threadCount)
                                     SettingsCategory.VIDEO -> if (preferences.video.enhancedControls) textResources.getString(R.string.ui_fullscreen_gestures_hold_for, PlaybackSpeed.label(preferences.video.boostRate)) else textResources.getString(R.string.ui_use_webpage_controls)
                                     SettingsCategory.ABOUT -> textResources.getString(R.string.ui_version_information)
@@ -281,6 +291,13 @@ fun SettingsSheet(
                                                 isIncognito, onIncognitoChange)
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_lock)
+                                            SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
+                                        }
+                                        SettingsCategory.EXTENSIONS -> {
+                                            // Installed pieces first, then the data they and the
+                                            // pages leave behind. Site settings appears here as the
+                                            // management door for per-site rules; the menu keeps the
+                                            // page-scoped one, next to the page it edits.
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
                                             SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
@@ -290,7 +307,6 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
                                             SettingsItem(textResources.getString(R.string.settings_export), textResources.getString(R.string.settings_export_summary), onExportSettings, R.drawable.ic_share)
                                             SettingsItem(textResources.getString(R.string.settings_import), textResources.getString(R.string.settings_import_summary), onImportSettings, R.drawable.ic_download)
-                                            SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                         }
                                         SettingsCategory.VIDEO -> {
                                             val video = preferences.video
@@ -384,10 +400,21 @@ fun SettingsSheet(
     }
 }
 
+/**
+ * The settings root, one entry per question a user can actually have.
+ *
+ * The categories are cut by intent, not by what shares an implementation: privacy holds what
+ * changes how the browser behaves towards the user and the sites they visit, while extensions
+ * holds the things the user installs and configures (filters, scripts, per-site rules) plus the
+ * browsing-data controls. "Privacy and filtering" used to be one entry holding both, so it was
+ * split; site settings had a second door in the menu, and browsing data had none in the menu
+ * taxonomy this sheet shares.
+ */
 private enum class SettingsCategory(val titleRes: Int, val icon: Int) {
     BROWSING(R.string.ui_browsing_and_startup, R.drawable.ic_home),
     APPEARANCE(R.string.ui_appearance, R.drawable.ic_settings),
-    PRIVACY(R.string.ui_privacy_and_filtering, R.drawable.ic_shield),
+    PRIVACY(R.string.ui_privacy_security, R.drawable.ic_shield),
+    EXTENSIONS(R.string.ui_extensions, R.drawable.ic_code),
     DOWNLOADS(R.string.ui_download_settings, R.drawable.ic_download),
     VIDEO(R.string.ui_video_playback, R.drawable.ic_speed),
     ABOUT(R.string.ui_about, R.drawable.ic_code),
@@ -907,13 +934,13 @@ private val SETTINGS_SEARCH = listOf(
     R.string.browser_fullscreen to SettingsCategory.APPEARANCE,
     R.string.bottom_address_bar to SettingsCategory.APPEARANCE,
     R.string.swipe_tab_switch to SettingsCategory.APPEARANCE,
-    R.string.ui_ad_filtering to SettingsCategory.PRIVACY,
-    R.string.ui_custom_ad_filter_rules to SettingsCategory.PRIVACY,
-    R.string.script_title to SettingsCategory.PRIVACY,
-    R.string.site_settings to SettingsCategory.PRIVACY,
-    R.string.menu_clear_data to SettingsCategory.PRIVACY,
-    R.string.settings_export to SettingsCategory.PRIVACY,
-    R.string.settings_import to SettingsCategory.PRIVACY,
+    R.string.site_settings to SettingsCategory.EXTENSIONS,
+    R.string.ui_ad_filtering to SettingsCategory.EXTENSIONS,
+    R.string.ui_custom_ad_filter_rules to SettingsCategory.EXTENSIONS,
+    R.string.script_title to SettingsCategory.EXTENSIONS,
+    R.string.menu_clear_data to SettingsCategory.EXTENSIONS,
+    R.string.settings_export to SettingsCategory.EXTENSIONS,
+    R.string.settings_import to SettingsCategory.EXTENSIONS,
     R.string.download_unmetered to SettingsCategory.DOWNLOADS,
     R.string.download_notifications to SettingsCategory.DOWNLOADS,
     R.string.ui_download_settings to SettingsCategory.DOWNLOADS,

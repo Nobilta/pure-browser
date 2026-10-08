@@ -30,7 +30,7 @@ result = {"serial": args.serial, "sdk": sdk, "case": case,
           "checks": [], "skipped": [], "error": None}
 original = {name: ux.adb("shell", "settings", "get", "system", name)
             for name in ("accelerometer_rotation", "user_rotation", "font_scale")}
-categories = ("浏览与启动", "外观", "隐私与过滤", "下载设置", "视频播放", "关于")
+categories = ("浏览与启动", "外观", "隐私与安全", "扩展", "下载设置", "视频播放", "关于")
 
 
 def record(name):
@@ -138,7 +138,7 @@ try:
         category(name)
         toolbar_back()
         settings_root()
-    record("all six portrait categories return to settings with system and toolbar Back")
+    record("every portrait category returns to settings with system and toolbar Back")
 
     category("浏览与启动")
     ux.tap("搜索引擎")
@@ -157,7 +157,7 @@ try:
     ux.expect("应用主题")
     back()
     settings_root()
-    category("隐私与过滤")
+    category("扩展")
     ux.tap("自定义广告过滤规则")
     ux.expect("广告过滤设置")
     back()
