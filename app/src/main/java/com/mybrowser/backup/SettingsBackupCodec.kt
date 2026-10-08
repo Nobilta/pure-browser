@@ -127,6 +127,11 @@ object SettingsBackupCodec {
                 }
                 group.put("customSubscriptions", array)
             }
+            filtering.userRules?.let { rules ->
+                val array = JSONArray()
+                rules.forEach { array.put(it) }
+                group.put("userRules", array)
+            }
             settings.put("filtering", group)
         }
 
@@ -403,11 +408,25 @@ object SettingsBackupCodec {
                 throw SettingsBackupException(error.message ?: "Invalid subscriptions")
             }
         }
+        val rules = group.optJSONArray("userRules")?.let { array ->
+            if (array.length() > com.mybrowser.filter.FilterSubscriptions.MAX_USER_RULES) {
+                throw SettingsBackupException("Too many user rules")
+            }
+            (0 until array.length()).map { index ->
+                val rule = array.opt(index) as? String
+                    ?: throw SettingsBackupException("filtering.userRules[$index] is not a rule")
+                if (!com.mybrowser.filter.BlockRules.isValid(rule)) {
+                    throw SettingsBackupException("Unsupported user rule: ${rule.take(80)}")
+                }
+                rule
+            }
+        }
         return BackupFiltering(
             enabled = optionalBoolean(group, "enabled"),
             autoUpdate = optionalBoolean(group, "autoUpdate"),
             builtIns = builtIns,
             customSubscriptions = customs,
+            userRules = rules,
         )
     }
 

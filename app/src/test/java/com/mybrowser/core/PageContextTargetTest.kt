@@ -19,6 +19,18 @@ class PageContextTargetTest {
     }
 
     @Test
+    fun aLinkedImageBlocksTheImageNotThePageItSitsOn() {
+        // The blocking rows act on one address. An image inside a link must offer the image's: on a
+        // site's own gallery the href is the site being browsed, and "block everything from this
+        // site" would then take the page with it.
+        val linked = PageContextTarget.create("https://example.com/gallery", "https://cdn.example.com/image.png")!!
+        assertEquals("https://cdn.example.com/image.png", linked.blockAddress)
+        // With no image there is nothing else it could be.
+        val link = PageContextTarget.create("https://example.com/gallery", null)!!
+        assertEquals("https://example.com/gallery", link.blockAddress)
+    }
+
+    @Test
     fun rejectsScriptLocalAndMalformedTargets() {
         listOf("javascript:alert(1)", "file:///data/secret", "data:text/html,test", "https://", "https://ex\nample.com").forEach {
             assertNull(PageContextTarget.create(it, it))

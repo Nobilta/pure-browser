@@ -27,11 +27,13 @@ import androidx.compose.ui.unit.dp
  * place instead of arriving. Fitting a spring to the spec's curve as closely as a second-order
  * system allows still leaves it 21% of the travel behind one tenth of the way in.
  *
- * Which curve, though, depends on what the surface carries. Material 3 prescribes
- * `emphasised decelerate` for a container's enter transition, and it covers 62% of the distance in
- * the first tenth of its duration — right for content replacing content, too abrupt for a surface
- * with a dim behind it, which is why [panelArrive] uses the gentler `easing.emphasized` and says
- * what was measured to decide that.
+ * Which curve, though, depends on what the surface carries. Material 3 prescribes an easing and a
+ * duration for each direction: `emphasised decelerate` over 400 ms enters the screen, and a bottom
+ * sheet is named as the example of exactly that pair ("This Bottom sheet enters with Emphasized
+ * decelerate and exits permanently with Emphasized accelerate"). The app follows the pair rather
+ * than a hand-picked curve: the panel and the dim behind it are drawn from one progress value, so
+ * they cannot drift apart on any curve, and the shape the spec gives an entering surface is then
+ * the shape the user gets.
  *
  * **Motion a finger or a scroll drives** — bars collapsing under a scroll, a row gliding to a new
  * place, a sheet settling after a drag — has no shape to preserve, because the input wrote it. What
@@ -53,11 +55,15 @@ import androidx.compose.ui.unit.dp
 internal object BrowserMotion {
     // ---- Material 3 easing tokens ---------------------------------------------------------
     // The spec's own control points, read off MotionTokens rather than approximated.
+    private val EmphasizedDecelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
     private val EmphasizedAccelerate = CubicBezierEasing(.3f, 0f, .8f, .15f)
     private val StandardDecelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
     private val StandardAccelerate = CubicBezierEasing(.3f, 0f, 1f, 1f)
 
-    /** `easing.standard` and `easing.emphasized` are the same curve in Material 3. */
+    /**
+     * The spec's `easing.emphasized`, which is also `easing.standard`. Used for a surface that
+     * begins and ends on screen, and for the content crossfades.
+     */
     private val Standard = CubicBezierEasing(.2f, 0f, 0f, 1f)
 
     // ---- Material 3 duration tokens, in milliseconds --------------------------------------
@@ -65,7 +71,7 @@ internal object BrowserMotion {
     private const val SHORT_3 = 150
     private const val SHORT_4 = 200
     private const val MEDIUM_1 = 250  // duration.medium1
-    private const val MEDIUM_2 = 300
+    private const val MEDIUM_4 = 400
     private const val LONG_2 = 500
 
     // ---- Springs, for motion that has to survive being interrupted ------------------------
@@ -80,17 +86,13 @@ internal object BrowserMotion {
     /**
      * A panel the user opened, arriving: a bottom sheet, a full-window page, a bar at an edge.
      *
-     * `easing.emphasized`, not the `emphasised decelerate` that Material 3 prescribes for a
-     * container's enter transition. That curve is right for content replacing content, but not for
-     * a surface that carries a dim behind it: it covers 62% of the distance in the first tenth of
-     * its duration, and the dim cannot keep up without popping, so the two become two events
-     * instead of one. Measured frame by frame with the decelerate curve and a dim on its own
-     * linear ramp, the panel was 81% in place while the dim had reached 19% — a bright surface
-     * flashing into position over a still-bright page, then the page darkening after it. Both
-     * Material's own bottom sheet and Flutter's drawer use a curve with a gentler start for the
-     * same reason. This one still arrives decisively: 30% in the first tenth, 71% by a third.
+     * Material 3's own pair for a surface entering the screen — `emphasised decelerate` over
+     * 400 ms — and the pair it names a bottom sheet as the example of. The surface and the dim
+     * behind it are both drawn from the window's single progress value, so the two cannot arrive
+     * on different clocks whatever curve is chosen; with that guaranteed, the spec's own shape is
+     * the one that applies, and it arrives decisively: 62% of the distance in the first tenth.
      */
-    fun <T> panelArrive(): FiniteAnimationSpec<T> = tween(MEDIUM_2, easing = Standard)
+    fun <T> panelArrive(): FiniteAnimationSpec<T> = tween(MEDIUM_4, easing = EmphasizedDecelerate)
 
     /**
      * The same panel leaving. Material 3 gives an exit the accelerate curve, which is deliberately
@@ -133,8 +135,8 @@ internal object BrowserMotion {
 
     /**
      * Recurring chrome that has to keep up with a gesture: the address and tool bars sliding away
-     * under a scroll, an overlay arriving at an edge. The fastest spatial spring, because a scroll
-     * can reverse it on any frame and it has to carry on rather than restart.
+     * under a scroll, an overlay arriving at an edge. The spec's fastest spatial spring, because a
+     * scroll can reverse it on any frame and it has to carry on rather than restart.
      */
     fun <T> chromeSpatial(): FiniteAnimationSpec<T> = spring(FOLLOWING_DAMPING, FOLLOWING_STIFFNESS)
 
@@ -233,6 +235,15 @@ internal class SheetDrag internal constructor(
     private val onRelease: (Float) -> Unit,
     private val onCancel: () -> Unit,
 ) {
+    /**
+     * The predictive-back gesture for this surface, or null when it cannot be followed.
+     *
+     * A finger and the system's back gesture move the sheet by the same means, so the gesture is
+     * built by whoever owns the drag mechanics and only exposed here. It is a provider rather than a
+     * value because the mechanics are created after this object.
+     */
+    internal var backGesture: () -> SheetBackGesture? = { null }
+
     /** Positive moves the sheet down, towards the edge it came from. */
     fun drag(delta: Float): Float = onDrag(delta)
 

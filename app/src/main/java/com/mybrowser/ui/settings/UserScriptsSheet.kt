@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.webkit.WebViewFeature
 import com.mybrowser.R
 import com.mybrowser.core.TextDownloader
+import com.mybrowser.core.UrlUtils
 import com.mybrowser.userscript.InstalledUserScript
 import com.mybrowser.userscript.UserScriptMetadata
 import com.mybrowser.userscript.UserScriptStore
@@ -35,7 +36,29 @@ import com.mybrowser.ui.shell.localizedResources
 private data class ScriptDraft(val source: String, val url: String?, val metadata: UserScriptMetadata, val previewOnly: Boolean = false)
 
 @Composable
-fun UserScriptsSheet(store: UserScriptStore, initialUrl: String?, onUrlConsumed: () -> Unit, onDismiss: () -> Unit) {
+fun UserScriptsSheet(
+    store: UserScriptStore,
+    initialUrl: String?,
+    onUrlConsumed: () -> Unit,
+    onDismiss: () -> Unit,
+    /**
+     * The page the sheet was opened from, and whether it is private.
+     *
+     * A userscript's whole contract is "does this run on the page I am looking at", and the sheet
+     * is reached from that page, so the answer is shown against each script rather than left to the
+     * user to compute from the match patterns.
+     */
+    pageUrl: String? = null,
+    isIncognito: Boolean = false,
+    /**
+     * Ids of the scripts the page on screen actually received.
+     *
+     * Deliberately not recomputed from the match patterns here: a script installed or enabled since
+     * the page loaded has not run in it, and the menu already reports that from the recorded set.
+     * Two surfaces disagreeing about the same question is worse than one of them saying less.
+     */
+    runningHere: Set<String> = emptySet(),
+) {
     val res = localizedResources()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -90,6 +113,13 @@ fun UserScriptsSheet(store: UserScriptStore, initialUrl: String?, onUrlConsumed:
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             BrowserSheetHeader(res.getString(R.string.script_title), onBack = onDismiss)
             Text(res.getString(R.string.script_summary), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+            // Scripts do run in incognito now; what is private is the data they save, which is
+            // worth saying here rather than leaving the user to discover it a session later.
+            if (isIncognito) Text(res.getString(R.string.script_status_incognito),
+                Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else if (pageUrl != null && !UrlUtils.isHttpUrl(pageUrl)) Text(res.getString(R.string.script_status_no_page),
+                Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
             if (!fullRuntime) Text(res.getString(R.string.script_old_webview), Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -117,6 +147,15 @@ fun UserScriptsSheet(store: UserScriptStore, initialUrl: String?, onUrlConsumed:
                                 })
                             }
                             if (metadata.description.isNotBlank()) Text(metadata.description, maxLines = 3, style = MaterialTheme.typography.bodySmall)
+                            // Whether it runs on the page the sheet was opened from. The match
+                            // patterns below are the general rule; this is the verdict for here.
+                            if (pageUrl != null && UrlUtils.isHttpUrl(pageUrl)) {
+                                val runsHere = metadata.id in runningHere
+                                Text(res.getString(if (runsHere) R.string.script_runs_here else R.string.script_not_here),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (runsHere) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             Text((metadata.matches + metadata.includes).joinToString("\n"), maxLines = 3, style = MaterialTheme.typography.bodySmall)
                             if (!metadata.supported) Text(res.getString(R.string.script_unsupported, metadata.unsupported.joinToString(", ")),
                                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

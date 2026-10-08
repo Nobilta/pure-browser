@@ -63,6 +63,9 @@ fun ImportPreviewDialog(
                 summary.subscriptionReplaces?.let { (new, old) ->
                     Note(stringResource(R.string.settings_import_subscriptions_note, new, old))
                 }
+                summary.ruleReplaces?.let { (new, old) ->
+                    Note(stringResource(R.string.settings_import_rules_note, new, old))
+                }
                 summary.siteReplaces?.let { (new, old) ->
                     Note(stringResource(R.string.settings_import_sites_note, new, old))
                 }

@@ -22,8 +22,18 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!--
+      android:enableOnBackInvokedCallback: predictive back, on explicitly rather than inherited.
+
+      Android 16 turns the system's back animations on for apps targeting 36+, and this app is
+      pinned to 35 — below the cutoff, so the default here is not what newer platforms give. What it
+      buys is the sheet: a back gesture on a bottom sheet that can be dragged away now follows the
+      finger and either completes or springs back. OnBackPressedCallback runs regardless of this
+      flag (the platform documents that), so the back handling itself does not depend on it.
+    -->
     <application
         android:name=".App"
+        android:enableOnBackInvokedCallback="true"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"

@@ -8,6 +8,15 @@ object FilterListFormat {
     const val MAX_TOTAL_BYTES = 32 * 1024 * 1024
     const val MAX_LINES = 200_000
 
+    /**
+     * How many lists may be loaded at once: every bundled list, every custom subscription, and the
+     * one local list of rules the user wrote by hand. A payload beyond this is refused outright,
+     * which leaves the engine holding its previous snapshot — so the number has to track the lists
+     * the app can actually produce rather than being a round figure. [FilterSubscriptions] holds
+     * the two counts this adds up, and `UserRuleStoreTest` asserts the sum.
+     */
+    const val MAX_LISTS = 36
+
     fun validate(text: String): Int {
         if (text.toByteArray().size > MAX_BYTES || text.contains('\u0000')) throw IOException("Invalid filter list")
         val start = text.trimStart().take(512).lowercase()

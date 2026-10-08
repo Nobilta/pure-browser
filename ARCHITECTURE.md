@@ -18,7 +18,7 @@ Kotlin 源码位于 [app/src/main/java/com/mybrowser](app/src/main/java/com/mybr
 | `site`、`privacy`、`security` | 网站设置、权限、Profile、证书和外部协议 |
 | `backup` | 设置、书签与历史的导入导出编解码、预览与分组应用 |
 | `download`、`update` | 文件下载与续传；应用更新下载及 APK 校验 |
-| `filter`、`userscript` | 过滤订阅、脚本安装与注入 |
+| `filter`、`userscript` | 过滤订阅与手写规则、元素选择器、脚本安装与注入 |
 | `media`、`dlna`、`qr` | 视频与系统媒体、局域网投屏、Camera2 / ZXing 扫码 |
 | [rust](rust/) | `adblock`、`url_utils` 两个 JNI 库，共享 `site_identity` |
 | [app/src/main/assets](app/src/main/assets/) | 媒体探针、用户脚本运行时、过滤规则 |
@@ -69,7 +69,8 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 用户主动唤起的转场用规范自己的缓动曲线与时长令牌，手指或滚动驱动的动效用弹簧。
 这个划分不是风格选择，而是形状问题：`emphasised decelerate` 在时长的头 10% 里走完 62% 的距离（前置），
 而弹簧从静止出发是二阶响应，到 90% 要用掉三分之二的时间（偏后）；把弹簧按最贴近的方式拟合到该曲线上，
-头 10% 仍差 21% 的距离。所以 `panelArrive`/`windowArrive`/`pageArrive` 等直接用规范曲线，
+头 10% 仍差 21% 的距离。所以进屏的 `panelArrive` 直接用规范给「Enter the screen」的那一对
+（`emphasised decelerate` + 400 ms，规范原文点名 bottom sheet 就是它），`windowArrive`/`pageArrive` 同理；
 `chromeSpatial`（滚动收起工具栏、列表行让位）与 `resume`（被打断或手势松手后接着走）用弹簧——
 后者是两者之间的桥：只有弹簧能从一个速度开始，曲线中途重放会让表面先停住。
 退出沿用规范的 accelerate 曲线（本身偏后，中点仅 15%），并按其"退出短于进入"的规则配更短的时长，
@@ -77,8 +78,9 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 `BrowserSheetWindow` 的面板与遮罩共用同一条进度：遮罩直接由面板的进度算出。
 给遮罩单独一条曲线是量过两次的错法：跑得更快的那条让它比要遮的表面早到很多，
 与表面同长的线性那条则让表面走完 81% 行程时遮罩才到 19%——眼睛看到的是两件事。
-入场因此用 `easing.emphasized`（与 `standard` 同一条曲线，头 10% 走 16%、三分之一处 74%），
-面板与遮罩同源，不可能走散；遮罩值仍做 `coerceIn(0, 1)`，以免欠阻尼的收尾把它推过目标。
+面板与遮罩同源之后，两者的相对节奏不再由曲线承担，进屏因此就用规范给它的那条曲线本身
+（头 10% 走 62%、三分之一处 89%），而不是为了迁就遮罩另选一条更缓的；遮罩值仍做 `coerceIn(0, 1)`，
+以免欠阻尼的收尾把它推过目标。
 `ApplySheetSystemBars` 的窗口几何与 edge-to-edge 标志当帧应用一次、再按原样 post 一次（幂等），
 后者用于压过库在组合之后写入的系统栏偏好；只放在 `view.post` 会让窗口出现后的第一帧仍带着错误的 inset 约束。
 `BrowserSheetHost` 用「上一次退出是否已结束」（初始 true，打开路由时清除）而不是「正在关闭」来决定窗口是否保留。
@@ -91,6 +93,31 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 `SheetWindowProgress` 负责这次交接；被打断的判断同步读取当前进度（动画结束正好落在端点上），
 不依赖被取消协程的收尾，以免与接替它的动画抢时序。
 底部面板与全屏页共用进入、换页和换容器逻辑。
+系统返回手势（预测性返回）落在可拖动面板上时，走的是和手指拖动同一条通路：
+`SheetBackGesture` 把系统给的进度写进同一个 offset，松手或取消再交给同一条弹簧/退出。
+还有些必须写下来的边界：启用的 `PredictiveBackHandler` 会**吞掉**它收到的一切返回事件，
+而平台不提供"这次是不是预测性手势"的事前查询，所以
+- 只有**停稳**的底部面板才注册这个 handler（`visibility` 与 `targetValue` 都为 1），
+  正在进场/退场的表面不注册——否则正在退出的面板会被再关一次；
+- 一个手势里**没有收到任何进度**（键盘返回、或设备没有预测性手势）时，按普通返回处理：
+  仍然是这个面板关闭，而不是把按键吞掉后什么都不发生。这一步是被
+  `gesture-dismiss` 阶段逼出来的：菜单用 keyevent 返回关闭，注册了 handler 之后
+  那次返回被吞掉，菜单关不上；
+- `BackEventCompat` 不含速度，速度由 `frameTimeMillis` 上的进度差算出，单位正好是
+  窗口在用的"进度/秒"。
+Android 16 起系统对 targetSdk ≥ 36 的应用默认打开预测动画；本应用固定在 35（见上文），
+因此在 manifest 里显式写 `android:enableOnBackInvokedCallback="true"`。
+`OnBackPressedCallback` 的行为与该开关无关（平台文档明确），应用自己的返回逻辑不依赖它。
+
+刷新率不做任何限制：应用不设 `preferredRefreshRate`/`preferredDisplayModeId`，也不调用
+`Surface.setFrameRate`，动画跑在系统 Vsync 上，有多少帧就出多少帧（120 Hz 设备上即是 120）。
+Compose 1.9.4 有 `Modifier.preferredFrameRate`（底层是 API 35 的 `View.setRequestedFrameRate`），
+但只对 Android 15+ 生效，且这里没有需要降帧的静止画面，因此不加。
+模拟器用 SwiftShader 软件渲染（`dumpsys SurfaceFlinger` 可证），本身就有 70% 以上的卡顿帧，
+所以帧率不能拿模拟器测；要测动画性能必须用真机，并用 `dumpsys gfxinfo <pkg> framestats` 看单帧分布。
+在模拟器上按住面板下滑的实测：`Number Slow issue draw commands` 66/79 帧，而
+`Number Slow UI thread` 只有 7 帧，且面板/宿主的重组计数为 0；把背后的网页换成空首页后数字不变。
+也就是说该路径的耗时在光栅化与合成，不在应用的重组或测量，软件渲染器把它放大了约一个数量级。
 由页面自己打开、靠卸载退出的面板没有可运行的动画，其退出仍由窗口动画承担，
 `res/anim/browser_sheet_exit.xml` 必须与 Compose 驱动的退出同向同曲线。
 滚到边缘的回弹保留系统默认值，只有确需不随之移动的表单在自己的滚动处关闭。
@@ -102,9 +129,53 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 失败的分组只上报标识，异常同时写入日志——用户无法处理堆栈，但排查需要它。
 过滤订阅清单保存在 `filter_settings` 的 `subscriptions_manifest` 中，与全局过滤和自动更新开关一起提交，
 成功后才发布状态；旧 `filter_subscriptions/subscriptions.json` 在首次成功写入时迁移。
+手写规则存在同一组的 `user_rules` 里，作为一份 payload 与订阅一起进入同一个引擎快照；
+导入时它和订阅遵守同一条规则：**文件里没有这个字段就保留本机的，显式给了列表（哪怕是空列表）才整体替换**，
+否则旧版本导出的文件会静默清掉用户手写的东西。
 `SettingsTransfer.collect` 等待订阅初始化并使用同一份列表快照；导入结果携带首次规则待下载数，
 配置提交后由 App 的进程协程调用 `updateMissing`。备份的合并规则与上限见[功能介绍](FEATURES.md)。
 导入元数据在解码时限制长度；`ImportPreviewText` 在格式化与排版前截断预览文本。
+
+## 手动屏蔽
+
+手动屏蔽有两条路，写出来的是同一种文本规则：长按资源后面板给出的网络规则与元素规则，
+和元素选择器挑选出来的元素隐藏规则。长按落在「链接里的图片」上时，面板的三行都针对**图片的地址**
+（`PageContextTarget.blockAddress` 让图片优先）：否则"屏蔽此网站的资源"会退回到链接本身，
+在网站自己的图库里那就是正在浏览的这个站，等于把整页带走。生成规则的是纯函数 `BlockRules`（地址去掉查询串、`||host^`、
+`host##selector`），它只返回引擎能接受的文本或 `null`——引擎读不懂规则时不会报错，只会丢掉，
+于是"没写进去"和"写进去但不生效"从外面看完全一样，所以这里宁可拒绝也不写。
+`PageHide` 负责"现在就把这个藏起来"：用行内 `!important` 而不是样式表规则，因为样式表规则会输给
+页面自己的 `!important`，而行内声明不会，并且它随文档消失，正好是临时隐藏承诺的生命周期。
+选择器的文本按 CSS 转义（`JSONObject.quote` 会把 `/` 写成 `\/`，CSS 认但写出来不是那条地址）。
+
+**消息通道必须在 WebView 配置时挂上，不能等到挑选开始时才挂**：给一个已经加载完成、
+已经稳定的文档加 `addWebMessageListener`，随后再用脚本改动那个文档（哪怕只是插一个空
+`<style>` 和一个 `display:none` 的 div），会让整个应用进程在 `libwebviewchromium` 里以空指针
+崩溃（SIGSEGV，fault addr 0x18）。这不是推测：同一份代码只把挂载时机从"挑选时"改成
+"`configure(view)` 时"（与媒体探针、用户脚本运行时一致）就不再崩溃，且页面侧用同样的 DOM
+改动复现不出来（页面自己改 DOM、开发者工具里执行同样的 DOM 改动都正常，只有"迟挂的通道 +
+脚本改 DOM"这一组合会崩）。通道本来就和 WebView 同生命周期，挂在配置处也更合理。
+查找过程中 `document` 上那个非 passive 的 `wheel` 监听一度是头号嫌疑（当时看到"加上它就崩"），
+但那是被时间线骗了：真正的变量是挂载时机。修完时机之后 `wheel` 没有被放回去，因为它本来就不需要——
+挑选期间滚轮让页面正常滚动，描边仍然正确，因为监听 `scroll` 会重新读取元素的盒子。
+
+`element-picker.js` 与 `ElementPicker` 的分工是按"什么必须留在页面里"划的：
+描边要跟着手指走，任何来回一趟 Kotlin 的往返都做不到这个速度，所以挑选、上下级与绘制都在页面里；
+写入规则、报告结果在应用这边。`ElementPicker` 只处理一种消息（`pick`），并且只在**自己启动的选择器运行中、
+来自主 frame、来源与启动时的页面同源**时接受它。这条通道对页面本身是敞开的，所以里面的内容一律当作页面输入：
+它只用来填操作栏，真正的写入要用户按下面板上的按钮，而那个选择器还要再通过 `BlockRules` 的校验——
+`body`/`html`/`head` 这类会清空页面的选择器在这里被拒，因为空白页不会被理解成"我屏蔽错了"，
+而是"过滤器把这个网站弄坏了"，而那时用户已经看不见页面，只能在一堆文本里找出那条规则删掉。
+挑选期间页面的输入在捕获阶段被拦下（`touchstart`/`touchmove`/`touchend`/`mouse*`/`contextmenu` 都显式声明
+非 passive，document 级的 touch 监听默认是 passive 的，passive 监听不允许取消滚动；`wheel` 不在其中，
+滚轮滚动时描边靠 `scroll` 监听重画，见上一段）。
+预览用行内 `display:none !important` 隐藏选中的匹配项，和规则生效时同一种声明，
+所以重排也是真的：一个会带走整片区域的选择器，在写下去之前就会显现出来。
+每个元素原来的行内 `display` 值被记下来原样放回（原本没有就删掉该属性），
+因此"取消"能还原到与挑选前完全一致；手指按下去时先还原，是为了让要选的东西看得见。
+`stop()` 里第一件事就是还原——预览活得比挑选久，就等于在用户没有任何界面可撤销的情况下藏了东西。
+操作栏是 Compose 浮层而不是布局里的一行：会改变 WebView 高度的一行会让页面重排，
+被描边的元素就会从描边底下跑掉。
 
 ## 媒体与投屏
 
@@ -126,6 +197,14 @@ PiP 复用原视图，使用进入前的画面区域；停止、视频消失、�
 DLNA 的 `CastController` 由进程持有，发现和轮询随面板可见性启停，控制动作串行执行；
 SetURI / Play 被接受与设备返回 PLAYING 是不同状态。
 设备发现用 SSDP：向 `239.255.255.250:1900` 发 M-SEARCH（包含 `ssdp:all`），收单播回复，再取设备描述。
+投屏把渲染器当成一台独立播放器：地址交给它、由它自己解码，所以进度、暂停、音量都是 AVTransport /
+RenderingControl 上的动作，而不是操作手机上那份播放。为此有两处刻意的取舍：
+`Seek` 只在重量级控制（`transport`）之外单独映射失败说明，因为设备拒绝它（SOAP fault 710 之类）
+和"控制通道断了"是两件事；投屏时带的起始位置要等到 `PLAYING` 再发一次且只发一次——
+传输未就绪时的 Seek 必被拒绝，而重发会让已经接受的设备白跳一次。**不做倍速**：
+`Play(Speed)` 是唯一入口，规范只保证 `"1"`，且没有可查询的能力位（`GetDeviceCapabilities` 不含速度表，
+`GetTransportInfo` 只回当前 `CurrentSpeed`），做出来只会是一排大概率无效的选项。
+单位换算：设备用 `HH:MM:SS`，页面用秒，`AvTransport.parseTime`/`formatTime` 是唯一转换点。
 **`targetSdk` 固定在 35，不要顺手升到 36+**：Android 16 起对 `targetSdk` ≥ 36 的应用硬性拒绝
 本地网络与组播流量——平台把 `ACCESS_LOCAL_NETWORK` 这个 app op 强制设为 `ignore`，连 shell 都改不动，
 也不存在可声明或可申请的权限对应它，于是发往局域网地址与组播组的包全部在发送阶段被 `EPERM` 拒绝，
@@ -144,7 +223,16 @@ SSDP 一个包都发不出去、永远发现不了设备。在 API 37 上用同�
 新 Activity 订阅同一清理状态，销毁旧窗口不会取消清理。
 `BrowserSessionState` 在冷启动、显式切换与最终清理时统一轮换/结束下载会话标识。
 WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，能力开关为真不能证明真实账号可以登录。
-用户脚本在网页环境运行，原生存储桥不等于隔离执行环境。
+用户脚本在网页环境运行，原生存储桥不等于隔离执行环境；无痕模式下因此只把脚本 **GM 值**放进会话内存
+（`UserScriptStore` 的 private 映射），进入与退出都清空，其余部分与普通模式完全相同。
+"无痕不执行脚本"曾是默认行为，改成执行之后，可能泄漏的就是脚本自己写下的数据，边界因此划在这里。
+清理入口只有一处：`BrowserSessionState.beginPrivateSession/endPrivateSession` 同时负责脚本值，
+所以手动切换、冷启动直接进无痕、Activity 销毁（关掉最后一个浏览器窗口但进程仍在）走的是同一条边界，
+调用方不再各自记得清理。注入内容的变化由 `UserScriptStore.programs` 这个版本号通知运行时：
+私有写入不改变 `InstalledUserScript`，列表订阅永远不会被唤醒，运行时因此同时比较每个脚本注入时用的
+值文本（只重建那一个脚本，避免早先"每次写入重装全部程序、最多复制 12 MiB"的开销）。
+运行时对外的`UserScriptStatus` 与注入共用同一个 `matchesUrl` 判定：本页状态只会列出真的会运行的脚本，
+"已安装但没命中"与"这套 WebView 跑不了"分开计数，且每个脚本只落在其中一类。
 
 ## 下载、更新与构建
 
@@ -153,6 +241,18 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 `DownloadPresenter` 管理任务操作、文件打开及结果提示；WebView 提供的 contentLength 传至确认框。
 `DownloadIdentity` 是模式相关下载策略的唯一出处：凭据来源、持久化范围、通知与可恢复性都由它决定，
 新增差异应加在这里而不是散落成新的布尔判断。
+`PageFileDownload` 处理网页在内存里生成的文件：`blob:` 地址只在该文档内可解析，任何 HTTP 客户端都取不到，
+因此它把 `blob-download.js` 注入为 document-start 脚本，记住 `URL.createObjectURL` 创建的 Blob
+（页面随后 `revokeObjectURL` 也不影响，撤销的是地址不是对象），并从捕获阶段的点击记录 `a[download]` 给出的文件名。
+原生侧只通过 `WebMessageCompat` 的 ArrayBuffer 通道逐块索取：每块写入临时文件后才请求下一块，
+既不整份驻留内存，也不让页面跑在磁盘前面；`DownloadHandler` 用 `page-file:` 前缀的占位地址记录这类任务，
+该前缀会被 `validHttpUrl` 拒绝，所以引擎永远不会去抓它，重启后也据此识别为不可续传的记录。
+两种来源在取到字节之后共用同一条链路：临时分片落盘、`publishParts` 交给 `DownloadDestinationWriter` 发布、
+原子地把记录改成完成，成败都走同一套清理。区别只在取字节的那一半——引擎按 URL 分段下载，
+页面文件按分片向页面索取——因此任务模型、确认框、下载列表、通知与打开方式都只有一份实现。
+失败的那一端因此也要看住：真正停止页面侧传输的是写完最后一块、也唯一能确定失败原因的那条路径
+（它把源从表里取出并 `cancel`），不是事后才发现表里已经空了的清理函数；否则页面会一直以为传输还在进行，
+同一文档里的下一次 Blob 下载会被拒。页面文件只在内存里有意义，因此从不续传，重启清理也不会为它保留临时分片。
 下载恢复核对 validator、长度、最终 URL 和分段边界，不能确认同一实体时完整重下；
 每个任务共享写入锁，取消和删除等待旧 writer 结束，文件发布成功后才显示完成。
 Cookie 仅驻留内存，并且只向原 origin 发送；系统文件打开统一交给 Android 处理。

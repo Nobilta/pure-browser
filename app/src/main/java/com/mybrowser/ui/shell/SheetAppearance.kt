@@ -15,20 +15,22 @@ import com.mybrowser.R
 
 /** A sheet has its own window; its system bars must follow the app's chosen theme. */
 @Composable
-internal fun ApplySheetSystemBars(fullscreen: Boolean = false) {
+internal fun ApplySheetSystemBars(fullscreen: Boolean = false, windowExitAnimation: Boolean = true) {
     val view = LocalView.current
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
     val surface = MaterialTheme.colorScheme.surface.toArgb()
-    DisposableEffect(view, light, surface, fullscreen) {
+    DisposableEffect(view, light, surface, fullscreen, windowExitAnimation) {
         val window = generateSequence(view as? ViewParent ?: view.parent) { it.parent }
             .filterIsInstance<DialogWindowProvider>().firstOrNull()?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
         val oldStatus = controller?.isAppearanceLightStatusBars
         val oldNavigation = controller?.isAppearanceLightNavigationBars
-        // The route host runs its own exit in Compose; this window animation still covers the
-        // overlays that leave by being unmounted, such as a picker opened by a page. Keeping it
-        // means no window disappears without a transition while those entries are converted.
-        window?.setWindowAnimations(R.style.BrowserSheetAnimation)
+        // Only a surface Compose does not animate needs the window's own exit, so that no window
+        // disappears without a transition. A route-host sheet has already played its exit by the
+        // time this window is dismissed, and animating it again would keep an empty window (and its
+        // scrim) on screen after the user has watched the panel go.
+        if (windowExitAnimation) window?.setWindowAnimations(R.style.BrowserSheetAnimation)
+        else window?.setWindowAnimations(0)
         // Take the platform's own dim away before anything else, and in this frame rather than the
         // next one. Compose picks a dialog theme carrying `backgroundDimEnabled` for an
         // edge-to-edge dialog, so the window arrives dimming the page at the platform's amount and

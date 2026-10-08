@@ -10,6 +10,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.mybrowser.R
@@ -21,11 +23,15 @@ import java.util.Date
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.shell.userItemMotion
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: FilterController, onDismiss: () -> Unit) {
     val res = localizedResources()
     val lists by controller.subscriptions.collectAsState()
+    val rules by controller.userRules.collectAsState()
     val ruleCount by filterController.ruleCount.collectAsState()
     val cosmeticCount by filterController.cosmeticCount.collectAsState()
     val unsupportedCount by filterController.unsupportedCount.collectAsState()
@@ -37,6 +43,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     var adding by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<FilterSubscriptions.Subscription?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val dateFormat = remember(res.configuration.locales.toLanguageTags()) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, res.configuration.locales[0])
     }
@@ -74,6 +81,46 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                             modifier = Modifier.semantics { contentDescription = res.getString(R.string.filter_auto_update) }) },
                     )
                 }
+                // The rules the user wrote by hand, above the lists they came from: this is where
+                // one of them is undone, and the rules are the part of this screen nobody else can
+                // replace — a wrong one is what the two blocking gestures leave behind.
+                item {
+                    Column(Modifier.padding(top = 16.dp, bottom = 4.dp)) {
+                        Text(res.getString(R.string.filter_user_rules), style = MaterialTheme.typography.titleSmall)
+                        Text(res.getString(R.string.filter_user_rules_summary),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (rules.isEmpty()) item {
+                    Text(res.getString(R.string.filter_user_rules_empty),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp))
+                }
+                // The rows the user removes here are the ones they added by hand, so they are the
+                // list this app can be most sure the user edits; the row fades and its neighbours
+                // make room, like every other user-managed list.
+                items(rules, key = { it }) { rule ->
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = userItemMotion().fillMaxWidth().padding(vertical = 2.dp)) {
+                        Text(rule, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        // A refused write must say so: the row disappearing without the preference
+                        // change landing looks identical to the rule never having existed, and the
+                        // add path already reports every outcome.
+                        IconButton(onClick = {
+                            scope.launch {
+                                if (!controller.removeUserRule(rule)) {
+                                    Toast.makeText(context, res.getString(R.string.filter_user_rule_failed),
+                                        Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }) {
+                            Icon(painterResource(R.drawable.ic_delete), res.getString(R.string.filter_user_rule_remove),
+                                Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                item { HorizontalDivider(Modifier.padding(top = 12.dp)) }
                 items(lists, key = { it.id }) { list ->
                     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                         Column(Modifier.padding(14.dp)) {
