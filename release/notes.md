@@ -3,6 +3,10 @@
 被测产物为本地构建的 0.14.0（versionCode 41）签名 Release，SHA-256 `cdb142522328f11547351b436941c12e38b2b5424ad23cd8a4879e136bde1478`。
 设备为 API 37 的 `google_apis` arm64-v8a 模拟器 `PureBrowser_API37`（Android 17）；
 签名、zipalign、R8、Android lint 与 ABI 校验在打包时通过。
+本版 APK 由 `51fc515` 构建；其后 `3f97179` 只改了 `PageFileDownloadTest` 中「发布失败」用例的构造方式
+（Windows 上目录的 `length()` 为 0，原用例在那台机器上根本没走到发布失败路径）。应用代码一行未动，
+交付包与新提交构建出的 APK 只有 `META-INF/version-control-info.textproto`（构建时记录的提交号）不同，其余条目逐字节一致，因此上面的设备证据同样适用于交付包。
+CI 在该提交上三平台全绿。
 
 上一版交付（0.13，`51b87173ddcf38b9…`）的验证记录已被本文件取代；它的内容仍在 `CHANGELOG.md` 的 0.13 条目里。
 
