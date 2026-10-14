@@ -119,7 +119,9 @@ def main():
         loaded()
         record('a successful retry dismisses recovery after replacement content is available')
         request_seen.clear(); release_response.clear()
-        ux.launch(base + '/slow?stop')
+        # An incoming VIEW intent opens a new tab when an article is already selected.
+        # Stop/re-submit needs the existing form document, so navigate within this tab.
+        ux.tap('Slow link')
         progress_before_headers('before-stop')
         ux.tap(STRINGS['cd_stop'])
         ux.expect(STRINGS['cd_reload'])

@@ -11,6 +11,10 @@
 包含三语言资源校验、Python 发布工具测试、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
 发布工具测试覆盖 CI 运行选择、GitHub CLI 路径、版本递增、签名失败和验证记录的版本边界；不调用真实发布接口。
 Android 测试会构建 host JNI，Node 使用内置测试运行器。
+导航协调测试覆盖等待请求替换、生命周期取消、当前 WebView/Profile、外部链接的标签选择及过期历史操作；
+下载存储测试覆盖记录数量/字符预算、损坏快照和 Cookie 不落盘，调度器测试继续验证迁移、隐私与并发续传。
+修改这些边界后，设备回归应包含 `navigation-recovery`、`private-lifecycle`、`resident`、`download`、
+`blob-download`；设置公共控件改动应运行 `settings-back` 和 `settings`。
 调用同一 JNI 库的测试应使用相同的 Robolectric runner 和 `@Config`，避免 JVM 类加载器之间重复加载原生库。
 字符表固定使用 OpenJDK 26.0.2 的 BMP 分类（含该版本补丁），不会随 Android/JDK 自动变化：
 用对应 JDK 运行 `python3 rust/tools/generate-java-char-tables.py --check` 对比所有 65,536 个值，
