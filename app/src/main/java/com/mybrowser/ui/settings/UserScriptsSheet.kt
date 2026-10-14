@@ -233,11 +233,16 @@ fun UserScriptsSheet(
             dismissButton = { if (!current.previewOnly) TextButton(onClick = { draft = null }, enabled = !busy) { Text(res.getString(R.string.action_cancel)) } })
     }
     deleting?.let { script ->
-        AlertDialog(onDismissRequest = { deleting = null }, title = { Text(res.getString(R.string.cd_delete)) },
-            text = { Text(res.getString(R.string.script_delete_notice, script.metadata.name)) },
-            confirmButton = { TextButton(onClick = {
-                scope.launch { attempt { store.remove(script.metadata.id) } }; deleting = null
-            }) { Text(res.getString(R.string.cd_delete)) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text(res.getString(R.string.action_cancel)) } })
+        com.mybrowser.ui.shell.BrowserConfirmDialog(
+            title = res.getString(R.string.cd_delete),
+            message = res.getString(R.string.script_delete_notice, script.metadata.name),
+            confirmText = res.getString(R.string.cd_delete),
+            dismissText = res.getString(R.string.action_cancel),
+            onConfirm = {
+                scope.launch { attempt { store.remove(script.metadata.id) } }
+                deleting = null
+            },
+            onDismiss = { deleting = null },
+        )
     }
 }

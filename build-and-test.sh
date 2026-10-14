@@ -14,7 +14,7 @@ case "$build_mode" in
     --quick|--release) ;;
     --help|-h)
         echo "Usage: ./build-and-test.sh [--quick|--release]"
-        echo "  --quick (default): localization, Node, Rust and Android unit tests"
+        echo "  --quick (default): localization, release tooling, Node, Rust and Android unit tests"
         echo "  --release: also run clippy, lint, signing checks and generate release assets"
         exit 0 ;;
     *) echo "Unknown build mode: $build_mode" >&2; exit 1 ;;
@@ -73,6 +73,9 @@ require_command node
 
 echo "检查中英文提示资源..."
 "$PYTHON" validation/check-localization.py
+
+echo "运行发布工具测试..."
+"$PYTHON" -m unittest discover -s release -p 'test_*.py'
 
 echo "运行网页视频控制及用户脚本协议测试..."
 node --test validation/*.test.cjs

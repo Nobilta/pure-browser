@@ -107,6 +107,7 @@ def start(args):
     extra = {'creationflags': subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP} \
         if os.name == 'nt' else {'start_new_session': True}
     subprocess.Popen([str(emulator), '-avd', args.name, '-no-snapshot-save', '-no-boot-anim'],
+                     env={**os.environ, 'ANDROID_SDK_ROOT': str(sdk_root()), 'ANDROID_HOME': str(sdk_root())},
                      stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, **extra)
     adb = wait_for_boot(args.serial, args.timeout)
     # adb reports on stderr and fails on Play Store images ("cannot run as root in production builds").

@@ -111,6 +111,9 @@ interface PageFileSource {
 
     /** Stops whatever is in flight. The owner keeps whatever bytes already reached its sink. */
     fun cancel()
+
+    /** The failure token when task [id] ended abnormally rather than completing, or null. */
+    fun failureReason(id: Long): String? = null
 }
 
 @SuppressLint("RequiresFeature")
@@ -146,6 +149,8 @@ class PageFileDownload(
     private var script: ScriptHandler? = null
     private var reply: JavaScriptReplyProxy? = null
     private var nextProbe = 1L
+    @Volatile private var lastFailedId = 0L
+    @Volatile private var lastFailureReason: String? = null
 
     /**
      * The addresses the page reported files at and the user has not resolved yet.
@@ -156,7 +161,7 @@ class PageFileDownload(
      * not saved. The set is bounded because a page can fire these in a loop.
      */
     private val offered = LinkedHashSet<String>()
-    private var transfer: Transfer? = null
+    @Volatile private var transfer: Transfer? = null
 
     /**
      * The questions the page has not answered yet, keyed by the probe that names them.
@@ -322,6 +327,7 @@ class PageFileDownload(
      */
     override fun start(id: Long, url: String, size: Long, sink: PageFileSink): Boolean {
         if (closed || !installed || transfer != null) return false
+        if (lastFailedId == id) lastFailureReason = null
         val current = Transfer(id, url, size.coerceAtLeast(0L), sink)
         transfer = current
         // The confirmation is answered and the transfer carries the address from here, so the
@@ -337,9 +343,14 @@ class PageFileDownload(
     /** Whether task [id] still has a transfer here. Once false, no further bytes exist for it. */
     override fun isTransferring(id: Long): Boolean = transfer?.id == id
 
+    override fun failureReason(id: Long): String? =
+        if (lastFailedId == id) lastFailureReason else null
+
     /** Stops whatever is in flight. The task keeps whatever bytes already reached its sink. */
     override fun cancel() {
         transfer?.let { current ->
+            lastFailedId = current.id
+            lastFailureReason = "cancelled"
             transfer = null
             post(JSONObject().put("type", "cancel").put("transfer", current.id))
         }
@@ -431,6 +442,8 @@ class PageFileDownload(
     }
 
     private fun fail(current: Transfer, reason: String) {
+        lastFailedId = current.id
+        lastFailureReason = reason
         transfer = null
         offered.remove(current.url)
         post(JSONObject().put("type", "cancel").put("transfer", current.id))

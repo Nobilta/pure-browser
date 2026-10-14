@@ -67,34 +67,22 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 SiteToggle(stringResource(R.string.player_mirror), draft.useVideoMirror(), !busy) {
                     draft = draft.copy(videoMirror = it)
                 }
-                var fitExpanded by remember { mutableStateOf(false) }
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.player_video_menu), Modifier.weight(1f))
-                    Box {
-                        TextButton(onClick = { fitExpanded = true }, enabled = !busy) {
-                            Text(stringResource(videoFitLabel(draft.useVideoFit())))
-                        }
-                        DropdownMenu(fitExpanded, { fitExpanded = false }) {
-                            VIDEO_FIT_CHOICES.forEach { (label, fit) -> DropdownMenuItem(
-                                text = { Text(stringResource(label)) },
-                                onClick = { draft = draft.copy(videoFit = fit); fitExpanded = false }) }
-                        }
-                    }
-                }
-                var viewportExpanded by remember { mutableStateOf(false) }
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.site_desktop_viewport), Modifier.weight(1f))
-                    Box {
-                        TextButton(onClick = { viewportExpanded = true }, enabled = !busy && draft.desktop) {
-                            Text(if (draft.desktopWidth == 0) stringResource(R.string.site_viewport_original) else draft.desktopWidth.toString())
-                        }
-                        DropdownMenu(viewportExpanded, { viewportExpanded = false }) {
-                            SiteSettingsRepository.DESKTOP_WIDTHS.forEach { width -> DropdownMenuItem(
-                                text = { Text(if (width == 0) stringResource(R.string.site_viewport_original) else width.toString()) },
-                                onClick = { draft = draft.copy(desktopWidth = width); viewportExpanded = false }) }
-                        }
-                    }
-                }
+                SiteDropdownRow(
+                    label = stringResource(R.string.player_video_menu),
+                    valueLabel = stringResource(videoFitLabel(draft.useVideoFit())),
+                    enabled = !busy,
+                    options = VIDEO_FIT_CHOICES,
+                    optionLabel = { (label, _) -> stringResource(label) },
+                    onSelect = { (_, fit) -> draft = draft.copy(videoFit = fit) },
+                )
+                SiteDropdownRow(
+                    label = stringResource(R.string.site_desktop_viewport),
+                    valueLabel = if (draft.desktopWidth == 0) stringResource(R.string.site_viewport_original) else draft.desktopWidth.toString(),
+                    enabled = !busy && draft.desktop,
+                    options = SiteSettingsRepository.DESKTOP_WIDTHS,
+                    optionLabel = { width -> if (width == 0) stringResource(R.string.site_viewport_original) else width.toString() },
+                    onSelect = { width -> draft = draft.copy(desktopWidth = width) },
+                )
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 val textZoomLabel = stringResource(R.string.site_text_zoom, draft.textZoom)
                 Text(textZoomLabel, style = MaterialTheme.typography.titleSmall)
@@ -103,34 +91,26 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                     modifier = Modifier.semantics { contentDescription = textZoomLabel })
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text(stringResource(R.string.site_permissions), style = MaterialTheme.typography.titleSmall)
-                var externalExpanded by remember { mutableStateOf(false) }
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.external_apps), Modifier.weight(1f))
-                    Box {
-                        TextButton(onClick = { externalExpanded = true }, enabled = !busy) { Text(stringResource(draft.externalApps.label())) }
-                        DropdownMenu(externalExpanded, { externalExpanded = false }) {
-                            SitePermission.entries.forEach { value -> DropdownMenuItem(text = { Text(stringResource(value.label())) },
-                                onClick = { draft = draft.copy(externalApps = value); externalExpanded = false }) }
-                        }
-                    }
-                }
+                SiteDropdownRow(
+                    label = stringResource(R.string.external_apps),
+                    valueLabel = stringResource(draft.externalApps.label()),
+                    enabled = !busy,
+                    options = SitePermission.entries,
+                    optionLabel = { stringResource(it.label()) },
+                    onSelect = { draft = draft.copy(externalApps = it) },
+                )
                 SiteCapability.entries.forEach { capability ->
-                    var expanded by remember(capability) { mutableStateOf(false) }
-                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(capability.label()), Modifier.weight(1f))
-                        Box {
-                            val permissionLabel = stringResource(capability.label()) + ": " + stringResource(draft.permission(capability).label())
-                            TextButton(onClick = { expanded = true }, enabled = !busy,
-                                modifier = Modifier.semantics { contentDescription = permissionLabel }) { Text(stringResource(draft.permission(capability).label())) }
-                            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                                SitePermission.entries.forEach { permission ->
-                                    DropdownMenuItem(text = { Text(stringResource(permission.label())) }, onClick = {
-                                        draft = draft.withPermission(capability, permission); expanded = false
-                                    })
-                                }
-                            }
-                        }
-                    }
+                    val capabilityLabel = stringResource(capability.label())
+                    val currentLabel = stringResource(draft.permission(capability).label())
+                    SiteDropdownRow(
+                        label = capabilityLabel,
+                        valueLabel = currentLabel,
+                        enabled = !busy,
+                        options = SitePermission.entries,
+                        optionLabel = { stringResource(it.label()) },
+                        onSelect = { permission -> draft = draft.withPermission(capability, permission) },
+                        buttonContentDescription = "$capabilityLabel: $currentLabel",
+                    )
                 }
                 Text(stringResource(R.string.site_os_permission_note), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -145,10 +125,13 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
             }
         }
     }
-    if (confirmReset) AlertDialog(onDismissRequest = { confirmReset = false },
-        title = { Text(stringResource(R.string.site_reset)) }, text = { Text(stringResource(R.string.site_reset_confirm, origin)) },
-        confirmButton = { TextButton(onClick = { confirmReset = false; onReset() }) { Text(stringResource(R.string.site_reset)) } },
-        dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.action_cancel)) } })
+    if (confirmReset) com.mybrowser.ui.shell.BrowserConfirmDialog(
+        title = stringResource(R.string.site_reset),
+        message = stringResource(R.string.site_reset_confirm, origin),
+        confirmText = stringResource(R.string.site_reset),
+        onConfirm = { confirmReset = false; onReset() },
+        onDismiss = { confirmReset = false },
+    )
 }
 
 @Composable
@@ -179,19 +162,20 @@ private fun SiteStorageRepairNotice(busy: Boolean, onRepair: () -> Unit) {
     Text(stringResource(R.string.site_storage_unreadable), color = MaterialTheme.colorScheme.error,
         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 8.dp))
     TextButton(onClick = { confirm = true }, enabled = !busy) { Text(stringResource(R.string.site_repair)) }
-    if (confirm) AlertDialog(onDismissRequest = { confirm = false },
-        title = { Text(stringResource(R.string.site_repair)) },
-        text = { Text(stringResource(R.string.site_repair_confirm)) },
-        confirmButton = { TextButton(onClick = { confirm = false; onRepair() }, enabled = !busy) {
-            Text(stringResource(R.string.site_repair))
-        } },
-        dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.action_cancel)) } })
+    if (confirm) com.mybrowser.ui.shell.BrowserConfirmDialog(
+        title = stringResource(R.string.site_repair),
+        message = stringResource(R.string.site_repair_confirm),
+        confirmText = stringResource(R.string.site_repair),
+        onConfirm = { confirm = false; onRepair() },
+        onDismiss = { confirm = false },
+        enabled = !busy,
+    )
 }
 
 @Composable
 fun WebsitePermissionDialog(prompt: WebsitePermissions.Prompt, onRespond: (Boolean, Boolean) -> Unit) {
     var remember by remember(prompt) { mutableStateOf(false) }
-    AlertDialog(onDismissRequest = { onRespond(false, false) },
+    com.mybrowser.ui.shell.BrowserAlertDialog(onDismissRequest = { onRespond(false, false) },
         title = { Text(stringResource(R.string.site_permission_request)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -211,10 +195,46 @@ fun WebsitePermissionDialog(prompt: WebsitePermissions.Prompt, onRespond: (Boole
 
 @Composable
 private fun SiteToggle(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    // No horizontal inset here: the sheet's own column already indents this form, and the
+    // settings-page row padding would stack on top of it.
+    SettingsToggle(title = label, checked = checked, enabled = enabled, onChange = onChange,
+        modifier = Modifier.heightIn(min = 56.dp))
+}
+
+@Composable
+private fun <T> SiteDropdownRow(
+    label: String,
+    valueLabel: String,
+    enabled: Boolean,
+    options: List<T>,
+    optionLabel: @Composable (T) -> String,
+    onSelect: (T) -> Unit,
+    buttonContentDescription: String? = null,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f))
+        Box {
+            TextButton(
+                onClick = { expanded = true },
+                enabled = enabled,
+                modifier = if (buttonContentDescription != null) {
+                    Modifier.semantics { contentDescription = buttonContentDescription }
+                } else {
+                    Modifier
+                },
+            ) {
+                Text(valueLabel)
+            }
+            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(optionLabel(option)) },
+                        onClick = { onSelect(option); expanded = false },
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -131,14 +131,8 @@ fun BrowserScreen(
     suggestionProvider: SearchSuggestionProvider? = null,
     /** Searches the exact text with the current engine, bypassing URL-vs-search guessing. */
     onOmnibarSearch: (String) -> Unit = {},
-    // Read by the caller from TabManager's snapshot state; keeping it in the parameter
-    // makes title/favicon mutations recompose this screen even though TabState fields are
-    // intentionally lightweight mutable records.
-    tabRevision: Int = 0,
     certificateError: Boolean = false,
 ) {
-    @Suppress("UNUSED_VARIABLE")
-    val observedTabRevision = tabRevision
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     fun finishEditing() {

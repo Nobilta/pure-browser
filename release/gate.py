@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'release'))
-from prepare import android_tool  # noqa: E402  (shares the SDK/apksigner resolution)
+from prepare import verified_signer  # noqa: E402
 
 
 class GateError(Exception):
@@ -25,7 +26,7 @@ class GateError(Exception):
 
 
 def gh(*arguments: str) -> str:
-    result = subprocess.run(['gh', *arguments], cwd=ROOT, text=True, encoding='utf-8',
+    result = subprocess.run([os.environ.get('GH') or 'gh', *arguments], cwd=ROOT, text=True, encoding='utf-8',
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
         raise GateError('gh ' + ' '.join(arguments) + ' failed: ' + (result.stderr.strip() or 'unknown error'))
@@ -38,17 +39,20 @@ def gh_json(*arguments: str):
 
 def require_ci(repo: str, commit: str) -> None:
     """The commit must already be pushed and its CI run must have finished successfully."""
-    runs = gh_json('run', 'list', '--repo', repo, '--commit', commit, '--limit', '50',
-                   '--json', 'workflowName,status,conclusion')
-    ci = [run for run in runs if run.get('workflowName') == 'CI']
+    runs = gh_json('run', 'list', '--repo', repo, '--commit', commit, '--branch', 'main',
+                  '--workflow', 'ci.yml', '--limit', '50',
+                  '--json', 'databaseId,headBranch,event,status,conclusion')
+    ci = [run for run in runs if run.get('headBranch') == 'main'
+          and run.get('event') in ('push', 'workflow_dispatch')]
     if not ci:
         raise GateError('no CI run for this commit yet: push it and wait for GitHub Actions')
-    pending = [run['status'] for run in ci if run.get('status') != 'completed']
-    if pending:
-        raise GateError('CI has not finished for this commit (status: ' + ', '.join(sorted(set(pending))) + ')')
-    failed = [run.get('conclusion') for run in ci if run.get('conclusion') != 'success']
-    if failed:
-        raise GateError('CI did not succeed for this commit: ' + ', '.join(sorted(set(failed))))
+    # A successful retry supersedes an older cancelled/failed run, but a newer pending or failed
+    # run must still block the release. Do not accept a PR check in place of the main workflow.
+    latest = max(ci, key=lambda run: run['databaseId'])
+    if latest.get('status') != 'completed':
+        raise GateError('latest CI has not finished for this commit (status: ' + str(latest.get('status')) + ')')
+    if latest.get('conclusion') != 'success':
+        raise GateError('latest CI did not succeed for this commit: ' + str(latest.get('conclusion')))
 
 
 def previous_release(repo: str) -> str | None:
@@ -58,7 +62,7 @@ def previous_release(repo: str) -> str | None:
 
 
 def require_version(source: Path, info: dict) -> None:
-    """The APK must come from this source revision and be newer than the published release."""
+    """Compare version metadata; this alone does not prove the APK's source revision."""
     text = source.read_text(encoding='utf-8')
     code = re.search(r'versionCode\s*=\s*(\d+)', text)
     name = re.search(r'versionName\s*=\s*"([^"]+)"', text)
@@ -87,14 +91,15 @@ def require_same_signer(repo: str, tag: str | None, info: dict, workdir: Path) -
     published_apks = sorted(workdir.glob('*.apk'))
     if not published_apks:
         raise GateError('published release ' + tag + ' has no APK to compare signatures with')
-    output = subprocess.run([android_tool('apksigner'), 'verify', '--print-certs', str(published_apks[0])],
-                            text=True, encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout
-    signer = re.search(r'certificate SHA-256 digest: ([0-9a-fA-F]{64})', output)
-    if not signer:
-        raise GateError('cannot read the published signer certificate from ' + published_apks[0].name)
-    if signer.group(1).lower() != info['signerSha256']:
+    if len(published_apks) != 1:
+        raise GateError('expected one official APK in published release ' + tag)
+    try:
+        signer = verified_signer(published_apks[0])
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        raise GateError('cannot verify the published APK ' + published_apks[0].name) from error
+    if signer != info['signerSha256']:
         raise GateError('signer %s differs from the published %s: an update could not be installed in place'
-                        % (info['signerSha256'][:16], signer.group(1).lower()[:16]))
+                        % (info['signerSha256'][:16], signer[:16]))
 
 
 def main() -> None:

@@ -57,7 +57,7 @@ class WebViewPool(private val activity: Activity) : AutoCloseable {
         detach(view)
         // Disable callbacks now, even when native teardown must await a transport.
         runCatching { view.webChromeClient = null }
-        runCatching { view.webViewClient = DetachedWebViewClient }
+        runCatching { view.webViewClient = ParkedWebViewClient.Detached }
         if (view in transfers) pendingDisposal += view else destroy(view)
     }
 
@@ -76,7 +76,7 @@ class WebViewPool(private val activity: Activity) : AutoCloseable {
         pendingDisposal.remove(view)
         detach(view)
         runCatching { view.webChromeClient = null }
-        runCatching { view.webViewClient = DetachedWebViewClient }
+        runCatching { view.webViewClient = ParkedWebViewClient.Detached }
         runCatching { view.setOnLongClickListener(null) }
         runCatching { view.setFindListener(null) }
         runCatching { view.setOnScrollChangeListener(null) }

@@ -84,20 +84,24 @@ internal object BlockRules {
     /**
      * Whether a rule this app wrote can be handed to the engine as-is.
      *
-     * The test is deliberately the same one [FilterListFormat.validate] uses to count a rule, so a
-     * rule this accepts can never be the line that makes a payload uncountable — which is what
-     * raises "No filter rules" and leaves the engine holding the previous snapshot.
+     * The first guard is a contract with [FilterListFormat.validate]: every rule this accepts must
+     * be one that validate counts. A line it does not count would make the payload the hand-written
+     * rules travel in uncountable, which raises "No filter rules" and leaves the engine on its
+     * previous snapshot. The two are not otherwise the same test — validate counts any line that
+     * could be a rule in a subscribed list, including shapes this app will never write for a user.
      */
     fun isValid(rule: String): Boolean {
         val line = rule.trim()
-        // The count [FilterListFormat.validate] performs, mirrored statement for statement: a line
-        // it does not count would make the payload it travels in uncountable, which raises "No
-        // filter rules" and leaves the engine on its previous snapshot. Control characters (a
-        // newline above all) would also end the rule and start another one, so they are refused
-        // for every kind.
+        // The count [FilterListFormat.validate] performs. Control characters (a newline above all)
+        // would also end the rule and start another one, so they are refused for every kind.
         if (line.isEmpty() || line.length > MAX_RULE_LENGTH || line.any { it.isISOControl() }) {
             return false
         }
+        if (line.startsWith('!') || line.startsWith('[')) return false
+        // `#?#` is its own cosmetic form — an `:-abp-properties` scope this engine does not
+        // implement. It is refused before the `##` branch below, which would otherwise match the
+        // `##` inside `example.com##div#?#span` and then judge only what follows it.
+        if (line.contains("#?#")) return false
         if (line.contains("##") || line.contains("#@#")) {
             val (site, element) = line.split("##", "#@#", limit = 2).let { it[0] to it.getOrNull(1).orEmpty() }
             if (site.isNotEmpty() && siteHost(site) == null) return false
@@ -113,8 +117,24 @@ internal object BlockRules {
         if (line.any { it.isWhitespace() }) return false
         if (line.any { it == '{' || it == '}' || it == '(' || it == ')' }) return false
         if (line.contains('$')) return false
-        return line.contains('.') || line.contains('/') || line.contains('|')
+        val body = line.removePrefix("@@")
+        if (body.length > 1 && body.startsWith('/') && body.endsWith('/')) return false
+        val unanchored = body.removePrefix("||").removePrefix("|").removeSuffix("|")
+        if (unanchored.isEmpty()) return false
+        // A pattern that is nothing but separators — `/`, `.`, `||/` — is refused: the engine
+        // would match it against every http(s) request, which is not a rule the user pointed at.
+        if (unanchored.none { it.isLetterOrDigit() }) return false
+        if (unanchored.contains('.') || unanchored.contains('/')) return true
+        // A dotless host under the domain anchor is legitimate: `||localhost^` and `||adserver^`
+        // name a host and everything below it, and the engine keeps exactly those. The same
+        // characters without `||` are an unanchored substring pattern, which is a different and
+        // far wider rule, so they stay refused.
+        return body.startsWith("||") && isPlainHost(unanchored.removeSuffix("^"))
     }
+
+    /** A pattern of hostname characters only; mirrors the engine's own `is_plain_host`. */
+    private fun isPlainHost(pattern: String): Boolean = pattern.isNotEmpty() &&
+        pattern.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }
 
     /** The host a rule or a cosmetic scope would name, or null when there is not one. */
     fun hostOf(url: String): String? = UrlUtils.hostOf(url)
@@ -136,16 +156,19 @@ internal object BlockRules {
      * user's list that blocks nothing.
      */
     private fun isPlainPattern(pattern: String): Boolean =
-        pattern.none { it == '*' || it == '^' || it == '|' || it == '$' }
+        pattern.none {
+            it == '*' || it == '^' || it == '|' || it == '$' ||
+                it == '{' || it == '}' || it == '(' || it == ')'
+        }
 
     private fun siteHost(host: String): String? {
         val site = host.trim().lowercase(Locale.ROOT)
         if (site.isEmpty() || site.length > 253) return null
         if (site.none { it == '.' }) return null
         if (site.startsWith('.') || site.endsWith('.')) return null
-        // The engine refuses a domain pattern carrying its own syntax, so these are refused here
-        // too rather than written and silently dropped.
-        if (site.any { it == '*' || it == '^' || it == '|' || it == ',' || it == '~' || it == ' ' }) return null
+        // The engine refuses a domain pattern carrying its own syntax or non-hostname characters,
+        // so these are refused here too rather than written and silently dropped.
+        if (!site.all { it in 'a'..'z' || it in '0'..'9' || it == '_' || it == '.' || it == '-' }) return null
         return site
     }
 

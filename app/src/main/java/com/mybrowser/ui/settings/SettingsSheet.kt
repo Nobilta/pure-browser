@@ -22,6 +22,7 @@ import com.mybrowser.data.ThemeMode
 import com.mybrowser.data.VideoPreferences
 import com.mybrowser.core.PlaybackSpeed
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
@@ -157,7 +158,12 @@ fun SettingsSheet(
     val paneState = rememberSaveableStateHolder()
     val back = {
         if (!childOpen && picker == null && !showSystemLogin && !showUpdate) {
-            if (selected != null) sectionName = null else onDismiss()
+            if (selected != null) {
+                highlightTitle = null
+                sectionName = null
+            } else {
+                onDismiss()
+            }
         }
     }
     val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
@@ -209,7 +215,10 @@ fun SettingsSheet(
                                     SettingsCategory.ABOUT -> textResources.getString(R.string.ui_version_information)
                                 }
                                 Card(
-                                    onClick = { sectionName = category.name },
+                                    onClick = {
+                                        highlightTitle = null
+                                        sectionName = category.name
+                                    },
                                     colors = CardDefaults.cardColors(containerColor =
                                         if (twoPane && category == selected) MaterialTheme.colorScheme.secondaryContainer
                                         else MaterialTheme.colorScheme.surfaceContainerLow),
@@ -239,56 +248,73 @@ fun SettingsSheet(
                     Box(Modifier.weight(1f)) {
                         paneState.SaveableStateProvider(category.name) {
                         key(category) {
-                            when (category) {
-                                SettingsCategory.DOWNLOADS -> Column {
-                                    SettingsToggle(textResources.getString(R.string.download_unmetered), textResources.getString(R.string.download_budget_summary),
-                                        downloadSettings.unmeteredOnly, onDownloadNetworkChange)
-                                    DownloadNotificationItem(downloadNotificationsEnabled, onDownloadNotifications)
-                                    DownloadSettingsPage(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
-                                        onDownloadThreadCountChange, back,
-                                        modifier = Modifier.settingsPaneChange(paneKey = category,
-                                            animate = paneChanged, direction = 1f, travel = !twoPane))
-                                }
-                                else -> SettingsPage(textResources.getString(category.titleRes), back,
-                                    modifier = Modifier.settingsPaneChange(paneKey = category,
-                                        animate = paneChanged, direction = 1f, travel = !twoPane)) {
-                                    when (category) {
+                            SettingsPage(textResources.getString(category.titleRes), back,
+                                modifier = Modifier.settingsPaneChange(paneKey = category,
+                                    animate = paneChanged, direction = 1f, travel = !twoPane)) {
+                                when (category) {
                                         SettingsCategory.BROWSING -> {
                                             SettingsGroup(textResources.getString(R.string.ui_startup))
                                             SettingsItem(textResources.getString(R.string.cd_home), if (currentHomepageMode == HomepageMode.NAVIGATION) textResources.getString(R.string.ui_shortcuts_homepage) else currentHomepage,
                                                 { openPicker("home") }, R.drawable.ic_home)
-                                            SettingsToggle(textResources.getString(R.string.ui_restore_pages_on_startup),
-                                                if (restoreLastSession) textResources.getString(R.string.ui_next_launch_restore_regular_tabs) else textResources.getString(R.string.ui_next_launch_homepage),
-                                                restoreLastSession, onRestoreLastSessionChange)
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_restore_pages_on_startup),
+                                                summary = if (restoreLastSession) textResources.getString(R.string.ui_next_launch_restore_regular_tabs) else textResources.getString(R.string.ui_next_launch_homepage),
+                                                checked = restoreLastSession,
+                                                onChange = onRestoreLastSessionChange,
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsGroup(textResources.getString(R.string.ui_search_and_system))
                                             SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_search)
-                                            SettingsToggle(textResources.getString(R.string.ui_online_search_suggestions),
-                                                textResources.getString(R.string.ui_online_search_suggestions_summary),
-                                                preferences.searchSuggestionsEnabled,
-                                                { onPreferencesChange(preferences.copy(searchSuggestionsEnabled = it)) })
-                                            SettingsToggle(textResources.getString(R.string.ui_private_search_suggestions),
-                                                textResources.getString(R.string.ui_private_search_suggestions_summary),
-                                                preferences.privateSearchSuggestionsEnabled,
-                                                { onPreferencesChange(preferences.copy(privateSearchSuggestionsEnabled = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_online_search_suggestions),
+                                                summary = textResources.getString(R.string.ui_online_search_suggestions_summary),
+                                                checked = preferences.searchSuggestionsEnabled,
+                                                onChange = { onPreferencesChange(preferences.copy(searchSuggestionsEnabled = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_private_search_suggestions),
+                                                summary = textResources.getString(R.string.ui_private_search_suggestions_summary),
+                                                checked = preferences.privateSearchSuggestionsEnabled,
+                                                onChange = { onPreferencesChange(preferences.copy(privateSearchSuggestionsEnabled = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsItem(textResources.getString(R.string.ui_default_browser), if (isDefaultBrowser) textResources.getString(R.string.ui_set_as_default) else textResources.getString(R.string.ui_not_set_as_default),
                                                 onSetDefaultBrowser, R.drawable.ic_desktop)
                                         }
                                         SettingsCategory.APPEARANCE -> {
-                                            SettingsToggle(textResources.getString(R.string.browser_fullscreen),
-                                                textResources.getString(R.string.browser_fullscreen_summary),
-                                                preferences.browserFullscreenEnabled,
-                                                { onPreferencesChange(preferences.copy(browserFullscreenEnabled = it)) })
-                                            SettingsToggle(textResources.getString(R.string.bottom_address_bar), textResources.getString(R.string.preference_immediate),
-                                                preferences.bottomAddressBar, { onPreferencesChange(preferences.copy(bottomAddressBar = it)) })
-                                            SettingsToggle(textResources.getString(R.string.swipe_tab_switch), textResources.getString(R.string.swipe_tab_switch_summary),
-                                                preferences.swipeTabs, { onPreferencesChange(preferences.copy(swipeTabs = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.browser_fullscreen),
+                                                summary = textResources.getString(R.string.browser_fullscreen_summary),
+                                                checked = preferences.browserFullscreenEnabled,
+                                                onChange = { onPreferencesChange(preferences.copy(browserFullscreenEnabled = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.bottom_address_bar),
+                                                summary = textResources.getString(R.string.preference_immediate),
+                                                checked = preferences.bottomAddressBar,
+                                                onChange = { onPreferencesChange(preferences.copy(bottomAddressBar = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.swipe_tab_switch),
+                                                summary = textResources.getString(R.string.swipe_tab_switch_summary),
+                                                checked = preferences.swipeTabs,
+                                                onChange = { onPreferencesChange(preferences.copy(swipeTabs = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_settings)
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
-                                            SettingsToggle(textResources.getString(R.string.ui_incognito_browsing),
-                                                textResources.getString(R.string.ui_incognito_persistent_summary),
-                                                isIncognito, onIncognitoChange)
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_incognito_browsing),
+                                                summary = textResources.getString(R.string.ui_incognito_persistent_summary),
+                                                checked = isIncognito,
+                                                onChange = onIncognitoChange,
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_lock)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
@@ -299,7 +325,13 @@ fun SettingsSheet(
                                             // management door for per-site rules; the menu keeps the
                                             // page-scoped one, next to the page it edits.
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
-                                            SettingsToggle(textResources.getString(R.string.ui_ad_filtering), textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter), isFilterEnabled, onFilterEnabledChange)
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_ad_filtering),
+                                                summary = textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter),
+                                                checked = isFilterEnabled,
+                                                onChange = onFilterEnabledChange,
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
@@ -310,27 +342,67 @@ fun SettingsSheet(
                                         }
                                         SettingsCategory.VIDEO -> {
                                             val video = preferences.video
-                                            SettingsToggle(textResources.getString(R.string.automatic_pip), textResources.getString(R.string.automatic_pip_summary),
-                                                video.automaticPip, { updateVideo(video.copy(automaticPip = it)) })
-                                            SettingsToggle(textResources.getString(R.string.background_playback), textResources.getString(R.string.background_playback_summary),
-                                                video.backgroundPlayback, { updateVideo(video.copy(backgroundPlayback = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.automatic_pip),
+                                                summary = textResources.getString(R.string.automatic_pip_summary),
+                                                checked = video.automaticPip,
+                                                onChange = { updateVideo(video.copy(automaticPip = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.background_playback),
+                                                summary = textResources.getString(R.string.background_playback_summary),
+                                                checked = video.backgroundPlayback,
+                                                onChange = { updateVideo(video.copy(backgroundPlayback = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_experience))
-                                            SettingsToggle(textResources.getString(R.string.ui_enhanced_video_controls), textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to), video.enhancedControls,
-                                                { updateVideo(video.copy(enhancedControls = it)) })
-                                            SettingsToggle(textResources.getString(R.string.ui_rotate_landscape_videos_automatically), textResources.getString(R.string.ui_portrait_videos_stay_upright_orientation_is_restored_on), video.landscapeFullscreen,
-                                                { updateVideo(video.copy(landscapeFullscreen = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_enhanced_video_controls),
+                                                summary = textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to),
+                                                checked = video.enhancedControls,
+                                                onChange = { updateVideo(video.copy(enhancedControls = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_rotate_landscape_videos_automatically),
+                                                summary = textResources.getString(R.string.ui_portrait_videos_stay_upright_orientation_is_restored_on),
+                                                checked = video.landscapeFullscreen,
+                                                onChange = { updateVideo(video.copy(landscapeFullscreen = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_gestures))
-                                            SettingsToggle(textResources.getString(R.string.ui_brightness_and_volume_gestures), textResources.getString(R.string.ui_swipe_vertically_on_the_left_for_brightness_and), video.verticalGestures,
-                                                { updateVideo(video.copy(verticalGestures = it)) })
-                                            SettingsToggle(textResources.getString(R.string.ui_swipe_to_seek), textResources.getString(R.string.ui_swipe_horizontally_to_preview_a_position_release_to), video.horizontalSeek,
-                                                { updateVideo(video.copy(horizontalSeek = it)) })
-                                            SettingsToggle(textResources.getString(R.string.ui_hold_for_temporary_speed_boost), textResources.getString(R.string.ui_release_to_restore_the_previous_playback_speed), video.holdToBoost,
-                                                { updateVideo(video.copy(holdToBoost = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_brightness_and_volume_gestures),
+                                                summary = textResources.getString(R.string.ui_swipe_vertically_on_the_left_for_brightness_and),
+                                                checked = video.verticalGestures,
+                                                onChange = { updateVideo(video.copy(verticalGestures = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_swipe_to_seek),
+                                                summary = textResources.getString(R.string.ui_swipe_horizontally_to_preview_a_position_release_to),
+                                                checked = video.horizontalSeek,
+                                                onChange = { updateVideo(video.copy(horizontalSeek = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_hold_for_temporary_speed_boost),
+                                                summary = textResources.getString(R.string.ui_release_to_restore_the_previous_playback_speed),
+                                                checked = video.holdToBoost,
+                                                onChange = { updateVideo(video.copy(holdToBoost = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_speed)
                                             SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
                                             SettingsGroup(textResources.getString(R.string.menu_playback_speed))
-                                            SettingsToggle(textResources.getString(R.string.ui_remember_playback_speed), textResources.getString(R.string.ui_use_the_selected_speed_for_future_videos_temporary), video.rememberSpeed,
-                                                { updateVideo(video.copy(rememberSpeed = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.ui_remember_playback_speed),
+                                                summary = textResources.getString(R.string.ui_use_the_selected_speed_for_future_videos_temporary),
+                                                checked = video.rememberSpeed,
+                                                onChange = { updateVideo(video.copy(rememberSpeed = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                             SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { openPicker("speed") }, R.drawable.ic_speed)
                                             SettingsNote(textResources.getString(R.string.ui_videos_keep_playing_through_the_webpage_preserving_sign))
                                         }
@@ -341,16 +413,29 @@ fun SettingsSheet(
                                             SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
                                             SettingsItem(textResources.getString(R.string.update_check),
                                                 "GitHub · Nobilta/pure-browser", { showUpdate = true }, R.drawable.ic_download)
-                                            SettingsToggle(textResources.getString(R.string.update_auto_check),
-                                                textResources.getString(R.string.update_auto_check_summary),
-                                                preferences.autoCheckUpdates,
-                                                { onPreferencesChange(preferences.copy(autoCheckUpdates = it)) })
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.update_auto_check),
+                                                summary = textResources.getString(R.string.update_auto_check_summary),
+                                                checked = preferences.autoCheckUpdates,
+                                                onChange = { onPreferencesChange(preferences.copy(autoCheckUpdates = it)) },
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
                                         }
-                                        SettingsCategory.DOWNLOADS -> Unit
+                                        SettingsCategory.DOWNLOADS -> {
+                                            SettingsToggle(
+                                                title = textResources.getString(R.string.download_unmetered),
+                                                summary = textResources.getString(R.string.download_budget_summary),
+                                                checked = downloadSettings.unmeteredOnly,
+                                                onChange = onDownloadNetworkChange,
+                                                modifier = Modifier.padding(SettingsRowPadding),
+                                            )
+                                            DownloadNotificationItem(downloadNotificationsEnabled, onDownloadNotifications)
+                                            DownloadSettingsSection(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
+                                                onDownloadThreadCountChange)
+                                        }
                                     }
                                 }
                             }
-                        }
                         }
                     }
                 }
@@ -373,7 +458,7 @@ fun SettingsSheet(
                             Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
                             if (picker == "theme") {
                                 ThemeMode.entries.forEach { mode ->
-                                    HomepageModeItem(textResources.getString(mode.labelRes), "", preferences.theme == mode) {
+                                    SettingsRadioItem(textResources.getString(mode.labelRes), selected = preferences.theme == mode) {
                                         onPreferencesChange(preferences.copy(theme = mode)); dismissPicker()
                                     }
                                 }
@@ -381,8 +466,8 @@ fun SettingsSheet(
                                 val boost = picker == "boost"
                                 val choices = if (boost) PlaybackSpeed.BOOST_OPTIONS else PlaybackSpeed.OPTIONS
                                 choices.forEach { speed ->
-                                    HomepageModeItem(PlaybackSpeed.label(speed), "",
-                                        speed == if (boost) preferences.video.boostRate else preferences.video.preferredSpeed) {
+                                    SettingsRadioItem(PlaybackSpeed.label(speed),
+                                        selected = speed == if (boost) preferences.video.boostRate else preferences.video.preferredSpeed) {
                                         updateVideo(if (boost) preferences.video.copy(boostRate = speed)
                                             else preferences.video.copy(preferredSpeed = speed, rememberSpeed = true))
                                         dismissPicker()
@@ -464,18 +549,37 @@ private fun DownloadNotificationItem(enabled: Boolean, onAction: () -> Unit) {
 }
 
 @Composable
-private fun SettingsToggle(title: String, summary: String, checked: Boolean,
-    onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().highlightSetting(title).toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-        .padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+internal fun SettingsToggle(
+    title: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    summary: String = "",
+    enabled: Boolean = true,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .highlightSetting(title)
+            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+            // The row's own insets come from the modifier rather than the declaration, so a caller
+            // that supplies its own spacing replaces them instead of adding to them: the site
+            // settings sheet already indents its column and passes a bare height constraint.
+            .then(modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (summary.isNotEmpty()) {
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         Spacer(Modifier.width(12.dp))
         Switch(checked, onCheckedChange = null, enabled = enabled)
     }
 }
+
+/** The row insets [SettingsToggle] uses in a settings page, for callers that keep them. */
+internal val SettingsRowPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
 
 @Composable
 private fun SettingsNote(text: String) {
@@ -561,34 +665,22 @@ private fun SearchEngineSettings(
         },
     ) {
         available.forEach { engine ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectable(selected = engine.id == current.id, role = Role.RadioButton) {
-                        onChange(engine)
-                        onBack()
+            SettingsRadioItem(
+                title = engine.displayName(textResources),
+                selected = engine.id == current.id,
+                trailing = if (engine.isCustom) {
+                    {
+                        IconButton(onClick = { onRemoveCustom(engine) }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_delete),
+                                contentDescription = stringResource(R.string.search_engine_delete),
+                            )
+                        }
                     }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                } else null,
             ) {
-                RadioButton(
-                    selected = engine.id == current.id,
-                    onClick = null,
-                )
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    text = engine.displayName(textResources),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                if (engine.isCustom) {
-                    IconButton(onClick = { onRemoveCustom(engine) }) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_delete),
-                            contentDescription = stringResource(R.string.search_engine_delete),
-                        )
-                    }
-                }
+                onChange(engine)
+                onBack()
             }
         }
     }
@@ -667,122 +759,103 @@ private fun CustomSearchEngineDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DownloadSettingsPage(
+private fun DownloadSettingsSection(
     settings: DownloadSettings,
     onUseSystemDirectory: () -> Unit,
     onChooseDirectory: () -> Unit,
     onThreadCountChange: (Int) -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val textResources = localizedResources()
     var threadDraft by remember(settings.threadCount) {
         mutableFloatStateOf(settings.threadCount.toFloat())
     }
 
-    SettingsPage(title = textResources.getString(R.string.ui_download_settings), onBack = onBack,
-        modifier = modifier) {
-        Text(
-            text = textResources.getString(R.string.ui_save_location),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        )
-        DownloadDirectoryItem(
-            title = textResources.getString(R.string.ui_system_downloads_folder),
-            subtitle = textResources.getString(R.string.ui_save_to_the_device_downloads_folder),
-            selected = settings.destinationMode == DownloadDestinationMode.SYSTEM_DOWNLOADS,
-            onClick = onUseSystemDirectory,
-        )
-        DownloadDirectoryItem(
-            title = textResources.getString(R.string.ui_custom_folder),
-            subtitle = if (settings.customTreeUri == null) {
-                textResources.getString(R.string.ui_choose_a_folder_with_write_access)
-            } else {
-                textResources.getString(R.string.ui_tap_to_change, com.mybrowser.download.localizeDownloadDirectory(
-                    textResources, settings.customDirectoryLabel ?: com.mybrowser.download.CUSTOM_DIRECTORY_LABEL,
-                ))
-            },
-            selected = settings.destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY,
-            onClick = onChooseDirectory,
-        )
+    // The section heading the settings search indexes under `ui_download_settings`. Without a node
+    // carrying exactly that text there is nothing for `highlightSetting` to match, so a search hit
+    // jumped into this page with nothing highlighted and nothing scrolled into view.
+    Text(
+        text = textResources.getString(R.string.ui_download_settings),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .highlightSetting(textResources.getString(R.string.ui_download_settings))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    )
 
-        HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+    HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
 
-        Text(
-            text = textResources.getString(R.string.ui_download_connections),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = textResources.getString(R.string.ui_connections_818c76, threadDraft.roundToInt()),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = textResources.getString(R.string.ui_choose_1_16_connections_servers_without_range_support),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Slider(
-            value = threadDraft,
-            onValueChange = { threadDraft = it },
-            onValueChangeFinished = {
-                onThreadCountChange(threadDraft.roundToInt())
-            },
-            valueRange = 1f..16f,
-            steps = 14,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("1", style = MaterialTheme.typography.labelSmall)
-            Text("16", style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
+    Text(
+        text = textResources.getString(R.string.ui_save_location),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+    )
+    SettingsRadioItem(
+        title = textResources.getString(R.string.ui_system_downloads_folder),
+        subtitle = textResources.getString(R.string.ui_save_to_the_device_downloads_folder),
+        selected = settings.destinationMode == DownloadDestinationMode.SYSTEM_DOWNLOADS,
+        onClick = onUseSystemDirectory,
+    )
+    SettingsRadioItem(
+        title = textResources.getString(R.string.ui_custom_folder),
+        subtitle = if (settings.customTreeUri == null) {
+            textResources.getString(R.string.ui_choose_a_folder_with_write_access)
+        } else {
+            textResources.getString(R.string.ui_tap_to_change, com.mybrowser.download.localizeDownloadDirectory(
+                textResources, settings.customDirectoryLabel ?: com.mybrowser.download.CUSTOM_DIRECTORY_LABEL,
+            ))
+        },
+        selected = settings.destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY,
+        onClick = onChooseDirectory,
+    )
 
-@Composable
-private fun DownloadDirectoryItem(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
+    HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+
+    Text(
+        text = textResources.getString(R.string.ui_download_connections),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(2.dp))
             Text(
-                text = subtitle,
+                text = textResources.getString(R.string.ui_connections_818c76, threadDraft.roundToInt()),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = textResources.getString(R.string.ui_choose_1_16_connections_servers_without_range_support),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+    Slider(
+        value = threadDraft,
+        onValueChange = { threadDraft = it },
+        onValueChangeFinished = {
+            onThreadCountChange(threadDraft.roundToInt())
+        },
+        valueRange = 1f..16f,
+        steps = 14,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text("1", style = MaterialTheme.typography.labelSmall)
+        Text("16", style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -806,14 +879,14 @@ private fun HomepageSettings(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
 
-        HomepageModeItem(
+        SettingsRadioItem(
             title = textResources.getString(R.string.ui_shortcuts_homepage),
             subtitle = textResources.getString(R.string.ui_show_shortcuts_to_favorite_sites),
             selected = currentMode == HomepageMode.NAVIGATION,
             onClick = { onModeChange(HomepageMode.NAVIGATION) },
         )
 
-        HomepageModeItem(
+        SettingsRadioItem(
             title = textResources.getString(R.string.ui_custom_url),
             subtitle = textResources.getString(R.string.ui_open_this_page, current),
             selected = currentMode == HomepageMode.FIXED_URL,
@@ -846,15 +919,17 @@ private fun HomepageSettings(
 }
 
 @Composable
-private fun HomepageModeItem(
+private fun SettingsRadioItem(
     title: String,
-    subtitle: String,
+    subtitle: String = "",
     selected: Boolean,
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .highlightSetting(title)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -863,13 +938,16 @@ private fun HomepageModeItem(
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (subtitle.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
+        trailing?.invoke()
     }
 }
 

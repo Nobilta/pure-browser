@@ -1,13 +1,6 @@
 package com.mybrowser.ui.library
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -26,16 +19,17 @@ import com.mybrowser.data.Bookmark
 import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.BookmarkFolders
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
-import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibraryFooter
 import com.mybrowser.ui.shell.LibrarySearchField
+import com.mybrowser.ui.shell.LibrarySelectionBar
+import com.mybrowser.ui.shell.libraryItemSelection
 import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.BrowserAlertDialog
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksSheet(
     bookmarks: List<Bookmark>, query: String, loading: Boolean, hasMore: Boolean, error: Boolean,
@@ -89,21 +83,16 @@ fun BookmarksSheet(
                 }
             }
             LibrarySearchField(query, stringResource(R.string.bookmarks_search), onQueryChange)
-            AnimatedVisibility(
+            LibrarySelectionBar(
                 visible = selecting,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
-                    expandVertically(animationSpec = BrowserMotion.chromeSpatial()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
-                    shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
+                allSelected = bookmarks.isNotEmpty() && bookmarks.all { it.id in selected },
+                onToggleSelectAll = {
+                    selected = if (it) bookmarks.map { bookmark -> bookmark.id }.toSet() else emptySet()
+                },
+                countText = stringResource(R.string.bookmarks_selected, selected.size),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = bookmarks.isNotEmpty() && bookmarks.all { it.id in selected }, onCheckedChange = {
-                        selected = if (it) bookmarks.map { bookmark -> bookmark.id }.toSet() else emptySet()
-                    })
-                    Text(stringResource(R.string.bookmarks_selected, selected.size), Modifier.weight(1f))
-                    TextButton(onClick = { movingFolder = null; moving = true }, enabled = selected.isNotEmpty() && !library.busy) { Text(stringResource(R.string.bookmarks_move)) }
-                    BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty() && !library.busy) { deleteSelected = true }
-                }
+                TextButton(onClick = { movingFolder = null; moving = true }, enabled = selected.isNotEmpty() && !library.busy) { Text(stringResource(R.string.bookmarks_move)) }
+                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty() && !library.busy) { deleteSelected = true }
             }
             if (library.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -132,12 +121,14 @@ fun BookmarksSheet(
                 items(bookmarks, key = { it.id }) { bookmark ->
                     var itemMenu by remember { mutableStateOf(false) }
                     fun toggleSelection() { selected = if (bookmark.id in selected) selected - bookmark.id else selected + bookmark.id }
-                    Row(userItemMotion().fillMaxWidth().combinedClickable(
-                        onClick = { if (selecting) toggleSelection() else onSelectBookmark(bookmark.url) },
-                        onLongClick = { selecting = true; toggleSelection() },
-                        onLongClickLabel = stringResource(R.string.bookmarks_select)).padding(vertical = 12.dp),
+                    Row(userItemMotion().fillMaxWidth().libraryItemSelection(
+                        selecting = selecting,
+                        selected = bookmark.id in selected,
+                        selectionLabel = stringResource(R.string.bookmarks_select),
+                        onOpen = { onSelectBookmark(bookmark.url) },
+                        onToggleSelection = { selecting = true; toggleSelection() }).padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        if (selecting) Checkbox(bookmark.id in selected, { toggleSelection() })
+                        if (selecting) Checkbox(bookmark.id in selected, onCheckedChange = null)
                         else Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
@@ -187,15 +178,20 @@ fun BookmarksSheet(
         library.mutate { if (folder == null) moveBookmarks(ids, target) else updateFolder(folder.id, folder.title, target) }
         moving = false; selected = emptySet(); selecting = false
     }, onDismiss = { moving = false })
-    if (deleteSelected) BrowserAlertDialog(onDismissRequest = { deleteSelected = false },
-        title = { Text(stringResource(R.string.bookmarks_delete_selected)) },
-        text = { Text(stringResource(R.string.bookmarks_selected, selected.size)) },
-        confirmButton = { TextButton(onClick = { val ids = selected; library.mutate { deleteBookmarks(ids) }; selected = emptySet(); selecting = false; deleteSelected = false }) { Text(stringResource(R.string.cd_delete)) } },
-        dismissButton = { TextButton(onClick = { deleteSelected = false }) { Text(stringResource(R.string.action_cancel)) } })
-    deleteFolder?.let { folder -> BrowserAlertDialog(onDismissRequest = { deleteFolder = null },
-        title = { Text(folder.title) }, text = { Text(stringResource(R.string.bookmarks_remove_folder_note)) },
-        confirmButton = { TextButton(onClick = { library.mutate { removeFolder(folder.id) }; deleteFolder = null }) { Text(stringResource(R.string.cd_delete)) } },
-        dismissButton = { TextButton(onClick = { deleteFolder = null }) { Text(stringResource(R.string.action_cancel)) } }) }
+    if (deleteSelected) com.mybrowser.ui.shell.BrowserConfirmDialog(
+        title = stringResource(R.string.bookmarks_delete_selected),
+        message = stringResource(R.string.bookmarks_selected, selected.size),
+        confirmText = stringResource(R.string.cd_delete),
+        onConfirm = { val ids = selected; library.mutate { deleteBookmarks(ids) }; selected = emptySet(); selecting = false; deleteSelected = false },
+        onDismiss = { deleteSelected = false },
+    )
+    deleteFolder?.let { folder -> com.mybrowser.ui.shell.BrowserConfirmDialog(
+        title = folder.title,
+        message = stringResource(R.string.bookmarks_remove_folder_note),
+        confirmText = stringResource(R.string.cd_delete),
+        onConfirm = { library.mutate { removeFolder(folder.id) }; deleteFolder = null },
+        onDismiss = { deleteFolder = null },
+    ) }
 }
 
 @Composable

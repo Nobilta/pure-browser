@@ -253,7 +253,9 @@ class SearchSuggestionProvider internal constructor(
                             if (valid && terms.isNotEmpty()) {
                                 request.session.cache.put(cacheKey, terms, System.currentTimeMillis())
                             }
-                            continuation.resume(if (valid) terms else emptyList())
+                            if (continuation.isActive) {
+                                continuation.resume(if (valid) terms else emptyList())
+                            }
                         }
                     } finally {
                         synchronized(stateLock) { request.session.requests -= request }

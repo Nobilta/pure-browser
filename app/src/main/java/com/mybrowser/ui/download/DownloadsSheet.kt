@@ -5,24 +5,21 @@ import com.mybrowser.download.DownloadItem
 import com.mybrowser.download.DownloadRequestCoordinator
 import com.mybrowser.download.DownloadStatus
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
@@ -32,6 +29,8 @@ import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.userItemMotion
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
+import com.mybrowser.ui.shell.LibrarySelectionBar
+import com.mybrowser.ui.shell.libraryItemSelection
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.shell.BrowserAlertDialog
 
@@ -111,26 +110,19 @@ fun DownloadsSheet(
 
             HorizontalDivider()
 
-            AnimatedVisibility(
+            LibrarySelectionBar(
                 visible = selecting,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
-                    expandVertically(animationSpec = BrowserMotion.chromeSpatial()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
-                    shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
+                allSelected = downloads.isNotEmpty() && downloads.all { it.id in selected },
+                onToggleSelectAll = { checked ->
+                    selected = if (checked) downloads.map { it.id }.toSet() else emptySet()
+                },
+                countText = textResources.getString(R.string.ui_selected_count, selected.size),
+                modifier = Modifier.padding(horizontal = 12.dp),
             ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = downloads.isNotEmpty() && downloads.all { it.id in selected },
-                        onCheckedChange = { checked ->
-                            selected = if (checked) downloads.map { it.id }.toSet() else emptySet()
-                        },
-                    )
-                    Text(textResources.getString(R.string.ui_selected_count, selected.size), Modifier.weight(1f))
-                    BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty()) {
-                        confirmDeleteSelected = true
-                    }
-                    BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close)) { leaveSelection() }
+                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty()) {
+                    confirmDeleteSelected = true
                 }
+                BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close)) { leaveSelection() }
             }
 
             if (blocked.isNotEmpty() || overflowCount > 0) {
@@ -303,19 +295,18 @@ private fun DownloadItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = {
-                    if (selecting) onToggleSelection()
-                    else if (download.status == DownloadStatus.COMPLETED) onOpen()
-                },
-                onLongClick = onToggleSelection,
-                onLongClickLabel = stringResource(R.string.ui_select_downloads),
+            .libraryItemSelection(
+                selecting = selecting,
+                selected = selected,
+                selectionLabel = stringResource(R.string.ui_select_downloads),
+                onOpen = { if (download.status == DownloadStatus.COMPLETED) onOpen() },
+                onToggleSelection = onToggleSelection,
             )
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selecting) {
-            Checkbox(checked = selected, onCheckedChange = { onToggleSelection() })
+            Checkbox(checked = selected, onCheckedChange = null)
             Spacer(modifier = Modifier.width(8.dp))
         }
         // The status glyph: a download moving from running to done, or failing, changes what this
@@ -483,12 +474,16 @@ private fun DeleteDownloadDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { deleteFiles = !deleteFiles },
+                        .toggleable(
+                            value = deleteFiles,
+                            role = Role.Checkbox,
+                            onValueChange = { deleteFiles = it },
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = deleteFiles,
-                        onCheckedChange = { deleteFiles = it },
+                        onCheckedChange = null,
                     )
                     Spacer(Modifier.width(8.dp))
                     // Just the label: the confirm button already says which of the two things will

@@ -89,7 +89,7 @@ import com.mybrowser.core.UrlUtils
 import com.mybrowser.core.classifyResourceType
 import com.mybrowser.core.WebViewPool
 import com.mybrowser.core.WebViewConfig
-import com.mybrowser.core.DetachedWebViewClient
+import com.mybrowser.core.ParkedWebViewClient
 import com.mybrowser.core.DefaultBrowser
 import com.mybrowser.core.PageContextTarget
 import com.mybrowser.core.PageContextMenuController
@@ -387,7 +387,7 @@ class MainActivity : ComponentActivity(),
         (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
         mediaTrackers.trackerOf(view)?.setSuspended(true)
         view.onPause()
-        view.webViewClient = com.mybrowser.tabs.ParkedWebViewClient { gone -> onRenderProcessGone(gone, true) }
+        view.webViewClient = ParkedWebViewClient { gone -> onRenderProcessGone(gone, true) }
         (view.parent as? ViewGroup)?.removeView(view)
     }
     /**
@@ -437,7 +437,6 @@ class MainActivity : ComponentActivity(),
     /** Releases a half-configured instance; its trackers and script runtime die with it. */
     private fun discardFailedPage(view: WebView) {
         removeMediaPlaybackTracker(view)
-        scriptRuntimes.remove(view)?.close()
         pool.discard(view)
     }
 
@@ -780,7 +779,6 @@ class MainActivity : ComponentActivity(),
                         (!privacy.isIncognito || browserPreferences.privateSearchSuggestionsEnabled),
                     suggestionProvider = (application as App).searchSuggestionProvider,
                     onOmnibarSearch = { query -> navigate(searchEngine.buildSearchUrl(query)) },
-                    tabRevision = tabManager.revision,
                     certificateError = hasCertificateWarning,
                 )
 
@@ -851,7 +849,7 @@ class MainActivity : ComponentActivity(),
                             },
                             onToggleBookmark = {
                                 if (!sheetNavigation.isCurrent(entry)) Unit
-                                else if (isCurrentPageBookmarked()) {
+                                else if (currentPageBookmarked) {
                                     removeCurrentPageFromBookmarks()
                                 } else {
                                     openBookmarkEditor()
@@ -879,6 +877,7 @@ class MainActivity : ComponentActivity(),
                             currentIndex = tabManager.currentIndex,
                             isIncognito = privacy.isIncognito,
                             canCreateTab = tabManager.canCreateTab,
+                            revision = tabManager.revision,
                             onSelectTab = { id ->
                                 sheetAction(entry) { switchToTab(tabManager.tabs.indexOfFirst { it.id == id }) }
                             },
@@ -1565,51 +1564,54 @@ class MainActivity : ComponentActivity(),
         WebViewConfig.applySiteSettings(view, settings)
     }
 
-    private fun repairSiteSettings() {
+    private fun runSiteSettingsMutation(
+        failureLogMessage: String,
+        block: suspend (SiteSettingsRepository) -> Unit,
+    ) {
         if (siteSettingsBusy) return
         val repository = activeSites
         siteSettingsBusy = true
         lifecycleScope.launch {
             try {
-                repository.repair()
-                if (repository === activeSites) {
-                    cancelWebsitePermissions()
-                    webViewOrNull?.let { applySiteSettings(it, state.currentUrl) }
-                    reloadPage()
-                }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) {
-                Log.w("MainActivity", "Unable to repair website settings", error)
+                block(repository)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w("MainActivity", failureLogMessage, error)
                 toast(getString(R.string.site_save_failed))
-            } finally { siteSettingsBusy = false }
+            } finally {
+                siteSettingsBusy = false
+            }
+        }
+    }
+
+    private fun repairSiteSettings() {
+        runSiteSettingsMutation("Unable to repair website settings") { repository ->
+            repository.repair()
+            if (repository === activeSites) {
+                cancelWebsitePermissions()
+                webViewOrNull?.let { applySiteSettings(it, state.currentUrl) }
+                reloadPage()
+            }
         }
     }
 
     private fun saveSiteSettings(origin: String, settings: SiteSettings) {
-        if (siteSettingsBusy) return
-        val repository = activeSites
         val owner = sheetNavigation.current?.takeIf { it.destination == Sheet.SITE_SETTINGS }
-        siteSettingsBusy = true
-        lifecycleScope.launch {
-            try {
-                repository.update(origin) { settings }
-                if (repository === activeSites && (SiteOrigin.of(state.currentUrl) == origin ||
-                    repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
-                    cancelWebsitePermissions()
-                    applySiteSettings(webView, state.currentUrl)
-                    reloadPage()
-                }
-                if (showSiteOrigin == origin && (owner == null || sheetNavigation.isCurrent(owner))) {
-                    showSiteOrigin = null
-                    // Saving explicitly refreshes the page; cancelling uses Back and
-                    // returns to the menu. Do not leave the refreshed page under a scrim.
-                    if (owner != null) sheetAction(owner) {}
-                }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) {
-                Log.w("MainActivity", "Unable to save website settings", error)
-                toast(getString(R.string.site_save_failed))
-            } finally { siteSettingsBusy = false }
+        runSiteSettingsMutation("Unable to save website settings") { repository ->
+            repository.update(origin) { settings }
+            if (repository === activeSites && (SiteOrigin.of(state.currentUrl) == origin ||
+                repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
+                cancelWebsitePermissions()
+                applySiteSettings(webView, state.currentUrl)
+                reloadPage()
+            }
+            if (showSiteOrigin == origin && (owner == null || sheetNavigation.isCurrent(owner))) {
+                showSiteOrigin = null
+                // Saving explicitly refreshes the page; cancelling uses Back and
+                // returns to the menu. Do not leave the refreshed page under a scrim.
+                if (owner != null) sheetAction(owner) {}
+            }
         }
     }
 
@@ -1794,7 +1796,7 @@ class MainActivity : ComponentActivity(),
 
         webViewOrNull?.let { old ->
             removeMediaPlaybackTracker(old)
-            old.webViewClient = DetachedWebViewClient
+            old.webViewClient = ParkedWebViewClient.Detached
             old.webChromeClient = null
             (old.parent as? ViewGroup)?.removeView(old)
             if (!entering) privacy.wipeInstanceState(old)
@@ -1909,10 +1911,7 @@ class MainActivity : ComponentActivity(),
                 webViewOrNull = liveTarget?.view ?: parked?.view ?: acquireFreshPage()
                 viewOwnerId = tab.id
                 if (liveTarget != null) {
-                    webView.webViewClient = BrowserWebViewClient(this)
-                    webView.webChromeClient = BrowserChromeClient(this, webView)
-                    webView.onResume()
-                    mediaTrackers.trackerOf(webView)?.setSuspended(false)
+                    attachForegroundWebView(webView)
                     val url = liveTarget.document.url
                     state.onPageStarted(url)
                     applySiteSettings(webView, url)
@@ -1930,10 +1929,7 @@ class MainActivity : ComponentActivity(),
                     return
                 }
                 if (parked != null) {
-                    webView.webViewClient = BrowserWebViewClient(this)
-                    webView.webChromeClient = BrowserChromeClient(this, webView)
-                    webView.onResume()
-                    mediaTrackers.trackerOf(webView)?.setSuspended(false)
+                    attachForegroundWebView(webView)
                     currentCertificateError = false
                     state.onPageStarted(tab.url)
                     applySiteSettings(webView, tab.url)
@@ -1977,6 +1973,13 @@ class MainActivity : ComponentActivity(),
             state.onPageStarted(tab.url)
             state.onTitleChanged(tab.title)
         }
+    }
+
+    private fun attachForegroundWebView(view: WebView) {
+        view.webViewClient = BrowserWebViewClient(this)
+        view.webChromeClient = BrowserChromeClient(this, view)
+        view.onResume()
+        mediaTrackers.trackerOf(view)?.setSuspended(false)
     }
 
     /**
@@ -2171,8 +2174,9 @@ class MainActivity : ComponentActivity(),
         override fun onReady() = Unit
 
         override fun onFailed(id: Long, reason: String) {
-            // The writer owns the partial file, so it cleans up; this only reports that the task
-            // ended in failure rather than completing.
+            // The writer owns the partial file, so it cleans up; this records the failure reason
+            // for the pump and reports that the task ended in failure rather than completing.
+            downloadHandler.onPageFileFailed(id, reason)
             runOnUiThread { toast(getString(R.string.download_page_file_failed)) }
         }
     }
@@ -2428,10 +2432,6 @@ class MainActivity : ComponentActivity(),
         state.currentUrl.takeIf(String::isNotBlank)?.let(::removeBookmark)
     }
 
-    private fun isCurrentPageBookmarked(): Boolean {
-        return currentPageBookmarked
-    }
-
     /** Whether the visible page is bookmarked; owns the read and the staleness check. */
     private val bookmarkStatus by lazy {
         com.mybrowser.data.BookmarkStatusTracker(
@@ -2617,7 +2617,7 @@ class MainActivity : ComponentActivity(),
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
         if (url != webView.url || url != state.currentUrl) return
-        readyWebViewTabId = tabManager.currentTab?.id
+        readyWebViewTabId = tabManager.currentTab?.id?.takeIf { state.pageFailure == null }
         workerDocument = documentFor(url)
         val resetHistory = clearHistoryOnNextFinish
         if (resetHistory) {
@@ -2635,7 +2635,7 @@ class MainActivity : ComponentActivity(),
             tabManager.notifyChanged()
         }
         // Add to history (only in normal mode)
-        addToHistory(url, webView.title ?: url)
+        if (state.pageFailure == null) addToHistory(url, webView.title ?: url)
         if (!privacy.isIncognito && restoreLastSession) {
             normalTabManager.scheduleSaveMetadata(this, NORMAL_TABS_PREFS)
         }
@@ -3706,6 +3706,16 @@ class MainActivity : ComponentActivity(),
             restoreLastSession = settings.restoreLastSession
         }
         downloadSettings = downloadSettingsRepository.load()
+        loadBookmarks()
+        loadHistory()
+        refreshBookmarkStatus(state.currentUrl)
+        if ("sites" in result.applied) {
+            webViewOrNull?.let { applySiteSettings(it, state.currentUrl) }
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val shortcuts = homeRepository.loadShortcuts()
+            withContext(Dispatchers.Main) { homeShortcuts = shortcuts }
+        }
         // An incognito wish change goes through the full existing switch flow.
         if ("browser" in result.applied && browserPreferences.incognitoEnabled != privacy.isIncognito) {
             toggleIncognito()
@@ -3749,7 +3759,8 @@ class MainActivity : ComponentActivity(),
     }
 
     /**
-     * Stores one rule the user built by hand, and says what became of it.
+     * Stores one rule the user built by hand, says what became of it, and hands its outcome to
+     * [then] on the main thread.
      *
      * The store is the only thing that knows whether a rule was new, already there, or refused, so
      * every outcome gets its own message: a tap that blocked nothing must not be reported as a
@@ -3757,27 +3768,7 @@ class MainActivity : ComponentActivity(),
      * message that differs between the ways a rule is made, because where to undo it from depends
      * on what was blocked.
      */
-    private fun addUserRule(rule: String, added: String) {
-        lifecycleScope.launch {
-            when (customFilter.addUserRule(rule)) {
-                FilterSubscriptions.RuleChange.ADDED -> toast(added)
-                FilterSubscriptions.RuleChange.ALREADY_PRESENT -> toast(getString(R.string.filter_user_rule_present))
-                FilterSubscriptions.RuleChange.INVALID -> toast(getString(R.string.filter_user_rule_invalid))
-                FilterSubscriptions.RuleChange.FULL -> toast(getString(R.string.filter_user_rule_full))
-                FilterSubscriptions.RuleChange.TOO_LARGE -> toast(getString(R.string.filter_user_rule_too_large))
-                FilterSubscriptions.RuleChange.SAVE_FAILED -> toast(getString(R.string.filter_user_rule_failed))
-            }
-        }
-    }
-
-    /**
-     * Adds one rule and hands its outcome to [then] on the main thread.
-     *
-     * The picker's own confirmation has to describe what happened to the rule: hiding the element
-     * unconditionally made a refused rule look applied, and the element was back on the next load
-     * with the user believing it was blocked.
-     */
-    private fun addUserRuleAnd(rule: String, added: String, then: (Boolean) -> Unit) {
+    private fun addUserRule(rule: String, added: String, then: (Boolean) -> Unit = {}) {
         lifecycleScope.launch {
             when (customFilter.addUserRule(rule)) {
                 // The rule is in the list either way, so the element is hidden either way; only the
@@ -3940,7 +3931,7 @@ class MainActivity : ComponentActivity(),
         // with a toast saying no rule was written and an empty list where the rule should be. The
         // same applies to a write that failed — the element must not disappear until the rule that
         // would keep it hidden is actually in the list.
-        addUserRuleAnd(
+        addUserRule(
             rule,
             getString(
                 if (allSites) R.string.filter_user_rule_element_added_all
