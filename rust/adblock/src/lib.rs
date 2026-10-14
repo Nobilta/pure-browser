@@ -107,15 +107,26 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeShouldBlock(
         Ok(s) => s.into(),
         Err(_) => return 0,
     };
+    if request_url.len() > 32 * 1024 || document_url.len() > 32 * 1024 {
+        return 0;
+    }
 
     let resource_type = resource_from_ordinal(resource_type_ordinal);
-
     let engine = unsafe { &*(handle as *const FilterEngine) };
-    u8::from(
-        engine
+    let document = engine
+        .documents
+        .lock()
+        .ok()
+        .map(|mut cache| cache.get_or_prepare(&document_url));
+    let blocked = match document {
+        Some(context) => engine
+            .network
+            .should_block_context(&request_url, &context, resource_type),
+        None => engine
             .network
             .should_block(&request_url, &document_url, resource_type),
-    )
+    };
+    u8::from(blocked)
 }
 
 fn resource_from_ordinal(value: jint) -> ResourceType {
@@ -132,63 +143,6 @@ fn resource_from_ordinal(value: jint) -> ResourceType {
         9 => ResourceType::WebSocket,
         _ => ResourceType::Other,
     }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativePrepareDocument(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    url: JString,
-) -> jlong {
-    if handle == 0 {
-        return 0;
-    }
-    let url: String = match env.get_string(&url) {
-        Ok(value) => value.into(),
-        Err(_) => return 0,
-    };
-    let engine = unsafe { &*(handle as *const FilterEngine) };
-    engine
-        .documents
-        .lock()
-        .map(|mut cache| cache.prepare(&url))
-        .unwrap_or(0)
-}
-
-#[no_mangle]
-pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCheckDocument(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    request_url: JString,
-    document_id: jlong,
-    resource: jint,
-) -> jint {
-    if handle == 0 {
-        return -1;
-    }
-    let engine = unsafe { &*(handle as *const FilterEngine) };
-    let document = engine
-        .documents
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(document_id));
-    let Some(document) = document else {
-        return -1;
-    };
-    let url: String = match env.get_string(&request_url) {
-        Ok(value) => value.into(),
-        Err(_) => return 0,
-    };
-    if url.len() > 32 * 1024 {
-        return 0;
-    }
-    i32::from(
-        engine
-            .network
-            .should_block_context(&url, &document, resource_from_ordinal(resource)),
-    )
 }
 
 #[no_mangle]

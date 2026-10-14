@@ -76,9 +76,20 @@
     pending.delete(data.requestId); clearTimeout(task.timer);
     if (data.ok) task.resolve(); else task.reject(new Error('GM storage write rejected'));
   });
+  // `@grant` is written both ways in the wild; both sides normalise to the underscore form so the
+  // answer never depends on which spelling the script declared. Kept in step with
+  // UserScriptMetadata.canonicalGrant.
+  function canonicalGrant(api) {
+    var underscore = String(api).replace(/GM\./g, 'GM_').replace(/GM-/g, 'GM_');
+    if (underscore === 'GM_getResourceUrl' || underscore === 'GM_getResourceURL') return 'GM_getResourceURL';
+    return underscore;
+  }
   function allowed(name) {
-    return config.grants.indexOf(name) >= 0 || config.grants.indexOf(name.replace('GM_', 'GM.')) >= 0 ||
-      (name === 'GM_getResourceURL' && config.grants.indexOf('GM.getResourceUrl') >= 0);
+    var wanted = canonicalGrant(name);
+    for (var i = 0; i < config.grants.length; i++) {
+      if (canonicalGrant(config.grants[i]) === wanted) return true;
+    }
+    return false;
   }
   // A copy with no prototype anywhere in its graph. `JSON.stringify` asks every object it walks
   // for `toJSON`, and the page shares this realm, so a hook it installed on `Object.prototype`

@@ -21,16 +21,26 @@ data class UserScriptMetadata(
 ) {
     val id: String = TextDownloader.sha256(namespace + "\n" + name).take(32)
     val supported: Boolean get() = unsupported.isEmpty()
-    fun grants(api: String): Boolean = api in grants || api.replace("GM_", "GM.") in grants
+    /**
+     * Whether the script declared [api], in either of the two spellings managers use.
+     *
+     * `@grant` is written both ways in the wild — the legacy `GM_setValue` and the modern
+     * `GM.setValue` — and a script that declared one used to be refused the other purely because
+     * the lookup only normalised in one direction. Both are normalised to the underscore form, and
+     * the resource-URL trio (`GM_getResourceURL` / `GM.getResourceURL` / `GM.getResourceUrl`) is
+     * folded into one name because they are the same API under three spellings.
+     */
+    fun grants(api: String): Boolean = canonicalGrant(api) in declaredGrants
+
+    private val declaredGrants: Set<String> by lazy { grants.mapTo(HashSet(), ::canonicalGrant) }
     val needsStorage: Boolean get() = grants.any { it in STORAGE_GRANTS }
     private val matchRules by lazy { matches.mapNotNull(::compilePattern) }
     private val excludeRules by lazy { excludeMatches.mapNotNull(::compilePattern) }
 
     fun matchesUrl(url: String): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        if (uri.scheme?.lowercase() !in listOf("http", "https") || uri.host == null || url.length > 8192) return false
-        return (matchRules.any { it.matches(uri) } || includes.any { glob(it, url) }) &&
-            excludes.none { glob(it, url) } && excludeRules.none { it.matches(uri) }
+        val parsed = parseMatchUrl(url) ?: return false
+        return (matchRules.any { it.matches(parsed) } || includes.any { glob(it, url) }) &&
+            excludes.none { glob(it, url) } && excludeRules.none { it.matches(parsed) }
     }
 
     companion object {
@@ -41,6 +51,20 @@ data class UserScriptMetadata(
             "GM_addStyle", "GM.addStyle", "GM_log", "GM.log", "GM_openInTab", "GM.openInTab",
             "GM_getResourceText", "GM.getResourceText", "GM_getResourceURL", "GM.getResourceURL", "GM.getResourceUrl")
         private val PATTERN = Regex("^(\\*|https?)://(\\*|\\*\\.[a-zA-Z0-9.-]+|[a-zA-Z0-9.-]+|\\[[0-9a-fA-F:]+\\])(/.*)$")
+
+        /**
+         * One name per API, whatever the three spellings a `@grant` may use.
+         *
+         * Both halves normalise to the underscore form, so a lookup never depends on which
+         * spelling the script happened to declare, and the resource-URL spellings are one name.
+         */
+        fun canonicalGrant(api: String): String {
+            val underscore = api.replace("GM.", "GM_").replace("GM-", "GM_")
+            return when (underscore) {
+                "GM_getResourceUrl", "GM_getResourceURL" -> "GM_getResourceURL"
+                else -> underscore
+            }
+        }
 
         fun parse(source: String): UserScriptMetadata {
             require(source.toByteArray(Charsets.UTF_8).size <= MAX_SOURCE_BYTES && !source.contains('\u0000')) { "Script too large" }
@@ -94,13 +118,42 @@ data class UserScriptMetadata(
         fun validPattern(pattern: String): Boolean = pattern == "<all_urls>" ||
             (pattern.length <= 1024 && PATTERN.matches(pattern))
 
+        private data class ParsedUrl(val scheme: String, val host: String, val pathAndQuery: String)
+
+        private fun parseMatchUrl(url: String): ParsedUrl? {
+            if (url.isEmpty() || url.length > 8192 || url.any { it.isWhitespace() || it.isISOControl() }) return null
+            val withoutFragment = url.substringBefore('#')
+            val schemeSeparator = withoutFragment.indexOf("://")
+            if (schemeSeparator <= 0) return null
+            val authorityStart = schemeSeparator + 3
+            var authorityEnd = withoutFragment.length
+            for (index in authorityStart until withoutFragment.length) {
+                if (withoutFragment[index] == '/' || withoutFragment[index] == '?') {
+                    authorityEnd = index
+                    break
+                }
+            }
+            if (authorityEnd == authorityStart) return null
+            val authorityUri = runCatching { URI(withoutFragment.substring(0, authorityEnd)) }.getOrNull() ?: return null
+            val scheme = authorityUri.scheme?.lowercase() ?: return null
+            if (scheme != "http" && scheme != "https") return null
+            val host = authorityUri.host?.lowercase() ?: return null
+            val rest = withoutFragment.substring(authorityEnd)
+            val pathAndQuery = when {
+                rest.isEmpty() -> "/"
+                rest.startsWith("?") -> "/$rest"
+                else -> rest
+            }
+            return ParsedUrl(scheme, host, pathAndQuery)
+        }
+
         private data class MatchRule(val scheme: String, val host: String, val path: String) {
-            fun matches(uri: URI): Boolean {
-                if (scheme != "*" && !scheme.equals(uri.scheme, true)) return false
-                val actual = uri.host?.lowercase() ?: return false
+            fun matches(url: ParsedUrl): Boolean {
+                if (scheme != "*" && !scheme.equals(url.scheme, true)) return false
+                val actual = url.host
                 if (host != "*" && host != actual &&
                     !(host.startsWith("*.") && (actual == host.drop(2) || actual.endsWith(host.drop(1))))) return false
-                return glob(path, uri.rawPath.orEmpty().ifEmpty { "/" } + (uri.rawQuery?.let { "?" + it } ?: ""))
+                return glob(path, url.pathAndQuery)
             }
         }
         private fun compilePattern(pattern: String): MatchRule? {

@@ -1,9 +1,12 @@
 package com.mybrowser.ui.shell
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -97,6 +100,30 @@ internal fun LibrarySearchField(query: String, label: String, onQueryChange: (St
                 onQueryChange("")
             }
         }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
+}
+
+@Composable
+internal fun LibrarySelectionBar(
+    visible: Boolean,
+    allSelected: Boolean,
+    onToggleSelectAll: (Boolean) -> Unit,
+    countText: String,
+    modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
+            expandVertically(animationSpec = BrowserMotion.chromeSpatial()),
+        exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
+            shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
+    ) {
+        Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = allSelected, onCheckedChange = onToggleSelectAll)
+            Text(countText, Modifier.weight(1f))
+            actions()
+        }
+    }
 }
 
 @Composable

@@ -1,10 +1,6 @@
 package com.mybrowser.ui.menu
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,7 +47,11 @@ fun TabsSheet(
     onDismiss: () -> Unit,
     onMoveTab: (String, Int) -> Unit = { _, _ -> },
     onGroupTab: (String, String) -> Unit = { _, _ -> },
+    // Observed so in-place TabState mutations (group, title, thumbnail) recompose this sheet.
+    revision: Int = 0,
 ) {
+    @Suppress("UNUSED_VARIABLE")
+    val observedRevision = revision
     var query by rememberSaveable { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
@@ -59,7 +59,11 @@ fun TabsSheet(
     var groupTarget by remember { mutableStateOf<TabState?>(null) }
     var groupName by remember { mutableStateOf("") }
     val groups = tabs.map { it.group }.filter { it.isNotEmpty() }.distinct()
-    val filtered = tabs.filter { (groupFilter == null || it.group == groupFilter) &&
+    val activeGroupFilter = groupFilter?.takeIf { it in groups }
+    LaunchedEffect(activeGroupFilter) {
+        if (groupFilter != activeGroupFilter) groupFilter = activeGroupFilter
+    }
+    val filtered = tabs.filter { (activeGroupFilter == null || it.group == activeGroupFilter) &&
         (it.title.contains(query, true) || it.url.contains(query, true)) }
     val currentId = tabs.getOrNull(currentIndex)?.id
     BrowserBottomSheet(onDismissRequest = onDismiss) {
@@ -156,16 +160,18 @@ fun TabsSheet(
         } },
         confirmButton = { TextButton(onClick = { onGroupTab(target.id, groupName); groupTarget = null }) { Text(stringResource(R.string.action_confirm)) } },
         dismissButton = { TextButton(onClick = { groupTarget = null }) { Text(stringResource(R.string.action_cancel)) } }) }
-    if (confirm != null) BrowserAlertDialog(onDismissRequest = { confirm = null },
-        title = { Text(stringResource(if (confirm == "all") R.string.tabs_close_all else R.string.tabs_close_others)) },
-        text = {
-            val count = if (confirm == "all") tabs.size else (tabs.size - 1).coerceAtLeast(0)
-            Text(pluralStringResource(R.plurals.tabs_close_confirm, count, count))
-        },
-        confirmButton = { TextButton(onClick = {
-            val action = confirm
-            confirm = null
-            if (action == "all") onCloseAll() else onCloseOthers()
-        }) { Text(stringResource(R.string.action_confirm)) } },
-        dismissButton = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.action_cancel)) } })
+    if (confirm != null) {
+        val count = if (confirm == "all") tabs.size else (tabs.size - 1).coerceAtLeast(0)
+        com.mybrowser.ui.shell.BrowserConfirmDialog(
+            title = stringResource(if (confirm == "all") R.string.tabs_close_all else R.string.tabs_close_others),
+            message = pluralStringResource(R.plurals.tabs_close_confirm, count, count),
+            confirmText = stringResource(R.string.action_confirm),
+            onConfirm = {
+                val action = confirm
+                confirm = null
+                if (action == "all") onCloseAll() else onCloseOthers()
+            },
+            onDismiss = { confirm = null },
+        )
+    }
 }

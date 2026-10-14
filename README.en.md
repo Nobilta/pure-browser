@@ -63,6 +63,9 @@ cd pure-browser
 The debug APK is at `app/build/outputs/apk/debug/app-debug.apk` and can be installed alongside the official release.
 Builds target ARM64 by default. See the [testing guide](TESTING_GUIDE.md) for emulator setup
 and the [release guide](RELEASING.md) for signing and publishing.
+Quick checks include release tooling tests. Official builds are signed and tested on an emulator locally.
+After pushing to `main` and passing CI, use `release/publish.sh` to create a GitHub Release draft,
+review it, then publish it manually as latest.
 
 The [architecture guide](ARCHITECTURE.md) introduces the codebase.
 

@@ -299,12 +299,6 @@ class BrowserState {
         findMatchCount = numberOfMatches
     }
 
-    // --- Desktop mode ---
-
-    fun toggleDesktopMode() {
-        isDesktopMode = !isDesktopMode
-    }
-
     /**
      * Pushes the current URL into the omnibar, but never while it has focus — a page
      * finishing in the background would otherwise overwrite half-typed input.

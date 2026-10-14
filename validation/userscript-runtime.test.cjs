@@ -194,3 +194,27 @@ test('resource APIs are grant-scoped and cannot name undeclared resources', asyn
   const other=fixture();other.inject({resources:{theme:{text:'secret',url:'data:'}}});
   assert.equal(other.context.apis[0].GM_getResourceText,undefined);
 });
+test('grant spellings are interchangeable in both directions', () => {
+  // The runtime asks about the underscore names, but a script may declare either spelling. Both
+  // directions have to resolve, or a script granted `GM_setValue` is handed no GM.setValue.
+  const legacy = fixture();
+  legacy.inject({ grants: ['GM_setValue'], needsStorage: true, values: '{"a":1}' });
+  assert.equal(typeof legacy.context.apis[0].GM_setValue, 'function');
+  assert.equal(typeof legacy.context.apis[0].GM.setValue, 'function');
+
+  const modern = fixture();
+  modern.inject({ grants: ['GM.setValue'], needsStorage: true, values: '{"a":1}' });
+  assert.equal(typeof modern.context.apis[0].GM_setValue, 'function');
+  assert.equal(typeof modern.context.apis[0].GM.setValue, 'function');
+
+  // The resource-URL trio is one API under three spellings.
+  const resource = fixture();
+  resource.inject({ grants: ['GM_getResourceURL'], resources: { theme: { text: 't', url: 'data:text/css,x' } } });
+  assert.equal(resource.context.apis[0].GM_getResourceURL('theme'), 'data:text/css,x');
+
+  // An undeclared grant stays undeclared whichever spelling it is written in.
+  const none = fixture();
+  none.inject({ grants: ['GM_getValue'], needsStorage: true, values: '{}' });
+  assert.equal(none.context.apis[0].GM_setValue, undefined);
+  assert.equal(none.context.apis[0].GM.setValue, undefined);
+});

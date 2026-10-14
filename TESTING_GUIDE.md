@@ -8,7 +8,8 @@
 ./build-and-test.sh --quick
 ```
 
-包含三语言资源校验、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
+包含三语言资源校验、Python 发布工具测试、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
+发布工具测试覆盖 CI 运行选择、GitHub CLI 路径、版本递增、签名失败和验证记录的版本边界；不调用真实发布接口。
 Android 测试会构建 host JNI，Node 使用内置测试运行器。
 调用同一 JNI 库的测试应使用相同的 Robolectric runner 和 `@Config`，避免 JVM 类加载器之间重复加载原生库。
 字符表固定使用 OpenJDK 26.0.2 的 BMP 分类（含该版本补丁），不会随 Android/JDK 自动变化：
@@ -84,15 +85,16 @@ x86_64 主机（Windows、Linux、Intel Mac）装不上只含 arm64-v8a 的官�
 ./gradlew -Pmybrowser.abi=x86_64 :app:assembleRelease
 ```
 
+启动脚本使用 `local.properties` 指定的 SDK，向模拟器传递相同路径，避免多套 SDK 的系统镜像混用。
 Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本时设置 `PYTHONUTF8=1`，
 经 `run-regressions.py` 运行时它会代为设置。脚本在 Git Bash 中执行。
 
-下面以 `emulator-5554` 和 0.13.7 为例，替换为实际序列号与 APK 路径。
+下面以 `emulator-5554` 和 0.14.1 为例，替换为实际序列号与 APK 路径。
 
 1. 安装并启动应用，部署 UI 辅助程序：
 
    ```bash
-   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.13.7-release.apk
+   ANDROID_SERIAL=emulator-5554 bash install_and_test.sh PureBrowser-v0.14.1-release.apk
    python3 validation/setup-ui-probe.py emulator-5554
    ```
 
@@ -101,14 +103,14 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 2. 启动 QA 服务，并保持该终端运行：
 
    ```bash
-   python3 validation/qa-server.py --apk PureBrowser-v0.13.7-release.apk
+   python3 validation/qa-server.py --apk PureBrowser-v0.14.1-release.apk
    ```
 
 3. 在另一个终端执行回归：
 
    ```bash
-   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.13.7-release.apk \
-     --label release-0137-smoke --profile smoke
+   python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.14.1-release.apk \
+     --label release-0141-smoke --profile smoke
    ```
 
 一次只运行一个 UI 脚本，避免同时构建。QA 使用本机 8875/8876 端口，部分夹具使用 8877–8879，
@@ -127,7 +129,7 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
 例如，只检查启动更新提示和标签行为：
 
 ```bash
-python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.13.7-release.apk \
+python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v0.14.1-release.apk \
   --label update-tabs --stages update-launch resident
 ```
 
@@ -144,6 +146,10 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 无法提供与手指同密度的采样，该路径手工核对。
 页面加载与错误恢复可单独运行 `--stages navigation-recovery`：本地服务延迟响应头，检查地址输入、网页链接、POST 表单的进度提示，以及连续失败、重试成功、停止加载和停止后再次提交表单。下载删除的单元测试覆盖传输取消、临时文件清理和暂停/删除并发。
 每次下载都会先弹出确认对话框（刻意设计，没有跳过设置），下载相关回归在点击链接后显式点击确认再等待传输。
+`download` 与 `bookmarks` 还检查多选：长按进入、点击取消/重新选中、返回退出，
+并断言每行只暴露一个带 `checkable` / `checked` 状态的复选框。这验证无障碍树，不等同于人工试听 TalkBack 播报。
+长按测试遵循设备的长按超时并留出事件处理时间。SAF 文件选择优先按文件名搜索，
+只匹配真实文件行，避免复用模拟器中的大量旧下载或同名搜索建议干扰回归。
 `blob-download` 覆盖网页在内存里生成的文件：夹具自己读取正文、显示自己的进度，再把 Blob 交给 `<a download>`，
 回归断言确认框内容、多分片写入的字节一致性和第二次传输；纯页面半部的协议（分片顺序、越界、取消、映射上限）
 由 `validation/blob-download.test.cjs` 在 Node 上覆盖。
@@ -161,7 +167,7 @@ suite JSON 和阶段日志生成在 `validation/results/`，记录 APK SHA-256�
 失败尝试保留在 `priorAttempts`；换包或改测试后使用新的 suite。
 
 CI 日志和报告从对应 Actions 运行下载；本地结果不提交 Git。
-发布时只把设备、实际通过阶段和未覆盖范围写入 [Release 说明](release/notes.md)，不合并不同 APK 的通过结果。
+发布时只把设备、实际通过阶段和未覆盖范围写入[验证记录](release/notes.md)，不合并不同 APK 的通过结果。
 
 ## 排查与补充验证
 

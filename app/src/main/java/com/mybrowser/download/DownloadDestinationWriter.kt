@@ -176,24 +176,12 @@ internal class DownloadDestinationWriter(context: Context) {
         if (updated <= 0) throw IOException("Unable to publish completed download")
     }
 
-    private fun uniqueName(preferredName: String, exists: (String) -> Boolean): String {
-        val clean = preferredName.take(MAX_FILENAME_LENGTH).ifBlank { "download" }
-        if (!exists(clean)) return clean
-        val dot = clean.lastIndexOf('.').takeIf { it > 0 } ?: clean.length
-        val rawStem = clean.substring(0, dot)
-        val extension = clean.substring(dot)
-        for (index in 1..MAX_DUPLICATE_ATTEMPTS) {
-            val suffix = " ($index)"
-            val stem = rawStem.take((MAX_FILENAME_LENGTH - extension.length - suffix.length).coerceAtLeast(1))
-            val candidate = "$stem$suffix$extension"
-            if (!exists(candidate)) return candidate
-        }
-        throw IOException("Too many files share this download name")
-    }
+    private fun uniqueName(preferredName: String, exists: (String) -> Boolean): String =
+        FilenameParser.uniqueName(preferredName, maxAttempts = MAX_DUPLICATE_ATTEMPTS, exists = exists)
+            ?: throw IOException("Too many files share this download name")
 
     private companion object {
         const val COPY_BUFFER_SIZE = 64 * 1024
-        const val MAX_FILENAME_LENGTH = 127
         const val MAX_DUPLICATE_ATTEMPTS = 10_000
     }
 }

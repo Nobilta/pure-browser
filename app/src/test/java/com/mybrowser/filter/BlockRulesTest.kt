@@ -3,8 +3,10 @@ package com.mybrowser.filter
 import android.app.Application
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import java.io.IOException
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -56,6 +58,8 @@ class BlockRulesTest {
         // rust/adblock/src/rule.rs: the rfind('$') split precedes option parsing.
         assertNull(BlockRules.addressRule("https://ads.example.com/banner$1.png"))
         assertFalse(BlockRules.isValid("https://ads.example.com/banner$1.png"))
+        assertNull(BlockRules.addressRule("https://ads.example.com/a(1).png"))
+        assertNull(BlockRules.addressRule("https://ads.example.com/a{1}.png"))
     }
 
     @Test
@@ -199,12 +203,31 @@ class BlockRulesTest {
             "https://cdn.example.com/a/ads/300x250.png",
             "##div.ad-slot",
             "example.com##div.ad-slot",
+            // A single-label host is still a host: the engine keeps it under the domain anchor,
+            // and refusing it here made the app reject a rule the filter would have applied.
+            "||adserver^",
+            "||localhost^",
         )) {
             assertTrue(rule, BlockRules.isValid(rule))
             assertEquals("FilterListFormat must count $rule", 1, FilterListFormat.validate(rule))
         }
-        for (rule in listOf("", "   ", "div\n##.other", ".ad{display:none}", "##")) {
+        for (rule in listOf(
+            "", "   ", "div\n##.other", ".ad{display:none}", "##",
+            "/ads\\.js/", "|", "||", "@@|", "example.com#?#.ad", "! comment", "[Adblock Plus 2.0]",
+            "https://example.com##.ad",
+            // Nothing an unanchored pattern made of separators names: the engine would match it
+            // against every http(s) request.
+            "/", ".", "||/", "||.", "|/", "|.",
+            // A dotless pattern without the domain anchor is an unanchored substring match, not a
+            // host, so it is refused rather than stored as something wider than it reads.
+            "adserver^", "reset",
+        )) {
             assertFalse(rule, BlockRules.isValid(rule))
+        }
+        // The anchor forms that name nothing are not countable either, or a payload of them would
+        // pass as a list with rules in it and the engine would refuse the whole snapshot.
+        for (rule in listOf("|", "||", "@@|", "/", ".", "||/")) {
+            assertThrows(IOException::class.java) { FilterListFormat.validate(rule) }
         }
     }
 }

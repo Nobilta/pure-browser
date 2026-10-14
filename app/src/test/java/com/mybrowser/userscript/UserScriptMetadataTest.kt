@@ -90,4 +90,35 @@ class UserScriptMetadataTest {
         assertTrue(UserScriptMetadata.glob("a**b*c", "axybzc"))
         assertFalse(UserScriptMetadata.glob("a*b*c", "abx"))
     }
+
+    @Test fun matchesUrlAcceptsUnencodedBracketsPipesAndBracesInPathAndQuery() {
+        val value = script("// @match https://example.com/search*")
+        assertTrue(value.matchesUrl("https://example.com/search?q=a|b&filter[0]={x}^2"))
+        assertTrue(script("// @match <all_urls>").matchesUrl("https://example.com/path[1]?a={b}|c"))
+    }
+
+    @Test fun resourceUrlGrantAliasesMatchBothModernAndLegacySpellings() {
+        val modern = script("// @match *://*/*\n// @grant GM.getResourceUrl")
+        assertTrue(modern.grants("GM.getResourceUrl"))
+        assertTrue(modern.grants("GM_getResourceURL"))
+        assertTrue(modern.grants("GM.getResourceURL"))
+        val legacy = script("// @match *://*/*\n// @grant GM_getResourceURL")
+        assertTrue(legacy.grants("GM.getResourceUrl"))
+        assertTrue(legacy.grants("GM_getResourceURL"))
+        assertTrue(legacy.grants("GM.getResourceURL"))
+    }
+
+    @Test fun grantsResolveTheSameApiFromEitherSpellingInBothDirections() {
+        // A script that declared the legacy spelling must still be granted the modern name the
+        // runtime asks about, and the other way round.
+        val legacy = script("// @match *://*/*\n// @grant GM_setValue")
+        assertTrue(legacy.grants("GM_setValue"))
+        assertTrue(legacy.grants("GM.setValue"))
+        val modern = script("// @match *://*/*\n// @grant GM.setValue")
+        assertTrue(modern.grants("GM_setValue"))
+        assertTrue(modern.grants("GM.setValue"))
+        // A grant that was not declared is still not granted, whichever spelling is asked about.
+        assertFalse(legacy.grants("GM.deleteValue"))
+        assertFalse(legacy.grants("GM.deleteValue".replace("GM.", "GM_")))
+    }
 }

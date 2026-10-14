@@ -194,7 +194,7 @@ object FilenameParser {
         return "${name.trimEnd('.')}.$ext"
     }
 
-    private fun sanitize(name: String): String {
+    fun sanitize(name: String, keepExtension: Boolean = true): String {
         var s = ILLEGAL.replace(name, "_")
             // A leading dot hides the file; a trailing dot or space breaks some tools.
             .trim()
@@ -207,7 +207,7 @@ object FilenameParser {
             // Truncate the stem, keep the extension: a cut-off extension means the file
             // will not open.
             val dot = s.lastIndexOf('.')
-            s = if (dot > 0 && s.length - dot <= 12) {
+            s = if (keepExtension && dot > 0 && s.length - dot <= 12) {
                 val ext = s.substring(dot)
                 s.take(MAX_LENGTH - ext.length) + ext
             } else {
@@ -215,5 +215,24 @@ object FilenameParser {
             }
         }
         return s
+    }
+
+    fun uniqueName(
+        preferredName: String,
+        maxAttempts: Int = Int.MAX_VALUE,
+        exists: (String) -> Boolean,
+    ): String? {
+        val clean = preferredName.take(MAX_LENGTH).ifBlank { FALLBACK_NAME }
+        if (!exists(clean)) return clean
+        val dot = clean.lastIndexOf('.').takeIf { it > 0 } ?: clean.length
+        val rawStem = clean.substring(0, dot)
+        val extension = clean.substring(dot)
+        for (index in 1..maxAttempts) {
+            val suffix = " ($index)"
+            val stem = rawStem.take((MAX_LENGTH - extension.length - suffix.length).coerceAtLeast(1))
+            val candidate = "$stem$suffix$extension"
+            if (!exists(candidate)) return candidate
+        }
+        return null
     }
 }

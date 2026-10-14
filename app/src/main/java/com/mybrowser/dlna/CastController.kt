@@ -329,7 +329,7 @@ class CastController(
                         if (generation != castGeneration || _state.value.connected != device) return@launch
                         publish(_state.value.copy(isControlling = false,
                             connected = if (result.isSuccess && disconnect) null else device,
-                            playback = if (result.isSuccess) null else _state.value.playback,
+                            playback = if (result.isSuccess && disconnect) null else _state.value.playback,
                             lastError = if (result.isFailure) appContext.getString(failureMessage) else null))
                     }
                     if (result.isFailure) {

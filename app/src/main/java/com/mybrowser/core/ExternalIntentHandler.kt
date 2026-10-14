@@ -50,12 +50,21 @@ object ExternalIntentHandler {
         // loaded here; accepting javascript:, data:, or content: would turn an absent
         // external app into a script/opaque-URL execution primitive.
         val fallback = intent.getStringExtra(EXTRA_FALLBACK_URL)
-            ?.takeIf {
-                val scheme = UrlUtils.schemeOf(it)
-                scheme == "http" || scheme == "https"
-            }
+            ?.takeIf { UrlUtils.isHttpUrl(it) }
 
         sanitize(intent)
+
+        // An `intent://...#Intent;scheme=foo;end` URI rewrites `intent.data` to `foo://...`.
+        // Re-check the unwrapped scheme so `intent:` cannot smuggle a non-allowlisted scheme.
+        val targetScheme = intent.data?.scheme
+        if (targetScheme != null &&
+            !targetScheme.equals("http", ignoreCase = true) &&
+            !targetScheme.equals("https", ignoreCase = true) &&
+            !UrlUtils.isAllowedExternalScheme("$targetScheme:")
+        ) {
+            Log.i(TAG, "intent target scheme not allow-listed: $targetScheme")
+            return fallback?.let(Result::Fallback) ?: Result.Rejected
+        }
 
         if (intent.resolveActivity(context.packageManager)?.packageName == context.packageName) {
             return fallback?.let(Result::Fallback) ?: Result.Rejected
@@ -70,9 +79,9 @@ object ExternalIntentHandler {
                 fallback != null -> Result.Fallback(fallback)
                 // market:// is worth one more try via the Play web UI.
                 UrlUtils.schemeOf(url) == "market" -> {
-                    val id = url.toUri().getQueryParameter("id")
+                    val id = marketPackageId(url)
                     if (id != null) {
-                        Result.Fallback("https://play.google.com/store/apps/details?id=$id")
+                        Result.Fallback("https://play.google.com/store/apps/details?id=${android.net.Uri.encode(id)}")
                     } else {
                         Result.Rejected
                     }
@@ -84,6 +93,33 @@ object ExternalIntentHandler {
             Log.w(TAG, "security exception launching intent", e)
             Result.Rejected
         }
+    }
+
+    private fun marketPackageId(url: String): String? {
+        val uri = url.toUri()
+        val rawQuery = if (uri.isHierarchical) {
+            uri.encodedQuery
+        } else {
+            /*
+             * The encoded form, not the decoded one: an opaque URI's `schemeSpecificPart` has
+             * already been through `Uri.decode`, so a `%26id%3D` inside an earlier parameter would
+             * be read back as a real `&id=` and the package id taken from it. Splitting the encoded
+             * text keeps each parameter whole, and the id is decoded once, where it is read.
+             */
+            uri.encodedSchemeSpecificPart
+                ?.substringBefore('#')
+                ?.substringAfter('?', missingDelimiterValue = "")
+        } ?: return null
+        return rawQuery.split('&')
+            .firstNotNullOfOrNull { param ->
+                val eq = param.indexOf('=')
+                if (eq > 0 && param.substring(0, eq) == "id") {
+                    android.net.Uri.decode(param.substring(eq + 1))
+                } else {
+                    null
+                }
+            }
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun parse(url: String): Intent? = try {

@@ -237,6 +237,44 @@ def tap_node(node):
     time.sleep(0.5)
 
 
+def check_library_selection(label):
+    """Long-press, toggle and leave multi-select; check the accessibility state on the named row."""
+    def row(checked=None):
+        deadline = time.monotonic() + 5
+        while True:
+            root, raw = nodes()
+            candidates = [n for n in root.iter('node') if visible(n)
+                          and n.get('clickable') == 'true' and match(n, label) is not None]
+            if candidates:
+                candidate = candidates[-1]
+                if checked is None:
+                    assert candidate.get('checkable') != 'true', raw
+                    return candidate
+                if candidate.get('checked') == str(checked).lower() and candidate.get('checkable') == 'true':
+                    # Compose may expose the merged role as a synthetic child while the row
+                    # itself owns the toggle state and click action.
+                    assert any(n.get('class') == 'android.widget.CheckBox' for n in candidate.iter('node')), raw
+                    assert sum(n.get('checkable') == 'true' for n in candidate.iter('node')) == 1, raw
+                    return candidate
+            assert time.monotonic() < deadline, 'Missing selection state for ' + label + ': ' + raw
+            time.sleep(.15)
+
+    target = match(row(), label)
+    x1, y1, x2, y2 = bounds(target)
+    x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+    timeout = adb('shell', 'settings', 'get', 'secure', 'long_press_timeout')
+    hold_ms = max(1200, (int(timeout) if timeout.isdigit() else 400) + 500)
+    adb('shell', 'input', 'swipe', x, y, x, y, str(hold_ms))
+    row(True)
+    tap(label)
+    row(False)
+    tap(label)
+    row(True)
+    adb('shell', 'input', 'keyevent', '4')
+    time.sleep(.5)
+    row()
+
+
 def tap_fixture(label, case, target, expected_url, hold_ms=0):
     """Use current fixture geometry when WebView omits a visible virtual node."""
     def press(x, y):
@@ -327,6 +365,18 @@ def choose_download_document(name):
     """Select a fixture through SAF even when Recent omits it or Downloads spans pages."""
     open_downloads_directory()
     root, _ = nodes()
+    # A reused AVD can have hundreds of newer downloads and a remembered scroll position.
+    # Search by filename instead of assuming the fixture is in the first twenty pages.
+    search = next((n for n in root.iter('node') if visible(n)
+                   and n.get('resource-id', '').endswith('/option_menu_search')), None)
+    searching = search is not None and _probe_available.get(tuple(ADB))
+    if searching:
+        tap_node(search)
+        encoded = base64.b64encode(name.encode()).decode()
+        adb('shell', 'env', 'CLASSPATH=' + UI_PROBE, 'app_process', '-Xusejit:false', '/system/bin',
+            'com.mybrowser.validation.FastUiDump', 'setText', encoded)
+        adb('shell', 'input', 'keyevent', '66')
+        root, _ = nodes()
     list_view = next((n for n in root.iter('node') if visible(n) and n.get('content-desc') in
                       ('List view', '列表视图', '清單檢視')), None)
     if list_view is not None:
@@ -341,11 +391,17 @@ def choose_download_document(name):
 
     for _ in range(20):
         root, _ = nodes()
-        target = next((n for n in root.iter('node') if visible(n) and in_viewport(n) and
+        # Search fields and history suggestions can contain the same filename. Only select
+        # a node inside an actual document row, never the search UI itself.
+        documents = [n for n in root.iter('node') if n.get('resource-id', '').endswith('/item_root')]
+        target = next((n for document in documents for n in document.iter('node') if visible(n) and in_viewport(n) and
                        (n.get('text') == name or n.get('content-desc', '').split(', ')[0] == name)), None)
         if target is not None:
             tap_node(target)
             return
+        if searching:
+            time.sleep(.3)
+            continue
         regions = [n for n in root.iter('node') if n.get('scrollable') == 'true' and visible(n)]
         assert regions, 'No document list for ' + name
         region = max(regions, key=lambda n: bounds(n)[3] - bounds(n)[1])

@@ -59,13 +59,13 @@ class NativeFilterInstrumentation : Instrumentation() {
                     Triple("https://www.google-analytics.com/analytics.js", "https://www.example.org/", ResourceType.SCRIPT),
                     Triple("https://cdn.example.org/ads/banner.js", "https://www.example.org/", ResourceType.SCRIPT),
                     Triple("https://cdn.example.org/movie/segment.m4s?token=" + "abcdef0123456789".repeat(128), "https://www.example.org/", ResourceType.MEDIA))
-                // Frozen expectations, not values read back from the engine. Deriving them from
-                // `shouldBlockUncached` only proved the cached and uncached paths agreed, so an
-                // engine that blocked everything passed this check. The list was taken from a
-                // host release build and the bundled lists, and the three blocking entries are
-                // the ad endpoints the lists target; the run then answers a question the host
-                // cannot: whether the shipped ABI agrees with the host profile, which differs in
-                // panic strategy and optimisation level.
+                // Frozen expectations, not values read back from the engine. Deriving them from an
+                // uncached helper only proved the two paths agreed, so an engine that blocked
+                // everything passed this check. The list was taken from a host release build and
+                // the bundled lists, and the three blocking entries are the ad endpoints the lists
+                // target; the run then answers a question the host cannot: whether the shipped ABI
+                // agrees with the host profile, which differs in panic strategy and optimisation
+                // level.
                 val expected = listOf(
                     false, // document
                     false, // script
@@ -81,28 +81,37 @@ class NativeFilterInstrumentation : Instrumentation() {
                     false, // long signed media URL
                 )
                 check(expected.size == cases.size) { "expectation table is out of step with cases" }
-                // Alternate order across runs to avoid crediting warm caches to one path.
+                /*
+                 * Every pass measures the same warm path. There is no uncached entry point left —
+                 * the document cache lives behind the single JNI call — and with only four distinct
+                 * page URLs against a cache of 32, the first pass is already inside it. So the
+                 * passes are labelled for what they are: `order` alternates the case order to keep
+                 * one position from being credited, and the first run is discarded as warmup rather
+                 * than reported as a cold measurement it never was.
+                 */
                 repeat(6) { run ->
-                    for (cached in if (run % 2 == 0) listOf(false, true) else listOf(true, false)) {
+                    for (order in if (run % 2 == 0) listOf(false, true) else listOf(true, false)) {
                         val samples = LongArray(100 * cases.size)
                         var i = 0
                         repeat(100) {
-                            cases.forEachIndexed { index, (url, page, type) ->
+                            val ordered = if (order) cases.reversed() else cases
+                            ordered.forEachIndexed { index, (url, page, type) ->
+                                val expectedIndex = if (order) cases.size - 1 - index else index
                                 val time = System.nanoTime()
-                                val value = if (cached) engine.shouldBlock(url, page, type) else engine.shouldBlockUncached(url, page, type)
+                                val value = engine.shouldBlock(url, page, type)
                                 samples[i++] = System.nanoTime() - time
-                                check(value == expected[index]) {
-                                    "JNI decision mismatch for $url (cached=$cached): expected ${expected[index]}, got $value"
+                                check(value == expected[expectedIndex]) {
+                                    "JNI decision mismatch for $url (warm): expected ${expected[expectedIndex]}, got $value"
                                 }
                             }
                         }
                         samples.sort()
-                        if (run > 0) rows.put(JSONObject().put("cached", cached).put("run", run)
+                        if (run > 0) rows.put(JSONObject().put("run", run).put("reversed", order)
                             .put("p50Us", samples[samples.size / 2] / 1000.0).put("p95Us", samples[samples.size * 95 / 100] / 1000.0))
                     }
                 }
                 val report = JSONObject().put("rules", engine.ruleCount).put("loadMs", loadMs)
-                    .put("decisions", JSONArray(expected)).put("samples", rows).put("passed", true)
+                    .put("warmupRuns", 1).put("decisions", JSONArray(expected)).put("samples", rows).put("passed", true)
                 File(targetContext.filesDir, "native-benchmark.json").writeText(report.toString(2))
                 result.putString("report", report.toString())
             }

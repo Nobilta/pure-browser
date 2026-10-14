@@ -300,6 +300,8 @@ class Regression:
             ux.expect('Duplicate fixture', present=False)
             ux.expect('Rejected script fixture', present=False)
         self.record('SAF imports a Netscape bookmark file with preview, safe URLs and repeat-import deduplication')
+        ux.check_library_selection('Imported & escaped fixture')
+        self.record('Bookmark rows expose one checkbox with checked/unchecked state and leave selection on Back')
         ux.tap('导入或导出书签')
         ux.tap('导出书签')
         name = 'pure-capability-bookmarks-api' + self.sdk + '-' + str(time.time_ns()) + '.html'

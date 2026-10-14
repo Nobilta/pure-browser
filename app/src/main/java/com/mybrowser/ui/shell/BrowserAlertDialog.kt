@@ -13,6 +13,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -20,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.mybrowser.R
 
 /**
  * The app's alert dialog: Material 3's layout, colours and slots, plus the entrance that the pinned
@@ -101,4 +105,31 @@ internal fun BrowserAlertDialog(
             }
         }
     }
+}
+
+@Composable
+internal fun BrowserConfirmDialog(
+    title: String,
+    message: String,
+    confirmText: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    dismissText: String = stringResource(R.string.action_cancel),
+    enabled: Boolean = true,
+) {
+    BrowserAlertDialog(
+        onDismissRequest = { if (enabled) onDismiss() },
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = enabled) {
+                Text(confirmText)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = enabled) {
+                Text(dismissText)
+            }
+        },
+    )
 }

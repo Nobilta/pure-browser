@@ -49,6 +49,7 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 新实例配置失败时，先清理媒体追踪器和脚本运行时，再从实例管理器丢弃。
 `PageAcquisition` 统一分配失败清理和内存不足重试，`MediaTrackerRegistry` 管理每个 WebView 的媒体追踪器。
 `PopupWebViewClient` 让后台窗口继续网络与导航，同时将 UI 回调与前台隔离；
+停放和待销毁页面统一使用 `core/ParkedWebViewClient` 拒绝导航与新请求，并处理渲染进程退出回调。
 `PopupSessionStore` 单独记录真实 JavaScript 窗口关系，与手动新标签的返回关系分开。
 后台请求使用自身文档的过滤配置，不更新前台媒体、日志或过滤计数，也不弹权限框或启动外部应用；
 原页面最后一个弹窗关闭后，若尚未回到原页面，继续保留以完成回调请求。
@@ -65,6 +66,9 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 路由 key 恢复滚动与分类，每次 `Presentation` 提供新的回调身份。
 `BrowserSheetHost` 在菜单路径内保留一个 `BrowserSheetWindow`，切换时只替换内容；
 当前页面拥有返回处理，旧页面释放只能清理自己的回调，嵌套选项和确认窗口停用父级返回。
+书签与下载的多选行共用 `libraryItemSelection`：整行接收点击和长按，选择模式下提供复选框角色与状态，
+子复选框仅负责显示，避免出现两个独立选择目标。批量操作栏复用 `LibrarySelectionBar`，
+确认弹窗复用 `BrowserConfirmDialog`；页面保留各自的数据和操作回调。
 动画参数集中在 `BrowserMotion`，按"谁驱动这次动作"分成两类，用的是 Material 3 里各自对应的那一种：
 用户主动唤起的转场用规范自己的缓动曲线与时长令牌，手指或滚动驱动的动效用弹簧。
 这个划分不是风格选择，而是形状问题：`emphasised decelerate` 在时长的头 10% 里走完 62% 的距离（前置），
@@ -169,10 +173,8 @@ Compose 1.9.4 有 `Modifier.preferredFrameRate`（底层是 API 35 的 `View.set
 挑选期间页面的输入在捕获阶段被拦下（`touchstart`/`touchmove`/`touchend`/`mouse*`/`contextmenu` 都显式声明
 非 passive，document 级的 touch 监听默认是 passive 的，passive 监听不允许取消滚动；`wheel` 不在其中，
 滚轮滚动时描边靠 `scroll` 监听重画，见上一段）。
-预览用行内 `display:none !important` 隐藏选中的匹配项，和规则生效时同一种声明，
-所以重排也是真的：一个会带走整片区域的选择器，在写下去之前就会显现出来。
-每个元素原来的行内 `display` 值被记下来原样放回（原本没有就删掉该属性），
-因此"取消"能还原到与挑选前完全一致；手指按下去时先还原，是为了让要选的东西看得见。
+预览注入与保存规则相同的样式表声明 `display:none !important`，按同样的 CSS 优先级显示隐藏效果，
+避免行内预览比实际规则更强而承诺无法保持的结果。取消或重新选取时移除预览样式表，不改写页面原有行内样式。
 `stop()` 里第一件事就是还原——预览活得比挑选久，就等于在用户没有任何界面可撤销的情况下藏了东西。
 操作栏是 Compose 浮层而不是布局里的一行：会改变 WebView 高度的一行会让页面重排，
 被描边的元素就会从描边底下跑掉。
