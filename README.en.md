@@ -67,7 +67,8 @@ Quick checks include release tooling tests. Official builds are signed and teste
 After pushing to `main` and passing CI, use `release/publish.sh` to create a GitHub Release draft,
 review it, then publish it manually as latest.
 
-The [architecture guide](ARCHITECTURE.md) introduces the codebase.
+The [architecture guide](ARCHITECTURE.md) introduces the codebase, including the boundaries between page navigation,
+download record storage and shared settings components.
 
 ## Feedback and contributions
 

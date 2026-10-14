@@ -155,7 +155,9 @@ def main():
                     env={**os.environ, 'ANDROID_SERIAL': args.serial,
                          'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'},
                     stdout=output, stderr=subprocess.STDOUT,
-                    timeout=900 if name == 'menu-navigation' else 600)
+                    # These routes include repeated returns, recreation and rotation.
+                    # Give their full UI matrices enough time on a busy local emulator.
+                    timeout=900 if name in {'menu-navigation', 'settings-back'} else 600)
                 code = completed.returncode
             except subprocess.TimeoutExpired:
                 code = -1

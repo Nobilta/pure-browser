@@ -63,7 +63,7 @@ cd pure-browser
 快速检查包含发布脚本测试。正式版本在本机签名并完成模拟器回归，推送至 `main` 且 CI 通过后，
 使用 `release/publish.sh` 创建 GitHub Release 草稿，核对后手动发布为 latest。
 
-想了解代码组织，可以从[架构说明](ARCHITECTURE.md)开始。
+想了解代码组织，可以从[架构说明](ARCHITECTURE.md)开始；其中说明了页面导航、下载记录存储和设置公共控件的职责边界。
 
 ## 反馈与贡献
 

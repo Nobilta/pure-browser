@@ -178,7 +178,9 @@ try:
     ux.tap("搜索引擎")
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.3")
     time.sleep(1.5)
-    ux.expect("Google")
+    # Font-scale changes recreate the Activity; cold WebView/Compose initialization can
+    # outlast the normal four-second control wait on a loaded emulator.
+    ux.expect("Google", timeout=15)
     back()
     ux.expect("启动时恢复上次网页")
     back()

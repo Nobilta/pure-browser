@@ -41,6 +41,12 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 
 ## WebView 与标签
 
+`ui/shell/PageNavigator` 集中地址/搜索跳转、加载/刷新、历史菜单及外部传入链接的标签选择，
+每次操作通过访问器取得当前 WebView 和标签管理器，避免保留切换前的页面或 Profile。
+`core/NavigationReadiness` 管理隐私清理和脚本初始化两个等待点；各等待点保留最新请求，
+协程跟随 Activity 生命周期，切换 Profile 时取消旧脚本导航。Activity 负责页面清理、站点配置、
+权限、媒体以及 WebView 的创建和释放，所有主动页面加载都经过上述协调器。
+
 `MainActivity` 管理当前页面，`RecentTabStore` 保存普通后台页面：离开时暂停媒体，重新访问时取回原 WebView。
 收到内存压力时按最早停放顺序回收，`TRIM_MEMORY_COMPLETE` 清空普通驻留页并终止后台窗口组，
 保留标签 URL 供再次访问时重载；`UI_HIDDEN` 本身不触发回收。
@@ -64,6 +70,8 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 启用须确认保存，串行写入和代次检查防止旧启用回写。
 `BrowserSheetNavigation` 只允许“菜单 → 一个子页面”，设置内部管理自己的分类和选项；
 路由 key 恢复滚动与分类，每次 `Presentation` 提供新的回调身份。
+`SettingsSheet` 组织设置分类、搜索和选项页；`SettingsComponents` 提供共用页面容器、开关、
+单选行、入口行、分组文字及搜索定位高亮，站点设置也复用开关控件。
 `BrowserSheetHost` 在菜单路径内保留一个 `BrowserSheetWindow`，切换时只替换内容；
 当前页面拥有返回处理，旧页面释放只能清理自己的回调，嵌套选项和确认窗口停用父级返回。
 书签与下载的多选行共用 `libraryItemSelection`：整行接收点击和长按，选择模式下提供复选框角色与状态，
@@ -243,6 +251,10 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 `DownloadPresenter` 管理任务操作、文件打开及结果提示；WebView 提供的 contentLength 传至确认框。
 `DownloadIdentity` 是模式相关下载策略的唯一出处：凭据来源、持久化范围、通知与可恢复性都由它决定，
 新增差异应加在这里而不是散落成新的布尔判断。
+`DownloadMetadataStore` 负责有界记录读写、旧格式迁移、隐私字段裁剪及重启恢复，返回记录与可恢复的中断任务 ID；
+`DownloadMetadata` 是共享记录模型，`DownloadValidation` 统一新请求与持久化记录的字段校验。
+`DownloadHandler` 保留任务调度、状态变化和临时文件清理；写入时持有原有 `metadataLock` 同步生成并提交快照，
+仅由 SharedPreferences 延后磁盘写入，避免旧快照覆盖后来的暂停、完成或删除。
 `PageFileDownload` 处理网页在内存里生成的文件：`blob:` 地址只在该文档内可解析，任何 HTTP 客户端都取不到，
 因此它把 `blob-download.js` 注入为 document-start 脚本，记住 `URL.createObjectURL` 创建的 Blob
 （页面随后 `revokeObjectURL` 也不影响，撤销的是地址不是对象），并从捕获阶段的点击记录 `a[download]` 给出的文件名。
