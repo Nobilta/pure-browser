@@ -80,6 +80,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## 代码约定
 
 - Kotlin / Compose 跟随现有文件的命名和结构。注释重点解释平台约束和设计原因。
+- 页面导航接入 `PageNavigator` / `NavigationReadiness`，保留隐私清理和脚本初始化的等待顺序。
+  下载记录格式与迁移集中在 `DownloadMetadataStore`，不要把快照提交移出调度器的写锁。
+  设置页优先复用 `SettingsComponents`，共用行保持整行点击及唯一的无障碍操作目标。
 - WebView 功能使用 `WebViewFeature.isFeatureSupported` 等运行时能力探测；同一 Android 版本可能安装不同能力的 WebView。
 - Rust 提交前通过 `cargo fmt`；CI 和发布检查会以 `-D warnings` 运行 clippy。
 - 验证脚本优先使用 Python 标准库，便于直接运行。

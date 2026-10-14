@@ -81,10 +81,10 @@ import com.mybrowser.core.PageFailure
 import com.mybrowser.core.PageFailureKind
 import com.mybrowser.ui.shell.ExternalAppDialog
 import com.mybrowser.ui.shell.BackHistoryDialog
-import com.mybrowser.ui.shell.BackHistoryEntry
 import com.mybrowser.core.NetworkLogStore
-import com.mybrowser.core.NavigationPolicy
-import com.mybrowser.core.NavigationTarget
+import com.mybrowser.core.NavigationReadiness
+import com.mybrowser.ui.shell.PageNavigator
+import com.mybrowser.ui.shell.PageNavigator.Companion.intentNavigationText
 import com.mybrowser.core.UrlUtils
 import com.mybrowser.core.classifyResourceType
 import com.mybrowser.core.WebViewPool
@@ -190,13 +190,10 @@ class MainActivity : ComponentActivity(),
     private val externalGate = ExternalNavigationGate()
     private data class ExternalPrompt(val url: String, val origin: String?, val epoch: Long)
     private var externalPrompt by mutableStateOf<ExternalPrompt?>(null)
-    private var backHistory by mutableStateOf<List<BackHistoryEntry>?>(null)
-    private var backHistoryEpoch = 0L
     private lateinit var filter: FilterController
     private lateinit var customFilter: FilterSubscriptions
     private lateinit var userScripts: UserScriptStore
     private val scriptRuntimes = WeakHashMap<WebView, UserScriptRuntime>()
-    private var scriptNavigationJob: Job? = null
     private lateinit var privacy: PrivacyMode
     private val dataCleaner by lazy { BrowsingDataCleaner(this) }
     private var showClearData by mutableStateOf(false)
@@ -249,6 +246,47 @@ class MainActivity : ComponentActivity(),
     private var currentPageBookmarked by mutableStateOf(false)
 
     private val state = BrowserState()
+    private val navigationReadiness by lazy {
+        NavigationReadiness(
+            scope = lifecycleScope,
+            privacyReady = { !privacy.isTransitioning && !sessionState.pendingPrivateStart },
+            preparePrivacy = {
+                privacy.awaitReady()
+                if (isFinishing || isDestroyed) false else {
+                    if (sessionState.pendingPrivateStart) {
+                        sessionState.pendingPrivateStart = false
+                        performIncognitoSwitch(true)
+                    }
+                    true
+                }
+            },
+            scriptsReady = { userScripts.initialized && filter.isReady },
+            prepareScripts = {
+                userScripts.initialize()
+                customFilter.initialize()
+                filter.awaitReady()
+            },
+            refreshScripts = { webViewOrNull?.let { scriptRuntimes[it]?.refresh() } },
+        )
+    }
+    private val navigator by lazy {
+        PageNavigator(
+            state = state,
+            webView = { webView },
+            tabs = { tabManager },
+            searchEngine = { searchEngine },
+            homeUrl = { if (homepageMode == HomepageMode.NAVIGATION) ABOUT_BLANK else homeUrl },
+            documentEpoch = { permissionEpoch },
+            readiness = navigationReadiness,
+            prepareNavigation = { url ->
+                prepareForNavigation()
+                applySiteSettings(webView, url)
+            },
+            importUserScript = ::onUserScriptUrl,
+            openExternal = { onExternalUrl(it) },
+            openNewTab = { openUrlInNewTab(it) },
+        )
+    }
 
     /** Video candidates for the current page; cleared on every main-frame navigation. */
     private val media = MediaCandidateStore()
@@ -675,11 +713,9 @@ class MainActivity : ComponentActivity(),
                         }
                     }
                 }
-                backHistory?.let { entries ->
-                    BackHistoryDialog(entries, onSelect = { offset ->
-                        backHistory = null
-                        if (backHistoryEpoch == permissionEpoch) navigateHistory(offset)
-                    }, onExitSite = { backHistory = null; webView.clearHistory(); goHome() }, onDismiss = { backHistory = null })
+                navigator.backHistory?.let { entries ->
+                    BackHistoryDialog(entries, onSelect = navigator::selectBackHistory,
+                        onExitSite = navigator::exitSite, onDismiss = navigator::dismissBackHistory)
                 }
                 val mediaSnapshot by media.state.collectAsState()
                 val activeSheetEntry = sheetNavigation.current
@@ -705,16 +741,16 @@ class MainActivity : ComponentActivity(),
                 BrowserScreen(
                     state = state,
                     webView = webView,
-                    onNavigate = ::navigate,
+                    onNavigate = navigator::navigate,
                     onBack = { navigateBackAcrossTabs() },
-                    onBackLongPress = ::showBackHistory,
-                    onForward = { navigateHistory(1) },
-                    onHome = ::goHome,
+                    onBackLongPress = navigator::showBackHistory,
+                    onForward = { navigator.navigateHistory(1) },
+                    onHome = navigator::goHome,
                     onReloadOrStop = {
                         if (state.isLoading) {
                             webView.stopLoading()
                             state.onLoadStopped()
-                        } else reloadPage()
+                        } else navigator.reload()
                     },
                     onMenu = { if (sheet == null) openSheet(Sheet.MENU) },
                     onScanQr = { openSheet(Sheet.QR_SCANNER) },
@@ -733,7 +769,7 @@ class MainActivity : ComponentActivity(),
                     showHomeDashboard = homepageMode == HomepageMode.NAVIGATION &&
                         state.currentUrl == ABOUT_BLANK,
                     homeShortcuts = homeShortcuts,
-                    onOpenHomeShortcut = { shortcut -> navigate(shortcut.url) },
+                    onOpenHomeShortcut = { shortcut -> navigator.navigate(shortcut.url) },
                     onSaveHomeShortcut = ::saveHomeShortcut,
                     onRemoveHomeShortcut = ::removeHomeShortcut,
                     onFindQueryChange = { query ->
@@ -778,7 +814,7 @@ class MainActivity : ComponentActivity(),
                     onlineSuggestionsEnabled = browserPreferences.searchSuggestionsEnabled &&
                         (!privacy.isIncognito || browserPreferences.privateSearchSuggestionsEnabled),
                     suggestionProvider = (application as App).searchSuggestionProvider,
-                    onOmnibarSearch = { query -> navigate(searchEngine.buildSearchUrl(query)) },
+                    onOmnibarSearch = { query -> navigator.navigate(searchEngine.buildSearchUrl(query)) },
                     certificateError = hasCertificateWarning,
                 )
 
@@ -914,7 +950,7 @@ class MainActivity : ComponentActivity(),
                                 }
                             },
                             onSelectBookmark = { url ->
-                                sheetAction(entry) { navigate(url) }
+                                sheetAction(entry) { navigator.navigate(url) }
                             },
                             onDeleteBookmark = ::removeBookmark,
                             onClearAll = {
@@ -940,7 +976,7 @@ class MainActivity : ComponentActivity(),
                             onOpenNewTab = { url -> sheetAction(entry) { openUrlInNewTab(url) } },
                             onCopy = ::copyToClipboard,
                             onSelectHistory = { url ->
-                                sheetAction(entry) { navigate(url) }
+                                sheetAction(entry) { navigator.navigate(url) }
                             },
                             onDeleteHistory = { id ->
                                 updateLibrary({ historyManager.removeHistory(id) }, ::loadHistory)
@@ -1014,7 +1050,7 @@ class MainActivity : ComponentActivity(),
                                 homepageMode = mode
                                 homeRepository.saveMode(mode)
                                 if (state.currentUrl == ABOUT_BLANK && mode == HomepageMode.FIXED_URL) {
-                                    goHome()
+                                    navigator.goHome()
                                 }
                                 toast(
                                     if (mode == HomepageMode.NAVIGATION) getString(R.string.ui_using_the_shortcuts_homepage)
@@ -1089,7 +1125,7 @@ class MainActivity : ComponentActivity(),
 
                         Sheet.SITE_SETTINGS -> CurrentSiteSettings(entry)
                         Sheet.QR_SCANNER -> com.mybrowser.ui.qr.QrScannerSheet(
-                            onOpenUrl = { url -> sheetAction(entry) { navigate(url) } },
+                            onOpenUrl = { url -> sheetAction(entry) { navigator.navigate(url) } },
                             onDismiss = { dismissSheet(entry) },
                         )
                         Sheet.DEVELOPER_TOOLS -> {
@@ -1281,7 +1317,7 @@ class MainActivity : ComponentActivity(),
                     else (temporaryFilterOrigins + origin).toList().takeLast(128).toSet()
                 if (SiteOrigin.of(state.currentUrl) == origin) {
                     workerDocument = documentFor(state.currentUrl)
-                    reloadPage()
+                    navigator.reload()
                 }
             },
             onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin, SiteSettings()) },
@@ -1553,7 +1589,7 @@ class MainActivity : ComponentActivity(),
         if (::fileChooser.isInitialized) fileChooser.cancelDocument()
         permissionEpoch++
         externalPrompt = null
-        backHistory = null
+        navigator.dismissBackHistory()
         websitePermissions.cancel()
     }
 
@@ -1591,7 +1627,7 @@ class MainActivity : ComponentActivity(),
             if (repository === activeSites) {
                 cancelWebsitePermissions()
                 webViewOrNull?.let { applySiteSettings(it, state.currentUrl) }
-                reloadPage()
+                navigator.reload()
             }
         }
     }
@@ -1604,7 +1640,7 @@ class MainActivity : ComponentActivity(),
                 repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
                 cancelWebsitePermissions()
                 applySiteSettings(webView, state.currentUrl)
-                reloadPage()
+                navigator.reload()
             }
             if (showSiteOrigin == origin && (owner == null || sheetNavigation.isCurrent(owner))) {
                 showSiteOrigin = null
@@ -1769,8 +1805,7 @@ class MainActivity : ComponentActivity(),
 
     private fun performIncognitoSwitch(entering: Boolean) {
         if (clearingData || privacy.isTransitioning) return
-        scriptNavigationJob?.cancel()
-        scriptNavigationJob = null
+        navigationReadiness.cancelScripts()
         clearResidentTabs()
         temporaryFilterOrigins = emptySet()
         viewOwnerId = null
@@ -1858,11 +1893,11 @@ class MainActivity : ComponentActivity(),
      * If the tab has saved state, restore it; otherwise load its URL.
      */
     private fun loadCurrentTab() {
-        if (awaitPrivacyReady(::loadCurrentTab)) return
+        if (navigationReadiness.awaitPrivacy(::loadCurrentTab)) return
         systemMedia.detach(this)
         cancelWebsitePermissions()
         cancelPendingSslError()
-        if (awaitScriptsReady(::loadCurrentTab)) return
+        if (navigationReadiness.awaitScripts(::loadCurrentTab)) return
         val tab = tabManager.currentTab ?: return
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
         downloadRequests.selectTab(tab.id)
@@ -1934,7 +1969,7 @@ class MainActivity : ComponentActivity(),
                     state.onPageStarted(tab.url)
                     applySiteSettings(webView, tab.url)
                     if (parked.settings != activeSites.get(tab.url) || parked.filtering != (workerDocument.filtering && filter.enabled.value)) {
-                        reloadPage()
+                        navigator.reload()
                     } else {
                         clearHistoryOnNextFinish = false
                         readyWebViewTabId = tab.id
@@ -1966,7 +2001,7 @@ class MainActivity : ComponentActivity(),
             state.onPageStarted(url)
             state.onTitleChanged(tab.title)
             applySiteSettings(webView, url)
-            loadPage(url)
+            navigator.load(url)
         } else {
             // restoreState starts an asynchronous navigation. Older providers briefly
             // report about:blank, so neither display nor persist that intermediate page.
@@ -2040,7 +2075,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun openUrlInNewTab(url: String, background: Boolean = false) {
-        if (!UrlUtils.isHttpUrl(url)) { navigate(url); return }
+        if (!UrlUtils.isHttpUrl(url)) { navigator.navigate(url); return }
         if (!tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); return }
         if (!background) saveCurrentTab()
         tabManager.createTab(url, select = !background, title = UrlUtils.hostOf(url).orEmpty(),
@@ -2199,7 +2234,7 @@ class MainActivity : ComponentActivity(),
      */
     private fun submitPageFileRequest(offer: com.mybrowser.download.PageFileOffer) {
         if (pageFileSourceFor(offer) == null) return
-        val placeholder = com.mybrowser.download.DownloadHandler.PAGE_FILE_PREFIX + offer.url
+        val placeholder = com.mybrowser.download.DownloadValidation.PAGE_FILE_PREFIX + offer.url
         val request = com.mybrowser.download.DownloadRequestCoordinator.Request(
             url = placeholder,
             filename = downloadHandler.previewFilename(placeholder, null, offer.mimeType)
@@ -2438,7 +2473,7 @@ class MainActivity : ComponentActivity(),
             lookup = { bookmarkManager.isBookmarked(it) },
             scope = lifecycleScope,
             visibleUrl = { state.currentUrl },
-            isHome = { url -> isHomeDocument(url) },
+            isHome = { url -> navigator.isHomeDocument(url) },
             onChange = { currentPageBookmarked = it },
         )
     }
@@ -2448,7 +2483,7 @@ class MainActivity : ComponentActivity(),
     private fun addToHistory(url: String, title: String) {
         // Don't add to history in incognito mode or for special URLs
         if (privacy.isIncognito) return
-        if (isHomeDocument(url)) return
+        if (navigator.isHomeDocument(url)) return
         if (url.isBlank()) return
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -2531,7 +2566,7 @@ class MainActivity : ComponentActivity(),
         webViewOrNull = acquireFreshPage()
         state.pageFailure = null
         state.onPageStarted(ABOUT_BLANK)
-        loadPage(ABOUT_BLANK)
+        navigator.load(ABOUT_BLANK)
     }
 
     private fun confirmClearSite(origin: String) {
@@ -2720,26 +2755,17 @@ class MainActivity : ComponentActivity(),
         when (val result = ExternalIntentHandler.handle(this, url)) {
             ExternalIntentHandler.Result.Launched -> Unit
             ExternalIntentHandler.Result.Rejected -> Unit
-            is ExternalIntentHandler.Result.Fallback -> loadPage(result.url)
+            is ExternalIntentHandler.Result.Fallback -> navigator.load(result.url)
         }
         // Always true: the URL is consumed here either way, and returning false would let
         // the WebView also try to load a scheme it cannot handle.
     }
 
     private fun retryFailedPage() {
-        val failed = state.pageFailure ?: return reloadPage()
+        val failed = state.pageFailure ?: return navigator.reload()
         rendererRecovery.retry(tabManager.currentTab?.id.orEmpty())
         // Recovery remains visible until this attempt commits a successful document.
-        loadPage(failed.url)
-    }
-
-    private fun showBackHistory() {
-        val history = webView.copyBackForwardList()
-        backHistoryEpoch = permissionEpoch
-        backHistory = (history.currentIndex - 1 downTo 0).take(64).map { index ->
-            val item = history.getItemAtIndex(index)
-            BackHistoryEntry(index - history.currentIndex, item.title.orEmpty(), item.url.orEmpty())
-        }
+        navigator.load(failed.url)
     }
 
     override fun onSslError(handler: SslErrorHandler, error: SslError, url: String?) {
@@ -2809,7 +2835,7 @@ class MainActivity : ComponentActivity(),
         pool.discard(webView)
         webViewOrNull = acquireFreshPage()
         if (lastUrl != ABOUT_BLANK && rendererRecovery.shouldReload(tabManager.currentTab?.id.orEmpty(), SystemClock.elapsedRealtime())) {
-            loadPage(lastUrl)
+            navigator.load(lastUrl)
         } else if (lastUrl != ABOUT_BLANK) {
             state.onPageError()
             state.pageFailure = PageFailure(lastUrl, PageFailureKind.RENDERER)
@@ -3037,87 +3063,6 @@ class MainActivity : ComponentActivity(),
 
     // --- Navigation ---
 
-    private fun loadPage(url: String) {
-        if (awaitPrivacyReady { loadPage(url) }) return
-        state.onNavigationRequested(url)
-        webView.loadUrl(url)
-    }
-
-    private fun reloadPage() {
-        if (awaitPrivacyReady(::reloadPage)) return
-        state.onNavigationRequested(webView.url ?: state.currentUrl)
-        webView.reload()
-    }
-
-    private fun navigateHistory(offset: Int) {
-        if (awaitPrivacyReady { navigateHistory(offset) }) return
-        if (!webView.canGoBackOrForward(offset)) return
-        val history = webView.copyBackForwardList()
-        val target = history.getItemAtIndex(history.currentIndex + offset) ?: return
-        state.onNavigationRequested(target.url)
-        webView.goBackOrForward(offset)
-    }
-
-    private fun navigate(input: String) {
-        if (awaitPrivacyReady { navigate(input) }) return
-        if (awaitScriptsReady { navigate(input) }) return
-        var tabUrl: String? = null
-        when (val target = NavigationPolicy.resolve(input, searchEngine)) {
-            is NavigationTarget.Load -> {
-                if (onUserScriptUrl(target.url)) return
-                prepareForNavigation()
-                applySiteSettings(webView, target.url)
-                loadPage(target.url)
-                tabUrl = target.url
-            }
-            is NavigationTarget.External -> onExternalUrl(target.url)
-        }
-        // Update the current tab's URL
-        tabUrl?.let {
-            tabManager.currentTab?.url = it
-            tabManager.notifyChanged()
-        }
-    }
-
-    private fun goHome() {
-        navigate(if (homepageMode == HomepageMode.NAVIGATION) ABOUT_BLANK else homeUrl)
-    }
-
-    private var privacyNavigationJob: Job? = null
-
-    /** Every load/restore waits, including a new Activity or window during old-session cleanup. */
-    private fun awaitPrivacyReady(action: () -> Unit): Boolean {
-        if (!privacy.isTransitioning && !sessionState.pendingPrivateStart) return false
-        privacyNavigationJob?.cancel()
-        privacyNavigationJob = lifecycleScope.launch {
-            privacy.awaitReady()
-            if (isFinishing || isDestroyed) return@launch
-            if (sessionState.pendingPrivateStart) {
-                sessionState.pendingPrivateStart = false
-                performIncognitoSwitch(true)
-            }
-            action()
-        }
-        return true
-    }
-
-    /** First navigation waits for local script metadata so document-start is deterministic. */
-    private fun awaitScriptsReady(action: () -> Unit): Boolean {
-        if (userScripts.initialized && filter.isReady) {
-            webViewOrNull?.let { scriptRuntimes[it]?.refresh() }
-            return false
-        }
-        scriptNavigationJob?.cancel()
-        scriptNavigationJob = lifecycleScope.launch {
-            userScripts.initialize()
-            customFilter.initialize()
-            filter.awaitReady()
-            webViewOrNull?.let { scriptRuntimes[it]?.refresh() }
-            action()
-        }
-        return true
-    }
-
     override fun onUserScriptUrl(url: String): Boolean {
         val uri = runCatching { url.toUri() }.getOrNull() ?: return false
         if (uri.scheme !in listOf("http", "https") || uri.path?.endsWith(".user.js", true) != true) return false
@@ -3125,9 +3070,6 @@ class MainActivity : ComponentActivity(),
         showUserScripts = true
         return true
     }
-
-    private fun isHomeDocument(url: String): Boolean =
-        url == ABOUT_BLANK || (homepageMode == HomepageMode.FIXED_URL && url == homeUrl)
 
     /** Clears page-scoped work before a new URL starts, closing the old-request race window. */
     private fun prepareForNavigation() {
@@ -3181,28 +3123,10 @@ class MainActivity : ComponentActivity(),
                 bookmarkDocuments.dismissPreview()
                 scriptImportUrl = null
                 bookmarkDraft = null
-                // A URL handed over by another app is a request to open *that* page, not to
-                // replace the one being read, so it gets its own tab the way every other
-                // browser behaves. Three cases still reuse the current tab, because none of
-                // them is a page the user asked to keep: a home/new-tab document (a cold start
-                // with a VIEW intent never loaded one, and leaving it behind would show an
-                // empty tab next to the requested page), a tab with no URL yet, and a browser
-                // already at the tab limit — where a new tab is impossible and reusing the
-                // current one beats swallowing the link.
-                if (onUserScriptUrl(url)) return
-                val current = state.currentUrl
-                if (isHomeDocument(current) || tabManager.currentTab?.url.isNullOrBlank() ||
-                    !tabManager.canCreateTab) navigate(url)
-                else openUrlInNewTab(url)
+                navigator.openIncoming(url)
             }
         }
     }
-
-    private fun intentNavigationText(intent: Intent): String? = when {
-        intent.action == Intent.ACTION_VIEW -> intent.dataString
-        intent.action == Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
-        else -> null
-    }?.trim()?.takeIf { it.isNotEmpty() }
 
     // --- Back handling ---
 
@@ -3281,7 +3205,7 @@ class MainActivity : ComponentActivity(),
                 android.view.KeyEvent.KEYCODE_L -> { state.revealToolbar(); state.onOmnibarFocusChange(true) }
                 android.view.KeyEvent.KEYCODE_T -> createNewTab()
                 android.view.KeyEvent.KEYCODE_W -> closeTab(tabManager.currentIndex)
-                android.view.KeyEvent.KEYCODE_R -> if (state.pageFailure != null) retryFailedPage() else reloadPage()
+                android.view.KeyEvent.KEYCODE_R -> if (state.pageFailure != null) retryFailedPage() else navigator.reload()
                 android.view.KeyEvent.KEYCODE_F -> state.showFindBar()
                 android.view.KeyEvent.KEYCODE_TAB -> switchToTab((tabManager.currentIndex + (if (event.isShiftPressed) -1 else 1) + tabManager.count) % tabManager.count)
                 else -> return super.onKeyShortcut(keyCode, event)
@@ -3321,7 +3245,7 @@ class MainActivity : ComponentActivity(),
     private fun navigateBackAcrossTabs(): Boolean {
         if (webView.canGoBack()) {
             exitConfirmation.reset()
-            navigateHistory(-1)
+            navigator.navigateHistory(-1)
             return true
         }
         if (tabManager.count > 1) {

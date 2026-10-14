@@ -32,7 +32,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         val pageFile: PageFileOffer? = null,
     ) {
         val identity: String
-            get() = pageFile?.let { DownloadHandler.PAGE_FILE_PREFIX + it.url } ?: url.substringBefore('#')
+            get() = pageFile?.let { DownloadValidation.PAGE_FILE_PREFIX + it.url } ?: url.substringBefore('#')
     }
 
     enum class BlockedReason { REJECTED, LIMIT, BUDGET, EXISTING }

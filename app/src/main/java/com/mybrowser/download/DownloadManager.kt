@@ -1,7 +1,15 @@
 package com.mybrowser.download
 
-import com.mybrowser.core.boundedJsonArray
 import android.app.DownloadManager
+import com.mybrowser.download.DownloadValidation.MAX_USER_AGENT_LENGTH
+import com.mybrowser.download.DownloadValidation.MAX_CONTENT_DISPOSITION_LENGTH
+import com.mybrowser.download.DownloadValidation.PAGE_FILE_PREFIX
+import com.mybrowser.download.DownloadValidation.validHttpUrl
+import com.mybrowser.download.DownloadValidation.sanitizeFilename
+import com.mybrowser.download.DownloadValidation.sanitizeHeader
+import com.mybrowser.download.DownloadValidation.sanitizeMime
+import com.mybrowser.download.DownloadValidation.MAX_COOKIE_LENGTH
+import com.mybrowser.download.DownloadMetadataStore.Companion.MAX_METADATA_ENTRIES
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -10,7 +18,6 @@ import android.os.StrictMode
 import android.util.Log
 import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
 import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -29,8 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -54,8 +59,8 @@ class DownloadHandler(context: Context) : Closeable {
     private val appContext = context.applicationContext
     private val legacyManager =
         appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    private val prefs by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val metadataStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        DownloadMetadataStore(appContext.getSharedPreferences(DownloadMetadataStore.PREFS_NAME, Context.MODE_PRIVATE))
     }
     private val settingsRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         DownloadSettingsRepository(appContext)
@@ -1162,136 +1167,9 @@ class DownloadHandler(context: Context) : Closeable {
     }
 
     private fun restoreMetadata() {
-        val raw = prefs.getString(KEY_ENTRIES, null) ?: return
-        if (raw.length > MAX_PERSISTED_JSON_LENGTH) {
-            prefs.edit { remove(KEY_ENTRIES) }
-            return
-        }
-        var changed = false
-        runCatching {
-            val array = JSONArray(raw)
-            val limit = minOf(array.length(), MAX_METADATA_ENTRIES)
-            for (i in 0 until limit) {
-                val obj = array.optJSONObject(i) ?: continue
-                // A record from a newer build may use field meanings this one would misread.
-                // Skipping it loses a row; reinterpreting it would turn it into a different
-                // download, so the unknown version is dropped instead.
-                val version = obj.optInt("version", 0)
-                if (version > PERSIST_VERSION) {
-                    changed = true
-                    continue
-                }
-                // A record without the version field predates it, and rewriting the snapshot in
-                // the current format is also what applies the current URL and referer rules to
-                // it — otherwise a private URL recorded by an older build would sit in
-                // preferences until something else happened to write. Terminal records reach no
-                // other write, which is why the rewrite is forced here rather than left to chance.
-                if (version != PERSIST_VERSION) changed = true
-                // A record that predates the identity field carries the legacy pair instead, and is
-                // rewritten once in the new format with that pair dropped — which is also what
-                // applies the current URL and referer rules to a private URL an older build
-                // recorded in full. A field that is present but unreadable is a different case and
-                // is skipped below rather than migrated: falling back to the legacy pair would read
-                // a private record as ordinary, and then resume it against the cookie jar.
-                val identity = if (obj.has("identity")) {
-                    DownloadIdentity.decode(obj.optString("identity")) ?: run {
-                        changed = true
-                        continue
-                    }
-                } else {
-                    changed = true
-                    legacyIdentity(obj)
-                }
-                // An unrecognised enum is equally unreadable. Defaulting `backend` to
-                // LEGACY_SYSTEM made the record's status retryable as if the server had
-                // failed and then dropped it during reconciliation, taking its
-                // `destinationUri` with it; defaulting `status` to FAILED had the same shape.
-                val backend = runCatching {
-                    DownloadBackend.valueOf(obj.optString("backend"))
-                }.getOrNull() ?: run {
-                    changed = true
-                    continue
-                }
-                val id = obj.optLong("id", 0L)
-                if (id == 0L || (backend == DownloadBackend.LEGACY_SYSTEM && id < 0L)) continue
-                // A page-file record is stored under its placeholder address on purpose: the URL
-                // is the only surviving way to tell it apart from an ordinary task after a restart,
-                // and it is what keeps that record from ever being fetched. The prefix is validated
-                // rather than accepted blindly so a corrupted snapshot cannot smuggle in an address
-                // the rest of the app would treat as http(s).
-                val rawUrl = obj.optString("url")
-                val url = if (rawUrl.startsWith(PAGE_FILE_PREFIX)) {
-                    if (rawUrl.length <= MAX_URL_LENGTH + PAGE_FILE_PREFIX.length) rawUrl else continue
-                } else {
-                    validHttpUrl(rawUrl) ?: continue
-                }
-                val filename = sanitizeFilename(obj.optString("filename"))
-                val userAgent = sanitizeHeader(
-                    obj.optString("userAgent"),
-                    MAX_USER_AGENT_LENGTH,
-                ).orEmpty()
-                val disposition = sanitizeHeader(
-                    obj.optString("contentDisposition"),
-                    MAX_CONTENT_DISPOSITION_LENGTH,
-                )
-                val mime = sanitizeMime(obj.optString("mimeType", "application/octet-stream"))
-                    .ifEmpty { "application/octet-stream" }
-                val referer = obj.optString("referer").let(::validHttpUrl)
-                val timestamp = obj.optLong("timestamp", 0L).takeIf { it > 0L }
-                    ?: System.currentTimeMillis()
-                val restoredStatus = runCatching {
-                    DownloadStatus.valueOf(obj.optString("status"))
-                }.getOrNull() ?: run {
-                    changed = true
-                    continue
-                }
-                val status = if (
-                    backend == DownloadBackend.LOCAL && restoredStatus.active
-                ) {
-                    changed = true
-                    if (identity.resumesAfterRestart) interrupted.add(id)
-                    DownloadStatus.PAUSED
-                } else {
-                    restoredStatus
-                }
-                val destinationMode = runCatching {
-                    DownloadDestinationMode.valueOf(obj.optString("destinationMode"))
-                }.getOrDefault(DownloadDestinationMode.SYSTEM_DOWNLOADS)
-                metadata[id] = DownloadMetadata(
-                    id = id,
-                    backend = backend,
-                    url = url,
-                    userAgent = userAgent,
-                    // Session cookies are deliberately memory-only. A retry re-reads the
-                    // WebView cookie jar instead of copying credentials into preferences.
-                    cookie = null,
-                    contentDisposition = disposition,
-                    mimeType = mime,
-                    filename = filename,
-                    referer = referer,
-                    timestamp = timestamp,
-                    status = status,
-                    unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
-                    identity = identity,
-                    bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
-                    totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
-                    configuredThreadCount = DownloadSettingsRepository.normalizeThreadCount(
-                        obj.optInt("configuredThreadCount", 1),
-                    ),
-                    actualThreadCount = DownloadSettingsRepository.normalizeThreadCount(
-                        obj.optInt("actualThreadCount", 1),
-                    ),
-                    destinationMode = destinationMode,
-                    customTreeUri = obj.optString("customTreeUri").takeIf { it.isNotBlank() },
-                    destinationLabel = obj.optString("destinationLabel")
-                        .take(MAX_DESTINATION_LABEL_LENGTH)
-                        .ifBlank { SYSTEM_DIRECTORY_LABEL },
-                    destinationUri = obj.optString("destinationUri").takeIf { it.isNotBlank() },
-                )
-            }
-            trimMetadata()
-            if (changed) persistMetadata()
-        }.onFailure { prefs.edit { remove(KEY_ENTRIES) } }
+        val restored = metadataStore.load()
+        restored.entries.forEach { metadata[it.id] = it }
+        interrupted.addAll(restored.interruptedIds)
     }
 
     /**
@@ -1307,88 +1185,10 @@ class DownloadHandler(context: Context) : Closeable {
         CookiePolicy.SESSION_ONLY -> entry.cookie
     }
 
-    /**
-     * The identity of a record written before the field existed.
-     *
-     * The pair it replaces was `autoResumeAllowed` (the private flag) and `privateScope` (the
-     * session). A private record from before the scope existed carries neither, and maps to the
-     * placeholder scope no live session can hold, so such a task stays viewable and deletable but
-     * is never resumed — the later round's own guard test is what this replaced, and the failure it
-     * had was exactly this record: two absent scopes compared equal, which read as "same session".
-     *
-     * Such a record still *claims* the URL of a private request made while no private session is
-     * running: the placeholder is what [existingTaskFor] matches a session-less private query
-     * against, so the coordinator can tell the user the file is already here. That holds while the
-     * two addresses compare equal, which a query-carrying request no longer does — the record's
-     * persisted URL has had its query stripped (see [persistedUrl]) — so such a request starts a
-     * second task instead. Either way the entry is viewable and deletable but never restarted: its
-     * session's cookies are gone and its URL no longer carries the query, so a restart would fetch
-     * whatever the query-less address returns.
-     *
-     * Only read here; the fields are no longer written. A build that predates this field would
-     * read a record without `autoResumeAllowed` as `true` and treat a private task as ordinary,
-     * which the updater prevents by refusing a lower version code.
-     */
-    private fun legacyIdentity(obj: JSONObject): DownloadIdentity =
-        if (obj.optBoolean("autoResumeAllowed", true)) {
-            DownloadIdentity.Normal
-        } else {
-            DownloadIdentity.PrivateSession(
-                obj.optString("privateScope")
-                    .takeIf { it.isNotBlank() && it.length <= DownloadIdentity.MAX_SCOPE_LENGTH }
-                    ?: DownloadIdentity.UNRECORDED_SCOPE,
-            )
-        }
-
-    /**
-     * The URL written to disk for [entry].
-     *
-     * A private download keeps its record and its file after the session ends — that is
-     * documented behaviour — but the download URL and the page it came from are session
-     * data. They routinely carry tokens in the query string, so persisting them verbatim
-     * left a private session's browsing trail in app storage and in the normal session's
-     * download list. Only the part that identifies the file survives, and a private record
-     * can never be resumed outside the session that created it anyway (see [retry] and
-     * [resumeInterrupted]), so nothing needs the query afterwards.
-     */
-    private fun persistedUrl(entry: DownloadMetadata): String =
-        if (entry.identity.persistSourceUrl) entry.url else entry.url.substringBefore('?').substringBefore('#')
-
-    /** See [persistedUrl]: a private download does not keep the page it was started from. */
-    private fun persistedReferer(entry: DownloadMetadata): String =
-        if (entry.identity.persistSourceUrl) entry.referer.orEmpty() else ""
-
     private fun persistMetadata() {
         synchronized(metadataLock) {
             trimMetadata()
-            val json = boundedJsonArray(
-                metadata.values.sortedByDescending { it.timestamp }.asSequence().take(MAX_METADATA_ENTRIES),
-                MAX_PERSISTED_JSON_LENGTH,
-            ) { entry ->
-                JSONObject()
-                    .put("version", PERSIST_VERSION)
-                    .put("id", entry.id)
-                    .put("backend", entry.backend.name)
-                    .put("url", persistedUrl(entry))
-                    .put("userAgent", entry.userAgent)
-                    .put("contentDisposition", entry.contentDisposition)
-                    .put("mimeType", entry.mimeType)
-                    .put("filename", entry.filename)
-                    .put("referer", persistedReferer(entry))
-                    .put("timestamp", entry.timestamp)
-                    .put("status", entry.status.name)
-                    .put("identity", DownloadIdentity.encode(entry.identity))
-                    .put("unmeteredOnly", entry.unmeteredOnly)
-                    .put("bytesDownloaded", entry.bytesDownloaded)
-                    .put("totalBytes", entry.totalBytes)
-                    .put("configuredThreadCount", entry.configuredThreadCount)
-                    .put("actualThreadCount", entry.actualThreadCount)
-                    .put("destinationMode", entry.destinationMode.name)
-                    .put("customTreeUri", entry.customTreeUri)
-                    .put("destinationLabel", entry.destinationLabel)
-                    .put("destinationUri", entry.destinationUri).toString()
-            }
-            prefs.edit { putString(KEY_ENTRIES, json) }
+            metadataStore.save(metadata.values)
         }
     }
 
@@ -1455,91 +1255,17 @@ class DownloadHandler(context: Context) : Closeable {
         }
     }
 
-    private fun validHttpUrl(raw: String?): String? {
-        val value = raw?.trim().orEmpty()
-        if (value.isEmpty() || value.length > MAX_URL_LENGTH ||
-            value.any { it.isWhitespace() || it.isISOControl() }
-        ) return null
-        val uri = runCatching { value.toUri() }.getOrNull() ?: return null
-        val scheme = uri.scheme?.lowercase()
-        return value.takeIf {
-            (scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()
-        }
-    }
-
-    private fun sanitizeFilename(raw: String): String =
-        FilenameParser.sanitize(raw, keepExtension = false)
-
-    private fun sanitizeHeader(raw: String?, maxLength: Int): String? = raw
-        ?.filterNot { it == '\r' || it == '\n' || it.isISOControl() }
-        ?.trim()
-        ?.take(maxLength)
-        ?.ifEmpty { null }
-
-    private fun sanitizeMime(raw: String?): String {
-        val value = sanitizeHeader(raw, MAX_MIME_LENGTH).orEmpty()
-        return value.takeIf { MIME_PATTERN.matches(it) }.orEmpty()
-    }
-
     private fun progress(downloaded: Long, total: Long): Int = if (total > 0L) {
         (downloaded.toDouble() / total * 100).toInt().coerceIn(0, 100)
     } else {
         0
     }
 
-    private enum class DownloadBackend { LEGACY_SYSTEM, LOCAL }
-
-    private data class DownloadMetadata(
-        val id: Long,
-        val backend: DownloadBackend,
-        val url: String,
-        val userAgent: String,
-        val cookie: String?,
-        val contentDisposition: String?,
-        val mimeType: String,
-        val filename: String,
-        val referer: String?,
-        val timestamp: Long,
-        val status: DownloadStatus,
-        /** Who this task belongs to; every mode-dependent policy is read from it. */
-        val identity: DownloadIdentity = DownloadIdentity.Normal,
-        val unmeteredOnly: Boolean = false,
-        val bytesPerSecond: Long = 0,
-        val savingProgress: Int = 0,
-        val bytesDownloaded: Long = 0L,
-        val totalBytes: Long = 0L,
-        val configuredThreadCount: Int = 1,
-        val actualThreadCount: Int = 1,
-        val destinationMode: DownloadDestinationMode = DownloadDestinationMode.SYSTEM_DOWNLOADS,
-        val customTreeUri: String? = null,
-        val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
-        val destinationUri: String? = null,
-    )
-
     companion object {
         const val TAG = "DownloadHandler"
-        const val PREFS_NAME = "downloads"
-        const val KEY_ENTRIES = "entries"
         const val TEMP_DIRECTORY_NAME = "browser-downloads"
         const val ACTIVE_POLL_INTERVAL_MS = 750L
         const val IDLE_POLL_INTERVAL_MS = 5_000L
-        const val MAX_METADATA_ENTRIES = 256
-        const val MAX_PERSISTED_JSON_LENGTH = 512 * 1024
-        /** Schema of the persisted record. Bump when a field's meaning changes, not to add one. */
-        const val PERSIST_VERSION = 1
-        const val MAX_URL_LENGTH = 8_192
-        const val MAX_USER_AGENT_LENGTH = 1_024
-        const val MAX_COOKIE_LENGTH = 65_536
-        const val MAX_CONTENT_DISPOSITION_LENGTH = 8_192
-        const val MAX_MIME_LENGTH = 256
-        const val MAX_DESTINATION_LABEL_LENGTH = 120
-        /**
-         * Scheme of the placeholder address a page-file task is recorded under.
-         *
-         * Deliberately not http(s): [validHttpUrl] refuses it, so such a record can never be handed
-         * to the transfer engine, and no page can collide with one by serving that address.
-         */
-        const val PAGE_FILE_PREFIX = "page-file:"
         /**
          * How long the page-file writer waits when its queue is empty.
          *
@@ -1548,6 +1274,5 @@ class DownloadHandler(context: Context) : Closeable {
          * so the poll costs one wake-up per slice and nothing while idle.
          */
         const val PUMP_IDLE_DELAY_MS = 2L
-        val MIME_PATTERN = Regex("[A-Za-z0-9!#$&^_.+\\-]+/[A-Za-z0-9!#$&^_.+\\-]+")
     }
 }
