@@ -56,11 +56,12 @@ git clone https://github.com/Nobilta/pure-browser.git
 cd pure-browser
 ./build-and-test.sh --quick      # 运行自动检查
 ./gradlew :app:assembleDebug     # 构建可安装的调试版
+# ./build-and-test.sh --release  # 签名 Release 并运行发布检查
 ```
 
 调试版位于 `app/build/outputs/apk/debug/app-debug.apk`，可与正式版同时安装。
 默认构建 ARM64；模拟器配置见[测试指南](TESTING_GUIDE.md)，签名与发版见[发布指南](RELEASING.md)。
-快速检查包含发布脚本测试。正式版本在本机签名并完成模拟器回归，推送至 `main` 且 CI 通过后，
+快速检查包含发布脚本测试；`--release` 还会签名并验证正式包。正式版本在本机签名并完成模拟器回归，推送至 `main` 且 CI 通过后，
 使用 `release/publish.sh` 创建 GitHub Release 草稿，核对后手动发布为 latest。
 
 想了解代码组织，可以从[架构说明](ARCHITECTURE.md)开始；其中说明了页面导航、下载记录存储和设置公共控件的职责边界。

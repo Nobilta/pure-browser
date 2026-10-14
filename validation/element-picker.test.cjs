@@ -130,6 +130,38 @@ test('a finger that slides off its element does not select it on release', () =>
   assert.ok(posts.some((payload) => payload.type === 'pick'), 'a tap on the element still selects it');
 });
 
+for (const input of ['touch', 'mouse']) {
+  for (const destination of ['element', 'blank']) {
+    test(`${input} release uses its updated coordinates over ${destination}`, () => {
+      const { api, events, posts, document, target, body, element } = fixture();
+      const other = element('other', 'DIV');
+      other.parentElement = body;
+      document.elementFromPoint = (x) => x < 100 ? target : destination === 'element' ? other : body;
+      api.start({ bottomInset: 0 });
+      const event = (x, released) => {
+        const base = { cancelable: true, stopPropagation() {}, preventDefault() {} };
+        return input === 'touch'
+          ? { ...base, touches: released ? [] : [{ clientX: x, clientY: 10 }],
+              changedTouches: [{ clientX: x, clientY: 10 }] }
+          : { ...base, clientX: x, clientY: 10 };
+      };
+      const names = input === 'touch' ? ['touchstart', 'touchmove', 'touchend'] : ['mousedown', 'mousemove', 'mouseup'];
+      events[names[0]].forEach((handler) => handler(event(10, false)));
+      events[names[1]].forEach((handler) => handler(event(95, false)));
+      // The last move is on hero; the release crosses its edge without another move event.
+      events[names[2]].forEach((handler) => handler(event(105, true)));
+      const picks = posts.filter((payload) => payload.type === 'pick');
+      if (destination === 'element') {
+        assert.equal(picks.length, 1);
+        assert.equal(picks[0].selector, '#other');
+      } else {
+        assert.equal(picks.length, 0);
+        assert.equal(api.state().depth, 0);
+      }
+    });
+  }
+}
+
 test('a blank tap after choosing keeps the choice and shows it again', () => {
   const { api, events, posts, document, body, nodes } = fixture();
   api.start({ accent: '#000000', bottomInset: 176 });

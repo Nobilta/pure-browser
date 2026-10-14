@@ -22,6 +22,8 @@ Android 测试会构建 host JNI，Node 使用内置测试运行器。
 
 具体覆盖以测试源码为准：`app/src/test` 中每个测试的注释说明它为什么存在，
 `validation/*.test.cjs` 覆盖网页侧的媒体探针和用户脚本协议。
+`element-picker.test.cjs` 还覆盖触摸与鼠标松开坐标跨越元素边界、空白释放、取消选择及预览恢复；
+修改元素选择器后，运行设备阶段 `block-element` 验证真实 WebView 中的选择、预览与规则生效。
 这些都在 JVM 或 Node 上运行，不执行真实的 Chromium，因此不能替代设备验证——
 Autofill、窗口通信、系统媒体、内存压力和真实触摸的行为只能由下面的模拟器回归确认。
 

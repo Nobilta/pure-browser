@@ -15,7 +15,7 @@
   var MAX_DEPTH = 12, MAX_CLASS_MATCHES = 12;
   var STYLE_ID = '__purePickerStyle', BOX_ID = '__purePickerBox', LABEL_ID = '__purePickerLabel';
   var accent = '#6750a4', bottomInset = 0;
-  var active = false, chain = [], index = 0, hovered = null;
+  var active = false, chain = [], index = 0, hovered = null, hoverPoint = null;
   var box = null, label = null, style = null;
   var preview = null;
 
@@ -266,6 +266,7 @@
   /** The element under the finger while it is down, previewed but not yet chosen. */
   function hover(event) {
     var point = pointOf(event);
+    hoverPoint = point;
     var el = targetAt(point.x, point.y);
     /*
      * Nothing selectable under the finger — the gap between elements, the <body> itself, or a
@@ -288,7 +289,10 @@
 
   function choose(event) {
     var point = pointOf(event);
-    var el = hovered || (point ? targetAt(point.x, point.y) : null);
+    // Keep the highlighted node if the pointer stayed put, even if the page moved beneath it.
+    // A release can carry newer coordinates than the last move; hit-test that position afresh.
+    var samePoint = hoverPoint && point.x === hoverPoint.x && point.y === hoverPoint.y;
+    var el = samePoint ? hovered : targetAt(point.x, point.y);
     /*
      * A release over nothing selectable — the gap between elements, the <body> itself — is not a
      * tap on whatever was highlighted last. Choosing `hovered` here anyway made a finger that had
@@ -391,6 +395,7 @@
       chain = [];
       index = 0;
       hovered = null;
+      hoverPoint = null;
       listen(true);
       return true;
     },
@@ -404,6 +409,7 @@
       clear();
       chain = [];
       hovered = null;
+      hoverPoint = null;
       return true;
     },
     /** Moves one level towards the document (1) or back into the element (-1). */
