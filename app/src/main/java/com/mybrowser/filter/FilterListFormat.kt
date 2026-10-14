@@ -30,8 +30,23 @@ object FilterListFormat {
             if (++lines > MAX_LINES) throw IOException("Too many filter lines")
             val line = raw.trim()
             if (line.isNotEmpty() && line.length <= 8192 && !line.startsWith('!') && !line.startsWith('[')) {
-                if (line.contains("##") || line.contains("#@#") ||
-                    (line.none(Char::isWhitespace) && (line.contains('.') || line.contains('/') || line.contains('|')))) count++
+                // The counting rule this app writes its own rules against: a line with a separator,
+                // an anchor, or a cosmetic marker is a rule. What it deliberately does not do is
+                // demand one of those characters from the *anchored* text — `||ads^` is a host
+                // pattern, and a test for a separator on the stripped body misses it.
+                if (line.contains("##") || line.contains("#@#")) {
+                    count++
+                    return@forEach
+                }
+                if (line.any(Char::isWhitespace)) return@forEach
+                val body = line.removePrefix("@@")
+                val pattern = if (body.startsWith("||")) body.substring(2) else body.removePrefix("|")
+                val unanchored = pattern.removeSuffix("|")
+                // A body that only repeats separators (`|`, `||`, `/`, `.`) names nothing: the
+                // engine refuses it for having an empty pattern, so counting it would let a payload
+                // of bare anchors pass as a list with rules in it.
+                if (unanchored.none { it.isLetterOrDigit() }) return@forEach
+                if (unanchored.contains('.') || unanchored.contains('/') || line.contains('|')) count++
             }
         }
         if (count == 0) throw IOException("No filter rules")

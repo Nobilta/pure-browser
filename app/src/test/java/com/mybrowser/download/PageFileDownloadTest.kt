@@ -392,7 +392,13 @@ class PageFileDownloadTest {
     @Test fun aSupersededTransferDoesNotPublish() = runBlocking {
         val context = connectedContext()
         val handler = DownloadHandler(context)
-        val source = FakeSource(ByteArray(2_000))
+        val source = object : PageFileSource {
+            var live = true
+            override fun start(id: Long, url: String, size: Long, sink: PageFileSink): Boolean = true
+            override fun requestNext(id: Long, written: Long): Boolean = live
+            override fun isTransferring(id: Long): Boolean = live
+            override fun cancel() { live = false }
+        }
         try {
             val outcome = handler.enqueueOrGetExisting(
                 url = "page-file://superseded", userAgent = null, contentDisposition = null, mimeType = null,
@@ -413,6 +419,38 @@ class PageFileDownloadTest {
             supersededJob.cancel()
             val item = handler.downloads.value.single { it.id == id }
             assertNotEquals("a superseded transfer must not publish", DownloadStatus.COMPLETED, item.status)
+        } finally { handler.close() }
+    }
+
+    @Test fun aZeroBytePageFileThatFailsOrCancelsIsNotMarkedCompleted() = runBlocking {
+        val context = connectedContext()
+        val handler = DownloadHandler(context)
+        val source = object : PageFileSource {
+            var live = true
+            override fun start(id: Long, url: String, size: Long, sink: PageFileSink): Boolean = true
+            override fun requestNext(id: Long, written: Long): Boolean = live
+            override fun isTransferring(id: Long): Boolean = live
+            override fun failureReason(id: Long): String? = if (live) null else "read"
+            override fun cancel() { live = false }
+        }
+        try {
+            val outcome = handler.enqueueOrGetExisting(
+                url = "page-file://zero-fail", userAgent = null, contentDisposition = null, mimeType = null,
+                pageFile = offer(0L, "zero-fail.bin").copy(url = "blob:https://example.com/zero-fail"),
+            )
+            val id = (outcome as DownloadHandler.EnqueueOutcome.Started).id
+            assertTrue(handler.startPageFile(id, offer(0L), source))
+            delay(50)
+            handler.onPageFileFailed(id, "read")
+            source.cancel()
+            withTimeout(10_000) {
+                handler.downloads.first { list ->
+                    list.any { it.id == id && (it.status == DownloadStatus.FAILED || it.status == DownloadStatus.COMPLETED) }
+                }
+            }
+            val item = handler.downloads.value.single { it.id == id }
+            assertEquals("a failed 0-byte page file must not publish as COMPLETED", DownloadStatus.FAILED, item.status)
+            assertFalse(tempDirectory(context, id).exists())
         } finally { handler.close() }
     }
 

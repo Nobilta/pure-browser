@@ -3,6 +3,7 @@ package com.mybrowser.ui.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -12,6 +13,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.mybrowser.R
@@ -74,11 +76,22 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
             error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
                 item {
-                    ListItem(colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    ListItem(
+                        modifier = Modifier.toggleable(
+                            value = autoUpdate,
+                            role = Role.Switch,
+                            onValueChange = controller::setAutoUpdate,
+                        ),
+                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                         headlineContent = { Text(res.getString(R.string.filter_auto_update)) },
                         supportingContent = { Text(res.getString(R.string.filter_auto_update_summary)) },
-                        trailingContent = { Switch(autoUpdate, onCheckedChange = controller::setAutoUpdate,
-                            modifier = Modifier.semantics { contentDescription = res.getString(R.string.filter_auto_update) }) },
+                        trailingContent = {
+                            Switch(
+                                autoUpdate,
+                                onCheckedChange = null,
+                                modifier = Modifier.semantics { contentDescription = res.getString(R.string.filter_auto_update) },
+                            )
+                        },
                     )
                 }
                 // The rules the user wrote by hand, above the lists they came from: this is where
@@ -124,15 +137,21 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                 items(lists, key = { it.id }) { list ->
                     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                         Column(Modifier.padding(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().toggleable(
+                                    value = list.enabled,
+                                    enabled = !busy,
+                                    role = Role.Switch,
+                                    onValueChange = { value -> scope.launch { controller.setEnabled(list.id, value) } },
+                                ),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(list.name, style = MaterialTheme.typography.titleMedium)
                                     Text(res.getString(if (list.builtIn) R.string.filter_built_in else R.string.ui_custom_filter_lists),
                                         style = MaterialTheme.typography.labelSmall)
                                 }
-                                Switch(list.enabled, modifier = Modifier.semantics { contentDescription = list.name }, onCheckedChange = { value ->
-                                    scope.launch { controller.setEnabled(list.id, value) }
-                                }, enabled = !busy)
+                                Switch(list.enabled, modifier = Modifier.semantics { contentDescription = list.name }, onCheckedChange = null, enabled = !busy)
                             }
                             Text(list.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(res.getString(R.string.filter_source_rule_count, list.ruleCount), style = MaterialTheme.typography.bodySmall)
@@ -160,7 +179,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     if (adding) {
         var name by rememberSaveable { mutableStateOf("") }
         var url by rememberSaveable { mutableStateOf("") }
-        AlertDialog(onDismissRequest = { if (!busy) adding = false },
+        com.mybrowser.ui.shell.BrowserAlertDialog(onDismissRequest = { if (!busy) adding = false },
             title = { Text(res.getString(R.string.ui_add_filter_list)) },
             text = {
                 Column {
@@ -179,12 +198,16 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
             dismissButton = { TextButton(onClick = { adding = false }, enabled = !busy) { Text(res.getString(R.string.action_cancel)) } })
     }
     deleting?.let { list ->
-        AlertDialog(onDismissRequest = { deleting = null },
-            title = { Text(res.getString(R.string.cd_delete)) }, text = { Text(list.name) },
-            confirmButton = { TextButton(onClick = {
+        com.mybrowser.ui.shell.BrowserConfirmDialog(
+            title = res.getString(R.string.cd_delete),
+            message = list.name,
+            confirmText = res.getString(R.string.cd_delete),
+            dismissText = res.getString(R.string.action_cancel),
+            onConfirm = {
                 scope.launch { controller.remove(list.id) }
                 deleting = null
-            }) { Text(res.getString(R.string.cd_delete)) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text(res.getString(R.string.action_cancel)) } })
+            },
+            onDismiss = { deleting = null },
+        )
     }
 }

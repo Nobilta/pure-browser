@@ -45,12 +45,29 @@ def run(*command):
     return subprocess.check_output(command, text=True, encoding='utf-8', stderr=subprocess.STDOUT)
 
 
+def verified_signer(apk):
+    """Verify the whole APK before trusting the certificate printed by apksigner."""
+    certificate = run(android_tool('apksigner'), 'verify', '--verbose', '--print-certs', str(apk))
+    if 'Verified using v2 scheme (APK Signature Scheme v2): true' not in certificate:
+        raise ValueError('The delivery APK must have a valid v2 signature')
+    signers = {value.lower() for value in re.findall(r'certificate SHA-256 digest: ([0-9a-fA-F]{64})', certificate)}
+    if len(signers) != 1 or not re.search(r'^Number of signers: 1$', certificate, re.M):
+        raise ValueError('Expected one release signing certificate')
+    return next(iter(signers))
+
+
+def verify_notes(version, notes):
+    verification = notes.read_text(encoding='utf-8').strip()
+    # Match a complete version token, not 0.14.1 inside 0.14.10 or 0.14.1-beta.
+    if not re.search(r'(?<![0-9A-Za-z.+_-])v?' + re.escape(version) + r'(?![0-9A-Za-z.+_-])', verification):
+        raise ValueError('the verification record must be nonempty and name version ' + version)
+
+
 def changelog_body(version):
     """The section CHANGELOG.md holds for this version, without its heading.
 
-    The change list lives in the changelog and nowhere else. The release body is composed from it
-    plus the verification summary, so publishing a release cannot leave the same twenty bullets
-    written out in two files that then drift apart.
+    The public change list lives in the changelog. Local verification notes are checked separately
+    and never included in the release page or the in-app update prompt.
     """
     lines = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8').splitlines()
     named = re.compile(r'^##\s+' + re.escape(version) + r'\s*(?:-|$)')
@@ -85,12 +102,7 @@ def prepare(apk, output, notes=None):
     size = apk.stat().st_size
     if not 0 < size <= 128 * 1024 * 1024:
         raise ValueError('APK exceeds the updater size limit')
-    certificate = run(android_tool('apksigner'), 'verify', '--verbose', '--print-certs', str(apk))
-    if 'Verified using v2 scheme (APK Signature Scheme v2): true' not in certificate:
-        raise ValueError('The delivery APK must have a valid v2 signature')
-    signers = set(re.findall(r'certificate SHA-256 digest: ([0-9a-fA-F]{64})', certificate))
-    if len(signers) != 1 or not re.search(r'^Number of signers: 1$', certificate, re.M):
-        raise ValueError('Expected one release signing certificate')
+    signer = verified_signer(apk)
     run(android_tool('zipalign'), '-c', '-P', '16', '4', str(apk))
     badging = run(android_tool('aapt2'), 'dump', 'badging', str(apk))
     package = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging, re.M)
@@ -108,12 +120,8 @@ def prepare(apk, output, notes=None):
     # `--notes` is the verification record (release/notes.md) the release process requires. It is
     # checked against the version being shipped and kept as a local record; it is not part of the
     # published body, which comes from CHANGELOG.md alone.
-    verification = notes.read_text(encoding='utf-8').strip() if notes else ''
-    if verification:
-        # The record is prose with a heading, so the version is looked for anywhere in it — bounded,
-        # so a record left over from 0.1 is not accepted as 0.13's.
-        if not re.search(r'(?<![\d.])' + re.escape(version) + r'(?!\d)', verification):
-            raise ValueError('the verification record does not name version ' + version)
+    if notes is not None:
+        verify_notes(version, notes)
     release_notes = compose_notes(version)
     if len(release_notes) > 12_000:
         raise ValueError('Release notes exceed 12,000 characters')
@@ -140,7 +148,7 @@ def prepare(apk, output, notes=None):
     temporary.replace(destination)
     manifest_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
     (output / 'SHA256SUMS').write_text(f'{checksum}  {apk.name}\n{manifest_hash}  update.json\n', encoding='utf-8')
-    details = {'apk': str(apk), 'sha256': checksum, 'signerSha256': next(iter(signers)).lower(), 'tag': 'v' + version,
+    details = {'apk': str(apk), 'sha256': checksum, 'signerSha256': signer, 'tag': 'v' + version,
                'size': size, 'versionCode': code, 'versionName': version, 'minSdk': min_sdk, 'abi': 'arm64-v8a',
                'releaseNotes': str(notes_path),
                'verification': str(notes.resolve()) if notes else None}

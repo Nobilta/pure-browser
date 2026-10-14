@@ -16,9 +16,6 @@ import java.io.Closeable
  * engine is immutable once loaded.
  */
 class NativeFilter private constructor(private var handle: Long) : Closeable {
-    private val documents = object : LinkedHashMap<String, Long>(32, .75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 32
-    }
 
     /** Number of network rules currently loaded. */
     val ruleCount: Int
@@ -62,22 +59,9 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
     fun shouldBlock(requestUrl: String, documentUrl: String, type: ResourceType): Boolean {
         if (handle == 0L || requestUrl.length > 8192 || documentUrl.length > 8192) return false
         return runCatching {
-            val id = synchronized(documents) {
-                documents[documentUrl] ?: nativePrepareDocument(handle, documentUrl).also { documents[documentUrl] = it }
-            }
-            val result = nativeCheckDocument(handle, requestUrl, id, type.ordinal)
-            if (result >= 0) result == 1
-            else {
-                // Another concurrent document can evict an ID between lookup and use.
-                // An Arc protects in-flight native readers; this request keeps its exact URL fallback.
-                synchronized(documents) { documents.remove(documentUrl) }
-                nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
-            }
+            nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
         }.getOrDefault(false)
     }
-
-    internal fun shouldBlockUncached(requestUrl: String, documentUrl: String, type: ResourceType): Boolean =
-        handle != 0L && requestUrl.length <= 8192 && documentUrl.length <= 8192 && nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
 
     fun explainList(text: String, requestUrl: String, documentUrl: String, type: ResourceType): Pair<String?, String?> {
         val lines = nativeExplainList(text, requestUrl, documentUrl, type.ordinal).orEmpty().split('\n', limit = 2)
@@ -88,7 +72,6 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
     override fun close() {
         val h = handle
         handle = 0L
-        synchronized(documents) { documents.clear() }
         if (h != 0L) runCatching { nativeFree(h) }
     }
 
@@ -129,8 +112,6 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
         @JvmStatic private external fun nativeRuleCount(handle: Long): Int
         @JvmStatic private external fun nativeUnsupportedCount(handle: Long): Int
         @JvmStatic private external fun nativeRefusedCount(handle: Long): Int
-        @JvmStatic private external fun nativePrepareDocument(handle: Long, url: String): Long
-        @JvmStatic private external fun nativeCheckDocument(handle: Long, url: String, document: Long, type: Int): Int
         @JvmStatic private external fun nativeExplainList(text: String, url: String, document: String, type: Int): String?
         @JvmStatic private external fun nativeCosmeticRuleCount(handle: Long): Int
         @JvmStatic private external fun nativeCosmeticCss(handle: Long, url: String): String?

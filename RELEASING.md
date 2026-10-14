@@ -9,6 +9,8 @@
 未签名 Release 构建及 DEX / Rust JNI 库检查。报告和未签名 APK 附件保留 14 天，执行日志见对应 Actions 运行。
 
 正式签名和设备回归在本地完成。CI 不持有签名密钥，也不自动发布正式版本。
+快速检查包含发布工具的 Python 单元测试；推送标签不会触发当前 CI，也不会自动生成 Release。
+本地维护分支是 `master`，远程默认分支和 CI 监听分支是 `main`。
 每版的变化写在 [CHANGELOG.md](CHANGELOG.md)；发布说明由 `release/prepare.py` 从该版本的段落生成，
 只在仓库外多出这一份，不需要维护两份。验证范围写在 [release/notes.md](release/notes.md)，
 它是仓库内的记录，不进入发布页，也不进入应用内的更新提示。
@@ -31,38 +33,48 @@ keyPassword=填写私钥密码
 ## 发布步骤
 
 1. 修改 `app/build.gradle.kts` 中的 `versionName` 和 `versionCode`，确保 code 高于上一正式版。
-   把 [CHANGELOG.md](CHANGELOG.md) 里的「未发布」段落改成本版号（`## 0.13 - 2026-09-24`），
-   并更新受影响的使用文档。
+   在 [CHANGELOG.md](CHANGELOG.md) 写本版独立段落（`## 版本号 - 日期`；候选版可先标「未发布」），
+   并更新受影响的使用文档。先在 `release/notes.md` 写本版号和待验证项，避免构建时误用上一版记录；
+   第 3 步必须用实际结果替换待验证项。
 2. 构建并验证签名包：
 
    ```bash
    ./build-and-test.sh --release
    ```
 
+   这一步运行快速检查、clippy、lint、R8、签名与 zipalign 校验。
    根目录生成 `PureBrowser-v版本号-release.apk`，`outputs/release/` 生成更新清单、校验和及包信息。
 3. 使用该 APK 运行相关设备回归，把实际设备、通过阶段和未覆盖范围简要写入
-   [release/notes.md](release/notes.md)：这份记录留在仓库里，供review 时核对"这一版到底测了什么"，
+   [release/notes.md](release/notes.md)：这份记录留在仓库里，供审查时核对本版实际验证范围，
    不对外发布。
    用 suite JSON 的 SHA-256 核对结果属于本次安装包；应用源码变化后重新构建和验证。
-4. 提交源码和文档，确认工作区干净后推送，等待该提交的 CI 通过：
+4. 在本地 `master` 提交源码和文档，确认工作区（含未跟踪文件）干净后推送，等待该提交在远程 `main` 的 CI 通过：
 
    ```bash
    git push origin HEAD:main
    ```
 
-5. 确认 `gh` 在 PATH 中并已登录，创建草稿。替换下面的文件名为本次 APK：
+5. 确认 `gh` 在 PATH 中并已登录，读取本次构建的文件名并创建草稿：
 
    ```bash
-   bash release/publish.sh PureBrowser-v0.12-release.apk release/notes.md
+   release_apk="$(python3 -c 'import json; print(json.load(open("outputs/release/package-info.json"))["apk"])')"
+   bash release/publish.sh "$release_apk" release/notes.md
    ```
 
-   脚本要求远程 `main` 与本地 HEAD 一致、该提交 CI 通过、APK 版本与源码一致，
-   并检查版本递增和沿用上一正式版的签名。首次发布跳过上一版比较。
+   脚本要求远程 `main` 与本地 HEAD 一致、该提交最新一次 `main` 的 CI 成功、APK 版本与源码一致，
+   并检查版本递增和沿用上一正式版的签名。较早的失败/取消记录不会阻塞后续成功运行，
+   较新的未完成/失败运行仍会阻塞；PR 检查不能代替 `main` 检查。首次发布跳过上一版比较。
+   两个 APK 都须通过完整验签，不能只从失败输出中读取证书；验证记录必须非空并包含完整本版号。
+   `GH=/完整路径/gh bash release/publish.sh …` 可覆盖 CLI 路径，子门禁使用相同路径。
    它先调用 `release/prepare.py`，由 CHANGELOG 的对应段落生成 Release 说明
    （`outputs/release/release-notes.md`），草稿上传的是这份说明；`release/notes.md` 只用于核对
    版本并留档，内容不进发布页，也不进应用内的更新提示。
    草稿包含签名 APK、`update.json` 和 `SHA256SUMS`，标签为 `v` 加版本名。
-6. 核对草稿的提交、说明和附件，再正式发布并设为 latest。草稿和预发布版不进入应用稳定更新入口。
+6. 在 GitHub Releases 打开该草稿，核对目标提交、说明和三个附件，再点击 **Publish release** 并设为 **latest**。
+   草稿和预发布版不进入应用稳定更新入口。应用读取 latest 的 `update.json`，因此只上传 APK 不构成完整发布。
+
+无需另建自动发布 workflow 或预先推送同名 tag；脚本把本次 HEAD 指定为 Release 的目标提交。
+如果已有同名草稿，先核对或处理该草稿再重试，脚本不会静默覆盖已存在的 Release。
 
 版本与签名一致不能单独证明 APK 来自某个提交，上传前仍需确认它是本次源码构建并验证的文件。
 

@@ -241,9 +241,12 @@ class CastControllerTest {
             kotlinx.coroutines.withTimeout(5_000) { while (controller.state.value.playback?.positionSeconds != 95L) kotlinx.coroutines.delay(10) }
             assertEquals(95L, controller.state.value.playback?.positionSeconds)
             controller.skip(10) {}
-            kotlinx.coroutines.withTimeout(5_000) { while (seeks.isEmpty()) kotlinx.coroutines.delay(10) }
+            kotlinx.coroutines.withTimeout(5_000) {
+                while (seeks.isEmpty() || controller.state.value.isControlling) kotlinx.coroutines.delay(10)
+            }
             // 95 + 10 runs past the reported end, so the request is for the end.
             assertTrue(seeks.single(), seeks.single().contains("<Target>00:01:40</Target>"))
+            assertNotNull("non-disconnect control command must not clear playback", controller.state.value.playback)
         } finally { controller.close(); server.stop(0) }
     }
 

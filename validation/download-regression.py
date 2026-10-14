@@ -57,7 +57,9 @@ requests = json.load(urllib.request.urlopen("http://127.0.0.1:8875/__state?case=
 ranges = [item for item in requests if item["receivedAt"] >= started and item["start"] > 0]
 assert ranges, "No parallel byte-range requests observed"
 ux.menu_item("下载")
+ux.check_library_selection(Path(verified).name)
 ux.inspect("results/api" + sdk + "-downloads")
+print("PASS: download rows expose one checkbox with checked/unchecked state and leave selection on Back", flush=True)
 print("PASS: range download matches SHA-256 and the foreground service stops", flush=True)
 ux.adb("shell", "input", "keyevent", "4")
 ux.expect_menu()  # Wait for the download sheet's return animation before selecting Settings.
@@ -75,5 +77,5 @@ print("PASS: default-browser setting opens the system role/settings UI", flush=T
 ux.adb("shell", "input", "keyevent", "4")
 result = {"sdk": sdk, "file": verified, "sha256": expected, "rangeRequests": ranges,
           "foregroundServiceObserved": "isForeground=true" in service_during,
-          "foregroundServiceStopped": True, "defaultBrowserUI": True}
+          "foregroundServiceStopped": True, "defaultBrowserUI": True, "accessibleSelection": True}
 (ROOT / "results" / ("api" + sdk + "-download.json")).write_text(json.dumps(result, indent=2), encoding="utf-8")

@@ -46,7 +46,7 @@ class WebViewPoolTest {
             assertFalse(pool.owns(opener))
             assertFalse(shadowOf(opener).wasDestroyCalled())
             assertFalse(shadowOf(popup).wasDestroyCalled())
-            assertSame(DetachedWebViewClient, opener.webViewClient)
+            assertSame(ParkedWebViewClient.Detached, opener.webViewClient)
             transfer.close()
             transfer.close()
             pool.discard(opener)

@@ -67,17 +67,10 @@ class SearchEngineManager(private val context: Context) {
     }
 
     /**
-     * Gets all available search engines (built-in + custom).
-     */
-    fun getAllEngines(): List<SearchEngine> {
-        return getAvailableEngines()
-    }
-
-    /**
      * Gets a search engine by its ID.
      */
     fun getEngineById(id: String): SearchEngine? {
-        return getAllEngines().find { it.id == id }
+        return getAvailableEngines().find { it.id == id }
     }
 
     /**

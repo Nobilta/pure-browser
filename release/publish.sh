@@ -16,8 +16,7 @@ git diff --cached --quiet
 [[ -z "$(git ls-files --others --exclude-standard)" ]] || { echo "Commit the source before drafting a release" >&2; exit 1; }
 python3 release/prepare.py --apk "$release_apk" --notes "$release_notes"
 release_tag="$(python3 -c 'import json; print(json.load(open("outputs/release/package-info.json"))["tag"])')"
-# prepare.py composes the body from CHANGELOG.md and the verification summary; that composed file is
-# what must go out. Uploading the argument would publish a release page that lists no changes.
+# The public body comes from CHANGELOG.md; the supplied verification record stays in the repository.
 release_body="$(python3 -c 'import json; print(json.load(open("outputs/release/package-info.json"))["releaseNotes"])')"
 [[ -f "$release_body" ]] || { echo "Composed release notes are missing: $release_body" >&2; exit 1; }
 release_commit="$(git rev-parse HEAD)"

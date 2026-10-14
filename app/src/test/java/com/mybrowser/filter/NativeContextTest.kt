@@ -14,16 +14,18 @@ import java.util.concurrent.Executors
 @Config(sdk = [34], application = Application::class)
 class NativeContextTest {
     @Test fun cachedDocumentsMatchUncachedUnderConcurrentEviction() {
+        val rules = "||cdn.example.co.uk^\$third-party\n||cdn.example.com^\$~third-party\n||bob.github.io^\$third-party\n"
         checkNotNull(NativeFilter.createOrNull()).use { engine ->
-            engine.addList("||cdn.example.co.uk^\$third-party\n||cdn.example.com^\$~third-party\n||bob.github.io^\$third-party\n")
+            engine.addList(rules)
             val pool = Executors.newFixedThreadPool(8)
             try {
                 pool.invokeAll((0 until 8).map { worker -> Callable {
                     repeat(512) { index ->
                         val page = listOf("https://www.example.co.uk/", "https://www.example.com/", "https://alice.github.io/")[index % 3] + "?doc=$worker-$index"
                         for (url in listOf("https://cdn.example.co.uk/a.js", "https://cdn.example.com/a.js", "https://bob.github.io/a.js")) {
-                            assertEquals(engine.shouldBlockUncached(url, page, ResourceType.SCRIPT),
-                                engine.shouldBlock(url, page, ResourceType.SCRIPT))
+                            val expected = engine.explainList(rules, url, page, ResourceType.SCRIPT)
+                                .let { (block, allow) -> block != null && allow == null }
+                            assertEquals(expected, engine.shouldBlock(url, page, ResourceType.SCRIPT))
                         }
                     }
                 } }).forEach { it.get() }

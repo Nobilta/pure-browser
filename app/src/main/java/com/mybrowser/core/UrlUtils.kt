@@ -67,17 +67,14 @@ object UrlUtils {
         val text = input.trim()
         if (text.isEmpty()) return "about:blank"
 
-        // Guard malformed web-looking input before consulting the native fast path. Without
+        // Guard malformed web-looking input before treating a scheme as navigable. Without
         // this, values such as "https://" or "http:example.com" can be returned unchanged
         // and later mistaken for a page URL by the navigation policy.
         val explicitScheme = schemeOf(text)
         if ((explicitScheme == "http" || explicitScheme == "https") && !isHttpUrl(text)) {
             return buildSearchUrl(text, searchTemplate)
         }
-        if (explicitScheme == "about" && !hasOpaquePayload(text)) {
-            return buildSearchUrl(text, searchTemplate)
-        }
-        if (isAllowedExternalScheme(text) && !hasOpaquePayload(text)) {
+        if ((explicitScheme == "about" || isAllowedExternalScheme(text)) && !hasOpaquePayload(text)) {
             return buildSearchUrl(text, searchTemplate)
         }
         if (looksLikeInvalidHostPort(text)) {
@@ -86,38 +83,15 @@ object UrlUtils {
 
         // The WebView itself supports additional internal schemes (for example data: and
         // javascript:), but an address-bar submission must not execute or expose those
-        // opaque values.  Keep this guard before the native fast path so native and Kotlin
-        // implementations make the same safe decision.
-        if (HAS_SCHEME.containsMatchIn(text) &&
-            !isHostPortShape(text) &&
-            schemeOf(text) !in OMNIBAR_DIRECT_SCHEMES
-        ) {
-            return buildSearchUrl(text, searchTemplate)
-        }
-
-        // Try native implementation first
-        if (nativeAvailable) {
-            runCatching { nativeNormalize(text, searchTemplate) }
-                .getOrNull()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
-        }
-
-        // Fallback to Kotlin implementation
+        // opaque values. Known direct schemes take precedence over the host:port carve-out
+        // so mailto:1234 and tel:1234 remain opaque hand-offs rather than local hosts.
         if (HAS_SCHEME.containsMatchIn(text)) {
-            val scheme = schemeOf(text)
-            // Known schemes take precedence over the host:port carve-out. In particular,
-            // mailto:1234 and tel:1234 are opaque hand-offs, not local hosts.
-            if (scheme == "http" || scheme == "https" || scheme == "about" ||
-                scheme in INTERNAL_SCHEMES || isAllowedExternalScheme(text)
-            ) {
+            if (explicitScheme in OMNIBAR_DIRECT_SCHEMES) {
                 return text
             }
-            // Unknown opaque schemes are not browser destinations. Treating them as a
-            // direct result here made the native and Kotlin helpers disagree with the
-            // navigation policy and could surface an app-link the user never intended to
-            // launch. A schemeless host:port remains the one exception handled below.
-            if (!isHostPortShape(text)) return buildSearchUrl(text, searchTemplate)
+            if (!isHostPortShape(text)) {
+                return buildSearchUrl(text, searchTemplate)
+            }
         }
 
         if (looksLikeHost(text)) {
@@ -135,10 +109,6 @@ object UrlUtils {
             else -> "$searchTemplate$encoded"
         }
     }
-
-    // Native methods
-    @JvmStatic
-    private external fun nativeNormalize(input: String, searchTemplate: String): String?
 
     /** PSL registrable domain including private suffixes; absence must never widen scope. */
     fun registrableDomain(host: String): String? = if (nativeAvailable)

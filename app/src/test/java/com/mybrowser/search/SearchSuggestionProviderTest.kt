@@ -296,14 +296,20 @@ class SearchSuggestionProviderTest {
 
     @Test fun cancellationDisconnectsBeforeHeadersAndDoesNotWaitForTheWorker() = runBlocking {
         val connection = HeldConnection()
-        val client = SearchSuggestionProvider(openConnection = { connection })
-        val pending = async(Dispatchers.IO) { client.fetch(customEngine("https://test.invalid/?q={query}"), "q", false) }
+        val hits = AtomicInteger()
+        val client = SearchSuggestionProvider(openConnection = {
+            if (hits.incrementAndGet() == 1) connection else HeldConnection().apply { released.countDown() }
+        })
+        val engine = customEngine("https://test.invalid/?q={query}")
+        val pending = async(Dispatchers.IO) { client.fetch(engine, "q", false) }
         try {
             assertTrue(connection.started.await(2, TimeUnit.SECONDS))
             pending.cancel()
             withTimeout(1000) { pending.join() }
             assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS))
             assertEquals(1L, connection.released.count) // underlying response is still held
+            connection.released.countDown()
+            assertEquals(listOf("old response"), client.fetch(engine, "q2", false))
         } finally {
             connection.released.countDown()
         }

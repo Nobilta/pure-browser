@@ -33,7 +33,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -80,6 +79,7 @@ class DownloadHandler(context: Context) : Closeable {
      * for a file nobody can fetch again.
      */
     private val fromPageTasks = ConcurrentHashMap.newKeySet<Long>()
+    private val pageFileFailures = ConcurrentHashMap<Long, String>()
     private val lastProgressPersist = AtomicLong(0L)
     /** Serialises JSON snapshots so completion and deletion cannot overwrite one another. */
     private val metadataLock = Any()
@@ -317,13 +317,15 @@ class DownloadHandler(context: Context) : Closeable {
                 runCatching { output?.close() }
                 // The file was closed here, so the publish happens here too and the entry is recorded
                 // by the shared path the HTTP transfers use.
+                val failure = result.get() ?: pageFileFailures.remove(id) ?: source.failureReason(id)
                 onPageFileFinished(
-                    id, result.get(), temporaryDirectory(id).listFiles().orEmpty().filter { it.isFile }, written,
+                    id, failure, temporaryDirectory(id).listFiles().orEmpty().filter { it.isFile }, written,
                     owner = pump,
                 )
             }
         }
-        jobs[id] = job
+        pageFileFailures.remove(id)
+        jobs.put(id, job)?.cancel()
 
         val sink = PageFileSink { bytes ->
             // Handed off, not written: this runs on the WebView's thread and must not touch the disk.
@@ -356,6 +358,12 @@ class DownloadHandler(context: Context) : Closeable {
         }
         startTransferService()
         return true
+    }
+
+    /** Records an asynchronous page-side failure without performing disk IO on the caller's thread. */
+    fun onPageFileFailed(id: Long, reason: String) {
+        if (closed) return
+        pageFileFailures.putIfAbsent(id, reason)
     }
 
     /** Called by [PageFileDownload] for each slice so the sheet and notification keep up. */
@@ -402,46 +410,57 @@ class DownloadHandler(context: Context) : Closeable {
         owner: Job? = null,
     ) {
         if (closed) return
-        fromPageTasks.remove(id)
-        // Taken out here rather than in failPageFile, because this method is the production path
-        // and it used to remove the source *before* delegating — so the cancel inside failPageFile
-        // found nothing, and a failed write left the page still reporting a transfer it would never
-        // finish. The reference is dropped either way; only a failure also stops the source.
-        val source = pageFileSources.remove(id)
-        val entry = metadata[id] ?: return
-        val publishing = owner ?: jobs[id] ?: return
-        if (reason == null && parts.sumOf { it.length() } >= entry.totalBytes) {
-            try {
-                publishParts(id, parts, parts.sumOf { it.length() }, actualThreads = 1, clearSource = true, owner = publishing)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                // The destination refused the file — a revoked tree, a full volume, a provider that
-                // will not open. The task has to end in FAILED here: letting this escape the
-                // writer’s finally would leave the record in SAVING with its parts on disk.
-                Log.e(TAG, "Page file publish failed: $id", error)
-                source?.cancel()
-                failPageFile(id, "publish")
-                return
-            } finally {
-                // The published copy is a separate file; the temporary parts behind it are this
-                // path's to remove, exactly as the engine's own finally does after publishing.
-                val latest = metadata[id]
-                if (latest == null || latest.status == DownloadStatus.COMPLETED) {
-                    cleanupTemporaryFiles(id)
-                    transferLocks.remove(id)
+        val writerLock = transferLocks.computeIfAbsent(id) { Mutex() }
+        var releaseLock = false
+        writerLock.withLock {
+            val entry = metadata[id] ?: return@withLock
+            val publishing = owner ?: jobs[id] ?: return@withLock
+            if (jobs[id] !== publishing) return@withLock
+            fromPageTasks.remove(id)
+            pageFileFailures.remove(id)
+            // Taken out here rather than in failPageFile, because this method is the production path
+            // and it used to remove the source *before* delegating — so the cancel inside failPageFile
+            // found nothing, and a failed write left the page still reporting a transfer it would never
+            // finish. The reference is dropped either way; only a failure also stops the source.
+            val source = pageFileSources.remove(id)
+            if (reason == null && parts.sumOf { it.length() } >= entry.totalBytes) {
+                try {
+                    publishParts(id, parts, parts.sumOf { it.length() }, actualThreads = 1, clearSource = true, owner = publishing)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // The destination refused the file — a revoked tree, a full volume, a provider that
+                    // will not open. The task has to end in FAILED here: letting this escape the
+                    // writer’s finally would leave the record in SAVING with its parts on disk.
+                    Log.e(TAG, "Page file publish failed: $id", error)
+                    source?.cancel()
+                    failPageFileLocked(id, "publish")
+                    releaseLock = true
+                    return@withLock
+                } finally {
+                    // The published copy is a separate file; the temporary parts behind it are this
+                    // path's to remove, exactly as the engine's own finally does after publishing.
+                    val latest = metadata[id]
+                    if (latest == null || latest.status == DownloadStatus.COMPLETED) {
+                        cleanupTemporaryFiles(id)
+                        releaseLock = true
+                    }
+                    jobs.remove(id, publishing)
+                    persistMetadata()
+                    publishSnapshots()
+                    if (latest?.status == DownloadStatus.COMPLETED && latest.identity.notifyOnCompletion) {
+                        DownloadNotifications.completed(appContext, localItem(latest))
+                    }
                 }
-                jobs.remove(id)
-                persistMetadata()
-                publishSnapshots()
-                if (latest?.status == DownloadStatus.COMPLETED && latest.identity.notifyOnCompletion) {
-                    DownloadNotifications.completed(appContext, localItem(latest))
-                }
+                return@withLock
             }
-            return
+            source?.cancel()
+            failPageFileLocked(id, reason ?: "short")
+            releaseLock = true
         }
-        source?.cancel()
-        failPageFile(id, reason ?: "short")
+        if (releaseLock) {
+            transferLocks.remove(id, writerLock)
+        }
     }
 
     /**
@@ -449,17 +468,43 @@ class DownloadHandler(context: Context) : Closeable {
      *
      * Nothing is published, the partial file is deleted, and the record is marked failed rather than
      * left pretending to be in progress.
+     *
+     * The failure itself happened on a thread that does not hold the task's writer lock — that is
+     * the point of the second half of the name — so the lock is only dropped here when this caller
+     * is the one that owns it. Removing the entry unconditionally would take the mutex out from
+     * under a `delete()` or a cleanup that is holding it, and the next writer would then find no
+     * lock to wait on.
      */
     fun failPageFile(id: Long, reason: String) {
         if (closed) return
+        val writerLock = transferLocks[id]
+        if (writerLock == null) {
+            failPageFileLocked(id, reason)
+            transferLocks.remove(id)
+            return
+        }
+        if (writerLock.tryLock()) {
+            try {
+                if (closed) return
+                failPageFileLocked(id, reason)
+                transferLocks.remove(id, writerLock)
+            } finally {
+                writerLock.unlock()
+            }
+        } else {
+            failPageFileLocked(id, reason)
+        }
+    }
+
+    private fun failPageFileLocked(id: Long, reason: String) {
         fromPageTasks.remove(id)
+        pageFileFailures.remove(id)
         // Stopping the source matters as much as forgetting it: while it still reports a
         // transfer, the page next blob download is refused because this one looks running.
         pageFileSources.remove(id)?.cancel()
         metadata[id] ?: return
         Log.w(TAG, "Page file download failed: $id ($reason)")
         cleanupTemporaryFiles(id)
-        transferLocks.remove(id)
         synchronized(taskLock) {
             metadata.computeIfPresent(id) { _, current ->
                 if (current.status.active || current.status == DownloadStatus.SAVING)
@@ -578,6 +623,7 @@ class DownloadHandler(context: Context) : Closeable {
         // otherwise keep writing into a task nothing is watching.
         pageFileSources.remove(id)?.cancel()
         fromPageTasks.remove(id)
+        pageFileFailures.remove(id)
         synchronized(taskLock) { jobs.remove(id)?.cancel() }
         if (entry.backend == DownloadBackend.LEGACY_SYSTEM) {
             transferScope.launch { legacyManager.remove(id) }
@@ -608,6 +654,9 @@ class DownloadHandler(context: Context) : Closeable {
                 return
             }
             interrupted.remove(id)
+            pageFileSources.remove(id)?.cancel()
+            fromPageTasks.remove(id)
+            pageFileFailures.remove(id)
             jobs.remove(id)?.cancel()
             transferLocks.computeIfAbsent(id) { Mutex() }
         }
@@ -1109,20 +1158,7 @@ class DownloadHandler(context: Context) : Closeable {
 
     private fun uniqueFilename(candidate: String): String {
         val names = metadata.values.mapTo(HashSet()) { it.filename }
-        if (candidate !in names) return candidate
-        val dot = candidate.lastIndexOf('.').takeIf { it > 0 } ?: candidate.length
-        val stem = candidate.substring(0, dot)
-        val extension = candidate.substring(dot)
-        var index = 1
-        while (true) {
-            val suffix = " ($index)"
-            val boundedStem = stem.take(
-                (MAX_FILENAME_LENGTH - extension.length - suffix.length).coerceAtLeast(1),
-            )
-            val result = "$boundedStem$suffix$extension"
-            if (result !in names) return result
-            index++
-        }
+        return checkNotNull(FilenameParser.uniqueName(candidate, exists = names::contains))
     }
 
     private fun restoreMetadata() {
@@ -1431,15 +1467,8 @@ class DownloadHandler(context: Context) : Closeable {
         }
     }
 
-    private fun sanitizeFilename(raw: String): String {
-        val value = raw
-            .replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F\\x7F]"), "_")
-            .trim()
-            .trimStart('.')
-            .trimEnd('.', ' ')
-            .take(MAX_FILENAME_LENGTH)
-        return value.ifBlank { "download" }
-    }
+    private fun sanitizeFilename(raw: String): String =
+        FilenameParser.sanitize(raw, keepExtension = false)
 
     private fun sanitizeHeader(raw: String?, maxLength: Int): String? = raw
         ?.filterNot { it == '\r' || it == '\n' || it.isISOControl() }
@@ -1503,7 +1532,6 @@ class DownloadHandler(context: Context) : Closeable {
         const val MAX_COOKIE_LENGTH = 65_536
         const val MAX_CONTENT_DISPOSITION_LENGTH = 8_192
         const val MAX_MIME_LENGTH = 256
-        const val MAX_FILENAME_LENGTH = 127
         const val MAX_DESTINATION_LABEL_LENGTH = 120
         /**
          * Scheme of the placeholder address a page-file task is recorded under.

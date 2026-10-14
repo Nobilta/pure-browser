@@ -145,16 +145,16 @@
     label.style.display = 'none';
   }
 
-  function place(el, text) {
+  function place(el, text, scroll) {
     if (!el || !el.getBoundingClientRect) return;
     var rect = el.getBoundingClientRect();
     /*
      * The bar the app draws sits over the bottom of the page, so an element down there would be
-     * outlined behind it. Bringing it up is the only scroll the picker does, and it is the page's
-     * own scroll position changing, which is why it happens before anything is drawn from the
-     * rectangle: the outline has to be placed from where the element ends up, not where it was.
+     * outlined behind it. Bringing it up is the only scroll the picker does, and it happens only
+     * once an element is chosen (not while the finger is down/moving, which would scroll a
+     * different element under the finger before release).
      */
-    if (bottomInset > 0 && rect.bottom > win.innerHeight - bottomInset && rect.height < win.innerHeight - bottomInset) {
+    if (scroll && bottomInset > 0 && rect.bottom > win.innerHeight - bottomInset && rect.height < win.innerHeight - bottomInset) {
       win.scrollBy(0, rect.bottom - (win.innerHeight - bottomInset));
       rect = el.getBoundingClientRect();
     }
@@ -228,19 +228,26 @@
   }
 
   /**
-   * Paints what is selected now, previews it, and tells the app, which is what draws the bar.
+   * Outlines and previews what is selected now, without telling the app about it.
    *
    * The order is the point. The preview is lifted first and the outline placed from the element's
    * own box, and only then are the matches hidden again: hiding first would leave the outline with
-   * nothing to measure, which is not just the first draw  -  a scroll repaints through here, and the
+   * nothing to measure, which is not just the first draw - a scroll repaints through here, and the
    * preview is usually still hiding the element when it does.
    */
-  function report() {
+  function paint(scroll) {
     var current = selection();
     if (!current) return null;
     restorePreview();
-    place(chain[index], current.selector + ' \u00b7 ' + current.count);
+    place(chain[index], current.selector + ' \u00b7 ' + current.count, scroll);
     applyPreview(current.selector);
+    return current;
+  }
+
+  /** Paints what is selected now and tells the app, which is what draws the bar. */
+  function report(scroll) {
+    var current = paint(scroll);
+    if (!current) return null;
     post(current);
     return current;
   }
@@ -260,16 +267,47 @@
   function hover(event) {
     var point = pointOf(event);
     var el = targetAt(point.x, point.y);
-    if (!el || el === hovered) return;
+    /*
+     * Nothing selectable under the finger — the gap between elements, the <body> itself, or a
+     * point outside the viewport. The previous element must stop being the candidate here rather
+     * than being kept: `choose()` prefers `hovered` so the release commits what was highlighted
+     * under the finger, and leaving a stale one behind made a finger that had already left an
+     * element still select it. The overlay goes with it, or an outline would frame an element the
+     * picker is no longer offering.
+     */
+    if (!el) {
+      hovered = null;
+      clear();
+      return;
+    }
+    if (el === hovered) return;
     hovered = el;
     var found = selectorFor(el);
-    place(el, found.selector + ' \u00b7 ' + found.count);
+    place(el, found.selector + ' \u00b7 ' + found.count, false);
   }
 
   function choose(event) {
     var point = pointOf(event);
-    var el = targetAt(point.x, point.y) || hovered;
-    if (!el) return;
+    var el = hovered || (point ? targetAt(point.x, point.y) : null);
+    /*
+     * A release over nothing selectable — the gap between elements, the <body> itself — is not a
+     * tap on whatever was highlighted last. Choosing `hovered` here anyway made a finger that had
+     * already slid off its element still write a rule for it.
+     *
+     * What happens instead depends on whether there was already a selection. With one, pressing
+     * cleared its preview and outline to start a fresh candidate, so the release has to put them
+     * back: the app's bar still shows that element and still offers to write it, and a page that
+     * showed the element plain while the bar claimed it was selected was the two halves of the
+     * picker disagreeing. With none, there is nothing to restore and the press simply selects
+     * nothing.
+     *
+     * Painted rather than reported, in both cases: the selection did not change, and a second
+     * `pick` message would have the app treat an unchanged selection as a fresh one.
+     */
+    if (!el) {
+      if (chain[index]) paint(false);
+      return;
+    }
     chain = [];
     index = 0;
     var node = el, guard = 0;
@@ -279,7 +317,7 @@
     }
     if (!chain.length) return;
     hovered = el;
-    report();
+    report(true);
   }
 
   /*
@@ -301,7 +339,12 @@
   }
 
   function claimAll(event) { if (active) claim(event); }
-  function onDown(event) { if (active) { claim(event); restorePreview(); hover(event); } }
+  /*
+   * Down starts a fresh candidate: the previous preview is lifted before the new element is
+   * measured, and the outline is cleared first so a press on nothing selectable does not leave
+   * the last element's frame on screen while `hover()` finds nothing to replace it with.
+   */
+  function onDown(event) { if (active) { claim(event); restorePreview(); hovered = null; clear(); hover(event); } }
   function onMove(event) { if (active) { claim(event); hover(event); } }
   function onUp(event) { if (active) { claim(event); choose(event); } }
   /*
@@ -318,7 +361,7 @@
     post({ type: "ended" });
     api.stop();
   }
-  function reposition() { if (active && chain[index]) report(); }
+  function reposition() { if (active && chain[index]) report(false); }
 
   function listen(on) {
     var method = on ? 'addEventListener' : 'removeEventListener';
@@ -329,7 +372,7 @@
     doc[method]('mousemove', onMove, true);
     doc[method]('mousedown', onDown, true);
     doc[method]('mouseup', onUp, true);
-    doc[method]('click', onDown, true);
+    doc[method]('click', claimAll, true);
     doc[method]('contextmenu', claimAll, true);
     win[method]('scroll', reposition, true);
     win[method]('resize', reposition, true);
@@ -369,7 +412,7 @@
       var next = index + (delta > 0 ? 1 : -1);
       if (next < 0 || next > chain.length - 1) return false;
       index = next;
-      return !!report();
+      return !!report(true);
     },
     /** What the picker is showing, for the app and for tests. */
     state: function () {

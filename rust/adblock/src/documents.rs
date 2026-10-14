@@ -2,35 +2,36 @@ use crate::matcher::DocumentContext;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-/// IDs belong to one engine generation. Arc keeps evicted contexts alive for readers.
+const MAX_CACHED_DOCUMENTS: usize = 32;
+const MAX_DOCUMENT_URL_BYTES: usize = 32 * 1024;
+
+/// Bounded LRU of parsed first-party document contexts. `Arc` keeps evicted contexts alive for
+/// in-flight readers without requiring two-step ID management across JNI.
 #[derive(Default)]
 pub(crate) struct Documents {
-    next: i64,
-    items: VecDeque<(i64, Arc<DocumentContext>)>,
+    items: VecDeque<(String, Arc<DocumentContext>)>,
 }
 
 impl Documents {
-    pub fn prepare(&mut self, url: &str) -> i64 {
-        if url.len() > 32 * 1024 {
-            return 0;
+    pub fn get_or_prepare(&mut self, url: &str) -> Arc<DocumentContext> {
+        if let Some(index) = self.items.iter().rposition(|(key, _)| key == url) {
+            let last = self.items.len() - 1;
+            if index != last {
+                let entry = self.items.remove(index).expect("checked index");
+                let context = Arc::clone(&entry.1);
+                self.items.push_back(entry);
+                return context;
+            }
+            return Arc::clone(&self.items[index].1);
         }
-        let Some(id) = self.next.checked_add(1) else {
-            return 0;
-        };
-        self.next = id;
-        self.items
-            .push_back((id, Arc::new(DocumentContext::new(url))));
-        while self.items.len() > 32 {
-            self.items.pop_front();
+        let context = Arc::new(DocumentContext::new(url));
+        if url.len() <= MAX_DOCUMENT_URL_BYTES {
+            if self.items.len() >= MAX_CACHED_DOCUMENTS {
+                self.items.pop_front();
+            }
+            self.items.push_back((url.to_owned(), Arc::clone(&context)));
         }
-        id
-    }
-    pub fn get(&self, id: i64) -> Option<Arc<DocumentContext>> {
-        self.items
-            .iter()
-            .rev()
-            .find(|(key, _)| *key == id)
-            .map(|(_, item)| Arc::clone(item))
+        context
     }
 }
 
@@ -38,15 +39,21 @@ impl Documents {
 mod tests {
     use super::*;
     #[test]
-    fn eviction_keeps_existing_reader_alive_and_rejects_stale_ids() {
+    fn lru_eviction_keeps_existing_reader_alive_and_promotes_recent_hits() {
         let mut documents = Documents::default();
-        let first = documents.prepare("https://www.example.com");
-        let reader = documents.get(first).unwrap();
-        for i in 0..64 {
-            documents.prepare(&format!("https://site{i}.test"));
+        let first = documents.get_or_prepare("https://www.example.com");
+        let second = documents.get_or_prepare("https://www.second.test");
+        assert!(Arc::ptr_eq(
+            &first,
+            &documents.get_or_prepare("https://www.example.com")
+        ));
+        for i in 0..31 {
+            documents.get_or_prepare(&format!("https://site{i}.test"));
         }
-        assert!(documents.get(first).is_none());
         assert_eq!(documents.items.len(), 32);
-        assert!(Arc::strong_count(&reader) == 1);
+        // `second` was least-recently used and evicted (`strong_count == 1`), while `first`
+        // was promoted on hit and remains cached (`strong_count == 2`).
+        assert_eq!(Arc::strong_count(&second), 1);
+        assert_eq!(Arc::strong_count(&first), 2);
     }
 }

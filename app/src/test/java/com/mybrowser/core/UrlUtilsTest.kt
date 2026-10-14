@@ -54,14 +54,26 @@ class UrlUtilsTest {
 
     @Test
     fun `unsafe internal and numeric unknown schemes become searches`() {
-        assertEquals(
-            "${SEARCH_PREFIX}javascript%3Aalert(1)",
-            normalize("javascript:alert(1)"),
-        )
-        assertEquals(
-            "${SEARCH_PREFIX}evilapp%3A1234",
-            normalize("evilapp:1234"),
-        )
+        for (input in listOf(
+            "javascript:alert(1)",
+            "data:text/html,<h1>x</h1>",
+            "file:///sdcard/private.txt",
+            "ftp://example.com/file",
+            "evilapp://takeover",
+            "evilapp:1234",
+        )) {
+            assertEquals(
+                "$SEARCH_PREFIX${android.net.Uri.encode(input)}",
+                normalize(input),
+            )
+        }
+    }
+
+    @Test
+    fun `allowlisted external schemes are preserved only with payload`() {
+        assertEquals("MAILTO:user@example.com", normalize("MAILTO:user@example.com"))
+        assertEquals("${SEARCH_PREFIX}mailto%3A", normalize("mailto:"))
+        assertEquals("${SEARCH_PREFIX}https%3A%2F%2F", normalize("https://"))
     }
 
     @Test
@@ -106,6 +118,8 @@ class UrlUtilsTest {
         // Regression guard for the HOST_PORT carve-out: these must not gain an https:// prefix.
         assertEquals("about:blank", normalize("about:blank"))
         assertEquals("mailto:a@b.com", normalize("mailto:a@b.com"))
+        assertEquals("mailto:1234", normalize("mailto:1234"))
+        assertEquals("tel:1234", normalize("tel:1234"))
         assertEquals("tel:+8613800138000", normalize("tel:+8613800138000"))
     }
 
@@ -117,6 +131,7 @@ class UrlUtilsTest {
     @Test
     fun `bracketed ipv6 literal is a host`() {
         assertEquals("https://[::1]:3000", normalize("[::1]:3000"))
+        assertEquals("https://[2001:db8:0:0:0:0:0:1]:443", normalize("[2001:db8:0:0:0:0:0:1]:443"))
     }
 
     @Test
