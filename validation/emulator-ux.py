@@ -483,6 +483,19 @@ def menu_item(label):
                 tap(label)
                 return
             swipe(root, downward=downward)
+    # A few low-frequency rows live on the menu's second page. Tests should not need to know
+    # which page a tool belongs to; if the label is not on the main page, try "更多工具".
+    root, _ = nodes()
+    more = match(root, "更多工具")
+    if more is not None:
+        tap_node(more)
+        time.sleep(.5)
+        for index in range(8):
+            root, _ = nodes(await_labels=[label], timeout_ms=1200 if index == 0 else 0)
+            if match(root, label) is not None:
+                tap(label)
+                return
+            swipe(root, downward=index >= 4)
     raise AssertionError("Menu row missing: " + label)
 
 
@@ -548,7 +561,7 @@ def regress():
     swipe_page(downward=True)
     expect("编辑网址")
     inspect(evidence + "toolbar")
-    open_settings("浏览与启动")
+    open_settings("通用")
     tap("主页")
     tap("导航首页")
     adb("shell", "input", "keyevent", "4")
@@ -570,7 +583,7 @@ def regress():
     launch()
     expect("Pure UX popup Page")
     inspect(evidence + "restored")
-    open_settings("浏览与启动")
+    open_settings("通用")
     tap("启动时恢复上次网页")
     expect("下次启动：主页")
     tap_resource("cd_back")

@@ -182,7 +182,7 @@ class Regression:
 
     def imports(self):
         self.page()
-        ux.open_settings("扩展")
+        ux.open_settings("内容与工具")
         ux.tap("油猴脚本")
         ux.tap(ux._translations[0]["script_paste"])
         self.enter_source("// ==UserScript==\n// @name Pure paste fixture\n// @namespace pure.validation\n"
@@ -197,7 +197,7 @@ class Regression:
         self.wait(lambda s: s.get("pasted") == "yes")
         self.record("pasted source is reviewed, installed and executed")
         ux.adb("push", str(ROOT / "feature-dom.user.js"), "/sdcard/Download/PureDOM.user.js")
-        ux.open_settings("扩展")
+        ux.open_settings("内容与工具")
         ux.tap("油猴脚本")
         ux.tap(ux._translations[0]["script_import_file"])
         ux.choose_download_document("PureDOM.user.js")
@@ -209,7 +209,7 @@ class Regression:
         self.wait(lambda s: s["domReady"] != "")
         self.record("system file picker imports and executes a local user script")
         for name in ["Pure paste fixture", "Pure DOM fixture"]:
-            ux.open_settings("扩展")
+            ux.open_settings("内容与工具")
             ux.tap("油猴脚本")
             self.card_action(name, "删除")
             self.confirm_delete()
@@ -260,14 +260,14 @@ class Regression:
         else:
             assert popup["dependency"] == "dependency-ok" and popup["styleApplied"]
         self.record("popup transport preserves script timing and supported GM storage", legacyWebView=legacy)
-        ux.open_settings("扩展")
+        ux.open_settings("内容与工具")
         ux.tap("油猴脚本")
         self.set_switch("Pure DOM fixture", False)
         self.snapshot("script-list")
         self.page()
         self.wait(lambda s: s["ready"] == "complete" and s["domReady"] == "")
         self.record("disabled script stops on the next navigation")
-        ux.open_settings("扩展")
+        ux.open_settings("内容与工具")
         ux.tap("油猴脚本")
         self.set_switch("Pure DOM fixture", True)
         self.page()
@@ -306,7 +306,7 @@ class Regression:
         self.snapshot("unsupported-script")
         for name in ["Pure unsupported fixture", "Pure DOM fixture", "Pure storage fixture"]:
             self.page()
-            ux.open_settings("扩展")
+            ux.open_settings("内容与工具")
             ux.tap("油猴脚本")
             self.card_action(name, "删除")
             self.confirm_delete()
@@ -319,7 +319,7 @@ class Regression:
         urllib.request.urlopen(request, timeout=5).close()
 
     def filter_settings(self):
-        ux.open_settings("扩展")
+        ux.open_settings("内容与工具")
         ux.tap("自定义广告过滤规则")
         ux.expect("广告过滤设置")
 

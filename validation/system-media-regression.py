@@ -19,7 +19,7 @@ def main():
         checks.append(name);print('PASS',name,flush=True)
         (a.output/'result.json').write_text(json.dumps({'passed':False,'checks':checks},indent=2), encoding="utf-8")
     def setting(title,value):
-        ux.open_settings('视频播放');root,_=ux.nodes()
+        ux.open_settings('媒体播放');root,_=ux.nodes()
         row=next(n for n in root.iter('node') if n.get('checkable')=='true' and ux.match(n,title) is not None)
         if row.get('checked')!=str(value).lower():ux.tap_node(row)
     def page():ux.launch(base+'player-fixture.html?case='+key+'&visit='+str(time.time_ns()))

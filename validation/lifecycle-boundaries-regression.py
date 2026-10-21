@@ -53,7 +53,7 @@ def main():
         raise AssertionError(last)
 
     def background(value):
-        ux.open_settings('视频播放')
+        ux.open_settings('媒体播放')
         root, _ = ux.nodes()
         row = next(n for n in root.iter('node') if n.get('checkable') == 'true'
                    and ux.match(n, 'Allow background media') is not None)

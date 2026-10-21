@@ -33,6 +33,7 @@ import com.mybrowser.translate.TranslationSettings
 import com.mybrowser.translate.TranslationSettingsRepository
 import com.mybrowser.ui.translate.TranslationResultDialog
 import com.mybrowser.ui.translate.TranslationSheet
+import com.mybrowser.ui.menu.MoreToolsSheet
 import com.mybrowser.ui.shell.WelcomeDialog
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
@@ -905,6 +906,11 @@ class MainActivity : ComponentActivity(),
                             isBrowserFullscreen = browserPreferences.browserFullscreenEnabled,
                             isCurrentPageBookmarked = currentPageBookmarked,
                             canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
+                            siteTitle = state.pageTitle?.takeIf { it.isNotBlank() }
+                                ?: UrlUtils.hostOf(state.currentUrl).orEmpty(),
+                            siteHost = UrlUtils.hostOf(state.currentUrl).orEmpty(),
+                            isSecure = state.currentUrl.startsWith("https://") && !hasCertificateWarning,
+                            onSharePage = { if (UrlUtils.isHttpUrl(state.currentUrl)) shareUrl(state.currentUrl) },
                             onBlockElement = {
                                 sheetAction(entry) {
                                     startElementPicker(accent = pickerAccent, bottomInset = pickerInset)
@@ -930,6 +936,7 @@ class MainActivity : ComponentActivity(),
                             onOpenTranslation = {
                                 if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translationError = null
                             },
+                            onOpenMoreTools = { sheetNavigation.push(entry, Sheet.MORE_TOOLS) },
                             onOpenMedia = {
                                 if (sheetNavigation.push(entry, Sheet.CAST)) {
                                     mediaTrackers.trackerOf(webView)?.probe()
@@ -1222,6 +1229,20 @@ class MainActivity : ComponentActivity(),
                                 translationBusy = false
                                 translationProgress = 0
                             },
+                            onDismiss = { dismissSheet(entry) },
+                        )
+                        Sheet.MORE_TOOLS -> MoreToolsSheet(
+                            canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
+                            isIncognito = privacy.isIncognito,
+                            userScriptStatus = currentUserScriptStatus(),
+                            onPinWebsite = { sheetAction(entry) {
+                                if (!com.mybrowser.core.WebsiteShortcuts.pin(this, state.currentUrl, state.pageTitle.orEmpty(), tabManager.currentTab?.favicon))
+                                    toast(getString(R.string.shortcut_unavailable))
+                            } },
+                            onManageUserScripts = { sheetAction(entry) { showUserScripts = true } },
+                            onScanQr = { sheetAction(entry) { openSheet(Sheet.QR_SCANNER) } },
+                            onOpenDeveloperTools = { sheetAction(entry) { openSheet(Sheet.DEVELOPER_TOOLS) } },
+                            onClearData = { sheetAction(entry) { showClearData = true } },
                             onDismiss = { dismissSheet(entry) },
                         )
                         Sheet.QR_SCANNER -> com.mybrowser.ui.qr.QrScannerSheet(
