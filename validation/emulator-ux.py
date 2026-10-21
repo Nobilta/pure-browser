@@ -50,6 +50,7 @@ for key in _translations[0]:
 # translations here: the capture flow waits for the AOSP camera's shutter and used to time out
 # whenever the device was left in Chinese by an earlier stage.
 _label_variants["Shutter"] = {"Shutter", "快门", "快門"}
+_label_variants["Start browsing"] = {"Start browsing", "开始浏览", "開始瀏覽"}
 
 
 @lru_cache(maxsize=512)
@@ -599,7 +600,11 @@ def regress():
     inspect(evidence + "home")
 
 
+_onboarding_checked = False
+
+
 def launch(url=None):
+    global _onboarding_checked
     args = ["shell", "am", "start", "-W", "-n", PACKAGE + "/com.mybrowser.MainActivity"]
     if url:
         args += ["-a", "android.intent.action.VIEW", "-d", url]
@@ -609,6 +614,13 @@ def launch(url=None):
     # `am start -W` already waits for the activity. Leave a short frame for the first composition;
     # every caller follows with tap/expect, which waits for the real control.
     time.sleep(0.2)
+    if not _onboarding_checked:
+        # A fresh install opens the one-time welcome dialog. Dismiss it once so the rest of the
+        # suite starts from the browser, without adding a UI dump to every launch.
+        root, _ = nodes()
+        if match(root, "Start browsing") is not None:
+            tap("Start browsing")
+        _onboarding_checked = True
 
 
 if __name__ == "__main__":
