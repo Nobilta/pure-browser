@@ -59,6 +59,7 @@ fun MenuSheet(
     onToggleDesktopMode: () -> Unit,
     onToggleBrowserFullscreen: (Boolean) -> Unit,
     onOpenFind: () -> Unit,
+    onOpenTranslation: () -> Unit = {},
     onOpenMedia: () -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenHistory: () -> Unit,
@@ -107,6 +108,9 @@ fun MenuSheet(
             MenuSection(title = stringResource(R.string.menu_section_page)) {
                 MenuRow(iconRes = R.drawable.ic_site_settings, title = stringResource(R.string.site_settings),
                     subtitle = "", enabled = canUsePageActions, onClick = onOpenSiteSettings)
+                MenuRow(iconRes = R.drawable.ic_translate, title = stringResource(R.string.translate_title),
+                    subtitle = stringResource(R.string.translate_menu_subtitle),
+                    enabled = canUsePageActions, onClick = onOpenTranslation)
                 MenuRow(iconRes = R.drawable.ic_home, title = stringResource(R.string.pin_website),
                     subtitle = "", enabled = canUsePageActions && !isIncognito, onClick = onPinWebsite)
                 MenuRow(

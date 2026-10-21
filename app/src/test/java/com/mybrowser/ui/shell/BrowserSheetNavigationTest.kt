@@ -104,6 +104,20 @@ class BrowserSheetNavigationTest {
         assertNull(navigation.current)
     }
 
+    @Test fun settingsCanOpenTranslationAndReturnToSettings() {
+        val navigation = BrowserSheetNavigation()
+        navigation.open(MENU)
+        navigation.push(navigation.current!!, SETTINGS)
+        val settings = navigation.current!!
+        assertTrue(navigation.push(settings, TRANSLATION))
+        val translation = navigation.current!!
+        assertTrue(navigation.back(translation))
+        assertEquals(SETTINGS, navigation.current!!.destination)
+        assertEquals(settings.route.key, navigation.current!!.route.key)
+        navigation.back(navigation.current!!)
+        assertEquals(MENU, navigation.current!!.destination)
+    }
+
     @Test fun settingsCannotPushAnotherMenuOrDuplicateItsOwnParent() {
         val navigation = BrowserSheetNavigation()
         navigation.open(MENU)

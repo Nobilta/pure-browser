@@ -100,6 +100,7 @@ fun SettingsSheet(
     onManageCustomFilters: () -> Unit,
     onManageUserScripts: () -> Unit,
     onManageSites: () -> Unit,
+    onOpenTranslation: () -> Unit = {},
     downloadSettings: DownloadSettings,
     onUseSystemDownloadDirectory: () -> Unit,
     onChooseDownloadDirectory: () -> Unit,
@@ -316,6 +317,8 @@ fun SettingsSheet(
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
+                                            SettingsItem(textResources.getString(R.string.translate_title), textResources.getString(R.string.translate_settings_summary),
+                                                onOpenTranslation, R.drawable.ic_translate)
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
                                             SettingsGroup(textResources.getString(R.string.menu_section_data))
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)

@@ -22,8 +22,18 @@ import android.net.http.SslError
 import android.util.Log
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import com.mybrowser.translate.PageTranslator
+import com.mybrowser.translate.TranslationClient
+import com.mybrowser.translate.TranslationSettings
+import com.mybrowser.translate.TranslationSettingsRepository
+import com.mybrowser.ui.translate.TranslationResultDialog
+import com.mybrowser.ui.translate.TranslationSheet
+import com.mybrowser.ui.shell.WelcomeDialog
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
 import android.webkit.JsResult
@@ -53,6 +63,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
@@ -221,6 +232,21 @@ class MainActivity : ComponentActivity(),
     private var downloadSettings by mutableStateOf(DownloadSettings())
     private lateinit var preferencesRepository: BrowserPreferencesRepository
     private var browserPreferences by mutableStateOf(BrowserPreferences())
+    private lateinit var translationSettingsRepository: TranslationSettingsRepository
+    private var translationSettings by mutableStateOf(TranslationSettings())
+    private lateinit var pageTranslator: PageTranslator
+    private var translationBusy by mutableStateOf(false)
+    private var translationProgress by mutableIntStateOf(0)
+    private var translationPageTranslated by mutableStateOf(false)
+    private var showWelcome by mutableStateOf(false)
+    private var translationError by mutableStateOf<String?>(null)
+    private var translationSelectionOriginal by mutableStateOf<String?>(null)
+    private var translationSelectionTranslated by mutableStateOf<String?>(null)
+    private var translationSelectionBusy by mutableStateOf(false)
+    private var translationSelectionError by mutableStateOf<String?>(null)
+    private var translationJob: Job? = null
+    private var translationGeneration = 0
+    private var translationSelectionJob: Job? = null
     private var showFilterSettings by mutableStateOf(false)
     private var showUserScripts by mutableStateOf(false)
     private lateinit var normalSites: SiteSettingsRepository
@@ -546,6 +572,10 @@ class MainActivity : ComponentActivity(),
         normalSites = app.siteSettings
         preferencesRepository = BrowserPreferencesRepository(this)
         browserPreferences = loadBrowserPreferences()
+        translationSettingsRepository = TranslationSettingsRepository(this)
+        translationSettings = translationSettingsRepository.load()
+        pageTranslator = PageTranslator(this)
+        showWelcome = !getSharedPreferences("onboarding", MODE_PRIVATE).getBoolean("welcome_seen", false)
         downloadNotificationsEnabled = com.mybrowser.download.DownloadNotificationGuide.isEnabled(this)
         // A persisted incognito wish applies only on a fresh process. An Activity
         // recreation keeps its live session; a cold start always opens a brand-new
@@ -656,6 +686,32 @@ class MainActivity : ComponentActivity(),
                     }
                 }
                 dialogs.Render()
+                if (showWelcome) {
+                    WelcomeDialog(
+                        isDefaultBrowser = isDefaultBrowser,
+                        onSetDefaultBrowser = {
+                            dismissWelcome()
+                            requestDefaultBrowser()
+                        },
+                        onDismiss = ::dismissWelcome,
+                    )
+                }
+                translationSelectionOriginal?.let { original ->
+                    TranslationResultDialog(
+                        original = original,
+                        translated = translationSelectionTranslated,
+                        busy = translationSelectionBusy,
+                        error = translationSelectionError,
+                        onCopy = { copyToClipboard(it) },
+                        onDismiss = {
+                            if (!translationSelectionBusy) {
+                                translationSelectionOriginal = null
+                                translationSelectionTranslated = null
+                                translationSelectionError = null
+                            }
+                        },
+                    )
+                }
                 val cleanupState by privacy.cleanupState.collectAsState()
                 if (cleanupState == com.mybrowser.privacy.PrivacyCleanupBarrier.State.FAILED) {
                     androidx.compose.material3.AlertDialog(
@@ -871,6 +927,9 @@ class MainActivity : ComponentActivity(),
                                 sheetAction(entry) { setBrowserFullscreenEnabled(target) }
                             },
                             onOpenFind = { sheetAction(entry) { state.showFindBar() } },
+                            onOpenTranslation = {
+                                if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translationError = null
+                            },
                             onOpenMedia = {
                                 if (sheetNavigation.push(entry, Sheet.CAST)) {
                                     mediaTrackers.trackerOf(webView)?.probe()
@@ -1090,6 +1149,9 @@ class MainActivity : ComponentActivity(),
                             },
                             onManageUserScripts = { showUserScripts = true },
                             onManageSites = { showManagedSites = true },
+                            onOpenTranslation = {
+                                if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translationError = null
+                            },
                             downloadSettings = downloadSettings,
                             onUseSystemDownloadDirectory = {
                                 downloadSettings = downloadSettingsRepository.useSystemDownloads()
@@ -1141,6 +1203,27 @@ class MainActivity : ComponentActivity(),
                         )
 
                         Sheet.SITE_SETTINGS -> CurrentSiteSettings(entry)
+                        Sheet.TRANSLATION -> TranslationSheet(
+                            settings = translationSettings,
+                            busy = translationBusy,
+                            progress = translationProgress,
+                            pageTranslated = translationPageTranslated,
+                            error = translationError,
+                            onSettingsChange = {
+                                translationSettings = it
+                                translationSettingsRepository.save(it)
+                            },
+                            onTranslatePage = ::translateCurrentPage,
+                            onRestorePage = ::restoreTranslatedPage,
+                            onTranslateSelection = ::translateSelection,
+                            onCancel = {
+                                translationJob?.cancel()
+                                translationGeneration++
+                                translationBusy = false
+                                translationProgress = 0
+                            },
+                            onDismiss = { dismissSheet(entry) },
+                        )
                         Sheet.QR_SCANNER -> com.mybrowser.ui.qr.QrScannerSheet(
                             onOpenUrl = { url -> sheetAction(entry) { navigator.navigate(url) } },
                             onDismiss = { dismissSheet(entry) },
@@ -2632,6 +2715,17 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPageStarted(url: String) {
+        translationJob?.cancel()
+        translationGeneration++
+        translationSelectionJob?.cancel()
+        translationBusy = false
+        translationProgress = 0
+        translationPageTranslated = false
+        translationError = null
+        translationSelectionOriginal = null
+        translationSelectionTranslated = null
+        translationSelectionBusy = false
+        translationSelectionError = null
         systemMedia.detach(this)
         viewOwnerId = tabManager.currentTab?.id
         cancelWebsitePermissions()
@@ -3303,6 +3397,14 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun dismissSheet(owner: BrowserSheetNavigation.Presentation) {
+        // Back, Escape and the scrim all reach here. A translating page must not silently keep
+        // running after its sheet has left the screen: cancel it before the route is popped.
+        if (owner.destination == Sheet.TRANSLATION && translationBusy) {
+            translationJob?.cancel()
+            translationGeneration++
+            translationBusy = false
+            translationProgress = 0
+        }
         if (sheetNavigation.back(owner)) exitConfirmation.reset()
     }
 
@@ -3898,6 +4000,120 @@ class MainActivity : ComponentActivity(),
         }
     }
 
+    /**
+     * Adds one row to the WebView's text-selection action mode. WebView owns the rest of the menu;
+     * the added item only reads the current selection and never changes Chromium's selection state.
+     */
+    override fun onActionModeStarted(mode: ActionMode) {
+        super.onActionModeStarted(mode)
+        val view = webViewOrNull ?: return
+        if (!view.hasFocus() || !UrlUtils.isHttpUrl(state.currentUrl)) return
+        mode.menu.removeItem(TRANSLATE_SELECTION_ACTION_ID)
+        val item = mode.menu.add(Menu.NONE, TRANSLATE_SELECTION_ACTION_ID, Menu.NONE,
+            getString(R.string.translate_selection))
+        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        item.setOnMenuItemClickListener {
+            translateSelection()
+            mode.finish()
+            true
+        }
+    }
+
+    private fun translateSelection() {
+        val view = webViewOrNull ?: return
+        translationSelectionJob?.cancel()
+        translationSelectionJob = lifecycleScope.launch {
+            val text = runCatching { pageTranslator.selection(view) }.getOrDefault("")
+            if (text.isBlank()) {
+                toast(getString(R.string.translate_selection_empty))
+                return@launch
+            }
+            translationSelectionOriginal = text
+            translationSelectionTranslated = null
+            translationSelectionError = null
+            translationSelectionBusy = true
+            try {
+                translationSelectionTranslated = TranslationClient(translationSettings)
+                    .translate(text, translationSettings.targetLanguage)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                translationSelectionError = error.message ?: getString(R.string.translate_error, "")
+            } finally {
+                translationSelectionBusy = false
+            }
+        }
+    }
+
+    private fun translateCurrentPage() {
+        if (translationBusy) return
+        val view = webViewOrNull ?: return
+        if (!UrlUtils.isHttpUrl(state.currentUrl)) {
+            translationError = getString(R.string.translate_no_text)
+            return
+        }
+        val settings = translationSettings
+        if (!settings.configured) {
+            translationError = getString(R.string.translate_not_configured)
+            return
+        }
+        if (!settings.supportsFullPage) {
+            translationError = getString(R.string.translate_mymemory_note)
+            return
+        }
+        translationError = null
+        translationBusy = true
+        translationProgress = 0
+        val pageUrl = state.currentUrl
+        val pageGeneration = permissionEpoch
+        translationJob?.cancel()
+        val generation = ++translationGeneration
+        translationJob = lifecycleScope.launch {
+            try {
+                val page = pageTranslator.collect(view)
+                if (page.items.isEmpty()) {
+                    translationError = getString(R.string.translate_no_text)
+                    return@launch
+                }
+                val translated = TranslationClient(settings).translateAll(
+                    page.items.map { it.text },
+                    settings.targetLanguage,
+                ) { done, total ->
+                    runOnUiThread {
+                        translationProgress = if (total > 0) (done * 100 / total).coerceIn(0, 100) else 0
+                    }
+                }
+                if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration) return@launch
+                pageTranslator.apply(view, page.items.zip(translated) { item, text -> item.id to text })
+                translationPageTranslated = true
+                if (page.truncated) toast(getString(R.string.translate_truncated))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                translationError = error.message ?: getString(R.string.translate_error, "")
+            } finally {
+                if (translationGeneration == generation) {
+                    translationBusy = false
+                    translationProgress = 0
+                }
+            }
+        }
+    }
+
+    private fun restoreTranslatedPage() {
+        val view = webViewOrNull ?: return
+        lifecycleScope.launch {
+            runCatching { pageTranslator.restore(view) }
+            translationPageTranslated = false
+            translationError = null
+        }
+    }
+
+    private fun dismissWelcome() {
+        showWelcome = false
+        getSharedPreferences("onboarding", MODE_PRIVATE).edit().putBoolean("welcome_seen", true).apply()
+    }
+
     private fun copyToClipboard(text: String) {
         getSystemService(ClipboardManager::class.java)
             ?.setPrimaryClip(ClipData.newPlainText(null, text))
@@ -3915,6 +4131,7 @@ class MainActivity : ComponentActivity(),
          */
         val PICKER_BAR_INSET = 176.dp
         const val EXIT_CONFIRM_WINDOW_MS = 2_000L
+        const val TRANSLATE_SELECTION_ACTION_ID = 0x5452414e
         const val NORMAL_TABS_PREFS = "normal_tabs"
         const val STATE_NORMAL_TABS = "normal_tab_snapshot"
         const val STATE_PROCESS_SESSION = "process_session"
