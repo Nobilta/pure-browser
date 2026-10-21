@@ -77,8 +77,8 @@ def menu():
 
 
 def settings():
-    ux.expect('浏览与启动')
-    ux.expect('视频播放')
+    ux.expect('通用')
+    ux.expect('媒体播放')
     foreground()
     assert window_count() == 2, 'Settings must own exactly one dialog above the browser'
 
@@ -193,7 +193,7 @@ try:
         browser()
         record(label + ' returns to menu, then browser, without retaining another window')
 
-    ux.open_settings('关于')
+    ux.open_settings('关于与更新')
     ux.expect('Pure 浏览器')
     root, _ = ux.nodes()
     assert ux.match(root, '开发者工具') is None, 'Developer tools are duplicated in About'
@@ -205,7 +205,7 @@ try:
     browser()
     record('About contains version information; developer tools are available only in the menu')
 
-    ux.open_settings('浏览与启动')
+    ux.open_settings('通用')
     ux.tap('搜索引擎')
     back()
     ux.expect('启动时恢复上次网页')
@@ -217,7 +217,7 @@ try:
     browser()
     record('picker → category → settings → menu → browser returns one level at a time')
 
-    ux.open_settings('视频播放')
+    ux.open_settings('媒体播放')
     ux.adb('shell', 'input', 'keyevent', '3')
     ux.launch()
     ux.expect('默认启用增强播放')
@@ -251,7 +251,7 @@ try:
     # remaining menu explicitly. It must never reach exit or leave an invisible window.
     for index in range(args.cycles):
         ux.open_settings()
-        ux.expect('浏览与启动')
+        ux.expect('通用')
         delay = (30, 80, 160, 300)[index % 4]
         sequence([['key', 4], ['wait', delay], ['key', 4]])
         time.sleep(.5)
@@ -284,7 +284,7 @@ try:
         browser()
     record('tapping Settings and immediately returning at 0/15/50/100 ms leaves a usable menu')
 
-    ux.open_settings('浏览与启动')
+    ux.open_settings('通用')
     ux.tap('搜索引擎')
     page_probe = prefix + '-page'
     ux.launch('http://127.0.0.1:8875/browser-ux.html?from=menu&touchProbe=' + page_probe)

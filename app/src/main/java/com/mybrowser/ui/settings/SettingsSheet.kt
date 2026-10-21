@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -45,6 +46,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
@@ -165,8 +168,21 @@ fun SettingsSheet(
                         SettingsPage(textResources.getString(R.string.menu_settings), back,
                             modifier = Modifier.settingsPaneChange(paneKey = null,
                                 animate = paneChanged && !twoPane, direction = -1f, travel = !twoPane)) {
-                            OutlinedTextField(searchQuery, { searchQuery = it.take(128) }, label = { Text(textResources.getString(R.string.settings_search)) },
-                                singleLine = true, modifier = Modifier.fillMaxWidth().padding(12.dp))
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it.take(128) },
+                                placeholder = { Text(textResources.getString(R.string.settings_search)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_search), contentDescription = null) },
+                                singleLine = true,
+                                shape = CircleShape,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
                             if (searchQuery.isNotBlank()) {
                                 SETTINGS_SEARCH.filter { (title, category) ->
                                     textResources.getString(title).contains(searchQuery, true) || textResources.getString(category.titleRes).contains(searchQuery, true)
@@ -177,7 +193,14 @@ fun SettingsSheet(
                                     }, category.icon)
                                 }
                             }
-                            if (searchQuery.isBlank()) SettingsCategory.entries.forEach { category ->
+                            if (searchQuery.isBlank()) SettingsCategory.entries.groupBy { it.group }.forEach { (group, categories) ->
+                                Text(
+                                    text = textResources.getString(group.titleRes),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
+                                )
+                                categories.forEach { category ->
                                 val summary = when (category) {
                                     SettingsCategory.BROWSING -> "${currentSearchEngine.displayName(textResources)} · " +
                                         if (restoreLastSession) textResources.getString(R.string.ui_restore_previous_pages) else textResources.getString(R.string.ui_open_homepage_on_startup)
@@ -185,13 +208,18 @@ fun SettingsSheet(
                                     // The summary answers the category's own question: privacy is
                                     // whether the browser is currently private, extensions is what
                                     // filtering is doing and where the installed pieces live.
-                                    SettingsCategory.PRIVACY -> textResources.getString(
-                                        if (isIncognito) R.string.settings_privacy_incognito_on
-                                        else R.string.settings_privacy_incognito_off)
+                                    SettingsCategory.PRIVACY -> listOf(
+                                        textResources.getString(
+                                            if (isIncognito) R.string.settings_privacy_incognito_on
+                                            else R.string.settings_privacy_incognito_off),
+                                        textResources.getString(R.string.site_settings),
+                                        textResources.getString(R.string.settings_import),
+                                    ).joinToString(" · ")
                                     SettingsCategory.EXTENSIONS -> listOfNotNull(
                                         textResources.getString(
                                             if (isFilterEnabled) R.string.ui_ad_filtering_on else R.string.ui_ad_filtering_off),
-                                        textResources.getString(R.string.script_settings_summary),
+                                        textResources.getString(R.string.script_title),
+                                        textResources.getString(R.string.translate_title),
                                     ).joinToString(" · ")
                                     SettingsCategory.DOWNLOADS -> textResources.getString(R.string.ui_connections_2ad3d3, downloadSettings.displayDestinationLabel(textResources), downloadSettings.threadCount)
                                     SettingsCategory.VIDEO -> if (preferences.video.enhancedControls) textResources.getString(R.string.ui_fullscreen_gestures_hold_for, PlaybackSpeed.label(preferences.video.boostRate)) else textResources.getString(R.string.ui_use_webpage_controls)
@@ -205,7 +233,7 @@ fun SettingsSheet(
                                     colors = CardDefaults.cardColors(containerColor =
                                         if (twoPane && category == selected) MaterialTheme.colorScheme.secondaryContainer
                                         else MaterialTheme.colorScheme.surfaceContainerLow),
-                                    shape = MaterialTheme.shapes.medium,
+                                    shape = MaterialTheme.shapes.large,
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                                 ) {
                                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -219,6 +247,7 @@ fun SettingsSheet(
                                         }
                                         Icon(painterResource(R.drawable.ic_forward), null, Modifier.size(18.dp))
                                     }
+                                }
                                 }
                             }
                         }
@@ -301,12 +330,15 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_lock)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
+                                            SettingsGroup(textResources.getString(R.string.settings_sites_and_data))
+                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
+                                            SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
+                                            SettingsItem(textResources.getString(R.string.settings_export), textResources.getString(R.string.settings_export_summary), onExportSettings, R.drawable.ic_share)
+                                            SettingsItem(textResources.getString(R.string.settings_import), textResources.getString(R.string.settings_import_summary), onImportSettings, R.drawable.ic_download)
                                         }
                                         SettingsCategory.EXTENSIONS -> {
-                                            // Installed pieces first, then the data they and the
-                                            // pages leave behind. Site settings appears here as the
-                                            // management door for per-site rules; the menu keeps the
-                                            // page-scoped one, next to the page it edits.
+                                            // The things the user installs or points at. Sites,
+                                            // permissions and data management live under Privacy.
                                             SettingsGroup(textResources.getString(R.string.ui_content_filtering))
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_ad_filtering),
@@ -319,11 +351,6 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
                                             SettingsItem(textResources.getString(R.string.translate_title), textResources.getString(R.string.translate_settings_summary),
                                                 onOpenTranslation, R.drawable.ic_translate)
-                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
-                                            SettingsGroup(textResources.getString(R.string.menu_section_data))
-                                            SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
-                                            SettingsItem(textResources.getString(R.string.settings_export), textResources.getString(R.string.settings_export_summary), onExportSettings, R.drawable.ic_share)
-                                            SettingsItem(textResources.getString(R.string.settings_import), textResources.getString(R.string.settings_import_summary), onImportSettings, R.drawable.ic_download)
                                         }
                                         SettingsCategory.VIDEO -> {
                                             val video = preferences.video
@@ -480,14 +507,20 @@ fun SettingsSheet(
  * split; site settings had a second door in the menu, and browsing data had none in the menu
  * taxonomy this sheet shares.
  */
-private enum class SettingsCategory(val titleRes: Int, val icon: Int) {
-    BROWSING(R.string.ui_browsing_and_startup, R.drawable.ic_home),
-    APPEARANCE(R.string.ui_appearance, R.drawable.ic_settings),
-    PRIVACY(R.string.ui_privacy_security, R.drawable.ic_shield),
-    EXTENSIONS(R.string.ui_extensions, R.drawable.ic_code),
-    DOWNLOADS(R.string.ui_download_settings, R.drawable.ic_download),
-    VIDEO(R.string.ui_video_playback, R.drawable.ic_speed),
-    ABOUT(R.string.ui_about, R.drawable.ic_code),
+private enum class SettingsCategoryGroup(val titleRes: Int) {
+    BROWSER(R.string.settings_group_browser),
+    PRIVACY_CONTENT_MEDIA(R.string.settings_group_privacy_content_media),
+    OTHER(R.string.settings_group_other),
+}
+
+private enum class SettingsCategory(val titleRes: Int, val icon: Int, val group: SettingsCategoryGroup) {
+    BROWSING(R.string.settings_general, R.drawable.ic_home, SettingsCategoryGroup.BROWSER),
+    APPEARANCE(R.string.ui_appearance, R.drawable.ic_settings, SettingsCategoryGroup.BROWSER),
+    PRIVACY(R.string.settings_privacy_data, R.drawable.ic_shield, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    EXTENSIONS(R.string.settings_content_tools, R.drawable.ic_code, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    DOWNLOADS(R.string.ui_download_settings, R.drawable.ic_download, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    VIDEO(R.string.settings_media, R.drawable.ic_speed, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    ABOUT(R.string.settings_about_updates, R.drawable.ic_code, SettingsCategoryGroup.OTHER),
 }
 
 /**

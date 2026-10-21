@@ -30,7 +30,7 @@ result = {"serial": args.serial, "sdk": sdk, "case": case,
           "checks": [], "skipped": [], "error": None}
 original = {name: ux.adb("shell", "settings", "get", "system", name)
             for name in ("accelerometer_rotation", "user_rotation", "font_scale")}
-categories = ("浏览与启动", "外观", "隐私与安全", "扩展", "下载设置", "视频播放", "关于")
+categories = ("通用", "外观", "隐私与数据", "内容与工具", "下载设置", "媒体播放", "关于与更新")
 
 
 def record(name):
@@ -143,7 +143,7 @@ try:
         settings_root()
     record("every portrait category returns to settings with system or toolbar Back")
 
-    category("浏览与启动")
+    category("通用")
     ux.tap("搜索引擎")
     toolbar_back()
     ux.expect("启动时恢复上次网页")
@@ -160,7 +160,7 @@ try:
     ux.expect("应用主题")
     back()
     settings_root()
-    category("扩展")
+    category("内容与工具")
     ux.tap("自定义广告过滤规则")
     ux.expect("广告过滤设置")
     back()
@@ -169,7 +169,7 @@ try:
     settings_root()
     record("theme picker and filter management preserve their parent category")
 
-    category("视频播放")
+    category("媒体播放")
     ux.adb("shell", "input", "keyevent", "3")
     ux.launch()
     ux.expect("默认启用增强播放")
@@ -177,7 +177,7 @@ try:
     settings_root()
     record("returning from the background preserves the category Back handler")
 
-    category("浏览与启动")
+    category("通用")
     ux.tap("搜索引擎")
     ux.adb("shell", "settings", "put", "system", "font_scale", "1.3")
     time.sleep(1.5)
@@ -194,7 +194,7 @@ try:
     record("Activity recreation retains picker and category Back navigation")
 
     if result["navigationMode"] == "2":
-        category("浏览与启动")
+        category("通用")
         ux.tap("搜索引擎")
         gesture_back()
         ux.expect("启动时恢复上次网页")
@@ -224,7 +224,7 @@ try:
     else:
         result["skipped"].append("edge gestures: device does not use gesture navigation")
 
-    category("视频播放")
+    category("媒体播放")
     orient("1")
     ux.expect("默认启用增强播放")
     screenshot("landscape-detail")
@@ -239,7 +239,7 @@ try:
     settings_root()
     record("landscape system and both toolbar Back buttons return to the root")
 
-    category("视频播放")
+    category("媒体播放")
     orient("0")
     ux.expect("默认启用增强播放")
     back()

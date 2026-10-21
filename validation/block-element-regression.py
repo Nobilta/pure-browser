@@ -162,7 +162,7 @@ class Regression:
         time.sleep(.5)
 
     def open_rules(self):
-        ux.open_settings("扩展")
+        ux.open_settings("内容与工具")
         ux.tap("自定义广告过滤规则")
         ux.expect("广告过滤设置")
 

@@ -63,7 +63,7 @@ print("PASS: download rows expose one checkbox with checked/unchecked state and 
 print("PASS: range download matches SHA-256 and the foreground service stops", flush=True)
 ux.adb("shell", "input", "keyevent", "4")
 ux.expect_menu()  # Wait for the download sheet's return animation before selecting Settings.
-ux.open_settings("浏览与启动")
+ux.open_settings("通用")
 ux.tap("默认浏览器")
 deadline = time.monotonic() + 10
 while True:
