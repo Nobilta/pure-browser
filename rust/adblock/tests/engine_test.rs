@@ -358,6 +358,36 @@ fn domain_rules_preserve_ports_and_hostname_boundaries() {
 }
 
 #[test]
+fn document_exception_whitelists_the_whole_page() {
+    let e = engine(&["||ads.example^", "@@||news.example.org^$document"]);
+    assert!(!e.should_block(
+        "https://ads.example/tracker.js",
+        "https://news.example.org/article",
+        ResourceType::Script
+    ));
+    assert!(e.should_block(
+        "https://ads.example/tracker.js",
+        "https://other.example.org/article",
+        ResourceType::Script
+    ));
+}
+
+#[test]
+fn generichide_is_not_a_network_exception() {
+    let e = engine(&["||ads.example^", "@@://news.example.org$generichide"]);
+    assert!(e.should_block(
+        "https://ads.example/tracker.js",
+        "https://news.example.org/article",
+        ResourceType::Script
+    ));
+    assert!(
+        e.page_policy("https://news.example.org/article")
+            .generichide
+    );
+    assert!(!e.page_policy("https://news.example.org/article").document);
+}
+
+#[test]
 fn packaged_lists_and_local_subscription_work_together() {
     let mut e = Engine::new();
     e.add_list(include_str!(

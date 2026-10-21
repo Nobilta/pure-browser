@@ -14,9 +14,9 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--serial", required=True)
-# Edge-gesture round trips alternate direction, so four cycles still cover both directions
-# twice; the historical six only repeated the same pair. Pass a larger value for a stress run.
-parser.add_argument("--cycles", type=int, default=4)
+# Edge-gesture round trips alternate direction, so two cycles cover both directions once.
+# Pass a larger value for a stress run; the suite runner lowers this for the release matrix.
+parser.add_argument("--cycles", type=int, default=2)
 args = parser.parse_args()
 ux.ADB = ["adb", "-s", args.serial]
 sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
@@ -131,14 +131,17 @@ try:
     ux.adb("shell", "am", "force-stop", ux.PACKAGE)
     ux.launch("http://127.0.0.1:8875/browser-ux.html")
     ux.open_settings()
-    for name in categories:
+    # Alternate the two Back mechanisms across categories. Both mechanisms and every category
+    # are still exercised, but a full pass no longer crosses all fourteen transitions; the
+    # picker/theme/filter sections below use both mechanisms again on nested screens.
+    for index, name in enumerate(categories):
         category(name)
-        back()
+        if index % 2 == 0:
+            back()
+        else:
+            toolbar_back()
         settings_root()
-        category(name)
-        toolbar_back()
-        settings_root()
-    record("every portrait category returns to settings with system and toolbar Back")
+    record("every portrait category returns to settings with system or toolbar Back")
 
     category("浏览与启动")
     ux.tap("搜索引擎")

@@ -793,6 +793,7 @@
     <string name="settings_import_bookmarks_note">書籤：導入 %1$d 條，本機已有 %2$d 條；相同地址保留本機記錄</string>
     <string name="settings_import_history_note">歷史記錄：導入 %1$d 條，本機已有 %2$d 條；相同網址保留較晚的一次訪問</string>
     <string name="settings_import_library_added">已新增 %1$d 條書籤、%2$d 條歷史記錄</string>
+    <string name="settings_export_skipped_groups">以下分組無法讀取，未導出：%1$s</string>
     <string name="settings_export_truncated">已達檔案上限：另有 %1$d 條書籤、%2$d 條歷史記錄未導出</string>
     <string name="site_permission_not_remembered">本次依你的選擇處理，但未能記住。請檢查或重設網站設定。</string>
     <string name="privacy_cleanup_title">清除無痕資料</string>

@@ -86,6 +86,12 @@ pub struct RuleOptions {
     pub third_party: Option<bool>,
     /// `$match-case` -- pattern is case-sensitive. Rare; default is insensitive.
     pub match_case: bool,
+    /// `$document` on an exception whitelists the whole document, not only the document request.
+    pub document: bool,
+    /// `$generichide` on an exception suppresses generic cosmetic rules on the page.
+    pub generichide: bool,
+    /// `$elemhide` on an exception suppresses every cosmetic rule on the page.
+    pub elemhide: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -185,6 +191,10 @@ impl Rule {
             pattern.push('*');
         }
 
+        if !is_exception && (options.generichide || options.elemhide) {
+            return Err(SkipReason::Unsupported);
+        }
+
         Ok(Rule {
             pattern,
             anchor,
@@ -259,6 +269,30 @@ fn parse_options(spec: &str) -> Result<RuleOptions, SkipReason> {
             Some(rest) => (true, rest),
             None => (false, raw),
         };
+
+        if name == "document" || name == "doc" {
+            if negated {
+                out.excluded_types |= ResourceType::Document.bit();
+            } else {
+                out.document = true;
+                out.types |= ResourceType::Document.bit();
+            }
+            continue;
+        }
+        if name == "generichide" {
+            if negated {
+                return Err(SkipReason::Unsupported);
+            }
+            out.generichide = true;
+            continue;
+        }
+        if name == "elemhide" {
+            if negated {
+                return Err(SkipReason::Unsupported);
+            }
+            out.elemhide = true;
+            continue;
+        }
 
         if let Some(list) = name.strip_prefix("domain=") {
             for d in list.split('|') {

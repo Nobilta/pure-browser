@@ -120,8 +120,20 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
     }
 
     fun cancelDocument() {
-        pending?.let { request ->
-            if (!request.delivered) { request.delivered = true; request.callback.onReceiveValue(null) }
+        val request = pending
+        // Clearing the owner is the part that matters: a late platform result must not attach to
+        // a document this request no longer belongs to, and the next file input must not be
+        // rejected as a second chooser while the old picker is still returning.
+        pending = null
+        request?.let { cancelled ->
+            if (!cancelled.delivered) {
+                cancelled.delivered = true
+                cancelled.callback.onReceiveValue(null)
+            }
+            cancelled.uri?.let {
+                activity.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            cancelled.file?.delete()
         }
         granted.forEach { (uri, file) ->
             activity.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -130,12 +142,5 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
         granted.clear()
     }
 
-    fun close() {
-        cancelDocument()
-        pending?.let { request ->
-            request.uri?.let { activity.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
-            request.file?.delete()
-        }
-        pending = null
-    }
+    fun close() = cancelDocument()
 }

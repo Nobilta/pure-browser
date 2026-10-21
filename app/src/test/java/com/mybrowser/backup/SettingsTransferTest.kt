@@ -438,6 +438,39 @@ class SettingsTransferTest {
             assertEquals(corrupt, context.getSharedPreferences("site_settings", Context.MODE_PRIVATE)
                 .getString("sites", null))
             assertEquals(ThemeMode.LIGHT, BrowserPreferencesRepository(context).load().theme)
+            // An export from the same unreadable store must omit the group rather than write an
+            // empty authoritative list that a later import would apply as "clear everything".
+            val exported = transfer(filter, FilterSubscriptions(context, filter), brokenSites).collect("9.9.9")
+            assertEquals(null, exported.backup.settings.sites)
+            assertEquals(listOf("sites"), exported.skippedGroups)
+        } finally {
+            filter.close()
+        }
+    }
+
+    @Test fun unreadableFilterManifestIsLeftOutOfAnExportInsteadOfClearingSubscriptions() = runBlocking {
+        context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
+            .putString("subscriptions_manifest", "{not json").commit()
+        val filter = FilterController(context)
+        try {
+            val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
+                .collect("9.9.9")
+            assertEquals(null, exported.backup.settings.filtering)
+            assertTrue(exported.skippedGroups.contains("filtering"))
+        } finally {
+            filter.close()
+        }
+    }
+
+    @Test fun unreadableCustomEnginesAreLeftOutOfAnExportInsteadOfBecomingAnEmptyList() = runBlocking {
+        context.getSharedPreferences("search_engines", Context.MODE_PRIVATE).edit()
+            .putString("custom_engines", "{not json").commit()
+        val filter = FilterController(context)
+        try {
+            val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
+                .collect("9.9.9")
+            assertEquals(null, exported.backup.settings.search)
+            assertTrue(exported.skippedGroups.contains("search"))
         } finally {
             filter.close()
         }

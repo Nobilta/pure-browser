@@ -254,11 +254,9 @@ object SettingsBackupCodec {
     }
 
     private fun decodeBrowser(group: JSONObject): BackupBrowser {
-        if (group.has("theme")) {
-            val theme = string(group, "theme")
-            if (theme !in setOf("SYSTEM", "LIGHT", "DARK")) {
-                throw SettingsBackupException("Unknown theme: $theme")
-            }
+        val theme = optionalString(group, "theme")
+        if (theme != null && theme !in setOf("SYSTEM", "LIGHT", "DARK")) {
+            throw SettingsBackupException("Unknown theme: $theme")
         }
         return BackupBrowser(
             theme = optionalString(group, "theme"),
@@ -270,8 +268,8 @@ object SettingsBackupCodec {
             privateSearchSuggestionsEnabled = optionalBoolean(group, "privateSearchSuggestionsEnabled"),
             browserFullscreenEnabled = optionalBoolean(group, "browserFullscreenEnabled"),
             video = optionalObject(group, "video")?.let { video ->
-                validateRate(video, "browser.video.boostRate")
-                validateRate(video, "browser.video.preferredSpeed")
+                validateBoostRate(video)
+                validatePreferredSpeed(video)
                 BackupVideo(
                     automaticPip = optionalBoolean(video, "automaticPip"),
                     backgroundPlayback = optionalBoolean(video, "backgroundPlayback"),
@@ -289,11 +287,9 @@ object SettingsBackupCodec {
     }
 
     private fun decodeHome(group: JSONObject): BackupHome {
-        if (group.has("mode")) {
-            val mode = string(group, "mode")
-            if (mode !in setOf("NAVIGATION", "FIXED_URL")) {
-                throw SettingsBackupException("Unknown homepage mode: $mode")
-            }
+        val mode = optionalString(group, "mode")
+        if (mode != null && mode !in setOf("NAVIGATION", "FIXED_URL")) {
+            throw SettingsBackupException("Unknown homepage mode: $mode")
         }
         val home = BackupHome(
             mode = optionalString(group, "mode"),
@@ -348,12 +344,9 @@ object SettingsBackupCodec {
     }
 
     private fun decodeDownloads(group: JSONObject): BackupDownloads {
-        var hint: String? = null
-        if (group.has("directoryModeHint")) {
-            hint = string(group, "directoryModeHint")
-            if (hint !in setOf("SYSTEM_DOWNLOADS", "CUSTOM_DIRECTORY")) {
-                throw SettingsBackupException("Unknown directory mode hint: $hint")
-            }
+        val hint = optionalString(group, "directoryModeHint")
+        if (hint != null && hint !in setOf("SYSTEM_DOWNLOADS", "CUSTOM_DIRECTORY")) {
+            throw SettingsBackupException("Unknown directory mode hint: $hint")
         }
         val threads = optionalInt(group, "threadCount")
         if (threads != null && threads !in MIN_DOWNLOAD_THREADS..MAX_DOWNLOAD_THREADS) {
@@ -408,7 +401,7 @@ object SettingsBackupCodec {
                 throw SettingsBackupException(error.message ?: "Invalid subscriptions")
             }
         }
-        val rules = group.optJSONArray("userRules")?.let { array ->
+        val rules = optionalArray(group, "userRules")?.let { array ->
             if (array.length() > com.mybrowser.filter.FilterSubscriptions.MAX_USER_RULES) {
                 throw SettingsBackupException("Too many user rules")
             }
@@ -568,18 +561,25 @@ object SettingsBackupCodec {
 
     /** Library rows land in stores that accept HTTP(S) only; reject them here, not mid-write. */
     private fun libraryUrl(item: JSONObject, label: String): String {
-        val url = requiredString(item, "url")
+        val url = requiredString(item, "url").trim()
         if (url.length > MAX_LIBRARY_URL_CHARS || !com.mybrowser.core.UrlUtils.isHttpUrl(url)) {
             throw SettingsBackupException("$label.url is not an HTTP(S) address")
         }
         return url
     }
 
-    private fun validateRate(group: JSONObject, field: String) {
-        if (!group.has(field.substringAfterLast('.'))) return
-        val value = optionalDouble(group, field.substringAfterLast('.')) ?: return
-        if (PlaybackSpeed.normalizeSelection(value.toFloat()) == null) {
-            throw SettingsBackupException("Playback rate out of range: $value")
+    private fun validateBoostRate(group: JSONObject) {
+        val value = optionalDouble(group, "boostRate") ?: return
+        if (value.toFloat() !in PlaybackSpeed.BOOST_OPTIONS) {
+            throw SettingsBackupException("Playback boost rate is not an offered choice: $value")
+        }
+    }
+
+    private fun validatePreferredSpeed(group: JSONObject) {
+        val value = optionalDouble(group, "preferredSpeed") ?: return
+        val normalized = PlaybackSpeed.normalizeSelection(value.toFloat())
+        if (normalized == null || kotlin.math.abs(normalized - value.toFloat()) > 0.001f) {
+            throw SettingsBackupException("Preferred playback speed is not an offered choice: $value")
         }
     }
 

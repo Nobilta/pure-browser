@@ -103,13 +103,12 @@ class PageHideTest {
         val long = "https://cdn.example.com/a/300x250.png?token=" + "x".repeat(80)
         assertNotNull("the short fixture needs a selector", PageHide.forImage(short))
         assertNull("the long fixture needs no selector", PageHide.forImage(long))
-        // The balance check is engine-independent and must run first: no JVM here ships a
+        // Delimiter balance is engine-independent and must run first: no JVM here ships a
         // JavaScript engine, so a branch that returns when the engine is missing would skip it.
+        // It also catches the stray `)` a brace-only check misses.
         val scripts = listOf("short" to PageHide.imageScript(short), "long" to PageHide.imageScript(long))
         for ((name, script) in scripts) {
-            val opens = script.count { it == '{' }
-            val closes = script.count { it == '}' }
-            assertEquals(name + " script braces must balance: " + script, opens, closes)
+            assertTrue(name + " script delimiters must balance: " + script, balancedDelimiters(script))
         }
         val engine = javax.script.ScriptEngineManager().getEngineByName("js")
         if (engine == null) return
@@ -119,6 +118,31 @@ class PageHideTest {
             } catch (error: Exception) {
                 throw AssertionError(name + " script is not valid JavaScript: " + script, error)
             }
+        }
+    }
+
+    @Test
+    fun theImageScriptParsesWithNodeWhenItIsAvailable() {
+        // JVM has no JavaScript engine, so this is the only test that can actually parse the
+        // generated source end to end. Node is a build dependency of this repository; a machine
+        // without it skips rather than failing an unrelated JVM test.
+        val script = PageHide.imageScript("https://cdn.example.com/a/300x250.png")
+        val file = java.io.File.createTempFile("page-hide", ".js")
+        try {
+            file.writeText("(function(){" + script + "})()")
+            val process = runCatching {
+                ProcessBuilder("node", "--check", file.absolutePath)
+                    .redirectErrorStream(true)
+                    .start()
+            }.getOrNull() ?: return
+            val output = process.inputStream.bufferedReader().readText()
+            if (!process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                throw AssertionError("node --check did not finish")
+            }
+            assertEquals("node --check rejected the image script:\n" + output, 0, process.exitValue())
+        } finally {
+            file.delete()
         }
     }
 
@@ -134,5 +158,33 @@ class PageHideTest {
         assertFalse(PageHide.isUsable("a".repeat(PageHide.MAX_SELECTOR_LENGTH + 1)))
         assertTrue(PageHide.isUsable("div.ad-slot > ins"))
         assertTrue(PageHide.isUsable(PageHide.forImage("https://cdn.example.com/a.png").orEmpty()))
+    }
+
+    /** Parentheses, braces and brackets outside quoted strings must nest and close. */
+    private fun balancedDelimiters(script: String): Boolean {
+        val open = ArrayDeque<Char>()
+        var quote: Char? = null
+        var escaped = false
+        for (character in script) {
+            if (quote != null) {
+                if (escaped) escaped = false
+                else if (character == '\\') escaped = true
+                else if (character == quote) quote = null
+                continue
+            }
+            if (character == '\'' || character == '"') { quote = character; continue }
+            when (character) {
+                '(', '[', '{' -> open.addLast(character)
+                ')', ']', '}' -> {
+                    val expected = when (character) {
+                        ')' -> '('
+                        ']' -> '['
+                        else -> '{'
+                    }
+                    if (open.removeLastOrNull() != expected) return false
+                }
+            }
+        }
+        return quote == null && open.isEmpty()
     }
 }

@@ -121,9 +121,10 @@ class DownloadHandlerTest {
      */
     @Test fun onlyTheSessionThatCreatedAPrivateTaskCanResumeIt() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        // A failing endpoint puts the task into the retryable state without a long transfer.
+        // A non-retryable failure puts the task into the retryable state immediately; a 5xx
+        // would trigger the production backoff and make this identity test wait seconds.
         server.createContext("/gone") { exchange ->
-            exchange.sendResponseHeaders(500, -1)
+            exchange.sendResponseHeaders(403, -1)
             exchange.responseBody.close()
         }
         server.executor = java.util.concurrent.Executors.newCachedThreadPool { task -> Thread(task).apply { isDaemon = true } }
@@ -260,7 +261,7 @@ class DownloadHandlerTest {
         val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
         server.createContext("/private-cookie") { exchange ->
             seen.add(exchange.requestHeaders.getFirst("Cookie").orEmpty())
-            exchange.sendResponseHeaders(500, -1)
+            exchange.sendResponseHeaders(403, -1)
             exchange.responseBody.close()
         }
         server.executor = java.util.concurrent.Executors.newCachedThreadPool { task -> Thread(task).apply { isDaemon = true } }

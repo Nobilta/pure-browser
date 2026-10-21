@@ -617,6 +617,12 @@ class MainActivity : ComponentActivity(),
             if (query.isBlank()) historyManager.getAllHistory(limit, offset)
             else historyManager.searchHistory(query, limit, offset)
         }
+        // A restored sheet is composed from the saved route, not by the menu click that normally
+        // performs the first page load. Without this it shows an empty library until the user
+        // closes and reopens it or types a query.
+        val restoredDestinations = sheetNavigation.routes.mapTo(HashSet()) { it.destination }
+        if (Sheet.BOOKMARKS in restoredDestinations) bookmarkLibrary.search("")
+        if (Sheet.HISTORY in restoredDestinations) historyLibrary.search("")
         downloadSettingsRepository = DownloadSettingsRepository(this)
         downloadSettings = downloadSettingsRepository.load()
         // The process owns the check and the offer; this Activity only displays it (see App).
@@ -1028,13 +1034,18 @@ class MainActivity : ComponentActivity(),
                             onAddCustomSearchEngine = { name, template, suggestTemplate ->
                                 runCatching {
                                     searchEngineManager.addCustomEngine(name, template, suggestTemplate)
-                                }.onSuccess { added ->
-                                    availableSearchEngines = searchEngineManager.getAvailableEngines()
-                                    toast(getString(R.string.ui_search_engine_added, added.displayName(resources)))
-                                }.onFailure { error ->
-                                    Log.w("MainActivity", "invalid custom search engine", error)
-                                    toast(getString(R.string.ui_invalid_search_engine_format_or_engine_limit_reached))
-                                }
+                                }.fold(
+                                    onSuccess = { added ->
+                                        availableSearchEngines = searchEngineManager.getAvailableEngines()
+                                        toast(getString(R.string.ui_search_engine_added, added.displayName(resources)))
+                                        true
+                                    },
+                                    onFailure = { error ->
+                                        Log.w("MainActivity", "invalid custom search engine", error)
+                                        toast(getString(R.string.ui_invalid_search_engine_format_or_engine_limit_reached))
+                                        false
+                                    },
+                                )
                             },
                             onRemoveCustomSearchEngine = { engine ->
                                 searchEngineManager.removeCustomEngine(engine.id)
@@ -1101,11 +1112,17 @@ class MainActivity : ComponentActivity(),
                                 // Turning private suggestions off ends their cache
                                 // lifetime: nothing typed under the old setting may
                                 // resurface if it is turned back on.
+                                val previous = browserPreferences
                                 val privateSuggestionsOff = privacy.isIncognito &&
-                                    browserPreferences.privateSearchSuggestionsEnabled && !it.privateSearchSuggestionsEnabled
+                                    previous.privateSearchSuggestionsEnabled && !it.privateSearchSuggestionsEnabled
                                 val fullscreenTarget = it.browserFullscreenEnabled
-                                val fullscreenChanged = fullscreenTarget != browserPreferences.browserFullscreenEnabled
-                                browserPreferences = preferencesRepository.save(it.copy(browserFullscreenEnabled = browserPreferences.browserFullscreenEnabled))
+                                val fullscreenChanged = fullscreenTarget != previous.browserFullscreenEnabled
+                                // Fullscreen has its own confirmed-save path; keep it out of the
+                                // snapshot so this write cannot undo a concurrent settings import.
+                                browserPreferences = preferencesRepository.saveChanged(
+                                    previous,
+                                    it.copy(browserFullscreenEnabled = previous.browserFullscreenEnabled),
+                                )
                                 if (fullscreenChanged) setBrowserFullscreenEnabled(fullscreenTarget)
                                 if (privateSuggestionsOff) {
                                     (application as App).searchSuggestionProvider.rotatePrivateSession()
@@ -1770,11 +1787,20 @@ class MainActivity : ComponentActivity(),
      */
     private fun setIncognitoEnabled(target: Boolean) {
         if (target == privacy.isIncognito || clearingData || privacy.isTransitioning) return
+        val previousWish = browserPreferences.incognitoEnabled
         lifecycleScope.launch {
             val saved = withContext(Dispatchers.IO) { preferencesRepository.saveIncognitoEnabled(target) }
-            if (target == privacy.isIncognito || clearingData || privacy.isTransitioning) return@launch
             if (!saved) {
                 toast(getString(R.string.incognito_preference_save_failed))
+                return@launch
+            }
+            if (target == privacy.isIncognito) return@launch
+            if (clearingData || privacy.isTransitioning) {
+                // The wish was persisted, but the switch cannot run now. Restore exactly the
+                // previous wish so the next cold start cannot enter a mode this session skipped.
+                if (target != previousWish) {
+                    withContext(Dispatchers.IO) { preferencesRepository.saveIncognitoEnabled(previousWish) }
+                }
                 return@launch
             }
             browserPreferences = browserPreferences.copy(incognitoEnabled = target)
@@ -3231,6 +3257,12 @@ class MainActivity : ComponentActivity(),
                     // cannot be touched while it is running, so cancel it before anything the page
                     // itself would answer.
                     elementPicker != null -> stopElementPicker()
+                    // Find is an overlay like the picker: Back closes it before it can step
+                    // page history, exactly as Escape already does.
+                    state.isFindBarVisible -> {
+                        webView.clearMatches()
+                        state.hideFindBar()
+                    }
                     // Every overlay is closed and the chrome is hidden: back is the user's
                     // way out of immersion, not a page-history step.
                     isBrowserFullscreenImmersive -> setBrowserFullscreenEnabled(false)
@@ -3556,15 +3588,17 @@ class MainActivity : ComponentActivity(),
             }
             // Never claim a complete file when the size budget cut the library short.
             val truncated = export.omittedBookmarks > 0 || export.omittedHistory > 0
-            toast(
-                getString(R.string.settings_exported) +
-                    if (truncated) {
-                        "\n" + getString(
-                            R.string.settings_export_truncated,
-                            export.omittedBookmarks, export.omittedHistory,
-                        )
-                    } else "",
-            )
+            val skipped = export.skippedGroups.map(::settingsGroupName)
+            val truncatedMessage = if (truncated) {
+                "\n" + getString(
+                    R.string.settings_export_truncated,
+                    export.omittedBookmarks, export.omittedHistory,
+                )
+            } else ""
+            val skippedMessage = if (skipped.isNotEmpty()) {
+                "\n" + getString(R.string.settings_export_skipped_groups, skipped.joinToString("、"))
+            } else ""
+            toast(getString(R.string.settings_exported) + truncatedMessage + skippedMessage)
         }
     }
 
@@ -3662,21 +3696,13 @@ class MainActivity : ComponentActivity(),
             }
         } else {
             // Name the failing groups: a count alone cannot tell the user what to re-check.
-            val names = result.failed.map { groupId ->
-                getString(when (groupId) {
-                    "browser" -> R.string.settings_group_browser
-                    "home" -> R.string.settings_group_home
-                    "search" -> R.string.settings_group_search
-                    "downloads" -> R.string.settings_group_downloads
-                    "filtering" -> R.string.settings_group_filtering
-                    "bookmarks" -> R.string.settings_group_bookmarks
-                    "history" -> R.string.settings_group_history
-                    else -> R.string.settings_group_sites
-                })
-            }.joinToString("、")
+            val names = result.failed.map(::settingsGroupName).joinToString("、")
             toast(getString(R.string.settings_import_partial, result.applied.size, names))
         }
     }
+
+    private fun settingsGroupName(groupId: String): String =
+        getString(com.mybrowser.ui.settings.settingsGroupTitle(groupId) ?: R.string.settings_group_sites)
 
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()

@@ -13,6 +13,10 @@ import org.json.JSONObject
  * Manages search engine selection and custom search engines.
  */
 class SearchEngineManager(private val context: Context) {
+    /** True when a stored custom-engine list exists but could not be decoded. */
+    @Volatile var loadFailed: Boolean = false
+        private set
+
     private val prefs: SharedPreferences =
         context.getSharedPreferences("search_engines", Context.MODE_PRIVATE)
 
@@ -165,17 +169,23 @@ class SearchEngineManager(private val context: Context) {
     }
 
     private fun getCustomEngines(): List<SearchEngine> {
-        val json = prefs.getString(PREF_CUSTOM_ENGINES, null) ?: return emptyList()
+        val json = prefs.getString(PREF_CUSTOM_ENGINES, null)
+        if (json == null) {
+            loadFailed = false
+            return emptyList()
+        }
         if (json.length > MAX_PERSISTED_JSON_LENGTH) {
+            loadFailed = true
             Log.w(TAG, "Stored custom engines exceed $MAX_PERSISTED_JSON_LENGTH characters; ignoring them")
             return emptyList()
         }
         // Simple JSON parsing - format: [{id,name,url}]
         return try {
-            parseCustomEnginesJson(json)
+            parseCustomEnginesJson(json).also { loadFailed = false }
         } catch (e: Exception) {
             // Reporting none hides the engines until something rewrites the preference, so the
             // reason has to reach the log; nothing here deletes the stored value.
+            loadFailed = true
             Log.w(TAG, "Unreadable custom engines; ignoring them", e)
             emptyList()
         }
@@ -185,6 +195,7 @@ class SearchEngineManager(private val context: Context) {
         require(isValidCustomEngineList(engines)) { "Invalid or oversized custom engine list" }
         val json = buildCustomEnginesJson(engines)
         prefs.edit { putString(PREF_CUSTOM_ENGINES, json) }
+        loadFailed = false
     }
 
     private fun parseCustomEnginesJson(json: String): List<SearchEngine> {

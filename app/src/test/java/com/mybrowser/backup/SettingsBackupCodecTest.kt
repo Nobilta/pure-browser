@@ -50,6 +50,36 @@ class SettingsBackupCodecTest {
         assertNull(decoded.settings.sites)
     }
 
+    @Test fun nullOptionalEnumFieldsMeanKeepCurrent() {
+        val text = edit { root ->
+            val settings = root.getJSONObject("settings")
+            settings.getJSONObject("browser").put("theme", JSONObject.NULL)
+            settings.getJSONObject("home").put("mode", JSONObject.NULL)
+            settings.getJSONObject("downloads").put("directoryModeHint", JSONObject.NULL)
+        }
+        val decoded = SettingsBackupCodec.decode(text)
+        assertNull(decoded.settings.browser?.theme)
+        assertNull(decoded.settings.home?.mode)
+        assertNull(decoded.settings.downloads?.directoryModeHint)
+    }
+
+    @Test fun playbackRatesMustBeOfferedValues() {
+        reject(edit { it.getJSONObject("settings").getJSONObject("browser")
+            .getJSONObject("video").put("preferredSpeed", 1.25) })
+        reject(edit { it.getJSONObject("settings").getJSONObject("browser")
+            .getJSONObject("video").put("boostRate", 2.5) })
+    }
+
+    @Test fun libraryUrlsAreTrimmedBeforeValidationAndStorage() {
+        val text = edit { root ->
+            root.getJSONObject("settings").getJSONObject("bookmarks").getJSONArray("entries")
+                .getJSONObject(0).put("url", "  https://example.com/trimmed  ")
+        }
+        val decoded = SettingsBackupCodec.decode(text)
+        assertEquals("https://example.com/trimmed",
+            decoded.settings.bookmarks?.entries?.first()?.url)
+    }
+
     @Test fun explicitDefaultsAreValuesNotMissingFields() {
         // false, 1 and empty lists are deliberate choices and must survive decoding.
         val text = JSONObject()

@@ -41,24 +41,6 @@ data class NetworkRequestLog(
     fun sizeText(resources: Resources): String = sizeBytes?.let(::formatBytes) ?: resources.getString(R.string.ui_unknown_size)
 
     fun durationText(resources: Resources): String = durationMs?.let { "$it ms" } ?: resources.getString(R.string.ui_in_progress)
-
-    private companion object {
-        fun formatBytes(bytes: Long): String {
-            if (bytes < 1024L) return "$bytes B"
-            val units = arrayOf("KB", "MB", "GB", "TB")
-            var value = bytes.toDouble()
-            var index = -1
-            while (value >= 1024.0 && index < units.lastIndex) {
-                value /= 1024.0
-                index++
-            }
-            return if (value >= 10 || value == value.toLong().toDouble()) {
-                "%.0f %s".format(java.util.Locale.US, value, units[index])
-            } else {
-                "%.1f %s".format(java.util.Locale.US, value, units[index])
-            }
-        }
-    }
 }
 
 /** Thread-safe, bounded state used by WebView worker callbacks and Compose. */

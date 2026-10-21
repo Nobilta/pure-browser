@@ -51,6 +51,13 @@ fun BookmarksSheet(
     var deleteSelected by remember { mutableStateOf(false) }
     var deleteFolder by remember { mutableStateOf<BookmarkFolder?>(null) }
     val folders = library.folders
+    // Search results span folders. Resolve every path once per folder list rather than walking
+    // the parent chain for each visible row; with a 50-row page that was quadratic.
+    val folderPaths = remember(folders) {
+        folders.associate { folder ->
+            folder.id to runCatching { BookmarkFolders.path(folder.id, folders) }.getOrDefault(emptyList())
+        }
+    }
     val parentId = library.path.lastOrNull()?.parentId ?: 0L
     LaunchedEffect(library.folderId, query) { selected = emptySet(); selecting = false }
     val back = {
@@ -136,7 +143,7 @@ fun BookmarksSheet(
                             Text(bookmark.url, style = MaterialTheme.typography.bodySmall, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (query.isNotBlank() && bookmark.folderId != 0L) Text(
-                                runCatching { BookmarkFolders.path(bookmark.folderId, folders).joinToString(" / ") { it.title } }.getOrDefault(""),
+                                folderPaths[bookmark.folderId].orEmpty().joinToString(" / ") { it.title },
                                 style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Box {
@@ -172,7 +179,7 @@ fun BookmarksSheet(
         }) { Text(stringResource(R.string.bookmark_save)) } },
         dismissButton = { TextButton(onClick = { folderEditor = false }) { Text(stringResource(R.string.action_cancel)) } })
     if (moving) BookmarkFolderPicker(folders.filter { folder ->
-        movingFolder?.let { parent -> BookmarkFolders.path(folder.id, folders).none { it.id == parent.id } } ?: true
+        movingFolder?.let { parent -> folderPaths[folder.id].orEmpty().none { it.id == parent.id } } ?: true
     }, folders, onSelect = { target ->
         val folder = movingFolder; val ids = selected
         library.mutate { if (folder == null) moveBookmarks(ids, target) else updateFolder(folder.id, folder.title, target) }

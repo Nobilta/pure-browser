@@ -55,7 +55,7 @@ data class BrowserPreferences(
 class BrowserPreferencesRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("browser_preferences", Context.MODE_PRIVATE)
 
-    fun load(): BrowserPreferences = BrowserPreferences(
+    private fun read(): BrowserPreferences = BrowserPreferences(
         bottomAddressBar = prefs.getBoolean("bottom_address_bar", false),
         swipeTabs = prefs.getBoolean("swipe_tabs", false),
         autoCheckUpdates = prefs.getBoolean("auto_check_updates", true),
@@ -84,14 +84,87 @@ class BrowserPreferencesRepository(context: Context) {
      * after this succeeds, so unlike [save] this reports the disk write instead of firing
      * and forgetting. Call from an IO dispatcher.
      */
-    fun saveIncognitoEnabled(value: Boolean): Boolean =
+    fun saveIncognitoEnabled(value: Boolean): Boolean = synchronized(writeLock) {
         prefs.edit().putBoolean("incognito_enabled", value).commit()
+    }
 
     /** Restore the in-memory value too: a failed commit must not enable fullscreen on reload. */
-    fun saveBrowserFullscreenEnabled(value: Boolean): Boolean =
+    fun saveBrowserFullscreenEnabled(value: Boolean): Boolean = synchronized(writeLock) {
         runCatching { prefs.commitConfirmed(mapOf("browser_fullscreen_enabled" to value)) }.isSuccess
+    }
 
-    fun save(value: BrowserPreferences, confirmed: Boolean = false): BrowserPreferences {
+    fun load(): BrowserPreferences = synchronized(writeLock) { read() }
+
+    /**
+     * Applies one UI change against the values currently on disk rather than overwriting the whole
+     * snapshot the UI was built from. A settings import can commit a field while the settings sheet
+     * is open; the next toggle must not put the pre-import snapshot back.
+     */
+    fun saveChanged(base: BrowserPreferences, target: BrowserPreferences, confirmed: Boolean = false): BrowserPreferences =
+        synchronized(writeLock) { write(mergeChanged(base, target, read()), confirmed) }
+
+    /** Runs a read-modify-write atomically with respect to every other repository write. */
+    fun update(transform: (BrowserPreferences) -> BrowserPreferences, confirmed: Boolean = false): BrowserPreferences =
+        synchronized(writeLock) { write(transform(read()), confirmed) }
+
+    fun save(value: BrowserPreferences, confirmed: Boolean = false): BrowserPreferences =
+        synchronized(writeLock) { write(value, confirmed) }
+
+    private fun mergeChanged(
+        base: BrowserPreferences,
+        target: BrowserPreferences,
+        current: BrowserPreferences,
+    ): BrowserPreferences {
+        fun <T> changed(before: T, after: T, existing: T): T = if (after != before) after else existing
+        val video = target.video
+        val baseVideo = base.video
+        val currentVideo = current.video
+        return current.copy(
+            theme = changed(base.theme, target.theme, current.theme),
+            bottomAddressBar = changed(base.bottomAddressBar, target.bottomAddressBar, current.bottomAddressBar),
+            swipeTabs = changed(base.swipeTabs, target.swipeTabs, current.swipeTabs),
+            autoCheckUpdates = changed(base.autoCheckUpdates, target.autoCheckUpdates, current.autoCheckUpdates),
+            incognitoEnabled = changed(base.incognitoEnabled, target.incognitoEnabled, current.incognitoEnabled),
+            searchSuggestionsEnabled = changed(
+                base.searchSuggestionsEnabled, target.searchSuggestionsEnabled, current.searchSuggestionsEnabled,
+            ),
+            privateSearchSuggestionsEnabled = changed(
+                base.privateSearchSuggestionsEnabled, target.privateSearchSuggestionsEnabled,
+                current.privateSearchSuggestionsEnabled,
+            ),
+            browserFullscreenEnabled = changed(
+                base.browserFullscreenEnabled, target.browserFullscreenEnabled, current.browserFullscreenEnabled,
+            ),
+            video = currentVideo.copy(
+                automaticPip = changed(baseVideo.automaticPip, video.automaticPip, currentVideo.automaticPip),
+                backgroundPlayback = changed(
+                    baseVideo.backgroundPlayback, video.backgroundPlayback, currentVideo.backgroundPlayback,
+                ),
+                enhancedControls = changed(
+                    baseVideo.enhancedControls, video.enhancedControls, currentVideo.enhancedControls,
+                ),
+                verticalGestures = changed(
+                    baseVideo.verticalGestures, video.verticalGestures, currentVideo.verticalGestures,
+                ),
+                horizontalSeek = changed(
+                    baseVideo.horizontalSeek, video.horizontalSeek, currentVideo.horizontalSeek,
+                ),
+                holdToBoost = changed(baseVideo.holdToBoost, video.holdToBoost, currentVideo.holdToBoost),
+                boostRate = changed(baseVideo.boostRate, video.boostRate, currentVideo.boostRate),
+                landscapeFullscreen = changed(
+                    baseVideo.landscapeFullscreen, video.landscapeFullscreen, currentVideo.landscapeFullscreen,
+                ),
+                rememberSpeed = changed(
+                    baseVideo.rememberSpeed, video.rememberSpeed, currentVideo.rememberSpeed,
+                ),
+                preferredSpeed = changed(
+                    baseVideo.preferredSpeed, video.preferredSpeed, currentVideo.preferredSpeed,
+                ),
+            ),
+        )
+    }
+
+    private fun write(value: BrowserPreferences, confirmed: Boolean): BrowserPreferences {
         val video = value.video.copy(
             boostRate = value.video.boostRate.takeIf { it in PlaybackSpeed.BOOST_OPTIONS } ?: 2f,
             preferredSpeed = PlaybackSpeed.normalizeSelection(value.video.preferredSpeed) ?: 1f,
@@ -118,5 +191,13 @@ class BrowserPreferencesRepository(context: Context) {
         )
         if (confirmed) prefs.commitConfirmed(values) else prefs.edit { putValues(values) }
         return value.copy(video = video)
+    }
+
+    private companion object {
+        /**
+         * Shared by every repository instance in the process. Settings import and the settings
+         * sheet construct their own repository, so a per-instance lock would not serialise them.
+         */
+        val writeLock = Any()
     }
 }

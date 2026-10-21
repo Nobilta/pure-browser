@@ -119,18 +119,31 @@ Windows 上把 `python3` 换成 `python` 即可；单独运行某个回归脚本
      --label release-0141-smoke --profile smoke
    ```
 
-一次只运行一个 UI 脚本，避免同时构建。QA 使用本机 8875/8876 端口，部分夹具使用 8877–8879，
-通过 ADB reverse 访问。使用本机代理时，在回归命令前加
+同一台模拟器上一次只运行一个 UI 脚本，避免输入焦点和构建互相干扰；分片时每台 AVD 各跑一片。
+QA 使用本机 8875/8876 端口，
+部分夹具使用 8877–8879，通过 ADB reverse 访问。使用本机代理时，在回归命令前加
 `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost`。
+
+需要缩短完整矩阵时，可用独立 AVD 和 `--shard N/M` 分片；每片必须安装同一个 APK 并各自启动 QA
+reverse。`features-filters` 会修改 QA 服务的全局过滤模式，不能与其它片共用同一个 QA 服务并行；
+给分片使用独立 QA 端口/实例，或把该阶段固定在一个片里。
 
 ### 选择阶段
 
 | 参数 | 覆盖范围 |
 |---|---|
+| `--profile fast` | 地址栏、标签驻留、设置，约几分钟的日常门禁 |
 | `--profile smoke`（默认） | 地址栏、标签驻留、基础浏览、网页对话框 |
 | `--profile tabs` | 驻留、普通/无痕媒体生命周期、菜单、两种弹窗视频 |
 | `--profile full` | 当前设备适用的完整矩阵 |
 | `--stages 名称…` | 只运行指定阶段，覆盖 profile 选择 |
+| `--keep-going` | 跑完所有选中阶段并汇总失败，不在第一个失败处停止 |
+| `--cycles N` | 覆盖菜单/设置返回循环次数；默认菜单 4、设置 2 |
+| `--shard N/M` | 只跑第 N 片（共 M 片），配合独立模拟器并行 |
+
+完整矩阵默认已把菜单循环降到 4 次（覆盖 30/80/160/300 ms 四种返回延迟各一次）、设置返回降到
+2 次（覆盖两个边缘手势方向各一次）；需要压力测试时显式传 `--cycles 8` 或 `--cycles 4`。
+`settings-back` 现在按分类轮换系统返回和工具栏返回，两类路径和所有分类仍会覆盖，但不再每个分类都走两遍。
 
 例如，只检查启动更新提示和标签行为：
 
@@ -170,7 +183,8 @@ python3 validation/run-regressions.py --serial emulator-5554 --apk PureBrowser-v
 
 suite JSON 和阶段日志生成在 `validation/results/`，记录 APK SHA-256、设备、WebView、测试源码哈希及阶段结果。
 已安装 APK 必须与传入文件一致。只有 APK、AVD、测试源码和阶段选择全部相同时，才能加 `--resume` 续跑。
-失败尝试保留在 `priorAttempts`；换包或改测试后使用新的 suite。
+失败尝试保留在 `priorAttempts`；换包或改测试后使用新的 suite。`--keep-going` 会保留每个失败阶段的结果，
+修完后用 `--resume` 只重跑失败和未跑阶段，不必重跑整片。
 
 CI 日志和报告从对应 Actions 运行下载；本地结果不提交 Git。
 发布时只把设备、实际通过阶段和未覆盖范围写入[验证记录](release/notes.md)，不合并不同 APK 的通过结果。
@@ -183,11 +197,11 @@ CI 日志和报告从对应 Actions 运行下载；本地结果不提交 Git。
 - 修改回归框架后，做一次已知缺陷的负向对照，确认对应检查仍会失败。
 - 模拟器通过不能代替真机结果。扫码预览方向、实体投屏画面、真实账号登录和更新安装，需分别检查实际结果。
 
-需要更高压力时可增加菜单往返次数：
+需要更高压力时可增加菜单/设置返回循环次数：
 
 ```bash
-python3 validation/menu-navigation-regression.py --serial emulator-5554 --cycles 24
-python3 validation/settings-back-regression.py --serial emulator-5554 --cycles 6
+python3 validation/menu-navigation-regression.py --serial emulator-5554 --cycles 8
+python3 validation/settings-back-regression.py --serial emulator-5554 --cycles 4
 ```
 
 性能问题可使用现有启动和规则计算基准：

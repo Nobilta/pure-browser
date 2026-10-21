@@ -39,6 +39,22 @@ class DownloadRedownloadTest {
         override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?) = 0
     }
 
+    @Test fun cancellingACompletedRecordLeavesItsLibraryEntryIntact() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val entry = JSONObject().put("id", -150).put("backend", "LOCAL")
+            .put("url", "https://example.com/done.bin").put("filename", "done.bin")
+            .put("status", "COMPLETED").put("autoResumeAllowed", true)
+        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit()
+            .putString("entries", JSONArray().put(entry).toString()).commit()
+        val handler = DownloadHandler(context)
+        try {
+            // This is the notification cancel path racing a completion: the record is terminal,
+            // and deleting it would also delete the user's finished file.
+            handler.cancel(-150)
+            assertTrue(handler.downloads.value.any { it.id == -150L && it.status == DownloadStatus.COMPLETED })
+        } finally { handler.close() }
+    }
+
     @Test fun failedNewCopyRetainsOldFileAndUsesCurrentCookie() = exercise(cancelNew = false)
     @Test fun cancelledNewCopyRetainsOldFileAndRepeatedTapsCoalesce() = exercise(cancelNew = true)
 

@@ -55,8 +55,22 @@ internal class HttpDownloadEngine {
         currentCoroutineContext().ensureActive()
         val checkpoint = DownloadCheckpoint.read(tempDirectory, url)
         val probe = if (checkpoint != null) {
-            // A failed revalidation preserves the partial files for a later retry.
-            probeRangeSupport(url, headers)
+            // An HTTP rejection while revalidating cannot resume, but it must not pin the task in
+            // the active state forever either. Discard the now-unusable sidecars and take the same
+            // clean single-stream path as a corrupt checkpoint. Other I/O failures still preserve
+            // the partial files for a later retry.
+            try {
+                probeRangeSupport(url, headers)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (rejected: DownloadHttpException) {
+                Log.w(TAG, "Range revalidation rejected; restarting the download", rejected)
+                tempDirectory.deleteRecursively()
+                check(tempDirectory.mkdirs() || tempDirectory.isDirectory) {
+                    "Unable to recreate download temporary directory"
+                }
+                null
+            }
         } else if (threadLimit > 1) {
             try { probeRangeSupport(url, headers) }
             catch (cancelled: CancellationException) { throw cancelled }

@@ -86,6 +86,7 @@ class DownloadHandler(context: Context) : Closeable {
     private val fromPageTasks = ConcurrentHashMap.newKeySet<Long>()
     private val pageFileFailures = ConcurrentHashMap<Long, String>()
     private val lastProgressPersist = AtomicLong(0L)
+    private val lastPageProgressPublish = AtomicLong(0L)
     /** Serialises JSON snapshots so completion and deletion cannot overwrite one another. */
     private val metadataLock = Any()
 
@@ -296,6 +297,7 @@ class DownloadHandler(context: Context) : Closeable {
             // disk, and it is what the next slice is requested from. The two agree in practice — the
             // page sends exactly one slice per request — and this stays correct if they ever do not.
             var written = 0L
+            var lastActivity = android.os.SystemClock.elapsedRealtime()
             try {
                 output = java.io.BufferedOutputStream(java.io.FileOutputStream(partFile))
                 while (true) {
@@ -304,6 +306,7 @@ class DownloadHandler(context: Context) : Closeable {
                         output.write(next)
                         output.flush()
                         written += next.size.toLong()
+                        lastActivity = android.os.SystemClock.elapsedRealtime()
                         onPageFileProgress(id, written)
                         if (!source.requestNext(id, written)) break
                         continue
@@ -311,6 +314,10 @@ class DownloadHandler(context: Context) : Closeable {
                     // Nothing queued. The page's end marker may have arrived between the last write
                     // and this poll, in which case the transfer is simply over.
                     if (!source.isTransferring(id)) break
+                    if (android.os.SystemClock.elapsedRealtime() - lastActivity >= PAGE_FILE_IDLE_TIMEOUT_MS) {
+                        result.compareAndSet(null, "timeout")
+                        break
+                    }
                     delay(PUMP_IDLE_DELAY_MS)
                 }
             } catch (cancelled: CancellationException) {
@@ -388,7 +395,11 @@ class DownloadHandler(context: Context) : Closeable {
                 )
             }
         }
-        publishSnapshots()
+        val now = android.os.SystemClock.elapsedRealtime()
+        val previous = lastPageProgressPublish.get()
+        if (now - previous >= PAGE_PROGRESS_PUBLISH_INTERVAL_MS &&
+            lastPageProgressPublish.compareAndSet(previous, now)
+        ) publishSnapshots()
     }
 
     /**
@@ -622,7 +633,15 @@ class DownloadHandler(context: Context) : Closeable {
     /** Cancels an active task and removes its incomplete data and browser record. */
     fun cancel(id: Long) {
         if (closed) return
-        val entry = metadata.remove(id) ?: return
+        val entry = synchronized(taskLock) {
+            val current = metadata[id] ?: return
+            // A completed download is terminal: its file and row belong to the library, not to a
+            // notification action that raced the completion. Removing while holding the same lock
+            // as progress and completion makes the status decision atomic.
+            if (current.status == DownloadStatus.COMPLETED) return
+            if (metadata.remove(id) == null) return
+            current
+        }
         interrupted.remove(id)
         // The record dies here, so the page must stop handing bytes over: the sink they reach would
         // otherwise keep writing into a task nothing is watching.
@@ -1051,7 +1070,9 @@ class DownloadHandler(context: Context) : Closeable {
                     publishSnapshots()
                     val now = android.os.SystemClock.elapsedRealtime()
                     val previous = lastProgressPersist.get()
-                    if (now - previous > 2_000 && lastProgressPersist.compareAndSet(previous, now)) persistMetadata()
+                    if (now - previous > PROGRESS_PERSIST_INTERVAL_MS &&
+                        lastProgressPersist.compareAndSet(previous, now)
+                    ) persistMetadata()
                 },
             ) }
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -1199,8 +1220,11 @@ class DownloadHandler(context: Context) : Closeable {
                 .filter { !it.status.active }
                 .sortedByDescending { it.timestamp }
                 .drop(MAX_METADATA_ENTRIES)
-                .map { it.id }
-            stale.forEach { id -> metadata.remove(id); transferScope.launch { cleanupRemovedTask(id) } }
+            stale.forEach { entry ->
+                // Remove only the exact value examined: a task may have been replaced by a new
+                // download with the same id while the snapshot was being sorted.
+                if (metadata.remove(entry.id, entry)) transferScope.launch { cleanupRemovedTask(entry.id) }
+            }
         }
     }
 
@@ -1273,6 +1297,10 @@ class DownloadHandler(context: Context) : Closeable {
          * to be handed from that thread. It polls instead; a slice arrives well inside this interval,
          * so the poll costs one wake-up per slice and nothing while idle.
          */
-        const val PUMP_IDLE_DELAY_MS = 2L
+        const val PUMP_IDLE_DELAY_MS = 25L
+        /** A page that stops delivering chunks must fail instead of pinning a task forever. */
+        const val PAGE_FILE_IDLE_TIMEOUT_MS = 60_000L
+        const val PAGE_PROGRESS_PUBLISH_INTERVAL_MS = 200L
+        const val PROGRESS_PERSIST_INTERVAL_MS = 10_000L
     }
 }
