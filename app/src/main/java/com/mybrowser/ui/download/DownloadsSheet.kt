@@ -23,7 +23,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
-import java.text.DecimalFormat
+import com.mybrowser.core.formatBytes
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.userItemMotion
@@ -501,16 +501,4 @@ private fun DeleteDownloadDialog(
             TextButton(onClick = onDismiss) { Text(textResources.getString(R.string.action_cancel)) }
         },
     )
-}
-
-private fun formatBytes(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0))
-        .toInt()
-        .coerceIn(0, units.lastIndex)
-
-    val format = DecimalFormat("#,##0.#")
-    return format.format(bytes / Math.pow(1024.0, digitGroups.toDouble())) + " " + units[digitGroups]
 }

@@ -57,6 +57,9 @@ class FilterSubscriptions(
     private val prefs = appContext.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
     private val mutex = Mutex()
     private var initialized = false
+    /** True when a stored subscription manifest exists but could not be decoded. */
+    @Volatile var loadFailed: Boolean = false
+        private set
     private val _subscriptions = MutableStateFlow(builtIns.map { Subscription(it.id, it.name, it.url, builtIn = true) })
     private val _busy = MutableStateFlow(false)
     private val _lastError = MutableStateFlow<String?>(null)
@@ -139,12 +142,17 @@ class FilterSubscriptions(
     private suspend fun initializeLocked() {
         if (initialized) return
         directory.mkdirs()
+        val hadManifest = prefs.contains(MANIFEST_KEY) || legacyManifest.baseFile.exists()
         val saved = runCatching {
             val text = prefs.getString(MANIFEST_KEY, null)
                 ?: legacyManifest.openRead().use { TextDownloader.readText(it, 256 * 1024) }
             require(text.length <= 256 * 1024)
             JSONArray(text)
         }.getOrNull()
+        // A missing manifest is a fresh install. An existing one that cannot be decoded is a
+        // corrupt store: exporting the empty fallback would tell a later import to clear the
+        // subscriptions and rules the user still has on disk.
+        loadFailed = hadManifest && saved == null
         val records = mutableMapOf<String, JSONObject>()
         if (saved != null) for (i in 0 until minOf(saved.length(), MAX_CUSTOM_LISTS + builtIns.size)) {
             saved.optJSONObject(i)?.let { records[it.optString("id")] = it }
@@ -353,6 +361,9 @@ class FilterSubscriptions(
                 // them leaves the stored text exactly as it was, including a version of it written
                 // by a newer build than the one doing the importing.
                 persist(next, enabled, autoUpdate, userRules?.let { nextRules })
+                // The import wrote a fresh manifest, so an earlier decode failure no longer
+                // describes what is on disk.
+                loadFailed = false
                 _subscriptions.value = next
                 _userRules.value = nextRules
                 filter?.reloadEnabledPreference()

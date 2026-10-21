@@ -573,9 +573,19 @@ internal fun BrowserBottomSheet(
                 }
 
                 override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                    if (drag == null || available.y <= 0f) return Velocity.Zero
-                    drag.release(available.y)
-                    return available
+                    if (drag == null) return Velocity.Zero
+                    if (available.y > 0f) {
+                        drag.release(available.y)
+                        return available
+                    }
+                    // The finger pulled the sheet away from its resting position and then
+                    // reversed or simply lifted while the list consumed the fling. Without
+                    // settling here the offset stays above zero and the sheet hangs halfway.
+                    if (drag.offset.value > 0f) {
+                        drag.release(0f)
+                        return Velocity.Zero
+                    }
+                    return Velocity.Zero
                 }
             }
         }

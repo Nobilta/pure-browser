@@ -62,6 +62,8 @@ data class ExportResult(
     val backup: SettingsBackup,
     val omittedBookmarks: Int = 0,
     val omittedHistory: Int = 0,
+    /** Groups whose on-disk store was unreadable and were deliberately left out. */
+    val skippedGroups: List<String> = emptyList(),
 )
 
 /**
@@ -151,7 +153,14 @@ class SettingsTransfer(
         val preferences = BrowserPreferencesRepository(appContext).load()
         val home = HomeRepository(appContext).loadSettings()
         val engines = SearchEngineManager(appContext)
+        // Reading the list is what detects a corrupt custom-engine store; capture both values
+        // before deciding whether the group is safe to write into the export.
+        val availableEngines = engines.getAvailableEngines()
+        val currentEngine = engines.getCurrentEngine()
         val downloads = DownloadSettingsRepository(appContext).load()
+        val sitesCorrupt = sites.needsRepair.value
+        val searchCorrupt = engines.loadFailed
+        val filteringCorrupt = filterSubscriptions.loadFailed
 
         // The library is capped, never refused: a device over the budget still gets a file,
         // and the export reports what was left out instead of writing something unimportable.
@@ -218,9 +227,9 @@ class SettingsTransfer(
                     fixedUrl = home.fixedUrl,
                     restoreLastSession = home.restoreLastSession,
                 ),
-                search = BackupSearch(
-                    currentEngineId = engines.getCurrentEngine().id,
-                    customEngines = engines.getAvailableEngines().filter { it.isCustom }.map {
+                search = if (searchCorrupt) null else BackupSearch(
+                    currentEngineId = currentEngine.id,
+                    customEngines = availableEngines.filter { it.isCustom }.map {
                         BackupCustomEngine(it.id, it.name, it.searchUrlTemplate, it.suggestUrl)
                     },
                 ),
@@ -229,7 +238,7 @@ class SettingsTransfer(
                     unmeteredOnly = downloads.unmeteredOnly,
                     directoryModeHint = downloads.destinationMode.name,
                 ),
-                filtering = BackupFiltering(
+                filtering = if (filteringCorrupt) null else BackupFiltering(
                     enabled = filter.enabled.value,
                     autoUpdate = filterSubscriptions.autoUpdate.value,
                     builtIns = subscriptions
@@ -241,7 +250,7 @@ class SettingsTransfer(
                     // from a subscription list.
                     userRules = filterSubscriptions.userRules.value,
                 ),
-                sites = sites.entries.value.map { (origin, settings) ->
+                sites = if (sitesCorrupt) null else sites.entries.value.map { (origin, settings) ->
                     BackupSite(
                         origin = origin,
                         preferences = BackupSitePreferences(
@@ -290,6 +299,11 @@ class SettingsTransfer(
             build(keptBookmarks, keptHistory),
             (omittedBookmarks + (bookmarkRows.size - keptBookmarks.size)).coerceAtLeast(0),
             (omittedHistory + (historyRows.size - keptHistory.size)).coerceAtLeast(0),
+            buildList {
+                if (searchCorrupt) add("search")
+                if (filteringCorrupt) add("filtering")
+                if (sitesCorrupt) add("sites")
+            },
         )
     }
 
@@ -445,31 +459,33 @@ class SettingsTransfer(
         settings.browser?.let { browser ->
             runCatching {
                 val repository = BrowserPreferencesRepository(appContext)
-                var next = repository.load()
-                browser.theme?.let { next = next.copy(theme = ThemeMode.valueOf(it)) }
-                browser.bottomAddressBar?.let { next = next.copy(bottomAddressBar = it) }
-                browser.swipeTabs?.let { next = next.copy(swipeTabs = it) }
-                browser.autoCheckUpdates?.let { next = next.copy(autoCheckUpdates = it) }
-                browser.incognitoEnabled?.let { next = next.copy(incognitoEnabled = it) }
-                browser.searchSuggestionsEnabled?.let { next = next.copy(searchSuggestionsEnabled = it) }
-                browser.privateSearchSuggestionsEnabled?.let { next = next.copy(privateSearchSuggestionsEnabled = it) }
-                browser.browserFullscreenEnabled?.let { next = next.copy(browserFullscreenEnabled = it) }
-                browser.video?.let { video ->
-                    val current = next.video
-                    next = next.copy(video = current.copy(
-                        automaticPip = video.automaticPip ?: current.automaticPip,
-                        backgroundPlayback = video.backgroundPlayback ?: current.backgroundPlayback,
-                        enhancedControls = video.enhancedControls ?: current.enhancedControls,
-                        verticalGestures = video.verticalGestures ?: current.verticalGestures,
-                        horizontalSeek = video.horizontalSeek ?: current.horizontalSeek,
-                        holdToBoost = video.holdToBoost ?: current.holdToBoost,
-                        boostRate = video.boostRate ?: current.boostRate,
-                        landscapeFullscreen = video.landscapeFullscreen ?: current.landscapeFullscreen,
-                        rememberSpeed = video.rememberSpeed ?: current.rememberSpeed,
-                        preferredSpeed = video.preferredSpeed ?: current.preferredSpeed,
-                    ))
-                }
-                repository.save(next, confirmed = true)
+                repository.update({ currentPreferences ->
+                    var next = currentPreferences
+                    browser.theme?.let { next = next.copy(theme = ThemeMode.valueOf(it)) }
+                    browser.bottomAddressBar?.let { next = next.copy(bottomAddressBar = it) }
+                    browser.swipeTabs?.let { next = next.copy(swipeTabs = it) }
+                    browser.autoCheckUpdates?.let { next = next.copy(autoCheckUpdates = it) }
+                    browser.incognitoEnabled?.let { next = next.copy(incognitoEnabled = it) }
+                    browser.searchSuggestionsEnabled?.let { next = next.copy(searchSuggestionsEnabled = it) }
+                    browser.privateSearchSuggestionsEnabled?.let { next = next.copy(privateSearchSuggestionsEnabled = it) }
+                    browser.browserFullscreenEnabled?.let { next = next.copy(browserFullscreenEnabled = it) }
+                    browser.video?.let { video ->
+                        val current = next.video
+                        next = next.copy(video = current.copy(
+                            automaticPip = video.automaticPip ?: current.automaticPip,
+                            backgroundPlayback = video.backgroundPlayback ?: current.backgroundPlayback,
+                            enhancedControls = video.enhancedControls ?: current.enhancedControls,
+                            verticalGestures = video.verticalGestures ?: current.verticalGestures,
+                            horizontalSeek = video.horizontalSeek ?: current.horizontalSeek,
+                            holdToBoost = video.holdToBoost ?: current.holdToBoost,
+                            boostRate = video.boostRate ?: current.boostRate,
+                            landscapeFullscreen = video.landscapeFullscreen ?: current.landscapeFullscreen,
+                            rememberSpeed = video.rememberSpeed ?: current.rememberSpeed,
+                            preferredSpeed = video.preferredSpeed ?: current.preferredSpeed,
+                        ))
+                    }
+                    next
+                }, confirmed = true)
             }.onSuccess { applied += "browser" }.onFailure { noteFailure("browser", it) }
         }
 

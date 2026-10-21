@@ -58,6 +58,8 @@ class DownloadTransferService : Service() {
         }
         if (monitorJob == null) {
             monitorJob = serviceScope.launch {
+                var lastStatuses: List<Pair<Long, DownloadStatus>> = emptyList()
+                var lastNotifyAt = 0L
                 handler.activeTransfers.collectLatest { active ->
                     if (active.isEmpty()) {
                         // Avoid stop/start churn when one download finishes immediately before
@@ -68,10 +70,16 @@ class DownloadTransferService : Service() {
                             stopSelf()
                         }
                     } else {
-                        notificationManager.notify(
-                            NOTIFICATION_ID,
-                            createNotification(active),
-                        )
+                        val statuses = active.map { it.id to it.status }
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (statuses == lastStatuses && now - lastNotifyAt < NOTIFICATION_UPDATE_INTERVAL_MS) {
+                            delay(NOTIFICATION_UPDATE_INTERVAL_MS - (now - lastNotifyAt))
+                        }
+                        // collectLatest may have been cancelled while waiting; only the latest
+                        // state reaches this point.
+                        notificationManager.notify(NOTIFICATION_ID, createNotification(active))
+                        lastStatuses = statuses
+                        lastNotifyAt = android.os.SystemClock.elapsedRealtime()
                     }
                 }
             }
@@ -161,6 +169,8 @@ class DownloadTransferService : Service() {
         const val CHANNEL_ID = "browser_downloads"
         const val NOTIFICATION_ID = 0xD011
         const val STOP_GRACE_PERIOD_MS = 400L
+        /** Progress updates are frequent; More than a few notification redraws per second is noise. */
+        const val NOTIFICATION_UPDATE_INTERVAL_MS = 500L
 
         /**
          * Creates the downloads channel without starting the service; the settings

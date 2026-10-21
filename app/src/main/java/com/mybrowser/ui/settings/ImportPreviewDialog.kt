@@ -113,16 +113,6 @@ private fun Note(text: String) {
 private fun groupLabels(summary: ImportPreview): String {
     val resources = androidx.compose.ui.platform.LocalContext.current.resources
     return summary.groups.joinToString(", ") { id ->
-        when (id) {
-            "browser" -> resources.getString(R.string.settings_group_browser)
-            "home" -> resources.getString(R.string.settings_group_home)
-            "search" -> resources.getString(R.string.settings_group_search)
-            "downloads" -> resources.getString(R.string.settings_group_downloads)
-            "filtering" -> resources.getString(R.string.settings_group_filtering)
-            "sites" -> resources.getString(R.string.settings_group_sites)
-            "bookmarks" -> resources.getString(R.string.settings_group_bookmarks)
-            "history" -> resources.getString(R.string.settings_group_history)
-            else -> id
-        }
+        settingsGroupTitle(id)?.let(resources::getString) ?: id
     }
 }

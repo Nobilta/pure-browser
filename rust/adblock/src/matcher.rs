@@ -4,6 +4,7 @@
 
 use crate::rule::{Anchor, ResourceType, Rule, SkipReason};
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 #[derive(Default)]
 pub struct Matcher {
@@ -15,6 +16,9 @@ pub struct Matcher {
 pub struct DocumentContext {
     host: String,
     site: Option<site_identity::SiteKey>,
+    url: String,
+    /// Computed on the first request for this document and shared by every later subresource.
+    policy: OnceLock<PagePolicy>,
 }
 
 impl DocumentContext {
@@ -22,8 +26,24 @@ impl DocumentContext {
         let lower = url.to_lowercase();
         let host = extract_host(&lower).unwrap_or("").to_owned();
         let site = site_identity::SiteKey::new(&host);
-        Self { host, site }
+        Self {
+            host,
+            site,
+            url: url.to_owned(),
+            policy: OnceLock::new(),
+        }
     }
+}
+
+/// Page-level exceptions that change filtering beyond the request that matched them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PagePolicy {
+    /// `@@...$document`: no network request on the page is filtered.
+    pub document: bool,
+    /// `@@...$generichide`: generic cosmetic rules are suppressed.
+    pub generichide: bool,
+    /// `@@...$elemhide`: every cosmetic rule is suppressed.
+    pub elemhide: bool,
 }
 
 /// An index is only a prefilter: complete patterns and options always decide the result.
@@ -50,10 +70,16 @@ struct Request<'a> {
     first_party_host: &'a str,
     resource_type: ResourceType,
     is_third_party: bool,
+    /// Page-policy probes may read cosmetic-only exception rules; ordinary request matching must
+    /// not let `$generichide`/`$elemhide` turn into a broad network exception.
+    page_policy_probe: bool,
 }
 
 impl Request<'_> {
     fn matches(&self, rule: &Rule) -> bool {
+        if !self.page_policy_probe && (rule.options.generichide || rule.options.elemhide) {
+            return false;
+        }
         rule.options_apply(
             self.resource_type,
             self.first_party_host,
@@ -150,11 +176,18 @@ impl RuleSet {
     }
 
     fn matches(&self, request: &Request<'_>) -> bool {
+        self.any_matching(request, |_| true)
+    }
+
+    /// Walks only the buckets this request can reach, stopping at the first rule that matches and
+    /// satisfies `predicate`. Page-policy exceptions use the predicate to read options without a
+    /// second, duplicate scan.
+    fn any_matching(
+        &self,
+        request: &Request<'_>,
+        mut predicate: impl FnMut(&Rule) -> bool,
+    ) -> bool {
         let host = request.host;
-        // No key in the map is longer than `max_domain_key`, so a longer suffix cannot be
-        // present. Walking the suffixes shortest first and stopping at that length keeps the
-        // probe linear; hashing every suffix of a host with thousands of labels costs
-        // quadratic time in the host length, which a page-chosen URL can drive.
         for offset in host
             .match_indices('.')
             .map(|(offset, _)| offset + 1)
@@ -165,35 +198,33 @@ impl RuleSet {
             if suffix.len() > self.max_domain_key {
                 break;
             }
-            if self
-                .domains
-                .get(suffix)
-                .is_some_and(|rules| rules.iter().any(|rule| request.matches(rule)))
-            {
-                return true;
+            if let Some(rules) = self.domains.get(suffix) {
+                for rule in rules {
+                    if request.matches(rule) && predicate(rule) {
+                        return true;
+                    }
+                }
             }
         }
-        // Only matching buckets enter this set. Repeated text in long signed URLs must
-        // not run the same wildcard rule hundreds of times.
         let mut visited = HashSet::new();
         for bytes in request.lower.as_bytes().windows(3) {
             let key = [bytes[0], bytes[1], bytes[2]];
             if let Some(rules) = self.tokens.get(&key) {
-                if visited.insert(key)
-                    && rules.iter().any(|entry| {
-                        request.url_for(&entry.rule).contains(&entry.literal)
+                if visited.insert(key) {
+                    for entry in rules {
+                        if request.url_for(&entry.rule).contains(&entry.literal)
                             && request.matches(&entry.rule)
-                    })
-                {
-                    return true;
+                            && predicate(&entry.rule)
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
         }
-        // Every rule in this bucket is scanned for each request, which is why the bucket is
-        // bounded when the list is loaded rather than while a request is in flight: a
-        // request-time limit would depend on which rules happened to load first and would stop
-        // blocking without saying so.
-        self.fallback.iter().any(|rule| request.matches(rule))
+        self.fallback
+            .iter()
+            .any(|rule| request.matches(rule) && predicate(rule))
     }
 }
 
@@ -245,6 +276,35 @@ impl Matcher {
         stats
     }
 
+    /// Exceptions that apply to the document itself rather than to one subresource.
+    pub fn page_policy(&self, document_url: &str) -> PagePolicy {
+        if !is_http_url(document_url) {
+            return PagePolicy::default();
+        }
+        let lower = document_url.to_lowercase();
+        let host = extract_host(&lower).unwrap_or("");
+        if host.is_empty() {
+            return PagePolicy::default();
+        }
+        let request = Request {
+            original: document_url,
+            lower: &lower,
+            host,
+            first_party_host: host,
+            resource_type: ResourceType::Document,
+            is_third_party: false,
+            page_policy_probe: true,
+        };
+        let mut policy = PagePolicy::default();
+        self.exceptions.any_matching(&request, |rule| {
+            policy.document |= rule.options.document;
+            policy.generichide |= rule.options.generichide;
+            policy.elemhide |= rule.options.elemhide;
+            policy.document && policy.generichide && policy.elemhide
+        });
+        policy
+    }
+
     pub fn should_block(&self, url: &str, first_party: &str, resource_type: ResourceType) -> bool {
         self.should_block_context(url, &DocumentContext::new(first_party), resource_type)
     }
@@ -256,6 +316,13 @@ impl Matcher {
         resource_type: ResourceType,
     ) -> bool {
         if !is_http_url(url) {
+            return false;
+        }
+        if document
+            .policy
+            .get_or_init(|| self.page_policy(&document.url))
+            .document
+        {
             return false;
         }
         let lower = url.to_lowercase();
@@ -272,6 +339,7 @@ impl Matcher {
                     .site
                     .as_ref()
                     .is_some_and(|site| site.contains(host)),
+            page_policy_probe: false,
         };
         self.blocking.matches(&request) && !self.exceptions.matches(&request)
     }
@@ -304,6 +372,7 @@ impl Matcher {
                     .site
                     .as_ref()
                     .is_some_and(|site| site.contains(host)),
+            page_policy_probe: false,
         };
         // A reference scan over the list text, not a query of a loaded engine: this call takes no
         // handle, so it cannot know what a cap refused. Callers pair the answer with

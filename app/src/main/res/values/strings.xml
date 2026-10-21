@@ -795,6 +795,7 @@
     <string name="settings_import_bookmarks_note">Bookmarks: importing %1$d, %2$d already here; existing addresses are kept</string>
     <string name="settings_import_history_note">History: importing %1$d entries, %2$d already here; the later visit is kept</string>
     <string name="settings_import_library_added">Added %1$d bookmarks and %2$d history entries</string>
+    <string name="settings_export_skipped_groups">Unreadable groups were left out: %1$s</string>
     <string name="settings_export_truncated">File limit reached: %1$d bookmarks and %2$d history entries were left out</string>
     <string name="site_permission_not_remembered">Your choice applies this time, but could not be remembered. Check or reset website settings.</string>
     <string name="privacy_cleanup_title">Private data cleanup</string>

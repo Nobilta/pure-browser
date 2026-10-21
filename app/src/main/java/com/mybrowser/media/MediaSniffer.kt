@@ -84,10 +84,11 @@ object MediaSniffer {
         ) return null
         if (BLOCKED_HOST_HINTS.any { cleanUrl.contains(it, ignoreCase = true) }) return null
 
-        val uri = runCatching { cleanUrl.toUri() }.getOrNull() ?: return null
-        val path = uri.path?.lowercase(Locale.ROOT).orEmpty()
+        // Reject non-media requests before allocating a Uri and walking its path. Most requests
+        // on a page are scripts, styles and images; only a media-looking suffix or an Accept
+        // header can produce a candidate.
+        val path = cleanUrl.substringBefore('?').substringBefore('#').lowercase(Locale.ROOT)
         val extension = path.substringAfterLast('.', "").takeIf { it.length in 1..5 }
-
         val kind = when {
             path.endsWith(".m3u8") -> Kind.HLS
             path.endsWith(".mpd") -> Kind.DASH
@@ -97,6 +98,7 @@ object MediaSniffer {
             else -> fromHeaders(headers) ?: return null
         }
 
+        val uri = runCatching { cleanUrl.toUri() }.getOrNull() ?: return null
         return Candidate(
             url = cleanUrl,
             kind = kind,

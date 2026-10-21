@@ -27,12 +27,22 @@ class HttpDownloadResumeTest {
 
     @After fun cleanup() { server?.stop(0); directory.deleteRecursively() }
 
-    private fun start(etag: String = "\"stable\"", ignoreResume: Boolean = false, encoding: String? = null): String {
+    private fun start(
+        etag: String = "\"stable\"",
+        ignoreResume: Boolean = false,
+        encoding: String? = null,
+        rejectProbe: Boolean = false,
+    ): String {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/file") { exchange ->
                 val range = exchange.requestHeaders.getFirst("Range")
                 val validator = exchange.requestHeaders.getFirst("If-Range")
                 requests += range to validator
+                if (rejectProbe && range != null) {
+                    exchange.sendResponseHeaders(405, -1)
+                    exchange.close()
+                    return@createContext
+                }
                 exchange.responseHeaders.add("ETag", etag)
                 encoding?.let { exchange.responseHeaders.add("Content-Encoding", it) }
                 val useRange = range != null && !(ignoreResume && validator != null)
@@ -111,6 +121,18 @@ class HttpDownloadResumeTest {
         catch (_: java.io.IOException) { }
         assertEquals(1234L, part.length())
         assertNotNull(DownloadCheckpoint.read(directory, url))
+    }
+
+    @Test fun rejectedRevalidationRestartsInsteadOfLeavingTheTaskPinned() = runBlocking {
+        val url = start(rejectProbe = true)
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"stable\"", 1).save(directory)
+        File(directory, "part-0").writeBytes(ByteArray(1234) { 7 })
+        val payload = HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }
+        assertArrayEquals(body, merged(payload))
+        assertEquals(listOf("bytes=0-0", null), requests.map { it.first })
+        // The fresh single-stream transfer writes a new checkpoint for a future resume; it just
+        // must not append to the rejected prefix.
+        assertEquals(body.size.toLong(), DownloadCheckpoint.read(directory, url)?.total)
     }
 
     @Test fun encodedResponsesCannotBeSavedAsTheRequestedFile() = runBlocking {

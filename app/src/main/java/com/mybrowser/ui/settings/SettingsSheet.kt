@@ -91,7 +91,7 @@ fun SettingsSheet(
     currentSearchEngine: SearchEngine,
     availableSearchEngines: List<SearchEngine>,
     onSearchEngineChange: (SearchEngine) -> Unit,
-    onAddCustomSearchEngine: (String, String, String?) -> Unit,
+    onAddCustomSearchEngine: (String, String, String?) -> Boolean,
     onRemoveCustomSearchEngine: (SearchEngine) -> Unit,
     currentHomepageMode: HomepageMode,
     currentHomepage: String,
@@ -169,7 +169,7 @@ fun SettingsSheet(
                             if (searchQuery.isNotBlank()) {
                                 SETTINGS_SEARCH.filter { (title, category) ->
                                     textResources.getString(title).contains(searchQuery, true) || textResources.getString(category.titleRes).contains(searchQuery, true)
-                                }.take(24).forEach { (title, category) ->
+                                }.forEach { (title, category) ->
                                     val label = textResources.getString(title)
                                     SettingsItem(label, textResources.getString(category.titleRes), {
                                         highlightTitle = label; sectionName = category.name
@@ -564,7 +564,7 @@ private fun SearchEngineSettings(
     current: SearchEngine,
     available: List<SearchEngine>,
     onChange: (SearchEngine) -> Unit,
-    onAddCustom: (String, String, String?) -> Unit,
+    onAddCustom: (String, String, String?) -> Boolean,
     onRemoveCustom: (SearchEngine) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -604,8 +604,9 @@ private fun SearchEngineSettings(
     if (showAddDialog) {
         CustomSearchEngineDialog(
             onConfirm = { name, template, suggestTemplate ->
-                onAddCustom(name, template, suggestTemplate)
-                showAddDialog = false
+                val added = onAddCustom(name, template, suggestTemplate)
+                if (added) showAddDialog = false
+                added
             },
             onDismiss = { showAddDialog = false },
         )
@@ -614,7 +615,7 @@ private fun SearchEngineSettings(
 
 @Composable
 private fun CustomSearchEngineDialog(
-    onConfirm: (name: String, template: String, suggestTemplate: String?) -> Unit,
+    onConfirm: (name: String, template: String, suggestTemplate: String?) -> Boolean,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
@@ -663,7 +664,9 @@ private fun CustomSearchEngineDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name.trim(), template.trim(), suggestTemplate.trim().ifEmpty { null }) },
+                onClick = {
+                    onConfirm(name.trim(), template.trim(), suggestTemplate.trim().ifEmpty { null })
+                },
                 enabled = canSave,
             ) { Text(stringResource(R.string.bookmark_save)) }
         },
@@ -861,6 +864,8 @@ private val SETTINGS_SEARCH = listOf(
     R.string.ui_download_settings to SettingsCategory.DOWNLOADS,
     R.string.ui_brightness_and_volume_gestures to SettingsCategory.VIDEO,
     R.string.ui_swipe_to_seek to SettingsCategory.VIDEO,
+    R.string.ui_enhanced_video_controls to SettingsCategory.VIDEO,
+    R.string.ui_rotate_landscape_videos_automatically to SettingsCategory.VIDEO,
     R.string.ui_hold_for_temporary_speed_boost to SettingsCategory.VIDEO,
     R.string.ui_hold_speed to SettingsCategory.VIDEO,
     R.string.ui_remember_playback_speed to SettingsCategory.VIDEO,

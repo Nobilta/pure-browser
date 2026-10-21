@@ -79,7 +79,13 @@ class FilterController(private val appContext: Context) {
         if (closed.get()) return null
         val sizes = rules.map { utf8Bytes(it) }
         if (rules.size > FilterListFormat.MAX_LISTS || sizes.any { it > FilterListFormat.MAX_BYTES } ||
-            sizes.sum() > FilterListFormat.MAX_TOTAL_BYTES) return null
+            sizes.sum() > FilterListFormat.MAX_TOTAL_BYTES) {
+            // Subscriptions can hand us a configuration the native engine must refuse. Readiness is
+            // about having attempted the first build, not about that configuration being accepted;
+            // otherwise navigation waits forever for an engine that will never exist.
+            firstBuild.complete(Unit)
+            return null
+        }
         payloads = rules.toList()
         sourceNames = names.toList()
         return scheduleRebuild()
@@ -124,6 +130,7 @@ class FilterController(private val appContext: Context) {
         if (!closed.compareAndSet(false, true)) return
         rebuildGeneration.incrementAndGet()
         rebuildScope.cancel()
+        firstBuild.complete(Unit)
         val old = lock.write {
             val previous = filter
             filter = null
@@ -146,7 +153,12 @@ class FilterController(private val appContext: Context) {
             if (generation != rebuildGeneration.get()) return@launch
             val snapshot = payloads
             val names = sourceNames
-            val next = buildEngine(snapshot, names)
+            val next = runCatching { buildEngine(snapshot, names) }.onFailure {
+                android.util.Log.w("FilterController", "Filter engine build failed", it)
+            }.getOrNull()
+            // A missing native engine or a refused build still ends the first readiness wait; the
+            // browser must keep working with no filtering rather than block every page.
+            if (next == null) firstBuild.complete(Unit)
 
             if (closed.get() || generation != rebuildGeneration.get()) {
                 next?.first?.close()

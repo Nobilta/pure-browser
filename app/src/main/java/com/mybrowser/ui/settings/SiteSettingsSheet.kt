@@ -31,7 +31,9 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     onClearSiteData: (() -> Unit)? = null, temporaryFilteringOff: Boolean = false,
     onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true,
     needsRepair: Boolean = false, onRepair: () -> Unit = {}) {
-    var draft by remember(origin, settings) { mutableStateOf(settings) }
+    // Keep unsaved edits while another surface (for example a remembered permission decision)
+    // updates this origin's stored settings; only switching origin starts a new draft.
+    var draft by remember(origin) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
     BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {

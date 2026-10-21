@@ -62,6 +62,10 @@ impl Engine {
         self.matcher.should_block(url, document_url, resource)
     }
 
+    pub fn page_policy(&self, document_url: &str) -> crate::matcher::PagePolicy {
+        self.matcher.page_policy(document_url)
+    }
+
     /// Exposes the parser's skip classification for callers that want to inspect a line.
     pub fn parse_line(line: &str) -> Result<crate::rule::Rule, SkipReason> {
         crate::rule::Rule::parse(line)

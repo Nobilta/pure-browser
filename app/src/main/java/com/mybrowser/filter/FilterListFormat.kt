@@ -18,10 +18,10 @@ object FilterListFormat {
     const val MAX_LISTS = 36
 
     fun validate(text: String): Int {
-        if (text.toByteArray().size > MAX_BYTES || text.contains('\u0000')) throw IOException("Invalid filter list")
+        if (FilterController.utf8Bytes(text) > MAX_BYTES || text.contains('\u0000')) throw IOException("Invalid filter list")
         val start = text.trimStart().take(512).lowercase()
         if (start.startsWith("<") || start.startsWith("{") || (start.startsWith("[") && !start.startsWith("[adblock")) ||
-            Regex("(?i)<(?:!doctype\\s+html|html\\b|head\\b|body\\b)").containsMatchIn(text.take(65536))) {
+            HTML_PREFIX.containsMatchIn(text.take(65_536))) {
             throw IOException("Not an Adblock filter list")
         }
         var count = 0
@@ -52,4 +52,7 @@ object FilterListFormat {
         if (count == 0) throw IOException("No filter rules")
         return count
     }
+
+    /** Compiled once: every downloaded list is validated, and most are megabytes. */
+    private val HTML_PREFIX = Regex("(?i)<(?:!doctype\\s+html|html\\b|head\\b|body\\b)")
 }
