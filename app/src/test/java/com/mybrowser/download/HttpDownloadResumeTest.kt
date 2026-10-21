@@ -32,6 +32,7 @@ class HttpDownloadResumeTest {
         ignoreResume: Boolean = false,
         encoding: String? = null,
         rejectProbe: Boolean = false,
+        rejectProbeCode: Int = 405,
     ): String {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/file") { exchange ->
@@ -39,7 +40,7 @@ class HttpDownloadResumeTest {
                 val validator = exchange.requestHeaders.getFirst("If-Range")
                 requests += range to validator
                 if (rejectProbe && range != null) {
-                    exchange.sendResponseHeaders(405, -1)
+                    exchange.sendResponseHeaders(rejectProbeCode, -1)
                     exchange.close()
                     return@createContext
                 }
@@ -119,6 +120,20 @@ class HttpDownloadResumeTest {
         server!!.stop(0)
         try { HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }; fail() }
         catch (_: java.io.IOException) { }
+        assertEquals(1234L, part.length())
+        assertNotNull(DownloadCheckpoint.read(directory, url))
+    }
+
+    @Test fun transientRevalidationFailurePreservesPartialDataForTheRetry() = runBlocking {
+        val url = start(rejectProbe = true, rejectProbeCode = 503)
+        DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"stable\"", 1).save(directory)
+        val part = File(directory, "part-0").apply { writeBytes(ByteArray(1234) { 7 }) }
+        try {
+            HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }
+            fail("Expected the transient HTTP failure to surface")
+        } catch (error: DownloadHttpException) {
+            assertTrue(error.isTransient)
+        }
         assertEquals(1234L, part.length())
         assertNotNull(DownloadCheckpoint.read(directory, url))
     }

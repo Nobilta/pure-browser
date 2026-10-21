@@ -31,7 +31,8 @@ internal fun captureKind(capture: Boolean, multiple: Boolean, accepts: List<Stri
 /** Owns exactly one platform chooser and the document to which its result belongs. */
 class WebFileChooser(private val activity: ComponentActivity, private val document: () -> Any?, private val onFailure: () -> Unit) {
     private data class Request(val callback: ValueCallback<Array<Uri>?>, val document: Any?,
-        val kind: CaptureKind?, var delivered: Boolean = false, var file: File? = null, var uri: Uri? = null)
+        val kind: CaptureKind?, var delivered: Boolean = false, var cancelled: Boolean = false,
+        var file: File? = null, var uri: Uri? = null)
     private var pending: Request? = null
     private val directory = File(activity.cacheDir, "web-capture").apply { mkdirs() }
     private val granted = ArrayList<Pair<Uri, File>>()
@@ -101,7 +102,8 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
     private fun finish(values: Array<Uri>?) {
         val request = pending ?: return
         pending = null
-        val result = values?.filter { it.scheme == "content" }?.toTypedArray()?.takeIf { it.isNotEmpty() && isCurrent(request) }
+        val result = if (request.cancelled) null else
+            values?.filter { it.scheme == "content" }?.toTypedArray()?.takeIf { it.isNotEmpty() && isCurrent(request) }
         if (!request.delivered) {
             request.delivered = true
             request.callback.onReceiveValue(result)
@@ -121,19 +123,16 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
 
     fun cancelDocument() {
         val request = pending
-        // Clearing the owner is the part that matters: a late platform result must not attach to
-        // a document this request no longer belongs to, and the next file input must not be
-        // rejected as a second chooser while the old picker is still returning.
-        pending = null
+        // Keep the pending tombstone until the platform chooser returns. A new request while the
+        // old ActivityResult is still in flight would receive that old result: the callback carries
+        // no request identity, so the safest answer is to reject the new request and complete the
+        // old one as cancelled. `finish` removes the tombstone and cleans its capture file.
         request?.let { cancelled ->
+            cancelled.cancelled = true
             if (!cancelled.delivered) {
                 cancelled.delivered = true
                 cancelled.callback.onReceiveValue(null)
             }
-            cancelled.uri?.let {
-                activity.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            }
-            cancelled.file?.delete()
         }
         granted.forEach { (uri, file) ->
             activity.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -142,5 +141,16 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
         granted.clear()
     }
 
-    fun close() = cancelDocument()
+    fun close() {
+        cancelDocument()
+        // The Activity is going away, so no platform result can be matched to this request any
+        // more; release its capture file now rather than waiting for the 24-hour startup sweep.
+        pending?.let { request ->
+            request.uri?.let {
+                activity.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            request.file?.delete()
+        }
+        pending = null
+    }
 }

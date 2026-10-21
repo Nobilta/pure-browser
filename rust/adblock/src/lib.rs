@@ -250,12 +250,15 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCosmeticCss(
     };
     let engine = unsafe { &*(handle as *const FilterEngine) };
     let policy = engine.network.page_policy(&url);
-    env.new_string(
+    // `$document` disables filtering for the whole page, including cosmetic injection.
+    let css: std::sync::Arc<str> = if policy.document {
+        std::sync::Arc::from("")
+    } else {
         engine
             .cosmetic
             .css_for_policy(&url, policy.elemhide, policy.generichide)
-            .as_ref(),
-    )
-    .map(|s| s.into_raw())
-    .unwrap_or(std::ptr::null_mut())
+    };
+    env.new_string(css.as_ref())
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }

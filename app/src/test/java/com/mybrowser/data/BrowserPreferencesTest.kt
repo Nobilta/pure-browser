@@ -96,6 +96,31 @@ class BrowserPreferencesTest {
         assertTrue(repository.load().browserFullscreenEnabled)
     }
 
+    @Test fun failedIncognitoCommitRestoresTheValueSeenByRepositoryReloads() {
+        val actual = context.getSharedPreferences("browser_preferences", Context.MODE_PRIVATE)
+        val failing = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+                object : SharedPreferences by actual {
+                    override fun edit(): SharedPreferences.Editor {
+                        val editor = actual.edit()
+                        return Proxy.newProxyInstance(SharedPreferences.Editor::class.java.classLoader,
+                            arrayOf(SharedPreferences.Editor::class.java)) { proxy, method, args ->
+                            if (method.name == "commit") {
+                                editor.apply()
+                                false
+                            } else {
+                                val result = method.invoke(editor, *(args ?: emptyArray()))
+                                if (result is SharedPreferences.Editor) proxy else result
+                            }
+                        } as SharedPreferences.Editor
+                    }
+                }
+        }
+        assertFalse(BrowserPreferencesRepository(failing).saveIncognitoEnabled(true))
+        assertFalse(BrowserPreferencesRepository(context).load().incognitoEnabled)
+    }
+
     @Test fun failedFullscreenCommitRestoresTheValueSeenByRepositoryReloads() {
         val actual = context.getSharedPreferences("browser_preferences", Context.MODE_PRIVATE)
         val failing = object : ContextWrapper(context) {

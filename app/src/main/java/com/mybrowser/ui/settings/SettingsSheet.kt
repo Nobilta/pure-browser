@@ -604,9 +604,7 @@ private fun SearchEngineSettings(
     if (showAddDialog) {
         CustomSearchEngineDialog(
             onConfirm = { name, template, suggestTemplate ->
-                val added = onAddCustom(name, template, suggestTemplate)
-                if (added) showAddDialog = false
-                added
+                if (onAddCustom(name, template, suggestTemplate)) showAddDialog = false
             },
             onDismiss = { showAddDialog = false },
         )
@@ -615,7 +613,7 @@ private fun SearchEngineSettings(
 
 @Composable
 private fun CustomSearchEngineDialog(
-    onConfirm: (name: String, template: String, suggestTemplate: String?) -> Boolean,
+    onConfirm: (name: String, template: String, suggestTemplate: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
@@ -664,9 +662,7 @@ private fun CustomSearchEngineDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = {
-                    onConfirm(name.trim(), template.trim(), suggestTemplate.trim().ifEmpty { null })
-                },
+                onClick = { onConfirm(name.trim(), template.trim(), suggestTemplate.trim().ifEmpty { null }) },
                 enabled = canSave,
             ) { Text(stringResource(R.string.bookmark_save)) }
         },

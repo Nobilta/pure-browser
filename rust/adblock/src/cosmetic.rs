@@ -213,7 +213,15 @@ impl CosmeticMatcher {
         let mut selected = if include_generic {
             self.candidates(host)
         } else {
+            // Generic hiding rules are suppressed by `$generichide`, but generic exceptions
+            // (`#@#.ad`) must survive to suppress domain-scoped hiding rules. Excluding the whole
+            // generic bucket made generic whitelists ineffective exactly when a site needed them.
             let mut selected = Vec::new();
+            for &index in &self.generic {
+                if self.entries[index].exception {
+                    selected.push(index);
+                }
+            }
             let mut suffix = host;
             loop {
                 if let Some(indices) = self.domains.get(suffix) {
@@ -289,6 +297,15 @@ mod tests {
         );
         assert!(m.css_for("https://other.test/").contains(".advert"));
         assert!(!m.css_for("https://notexample.com/").contains(".sponsor"));
+    }
+
+    #[test]
+    fn generichide_keeps_generic_exceptions() {
+        let m = matcher(&["example.com##.ad\n#@#.ad"]);
+        assert!(m.css_for("https://example.com/news").is_empty());
+        assert!(m
+            .css_for_policy("https://example.com/news", false, true)
+            .is_empty());
     }
 
     #[test]
