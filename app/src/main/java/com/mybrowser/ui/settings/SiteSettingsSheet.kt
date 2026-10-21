@@ -57,7 +57,9 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     // Keep unsaved edits while another surface (for example a remembered permission decision)
     // updates this origin's stored settings; only switching origin starts a new draft. The draft is
     // saveable so rotation/Activity recreation does not discard edits.
-    val initial = remember(origin) { settings }
+    // The baseline must survive the same recreation as the draft; otherwise a field that changed
+    // externally while the sheet was open looks like a user edit after restoration.
+    val initial = rememberSaveable(origin, saver = SiteSettingsSaver) { settings }
     var draft by rememberSaveable(origin, stateSaver = SiteSettingsSaver) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
     BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
