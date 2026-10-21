@@ -88,6 +88,28 @@ class PageFileDownloadTest {
         override fun cancel() { live = false }
     }
 
+    /**
+     * Sends one slice and then waits: the pump is genuinely in flight, instead of racing a
+     * synchronous fake that may finish the whole file before the test can cancel it.
+     */
+    private class WaitingSource(private val body: ByteArray) : PageFileSource {
+        private var sink: PageFileSink? = null
+        private var started = false
+        private var live = true
+        override fun start(id: Long, url: String, size: Long, sink: PageFileSink): Boolean {
+            this.sink = sink
+            return true
+        }
+        override fun requestNext(id: Long, written: Long): Boolean {
+            if (started) return true
+            started = true
+            sink?.write(body)
+            return true
+        }
+        override fun isTransferring(id: Long): Boolean = live
+        override fun cancel() { live = false }
+    }
+
     private fun tempDirectory(context: Context, id: Long) =
         File(context.noBackupFilesDir, "browser-downloads/$id")
 
@@ -194,7 +216,7 @@ class PageFileDownloadTest {
     @Test fun cancellingAPageFileStopsTheTransfer() = runBlocking {
         val context = connectedContext()
         val handler = DownloadHandler(context)
-        val source = FakeSource(ByteArray(4 * 1024 * 1024))
+        val source = WaitingSource(ByteArray(64 * 1024))
         try {
             val outcome = handler.enqueueOrGetExisting(
                 url = "page-file://placeholder-4", userAgent = null, contentDisposition = null, mimeType = null,

@@ -794,6 +794,7 @@
     <string name="settings_import_bookmarks_note">书签：导入 %1$d 条，本机已有 %2$d 条；相同地址保留本机记录</string>
     <string name="settings_import_history_note">历史记录：导入 %1$d 条，本机已有 %2$d 条；相同网址保留较晚的一次访问</string>
     <string name="settings_import_library_added">已新增 %1$d 条书签、%2$d 条历史记录</string>
+    <string name="settings_export_skipped_groups">以下分组无法读取，未导出：%1$s</string>
     <string name="settings_export_truncated">已达文件上限：另有 %1$d 条书签、%2$d 条历史记录未导出</string>
     <string name="site_permission_not_remembered">本次按你的选择处理，但未能记住。请检查或重置网站设置。</string>
     <string name="privacy_cleanup_title">清理无痕数据</string>

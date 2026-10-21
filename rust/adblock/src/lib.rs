@@ -249,7 +249,13 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeCosmeticCss(
         Err(_) => return std::ptr::null_mut(),
     };
     let engine = unsafe { &*(handle as *const FilterEngine) };
-    env.new_string(engine.cosmetic.css_for(&url).as_ref())
-        .map(|s| s.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+    let policy = engine.network.page_policy(&url);
+    env.new_string(
+        engine
+            .cosmetic
+            .css_for_policy(&url, policy.elemhide, policy.generichide)
+            .as_ref(),
+    )
+    .map(|s| s.into_raw())
+    .unwrap_or(std::ptr::null_mut())
 }

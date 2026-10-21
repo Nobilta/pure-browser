@@ -499,12 +499,20 @@ fun BrowserScreen(
                 exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
                     slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
             ) {
+                // Typing is the common case and findAllAsync walks the document. Debounce the
+                // page call while keeping the field's own text immediate; clearing is not
+                // debounced so closing the bar releases the find session at once.
+                LaunchedEffect(state.findQuery) {
+                    if (state.findQuery.isEmpty()) {
+                        onFindQueryChange("")
+                    } else {
+                        delay(200)
+                        onFindQueryChange(state.findQuery)
+                    }
+                }
                 FindBar(
                     query = state.findQuery,
-                    onQueryChange = { query ->
-                        state.onFindQueryChange(query)
-                        onFindQueryChange(query)
-                    },
+                    onQueryChange = state::onFindQueryChange,
                     matchCount = state.findMatchCount,
                     currentMatch = state.findCurrentMatch,
                     onNext = onFindNext,

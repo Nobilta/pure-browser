@@ -606,7 +606,9 @@ def launch(url=None):
     else:
         args += ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"]
     print(adb(*args))
-    time.sleep(1)
+    # `am start -W` already waits for the activity. Leave a short frame for the first composition;
+    # every caller follows with tap/expect, which waits for the real control.
+    time.sleep(0.2)
 
 
 if __name__ == "__main__":

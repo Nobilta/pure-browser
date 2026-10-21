@@ -25,8 +25,13 @@ def main():
     parser.add_argument('--label', default='capabilities')
     parser.add_argument('--resume', action='store_true', help='Reuse passed stages only for the same APK and emulator')
     parser.add_argument('--stages', nargs='+', help='Run named stages only; recorded in the suite manifest')
-    parser.add_argument('--profile', choices=['smoke', 'tabs', 'full'], default='smoke',
-                        help='smoke (default), focused tab lifecycle, or the complete release matrix; --stages overrides it')
+    parser.add_argument('--profile', choices=['fast', 'smoke', 'tabs', 'full'], default='smoke',
+                        help='fast, smoke (default), focused tab lifecycle, or the complete release matrix; --stages overrides it')
+    parser.add_argument('--cycles', type=int, help='Override menu/settings repeat counts for this run')
+    parser.add_argument('--keep-going', action='store_true',
+                        help='Run every selected stage and report all failures instead of stopping at the first')
+    parser.add_argument('--shard', metavar='N/M',
+                        help='Run only shard N of M stages; use a separate emulator per shard')
     args = parser.parse_args()
     assert args.serial.startswith('emulator-'), 'Use a dedicated emulator: regressions seed test data'
     assert re.fullmatch(r'[a-z0-9-]+', args.label), 'Use a short filename-safe label'
@@ -41,12 +46,19 @@ def main():
         return device('shell', 'sha256sum', path).split()[0]
 
     sdk = device('shell', 'getprop', 'ro.build.version.sdk')
+    shard = None
+    if args.shard:
+        match = re.fullmatch(r'([1-9]\d*)/([1-9]\d*)', args.shard)
+        assert match, '--shard must look like 1/3'
+        shard = (int(match.group(1)), int(match.group(2)))
+        assert shard[0] <= shard[1], '--shard N must not exceed M'
     if int(sdk) < 30:
         parser.error('API 29 regression support has been removed; use the API 37 emulator.')
     expected = (hashlib.sha256(args.apk.read_bytes()).hexdigest() if args.apk
                 else json.loads(args.build_manifest.read_text(encoding="utf-8"))['sha256'])
     assert apk_hash() == expected, 'Installed APK does not match the build manifest'
-    prefix = 'api' + sdk + '-' + args.label
+    label = args.label + ('-shard' + str(shard[0]) if shard else '')
+    prefix = 'api' + sdk + '-' + label
     summary = OUT / (prefix + '-suite.json')
     avd = device('emu', 'avd', 'name').splitlines()[0]
     result = {'serial': args.serial, 'sdk': sdk, 'apkSha256': expected,
@@ -117,31 +129,47 @@ def main():
         stages = [(name, command) for name, command in stages if name in args.stages]
     elif args.profile != 'full':
         profiles = {
+            # The fastest useful gate: address bar, normal/private tab lifecycle and settings.
+            'fast': {'omnibar', 'resident', 'settings'},
             'smoke': {'omnibar', 'resident', 'browser', 'features-dialogs'},
             'tabs': {'resident', 'media-lifecycle', 'private-lifecycle', 'menu-navigation', 'video-popup', 'video-popup-cross'},
         }
         stages = [(name, command) for name, command in stages if name in profiles[args.profile]]
+    if shard:
+        stages = [(name, command) for index, (name, command) in enumerate(stages) if index % shard[1] == shard[0] - 1]
     selected = [name for name, _ in stages]
     if args.resume:
         assert result.get('selectedStages', selected) == selected, 'Cannot resume with a different regression scope'
     result['selectedStages'] = selected
     result['profile'] = 'custom' if args.stages else args.profile
+    if shard:
+        result['profile'] += '-shard' + str(shard[0]) + 'of' + str(shard[1])
+
+    # Four menu cycles cover the four Back delays once; more is a stress run. Two settings
+    # cycles cover both gesture directions once. `--cycles` overrides both for a targeted stress.
+    menu_cycles = args.cycles or 4
+    settings_cycles = args.cycles or 2
 
     def save():
         summary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding="utf-8")
 
     result.update(status='running', error=None)
     save()
+    # Verified once at the start (and once at the end): re-running `pm path` + sha256sum before
+    # every stage costs dozens of adb round trips on an already busy emulator.
     for name, arguments in stages:
         if any(stage['stage'] == name and stage['exitCode'] == 0 for stage in result['stages']):
             continue
-        assert apk_hash() == expected, 'Installed APK changed during regression'
         for old in list(result['stages']):
             if old['stage'] == name:
                 result['priorAttempts'].append(old)
                 result['stages'].remove(old)
         log = OUT / (prefix + '-' + name + '-' + str(time.time_ns()) + '.log')
         command = [sys.executable, str(ROOT / 'validation' / arguments[0]), *arguments[1:]]
+        if name == 'menu-navigation':
+            command += ['--cycles', str(menu_cycles)]
+        elif name == 'settings-back':
+            command += ['--cycles', str(settings_cycles)]
         if arguments[0] != 'emulator-ux.py':
             command += ['--serial', args.serial]
         result['activeStage'] = name
@@ -168,8 +196,16 @@ def main():
         if code != 0:
             result.update(status='failed', error=name)
             save()
-            raise SystemExit(code if code > 0 else 1)
+            if not args.keep_going:
+                raise SystemExit(code if code > 0 else 1)
+    assert apk_hash() == expected, 'Installed APK changed during regression'
+    failed = [stage['stage'] for stage in result['stages'] if stage['exitCode'] != 0]
     result.pop('activeStage', None)
+    if failed:
+        result.update(status='failed', error=', '.join(failed))
+        save()
+        print('FAILED:', len(failed), 'stage(s):', ', '.join(failed), flush=True)
+        raise SystemExit(1)
     result.pop('error', None)
     result.update(status='completed', completedAt=time.strftime('%Y-%m-%d %H:%M:%S'))
     save()

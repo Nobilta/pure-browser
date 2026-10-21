@@ -95,7 +95,7 @@ internal object PageHide {
             } else {
                 append("if(resolved(el)!==want)continue;")
             }
-            append("el.style.setProperty('display','none','important');count++)}")
+            append("el.style.setProperty('display','none','important');count++}")
             append("return count}")
         }
         return "(function()" + match + ")()"

@@ -135,8 +135,24 @@ impl CosmeticMatcher {
     /// Host input is validated here; a malformed or non-web URL never receives CSS.
     /// Only the host affects selection, so paths and queries cannot fill the cache.
     pub fn css_for(&self, url: &str) -> Arc<str> {
+        self.css_for_policy(url, false, false)
+    }
+
+    /// [elemhide] suppresses every selector; [generichide] keeps only domain-scoped rules.
+    /// Policy variants bypass the host cache because the cache key intentionally ignores them.
+    pub fn css_for_policy(&self, url: &str, elemhide: bool, generichide: bool) -> Arc<str> {
+        if elemhide {
+            return Arc::from("");
+        }
         if url.len() > 8_192 || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
             return Arc::from("");
+        }
+        if generichide {
+            let lower = url.to_ascii_lowercase();
+            let Some(host) = crate::matcher::extract_host(&lower).filter(|h| !h.is_empty()) else {
+                return Arc::from("");
+            };
+            return self.select(host, false).into();
         }
         let lower = url.to_ascii_lowercase();
         let Some(host) = crate::matcher::extract_host(&lower).filter(|h| !h.is_empty()) else {
@@ -152,7 +168,7 @@ impl CosmeticMatcher {
                 }
             }
         }
-        let css: Arc<str> = self.select(host).into();
+        let css: Arc<str> = self.select(host, true).into();
         let mut cache = self.cache.lock().unwrap_or_else(|error| error.into_inner());
         // Concurrent readers can select the same new host. Keep one cache entry.
         if !cache.entries.iter().any(|(key, _)| key == host) {
@@ -193,8 +209,29 @@ impl CosmeticMatcher {
         selected
     }
 
-    fn select(&self, host: &str) -> String {
-        let selected = self.candidates(host);
+    fn select(&self, host: &str, include_generic: bool) -> String {
+        let mut selected = if include_generic {
+            self.candidates(host)
+        } else {
+            let mut selected = Vec::new();
+            let mut suffix = host;
+            loop {
+                if let Some(indices) = self.domains.get(suffix) {
+                    selected.extend_from_slice(indices);
+                }
+                let Some(dot) = suffix.find('.') else { break };
+                suffix = &suffix[dot + 1..];
+            }
+            selected
+        };
+        selected.retain(|&i| {
+            self.entries[i]
+                .exclude
+                .iter()
+                .all(|d| !matches_domain(host, d))
+        });
+        selected.sort_unstable();
+        selected.dedup();
         let mut suppressed = vec![false; self.selectors.len()];
         for &index in &selected {
             let entry = &self.entries[index];
@@ -252,6 +289,18 @@ mod tests {
         );
         assert!(m.css_for("https://other.test/").contains(".advert"));
         assert!(!m.css_for("https://notexample.com/").contains(".sponsor"));
+    }
+
+    #[test]
+    fn page_policies_suppress_generic_or_all_selectors() {
+        let m = matcher(&["##.generic\nexample.com##.specific"]);
+        let generic_only = m.css_for_policy("https://example.com/news", false, true);
+        assert!(generic_only.contains(".specific"));
+        assert!(!generic_only.contains(".generic"));
+        assert!(m
+            .css_for_policy("https://example.com/news", true, false)
+            .is_empty());
+        assert!(m.css_for("https://example.com/news").contains(".generic"));
     }
 
     #[test]

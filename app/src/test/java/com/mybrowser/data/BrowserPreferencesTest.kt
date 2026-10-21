@@ -62,6 +62,18 @@ class BrowserPreferencesTest {
         assertFalse(BrowserPreferencesRepository(context).load().incognitoEnabled)
     }
 
+    @Test fun aUiChangeCannotRevertAFieldCommittedByASettingsImport() {
+        val repository = BrowserPreferencesRepository(context)
+        val base = repository.load()
+        // Simulate the import committing the theme while the sheet still holds `base`.
+        repository.update({ it.copy(theme = ThemeMode.DARK) }, confirmed = true)
+        val merged = repository.saveChanged(base, base.copy(bottomAddressBar = true))
+        assertEquals(ThemeMode.DARK, merged.theme)
+        assertTrue(merged.bottomAddressBar)
+        assertEquals(ThemeMode.DARK, repository.load().theme)
+        assertTrue(repository.load().bottomAddressBar)
+    }
+
     @Test fun searchSuggestionsDefaultOnAndPrivateDefaultsOff() {
         val defaults = BrowserPreferencesRepository(context).load()
         assertTrue(defaults.searchSuggestionsEnabled)

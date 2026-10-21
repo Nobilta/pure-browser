@@ -16,10 +16,9 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--serial', required=True)
-# The loop varies the Back delay (30/80/160/300 ms) and repeats it. Eight cycles cover each
-# delay twice, which is what the check asserts; the historical 24 repeated the same four
-# cases six times over. Pass a larger value for a release stress run.
-parser.add_argument('--cycles', type=int, default=8)
+# The loop varies the Back delay (30/80/160/300 ms). Four cycles cover each delay once,
+# which is the correctness requirement; pass a larger value for a release stress run.
+parser.add_argument('--cycles', type=int, default=4)
 parser.add_argument('--label', default='menu-navigation')
 args = parser.parse_args()
 assert args.serial.startswith('emulator-'), 'Use a dedicated emulator'

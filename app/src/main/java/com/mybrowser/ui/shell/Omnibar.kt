@@ -29,7 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,6 +87,9 @@ fun Omnibar(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+    // A field that has never held focus also reports false on its first composition; only a
+    // transition away from real focus may end the editing session.
+    var hadFocus by remember { mutableStateOf(false) }
     val barHeight = 48.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
     LaunchedEffect(isFocused) {
         if (isFocused) {
@@ -193,9 +199,19 @@ fun Omnibar(
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
                             .semantics { contentDescription = textResources.getString(R.string.ui_address_field) }
-                            // IME candidate windows and initial attachment may report
-                            // lost focus without the user finishing their editing session.
-                            .onFocusChanged { if (it.isFocused) onFocusChange(true) },
+                            // Focus can leave the field without any business callback: a
+                            // hardware Tab to Go, accessibility focus, or the window losing focus.
+                            // Mirror both directions; otherwise the overlay and Back handler stay
+                            // attached to an editor that is no longer focused.
+                            .onFocusChanged { state ->
+                                if (state.isFocused) {
+                                    hadFocus = true
+                                    onFocusChange(true)
+                                } else if (hadFocus) {
+                                    hadFocus = false
+                                    onFocusChange(false)
+                                }
+                            },
                         singleLine = true,
                         textStyle = LocalTextStyle.current.merge(
                             MaterialTheme.typography.bodyLarge.copy(
