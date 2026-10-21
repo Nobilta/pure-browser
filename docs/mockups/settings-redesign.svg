@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" role="img" aria-label="Pure Browser 设置页重设计">
+  <rect width="390" height="844" fill="#F7F8FC"/>
+
+  <!-- Status bar -->
+  <g aria-hidden="true">
+    <text x="24" y="29.5" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="13.5" font-weight="600" letter-spacing="0.2" fill="#1B1B1F">9:41</text>
+    <rect x="284" y="25.5" width="3" height="5" rx="1" fill="#1B1B1F"/>
+    <rect x="289" y="23" width="3" height="7.5" rx="1" fill="#1B1B1F"/>
+    <rect x="294" y="20.5" width="3" height="10" rx="1" fill="#1B1B1F"/>
+    <rect x="299" y="18" width="3" height="12.5" rx="1" fill="#1B1B1F"/>
+    <path d="M310.2 22.9 A10 10 0 0 1 325.8 22.9" fill="none" stroke="#1B1B1F" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M313.1 25.5 A5.9 5.9 0 0 1 322.9 25.5" fill="none" stroke="#1B1B1F" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M315.8 28 A2.8 2.8 0 0 1 320.2 28" fill="none" stroke="#1B1B1F" stroke-width="1.7" stroke-linecap="round"/>
+    <circle cx="318" cy="30.2" r="1.35" fill="#1B1B1F"/>
+    <rect x="339.5" y="21.5" width="22.5" height="12" rx="3.4" fill="none" stroke="#1B1B1F" stroke-width="1.2"/>
+    <rect x="342" y="24" width="16.8" height="7" rx="1.9" fill="#1B1B1F"/>
+    <path d="M363.5 25.1 V29.9" stroke="#1B1B1F" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
+
+  <!-- Header -->
+  <g aria-label="返回和标题">
+    <path d="M32 60.5 L22.5 70 L32 79.5" fill="none" stroke="#1B1B1F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="50" y="78.5" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="22" font-weight="600" letter-spacing="0.2" fill="#1B1B1F">设置</text>
+  </g>
+
+  <!-- Search -->
+  <g aria-label="搜索设置">
+    <rect x="20" y="104" width="350" height="48" rx="24" fill="#EEF0F7"/>
+    <circle cx="43" cy="126" r="5.2" fill="none" stroke="#5B5E66" stroke-width="1.7"/>
+    <path d="M46.9 129.9 L52 135" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round"/>
+    <text x="64" y="133" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="14" font-weight="400" letter-spacing="0.1" fill="#5B5E66" fill-opacity="0.92">搜索设置</text>
+  </g>
+
+  <!-- Browser section -->
+  <g aria-label="浏览器">
+    <text x="20" y="181" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12" font-weight="500" letter-spacing="0.8" fill="#5B5E66">浏览器</text>
+
+    <g aria-label="通用，百度 · 主页启动">
+      <rect x="22" y="194" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="191" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="222" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 212)">
+        <path d="M3.2 8.1 L10 2.8 L16.8 8.1 V16.1 C16.8 17.1 16 17.9 15 17.9 H5 C4 17.9 3.2 17.1 3.2 16.1 Z" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M7.8 17.9 V12.4 C7.8 12.1 8.1 11.8 8.4 11.8 H11.6 C11.9 11.8 12.2 12.1 12.2 12.4 V17.9" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text x="84" y="216" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">通用</text>
+      <text x="84" y="235" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">百度 · 主页启动</text>
+      <path d="M348 217 L353 222 L348 227" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+
+    <g aria-label="外观，跟随系统 · 地址栏在底部">
+      <rect x="22" y="264" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="261" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="292" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 282)">
+        <path d="M10.2 2.7 C5.5 2.7 2.2 6.1 2.2 10.2 C2.2 14.4 5.4 17.4 9.5 17.4 C10.6 17.4 11.4 16.7 11.4 15.7 C11.4 15.3 11.2 14.9 10.9 14.6 C10.6 14.3 10.5 14 10.5 13.6 C10.5 12.4 11.5 11.4 12.7 11.4 H14.1 C16.2 11.4 17.7 9.8 17.7 7.7 C17.7 4.7 14.7 2.7 10.2 2.7 Z" fill="none" stroke="#365F91" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="6.3" cy="9.2" r="0.95" fill="#365F91"/>
+        <circle cx="8.7" cy="6" r="0.95" fill="#365F91"/>
+        <circle cx="12.1" cy="5.5" r="0.95" fill="#365F91"/>
+        <circle cx="15" cy="7.6" r="0.95" fill="#365F91"/>
+      </g>
+      <text x="84" y="286" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">外观</text>
+      <text x="84" y="305" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">跟随系统 · 地址栏在底部</text>
+      <path d="M348 287 L353 292 L348 297" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- Privacy and content section -->
+  <g aria-label="隐私与内容">
+    <text x="20" y="348" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12" font-weight="500" letter-spacing="0.8" fill="#5B5E66">隐私、内容与媒体</text>
+
+    <g aria-label="隐私与数据，无痕关闭 · 网站权限 · 导入导出">
+      <rect x="22" y="361" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="358" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="389" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 379)">
+        <path d="M10 2.6 L16.4 4.9 V9.2 C16.4 13.2 13.8 16.3 10 17.5 C6.2 16.3 3.6 13.2 3.6 9.2 V4.9 Z" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M7.2 9.8 L9.1 11.7 L13 7.5" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text x="84" y="383" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">隐私与数据</text>
+      <text x="84" y="402" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">无痕关闭 · 网站权限 · 导入导出</text>
+      <path d="M348 384 L353 389 L348 394" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+
+    <g aria-label="内容与工具，过滤开 · 2 个脚本 · 翻译">
+      <rect x="22" y="431" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="428" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="459" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 449)">
+        <path d="M10 2.8 L17.2 6.4 L10 10 L2.8 6.4 Z" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M3.1 10.1 L10 13.6 L16.9 10.1" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.1 13.8 L10 17.3 L16.9 13.8" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text x="84" y="453" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">内容与工具</text>
+      <text x="84" y="472" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">过滤开 · 2 个脚本 · 翻译</text>
+      <path d="M348 454 L353 459 L348 464" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+
+    <g aria-label="下载，系统下载目录 · 4 连接">
+      <rect x="22" y="501" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="498" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="529" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 519)">
+        <path d="M10 2.9 V12.7" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M5.8 8.5 L10 12.7 L14.2 8.5" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.4 13.7 V15.7 C3.4 16.9 4.3 17.8 5.5 17.8 H14.5 C15.7 17.8 16.6 16.9 16.6 15.7 V13.7" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text x="84" y="523" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">下载</text>
+      <text x="84" y="542" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">系统下载目录 · 4 连接</text>
+      <path d="M348 524 L353 529 L348 534" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+
+    <g aria-label="媒体播放，增强播放开">
+      <rect x="22" y="571" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="568" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="599" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 589)">
+        <path d="M7.8 4.9 C7.8 4.3 8.4 3.9 9 4.3 L15.6 9.1 C16.1 9.5 16.1 10.4 15.6 10.8 L9 15.6 C8.4 16 7.8 15.6 7.8 15 Z" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linejoin="round"/>
+      </g>
+      <text x="84" y="593" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">媒体播放</text>
+      <text x="84" y="612" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">增强播放开</text>
+      <path d="M348 594 L353 599 L348 604" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- Other section -->
+  <g aria-label="其他">
+    <text x="20" y="655" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12" font-weight="500" letter-spacing="0.8" fill="#5B5E66">其他</text>
+
+    <g aria-label="关于与更新，0.14.1">
+      <rect x="22" y="668" width="346" height="62" rx="16" fill="#365F91" opacity="0.045"/>
+      <rect x="20" y="665" width="350" height="62" rx="16" fill="#FFFFFF" stroke="#D7DAE2" stroke-opacity="0.55"/>
+      <circle cx="54" cy="696" r="18" fill="#D4E3FF"/>
+      <g transform="translate(44 686)">
+        <circle cx="10" cy="10" r="7.3" fill="none" stroke="#365F91" stroke-width="1.6"/>
+        <path d="M10 8.9 V14.2" fill="none" stroke="#365F91" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="10" cy="6.2" r="0.95" fill="#365F91"/>
+      </g>
+      <text x="84" y="690" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="15.5" font-weight="600" letter-spacing="0.1" fill="#1B1B1F">关于与更新</text>
+      <text x="84" y="709" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="12.5" font-weight="400" letter-spacing="0.1" fill="#5B5E66">0.14.1</text>
+      <path d="M348 691 L353 696 L348 701" fill="none" stroke="#5B5E66" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <g aria-label="设置会即时保存">
+    <circle cx="152" cy="755" r="7.5" fill="#EEF0F7"/>
+    <path d="M148.7 755 L151.2 757.5 L155.5 752.9" fill="none" stroke="#2E7D32" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="165" y="759" font-family="&quot;Noto Sans SC&quot;,&quot;PingFang SC&quot;,&quot;Microsoft YaHei&quot;,sans-serif" font-size="11.5" font-weight="400" letter-spacing="0.15" fill="#5B5E66">设置会即时保存</text>
+  </g>
+
+  <!-- Gesture navigation bar -->
+  <rect x="141" y="826" width="108" height="4" rx="2" fill="#1B1B1F" opacity="0.8"/>
+</svg>
