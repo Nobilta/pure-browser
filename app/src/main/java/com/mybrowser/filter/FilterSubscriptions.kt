@@ -210,10 +210,17 @@ class FilterSubscriptions(
             Log.w(TAG, "Hand-written rules exceeded $MAX_USER_RULES_BYTES bytes and were not loaded")
             return emptyList()
         }
-        userRulesLoadFailed = false
-        return stored.lineSequence()
-            .map(String::trim)
-            .filter(BlockRules::isValid)
+        val lines = stored.lineSequence().map(String::trim).filter { it.isNotEmpty() }.toList()
+        val valid = lines.filter(BlockRules::isValid)
+        // Dropping an invalid line silently and then exporting the remainder would still replace
+        // the target's rules on import. Treat any malformed line, or truncation at the count cap,
+        // as an unreadable store so the filtering group is omitted from the export instead.
+        val failed = valid.size != lines.size || valid.distinct().size > MAX_USER_RULES
+        userRulesLoadFailed = failed
+        if (failed) {
+            Log.w(TAG, "Hand-written rules contain invalid or excessive entries; not exporting them")
+        }
+        return valid
             // `addUserRule` refuses a duplicate, so a repeated line can only come from an edited
             // preference file; it is still dropped here, because the settings list keys its rows by
             // the rule text and two identical keys throw when the list is composed.

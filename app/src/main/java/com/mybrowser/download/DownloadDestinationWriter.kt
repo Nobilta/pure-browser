@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.net.toUri
@@ -165,6 +166,7 @@ internal class DownloadDestinationWriter(context: Context) {
         if (supportsRename(temporaryUri)) {
             return PublishedDownload(temporaryUri, displayName, temporary = true)
         }
+        Log.w(TAG, "SAF provider cannot rename; writing the final document directly")
         runCatching { DocumentsContract.deleteDocument(resolver, temporaryUri) }
         val uri = DocumentsContract.createDocument(resolver, parent, mimeType, displayName)
             ?: throw IOException("Unable to create a file in the selected directory")
@@ -211,6 +213,7 @@ internal class DownloadDestinationWriter(context: Context) {
             ?: throw IOException("Too many files share this download name")
 
     private companion object {
+        const val TAG = "DownloadDestinationWriter"
         const val COPY_BUFFER_SIZE = 64 * 1024
         const val MAX_DUPLICATE_ATTEMPTS = 10_000
     }
