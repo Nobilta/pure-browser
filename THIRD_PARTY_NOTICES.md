@@ -8,7 +8,7 @@ Dependency versions are recorded in [app/gradle.lockfile](app/gradle.lockfile) a
 ## Material Icons
 
 The `ic_lock`, `ic_lock_open`, `ic_copy`, `ic_share`, `ic_edit`, `ic_add`,
-`ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file` and `ic_pip` drawables are adapted from
+`ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_pip` and `ic_translate` drawables are adapted from
 [Google Material Icons](https://github.com/google/material-design-icons), under the
 [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 Their SVG paths were converted to Android VectorDrawable resources.
@@ -47,3 +47,10 @@ The list data use MPL-2.0 and originate from the [Public Suffix List](https://pu
 
 `idna` 1.1 (MIT / Apache-2.0) provides UTS #46 normalization using ICU4X (Unicode-3.0).
 Exact transitive versions are pinned in Cargo.lock.
+
+## Optional translation services
+
+The translation UI can call services selected by the user. MyMemory is the only built-in endpoint and
+is used without an account; its [API terms](https://mymemory.translated.net/doc/spec.php) apply.
+Azure Translator, DeepL and LibreTranslate are optional and are called only after the user supplies
+their own key or endpoint. No API key or page text is sent to the project's own servers.

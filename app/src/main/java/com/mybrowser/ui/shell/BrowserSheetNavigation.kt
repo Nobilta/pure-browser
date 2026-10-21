@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 internal class BrowserSheetNavigation {
     enum class Destination {
         MENU, CAST, TABS, BOOKMARKS, HISTORY, DOWNLOADS, SETTINGS,
-        SITE_SETTINGS, DEVELOPER_TOOLS, QR_SCANNER,
+        SITE_SETTINGS, DEVELOPER_TOOLS, QR_SCANNER, TRANSLATION,
     }
 
     data class Route(val key: Long, val destination: Destination)
@@ -45,8 +45,16 @@ internal class BrowserSheetNavigation {
     }
 
     fun push(owner: Presentation, destination: Destination): Boolean {
-        if (!isCurrent(owner) || owner.destination != Destination.MENU ||
-            destination == Destination.MENU || routes.size != 1) return false
+        if (!isCurrent(owner) || destination == Destination.MENU ||
+            owner.destination == destination) return false
+        val allowed = when (owner.destination) {
+            Destination.MENU -> routes.size == 1
+            // Translation is a settings child as well as a page tool: from Settings it must
+            // return to Settings, not replace the category the user came from.
+            Destination.SETTINGS -> destination == Destination.TRANSLATION && routes.size == 2
+            else -> false
+        }
+        if (!allowed) return false
         show(routes + Route(nextKey++, destination))
         return true
     }
