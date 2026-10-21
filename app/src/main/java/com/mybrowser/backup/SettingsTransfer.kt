@@ -160,7 +160,7 @@ class SettingsTransfer(
         val downloads = DownloadSettingsRepository(appContext).load()
         val sitesCorrupt = sites.needsRepair.value
         val searchCorrupt = engines.loadFailed
-        val filteringCorrupt = filterSubscriptions.loadFailed
+        val filteringCorrupt = filterSubscriptions.loadFailed || filterSubscriptions.userRulesLoadFailed
 
         // The library is capped, never refused: a device over the budget still gets a file,
         // and the export reports what was left out instead of writing something unimportable.

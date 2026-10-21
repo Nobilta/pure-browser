@@ -32,11 +32,16 @@ class BookmarkLibrary(private val scope: CoroutineScope, private val repository:
     val error get() = pager.error
     val path get() = runCatching { BookmarkFolders.path(folderId, folders) }.getOrDefault(emptyList())
     private var folderGeneration = 0L
+    private var foldersLoaded = false
 
-    fun search(value: String) { pager.search(value); readFolders() }
+    // Typing a search only needs the folder list for path labels, which is loaded once when the
+    // sheet opens. Refreshing the whole folder table on every keystroke was the expensive part.
+    fun search(value: String) { pager.search(value); ensureFolders() }
     fun refresh() { pager.refresh(); readFolders() }
     fun loadMore() = pager.loadMore()
     fun openFolder(id: Long) { if (!busy) { folderId = id; search("") } }
+
+    private fun ensureFolders() { if (!foldersLoaded) readFolders() }
 
     private fun readFolders() {
         val generation = ++folderGeneration
@@ -45,6 +50,7 @@ class BookmarkLibrary(private val scope: CoroutineScope, private val repository:
                 val snapshot = withContext(Dispatchers.IO) { repository.getFolders() }
                 if (generation == folderGeneration) {
                     folders = snapshot
+                    foldersLoaded = true
                     if (folderId != 0L && snapshot.none { it.id == folderId }) {
                         folderId = 0L
                         pager.search("")

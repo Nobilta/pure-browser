@@ -448,6 +448,20 @@ class SettingsTransferTest {
         }
     }
 
+    @Test fun oversizedUserRulesAreLeftOutOfAnExportInsteadOfClearingThem() = runBlocking {
+        context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
+            .putString("user_rules", "x".repeat(1_000_000)).commit()
+        val filter = FilterController(context)
+        try {
+            val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
+                .collect("9.9.9")
+            assertEquals(null, exported.backup.settings.filtering)
+            assertTrue(exported.skippedGroups.contains("filtering"))
+        } finally {
+            filter.close()
+        }
+    }
+
     @Test fun unreadableFilterManifestIsLeftOutOfAnExportInsteadOfClearingSubscriptions() = runBlocking {
         context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
             .putString("subscriptions_manifest", "{not json").commit()

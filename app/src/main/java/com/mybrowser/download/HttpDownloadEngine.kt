@@ -47,8 +47,8 @@ internal class HttpDownloadEngine {
         tempDirectory: File,
         onProgress: (downloaded: Long, total: Long, actualThreads: Int) -> Unit,
     ): DownloadPayload = withContext(Dispatchers.IO) {
-        check(tempDirectory.mkdirs() || tempDirectory.isDirectory) {
-            "Unable to create download temporary directory"
+        if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
+            throw IOException("Unable to create download temporary directory")
         }
 
         val threadLimit = DownloadSettingsRepository.normalizeThreadCount(requestedThreads)
@@ -64,10 +64,14 @@ internal class HttpDownloadEngine {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (rejected: DownloadHttpException) {
+                // A 503/429 is the server saying "later"; keep the validated prefix so the manager's
+                // retry can resume it. Only a permanent rejection (403/404/405/...) makes the old
+                // bytes unusable.
+                if (rejected.isTransient) throw rejected
                 Log.w(TAG, "Range revalidation rejected; restarting the download", rejected)
                 tempDirectory.deleteRecursively()
-                check(tempDirectory.mkdirs() || tempDirectory.isDirectory) {
-                    "Unable to recreate download temporary directory"
+                if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
+                    throw IOException("Unable to recreate download temporary directory")
                 }
                 null
             }
@@ -94,7 +98,9 @@ internal class HttpDownloadEngine {
         // Changed/missing validators and invalid sidecars invalidate every old byte.
         currentCoroutineContext().ensureActive()
         tempDirectory.deleteRecursively()
-        check(tempDirectory.mkdirs() || tempDirectory.isDirectory)
+        if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
+            throw IOException("Unable to recreate download temporary directory")
+        }
         val threadCount = probe?.totalBytes
             ?.let { total -> DownloadRanges.effectiveThreadCount(total, threadLimit) }
             ?.takeIf { probe.supportsRanges && probe.validator != null && it > 1 }
@@ -128,8 +134,8 @@ internal class HttpDownloadEngine {
             // chunks behind.
             Log.w(TAG, "Segmented transfer failed; retrying with one stream", error)
             tempDirectory.deleteRecursively()
-            check(tempDirectory.mkdirs() || tempDirectory.isDirectory) {
-                "Unable to recreate download temporary directory"
+            if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
+                throw IOException("Unable to recreate download temporary directory")
             }
             onProgress(0L, rangeProbe.totalBytes, 1)
             downloadSingle(url, headers, tempDirectory, onProgress)
@@ -494,4 +500,11 @@ internal object DownloadRanges {
     }
 }
 
-internal class DownloadHttpException(val code: Int) : IOException("Download returned HTTP $code")
+internal class DownloadHttpException(val code: Int) : IOException("Download returned HTTP $code") {
+    /** A server/network condition that may clear; the manager retries these without losing parts. */
+    val isTransient: Boolean get() = code in TRANSIENT_CODES
+
+    private companion object {
+        val TRANSIENT_CODES = setOf(408, 429, 500, 502, 503, 504)
+    }
+}

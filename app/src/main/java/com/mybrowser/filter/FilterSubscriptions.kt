@@ -60,6 +60,9 @@ class FilterSubscriptions(
     /** True when a stored subscription manifest exists but could not be decoded. */
     @Volatile var loadFailed: Boolean = false
         private set
+    /** True when hand-written rules exist but were dropped because the blob exceeded its cap. */
+    @Volatile var userRulesLoadFailed: Boolean = false
+        private set
     private val _subscriptions = MutableStateFlow(builtIns.map { Subscription(it.id, it.name, it.url, builtIn = true) })
     private val _busy = MutableStateFlow(false)
     private val _lastError = MutableStateFlow<String?>(null)
@@ -137,7 +140,7 @@ class FilterSubscriptions(
         val text = rules.joinToString("\n")
         require(text.length <= MAX_USER_RULES_BYTES)
         prefs.commitConfirmed(mapOf(USER_RULES_KEY to text))
-    }.isSuccess
+    }.onSuccess { userRulesLoadFailed = false }.isSuccess
 
     private suspend fun initializeLocked() {
         if (initialized) return
@@ -193,14 +196,21 @@ class FilterSubscriptions(
      * must not write.
      */
     private fun readUserRules(): List<String> {
-        val stored = prefs.getString(USER_RULES_KEY, null) ?: return emptyList()
+        val stored = prefs.getString(USER_RULES_KEY, null)
+        if (stored == null) {
+            userRulesLoadFailed = false
+            return emptyList()
+        }
         if (stored.length > MAX_USER_RULES_BYTES) {
             // Refusing the whole blob discards every rule the user wrote, which they cannot tell
             // apart from the rules never having been saved. Nothing else here writes a blob this
-            // large, so it means the file was edited or truncated; the log is the only trace.
+            // large, so it means the file was edited or truncated; mark the group so an export
+            // does not turn the empty fallback into an instruction to clear another device.
+            userRulesLoadFailed = true
             Log.w(TAG, "Hand-written rules exceeded $MAX_USER_RULES_BYTES bytes and were not loaded")
             return emptyList()
         }
+        userRulesLoadFailed = false
         return stored.lineSequence()
             .map(String::trim)
             .filter(BlockRules::isValid)
@@ -362,8 +372,10 @@ class FilterSubscriptions(
                 // by a newer build than the one doing the importing.
                 persist(next, enabled, autoUpdate, userRules?.let { nextRules })
                 // The import wrote a fresh manifest, so an earlier decode failure no longer
-                // describes what is on disk.
+                // describes what is on disk. Rules are only cleared when the file actually
+                // carried a userRules list.
                 loadFailed = false
+                if (userRules != null) userRulesLoadFailed = false
                 _subscriptions.value = next
                 _userRules.value = nextRules
                 filter?.reloadEnabledPreference()

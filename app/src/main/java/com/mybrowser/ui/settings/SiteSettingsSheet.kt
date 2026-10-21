@@ -9,6 +9,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,28 @@ import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibrarySearchField
 
+private val SiteSettingsSaver = listSaver<SiteSettings, String>(
+    save = { value -> listOf(
+        value.filtering.toString(), value.javaScript.toString(), value.images.toString(),
+        value.thirdPartyCookies.toString(), value.desktop.toString(), value.textZoom.toString(),
+        value.camera.name, value.microphone.name, value.location.name, value.protectedMedia.name,
+        value.externalApps.name, value.webDarkening.toString(), value.desktopWidth.toString(),
+        value.enhancedPlayback?.toString().orEmpty(), value.videoMirror?.toString().orEmpty(),
+        value.videoFit?.name.orEmpty(),
+    ) },
+    restore = { values -> SiteSettings(
+        filtering = values[0].toBoolean(), javaScript = values[1].toBoolean(), images = values[2].toBoolean(),
+        thirdPartyCookies = values[3].toBoolean(), desktop = values[4].toBoolean(), textZoom = values[5].toInt(),
+        camera = SitePermission.valueOf(values[6]), microphone = SitePermission.valueOf(values[7]),
+        location = SitePermission.valueOf(values[8]), protectedMedia = SitePermission.valueOf(values[9]),
+        externalApps = SitePermission.valueOf(values[10]), webDarkening = values[11].toBoolean(),
+        desktopWidth = values[12].toInt(),
+        enhancedPlayback = values[13].ifEmpty { null }?.toBoolean(),
+        videoMirror = values[14].ifEmpty { null }?.toBoolean(),
+        videoFit = values[15].ifEmpty { null }?.let(VideoFit::valueOf),
+    ) },
+)
+
 @Composable
 fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Boolean, busy: Boolean,
     onSave: (SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
@@ -32,8 +55,10 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true,
     needsRepair: Boolean = false, onRepair: () -> Unit = {}) {
     // Keep unsaved edits while another surface (for example a remembered permission decision)
-    // updates this origin's stored settings; only switching origin starts a new draft.
-    var draft by remember(origin) { mutableStateOf(settings) }
+    // updates this origin's stored settings; only switching origin starts a new draft. The draft is
+    // saveable so rotation/Activity recreation does not discard edits.
+    val initial = remember(origin) { settings }
+    var draft by rememberSaveable(origin, stateSaver = SiteSettingsSaver) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
     BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {
@@ -121,7 +146,8 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.weight(1f).fillMaxHeight()) { Text(stringResource(R.string.action_cancel)) }
-                Button(onClick = { onSave(draft) }, enabled = !busy && !needsRepair, modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Button(onClick = { onSave(mergeSiteDraft(initial, draft, settings)) },
+                    enabled = !busy && !needsRepair, modifier = Modifier.weight(1f).fillMaxHeight()) {
                     Text(stringResource(R.string.site_save_reload))
                 }
             }
@@ -262,3 +288,31 @@ private val VIDEO_FIT_CHOICES = listOf(
 
 private fun videoFitLabel(fit: VideoFit): Int =
     VIDEO_FIT_CHOICES.firstOrNull { (_, option) -> option == fit }?.first ?: R.string.player_fit_natural
+
+
+/**
+ * Applies only fields the user changed in this sheet to the settings currently on disk. A permission
+ * prompt can update this origin while the sheet is open; saving the whole stale `draft` would put the
+ * old permission back.
+ */
+internal fun mergeSiteDraft(initial: SiteSettings, draft: SiteSettings, current: SiteSettings): SiteSettings {
+    fun <T> changed(before: T, after: T, existing: T): T = if (after != before) after else existing
+    return current.copy(
+        filtering = changed(initial.filtering, draft.filtering, current.filtering),
+        javaScript = changed(initial.javaScript, draft.javaScript, current.javaScript),
+        images = changed(initial.images, draft.images, current.images),
+        thirdPartyCookies = changed(initial.thirdPartyCookies, draft.thirdPartyCookies, current.thirdPartyCookies),
+        desktop = changed(initial.desktop, draft.desktop, current.desktop),
+        textZoom = changed(initial.textZoom, draft.textZoom, current.textZoom),
+        camera = changed(initial.camera, draft.camera, current.camera),
+        microphone = changed(initial.microphone, draft.microphone, current.microphone),
+        location = changed(initial.location, draft.location, current.location),
+        protectedMedia = changed(initial.protectedMedia, draft.protectedMedia, current.protectedMedia),
+        externalApps = changed(initial.externalApps, draft.externalApps, current.externalApps),
+        webDarkening = changed(initial.webDarkening, draft.webDarkening, current.webDarkening),
+        desktopWidth = changed(initial.desktopWidth, draft.desktopWidth, current.desktopWidth),
+        enhancedPlayback = changed(initial.enhancedPlayback, draft.enhancedPlayback, current.enhancedPlayback),
+        videoMirror = changed(initial.videoMirror, draft.videoMirror, current.videoMirror),
+        videoFit = changed(initial.videoFit, draft.videoFit, current.videoFit),
+    )
+}

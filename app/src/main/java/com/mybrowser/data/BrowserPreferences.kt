@@ -85,7 +85,7 @@ class BrowserPreferencesRepository(context: Context) {
      * and forgetting. Call from an IO dispatcher.
      */
     fun saveIncognitoEnabled(value: Boolean): Boolean = synchronized(writeLock) {
-        prefs.edit().putBoolean("incognito_enabled", value).commit()
+        runCatching { prefs.commitConfirmed(mapOf("incognito_enabled" to value)) }.isSuccess
     }
 
     /** Restore the in-memory value too: a failed commit must not enable fullscreen on reload. */
