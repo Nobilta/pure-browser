@@ -89,11 +89,13 @@ def changelog_body(version):
 def compose_notes(version):
     """The release body: the changelog section for this version, and nothing else.
 
-    The release page and the update prompt inside the app both render this same text, so it holds
-    only what a user can act on. The verification record lives in release/notes.md: the process
+    The release page and the update prompt inside the app both render this same text. The app
+    prompt is a plain Text widget, so a Markdown heading would appear literally as
+    ``# Pure Browser ...``; keep a plain version line instead. The updater requires the first
+    line to name the version. The verification record lives in release/notes.md: the process
     requires it and checks that it belongs to this version, but it is not published.
     """
-    return '# Pure Browser ' + version + '\n\n' + changelog_body(version) + '\n'
+    return 'Pure Browser ' + version + '\n\n' + changelog_body(version) + '\n'
 
 
 def prepare(apk, output, notes=None):
