@@ -31,13 +31,8 @@
     <string name="menu_desktop_site">桌面版網站</string>
     <string name="menu_settings">設置</string>
     <string name="menu_title">瀏覽器菜單</string>
-    <string name="menu_section_shortcuts">快捷入口</string>
-    <string name="menu_section_page">頁面操作</string>
-    <string name="menu_section_data">瀏覽數據</string>
-    <string name="menu_section_extensions">擴充與工具</string>
-    <string name="menu_section_privacy">隱私與安全</string>
-    <string name="menu_desktop_on">當前使用桌面版</string>
-    <string name="menu_desktop_off">切換到桌面版</string>
+    <string name="menu_section_page">這個頁面</string>
+    <string name="menu_section_privacy">隱私</string>
     <string name="menu_developer_tools">開發者工具</string>
     <string name="tabs_new">新建</string>
     <string name="tabs_close_all">全部關閉</string>
@@ -310,14 +305,10 @@
     <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">非全螢幕影片一律使用網頁原有控制項。</string>
     <string name="ui_pure_browser">Pure 瀏覽器</string>
     <string name="ui_version_android_10_or_later_64_bit_arm">版本 %1$s\n支持 Android 10 及以上 · 64 位 ARM 設備</string>
-    <string name="ui_browsing_and_startup">瀏覽與啓動</string>
     <string name="ui_appearance">外觀</string>
-    <string name="ui_privacy_security">隱私與安全</string>
-    <string name="ui_extensions">擴充</string>
     <string name="settings_privacy_incognito_off">無痕瀏覽未開啟</string>
     <string name="settings_privacy_incognito_on">無痕瀏覽已開啟</string>
     <string name="ui_download_settings">下載設置</string>
-    <string name="ui_about">關於</string>
     <string name="ui_save_location">保存位置</string>
     <string name="ui_save_to_the_device_downloads_folder">保存到設備的 Download 文件夾</string>
     <string name="ui_custom_folder">自定義目錄</string>
@@ -457,7 +448,6 @@
     <string name="script_not_here">不適用於本頁</string>
     <string name="script_status_no_page">開啟網頁後可看到哪些指令碼適用。</string>
     <string name="script_status_incognito">指令碼在此正常執行，儲存的資料只在本次工作階段內有效</string>
-    <string name="script_incognito_note">無痕模式下指令碼同樣執行；指令碼儲存的資料只在本次無痕工作階段內有效。</string>
     <string name="script_summary">支援常用使用者指令碼 API，修改後請重新整理網頁。無痕模式下指令碼同樣執行，但指令碼儲存的資料只在本次無痕工作階段內有效。</string>
     <string name="script_old_webview">此 WebView 僅在網頁載入後執行 DOM 腳本。GM 儲存和精確的開始時機需要更新 Android System WebView。</string>
     <string name="script_operation_failed">無法匯入或儲存腳本，請檢查中繼資料、網址、相依項目、網路和儲存空間（腳本上限 1 MiB）。</string>
@@ -612,8 +602,6 @@
     <string name="bottom_address_bar">網址列置於底部</string>
     <string name="browser_fullscreen">瀏覽器全屏</string>
     <string name="browser_fullscreen_summary">隱藏系統列、網址列和工具列，網頁沉浸顯示；保留浮動按鈕呼出瀏覽器操作</string>
-    <string name="browser_fullscreen_on">已開啟，網頁鋪滿全屏</string>
-    <string name="browser_fullscreen_off">已關閉</string>
     <string name="browser_fullscreen_actions">瀏覽器操作</string>
     <string name="browser_fullscreen_continue">繼續全屏</string>
     <string name="browser_fullscreen_exit">退出全屏</string>
@@ -821,9 +809,6 @@
     <string name="translate_original">原文</string>
     <string name="translate_copy">複製</string>
     <string name="translate_close">關閉</string>
-    <string name="translate_full_page">整頁</string>
-    <string name="translate_short_text">僅短文字</string>
-    <string name="translate_menu_subtitle">翻譯選取文字或整個網頁</string>
     <string name="translate_settings_summary">選擇服務、目標語言和可選的 API key</string>
     <string name="welcome_title">歡迎使用 Pure Browser</string>
     <string name="welcome_body">一個把頁面還給你的輕量瀏覽器。</string>
@@ -835,4 +820,18 @@
     <string name="translate_truncated">只翻譯了本頁的前一部分內容。</string>
     <string name="translate_show_key">顯示 API key</string>
     <string name="translate_hide_key">隱藏 API key</string>
+    <string name="menu_more_tools">更多工具</string>
+    <string name="menu_more_tools_summary">加入桌面 · 使用者腳本 · 掃碼 · 清理資料</string>
+    <string name="menu_section_go_to">前往</string>
+    <string name="menu_section_more">更多</string>
+    <string name="menu_translate">翻譯</string>
+    <string name="menu_share_page">分享</string>
+    <string name="settings_general">一般</string>
+    <string name="settings_privacy_data">隱私與資料</string>
+    <string name="settings_content_tools">內容與工具</string>
+    <string name="settings_media">媒體播放</string>
+    <string name="settings_about_updates">關於與更新</string>
+    <string name="settings_group_privacy_content_media">隱私、內容與媒體</string>
+    <string name="settings_group_other">其他</string>
+    <string name="settings_sites_and_data">網站與資料</string>
 </resources>
