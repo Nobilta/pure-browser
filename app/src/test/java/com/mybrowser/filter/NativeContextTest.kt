@@ -33,6 +33,14 @@ class NativeContextTest {
         }
     }
 
+    @Test fun documentWhitelistAlsoDisablesCosmeticInjection() {
+        checkNotNull(NativeFilter.createOrNull()).use { engine ->
+            engine.addList("||ads.example^\nexample.com##.ad\n@@||example.com^\$document")
+            assertEquals("", engine.cosmeticCss("https://example.com/page"))
+            assertFalse(engine.shouldBlock("https://ads.example/a.js", "https://example.com/page", ResourceType.SCRIPT))
+        }
+    }
+
     @Test fun diagnosticReportsBlockingAndExceptionWithoutCountingCosmeticsAsUnsupportedNetworkRules() {
         checkNotNull(NativeFilter.createOrNull()).use { engine ->
             val text = "||ads.example^\$script\n@@||ads.example/safe.js\$script\nexample.com##.ad\n||ads.example^\$redirect=noopjs"

@@ -13,10 +13,13 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 
 internal data class PublishedDownload(
     val uri: Uri,
     val displayName: String,
+    /** True for a SAF temporary document that must be renamed after its bytes are complete. */
+    val temporary: Boolean = false,
 )
 
 /** Publishes verified temporary parts to public Downloads or a persisted SAF tree. */
@@ -73,8 +76,9 @@ internal class DownloadDestinationWriter(context: Context) {
                 }
             }
             currentCoroutineContext().ensureActive()
-            markCompleteIfMediaStore(published.uri)
-            published
+            val stored = if (published.temporary) finalizeCustomDirectory(published) else published
+            markCompleteIfMediaStore(stored.uri)
+            stored
         } catch (error: Exception) {
             delete(published.uri.toString())
             throw error
@@ -151,6 +155,17 @@ internal class DownloadDestinationWriter(context: Context) {
             }
         }
         val displayName = uniqueName(preferredName, existingNames::contains)
+        // Write to a temporary document and rename it only after every byte is copied. A process
+        // kill during the copy then leaves a clearly named temp file, never a truncated file under
+        // the name the user will open. Providers that do not support rename keep the old direct
+        // write path.
+        val temporaryName = ".purepart-" + UUID.randomUUID().toString().take(16) + ".part"
+        val temporaryUri = DocumentsContract.createDocument(resolver, parent, mimeType, temporaryName)
+            ?: throw IOException("Unable to create a file in the selected directory")
+        if (supportsRename(temporaryUri)) {
+            return PublishedDownload(temporaryUri, displayName, temporary = true)
+        }
+        runCatching { DocumentsContract.deleteDocument(resolver, temporaryUri) }
         val uri = DocumentsContract.createDocument(resolver, parent, mimeType, displayName)
             ?: throw IOException("Unable to create a file in the selected directory")
         val providerName = runCatching {
@@ -163,6 +178,21 @@ internal class DownloadDestinationWriter(context: Context) {
             )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         }.getOrNull()?.takeIf { it.isNotBlank() }
         return PublishedDownload(uri, providerName ?: displayName)
+    }
+
+    private fun supportsRename(uri: Uri): Boolean = runCatching {
+        resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_FLAGS), null, null, null)
+            ?.use { cursor ->
+                cursor.moveToFirst() &&
+                    cursor.getInt(0) and DocumentsContract.Document.FLAG_SUPPORTS_RENAME != 0
+            } ?: false
+    }.getOrDefault(false)
+
+    private fun finalizeCustomDirectory(published: PublishedDownload): PublishedDownload {
+        val renamed = runCatching {
+            DocumentsContract.renameDocument(resolver, published.uri, published.displayName)
+        }.getOrNull() ?: throw IOException("Selected destination cannot rename the completed file")
+        return published.copy(uri = renamed, temporary = false)
     }
 
     private fun markCompleteIfMediaStore(uri: Uri) {

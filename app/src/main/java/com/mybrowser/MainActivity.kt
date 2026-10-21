@@ -2952,10 +2952,12 @@ class MainActivity : ComponentActivity(),
     override fun onGeolocationRequestCanceled() { websitePermissions.cancel("geolocation") }
 
     private fun rememberPlaybackSpeed(speed: Float) {
-        if (!browserPreferences.video.rememberSpeed) return
-        browserPreferences = preferencesRepository.save(browserPreferences.copy(
-            video = browserPreferences.video.copy(preferredSpeed = speed),
-        ))
+        // Read-modify-write against the store, not against this Activity's snapshot: a settings
+        // import may have committed another browser field while a video was playing.
+        browserPreferences = preferencesRepository.update(transform = { current: BrowserPreferences ->
+            if (!current.video.rememberSpeed) current
+            else current.copy(video = current.video.copy(preferredSpeed = speed))
+        })
     }
 
     override fun onEnterFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
@@ -3702,7 +3704,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun settingsGroupName(groupId: String): String =
-        getString(com.mybrowser.ui.settings.settingsGroupTitle(groupId) ?: R.string.settings_group_sites)
+        com.mybrowser.ui.settings.settingsGroupTitle(groupId)?.let(::getString) ?: groupId
 
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()

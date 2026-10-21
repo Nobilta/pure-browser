@@ -82,6 +82,9 @@ internal class PendingQuestions {
 
     fun forget(probe: Long) { open.remove(probe) }
 
+    /** Resolves a question that timed out, so a late page answer cannot revive it. */
+    fun remove(probe: Long): PageFileQuestion? = open.remove(probe)
+
     fun clear() = open.clear()
 
     fun owns(url: String): Boolean = open.values.any { it.url == url }
@@ -172,6 +175,8 @@ class PageFileDownload(
      * was silently not saved.
      */
     private val questions = PendingQuestions()
+    /** One main-thread timeout per open inspect question, paired with [questions]. */
+    private val inspectTimeouts = HashMap<Long, Runnable>()
 
     /** One in-flight transfer; [id] is the download task the bytes belong to. */
     private class Transfer(
@@ -258,7 +263,7 @@ class PageFileDownload(
      * what lets the task reach its failure cleanup instead of waiting forever.
      */
     fun onDocumentChanged() {
-        questions.clear()
+        clearQuestions()
         offered.clear()
         cancel()
     }
@@ -278,7 +283,7 @@ class PageFileDownload(
         if (closed) return
         closed = true
         cancel()
-        questions.clear()
+        clearQuestions()
         script?.let { runCatching { it.remove() } }
         script = null
         reply = null
@@ -300,7 +305,22 @@ class PageFileDownload(
             questions.forget(probe)
             return false
         }
+        // A page can lose its document, be replaced by a crashed renderer, or simply never answer.
+        // Without this timeout the caller has already returned true for the download event and the
+        // user gets neither a confirmation nor an error; the entry also stays in the bounded queue.
+        val timeout = Runnable {
+            inspectTimeouts.remove(probe)
+            if (questions.remove(probe) != null) listener?.onUnavailable()
+        }
+        inspectTimeouts.put(probe, timeout)
+        view.postDelayed(timeout, INSPECT_TIMEOUT_MS)
         return true
+    }
+
+    private fun clearQuestions() {
+        questions.clear()
+        inspectTimeouts.values.forEach(view::removeCallbacks)
+        inspectTimeouts.clear()
     }
 
     /**
@@ -422,8 +442,12 @@ class PageFileDownload(
      * A page can send whatever it likes on this channel, so an id it chose is never treated as an
      * answer to a question that is not open.
      */
-    private fun correlated(json: JSONObject): PageFileQuestion? =
-        questions.resolve(json.optLong("probe", -1L))
+    private fun correlated(json: JSONObject): PageFileQuestion? {
+        val probe = json.optLong("probe", -1L)
+        val question = questions.resolve(probe) ?: return null
+        inspectTimeouts.remove(probe)?.let(view::removeCallbacks)
+        return question
+    }
 
     private fun acceptBytes(bytes: ByteArray?) {
         val current = transfer ?: return
@@ -459,6 +483,7 @@ class PageFileDownload(
         .takeIf { it.isNotEmpty() && it.length <= MAX_NAME_LENGTH && it.none(Char::isISOControl) }
 
     private companion object {
+        const val INSPECT_TIMEOUT_MS = 8_000L
         const val SCRIPT = "blob-download.js"
         const val BRIDGE = "mybrowserPageFile"
         const val MAX_CONTROL_MESSAGE = 4 * 1024

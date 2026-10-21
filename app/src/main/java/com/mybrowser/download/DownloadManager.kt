@@ -944,7 +944,7 @@ class DownloadHandler(context: Context) : Closeable {
             metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.DOWNLOADING) else value }
             publishSnapshots()
             try { return action() } catch (error: java.io.IOException) {
-                if (error is DownloadHttpException && error.code !in listOf(408, 429, 500, 502, 503, 504)) throw error
+                if (error is DownloadHttpException && !error.isTransient) throw error
                 if (++retries > 2) throw error
                 metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.QUEUED, bytesPerSecond = 0) else value }
                 publishSnapshots()
