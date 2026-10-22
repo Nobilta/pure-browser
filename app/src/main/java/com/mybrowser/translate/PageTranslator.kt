@@ -11,7 +11,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import kotlin.coroutines.resume
 
-data class TranslationPageItem(val id: Int, val text: String)
+data class TranslationPageItem(val id: Int, val text: String, val visible: Boolean = true)
 data class TranslationPage(
     val items: List<TranslationPageItem>,
     val totalCharacters: Int,
@@ -25,21 +25,12 @@ class PageTranslator(context: Context) {
 
     suspend fun collect(webView: WebView): TranslationPage = withContext(Dispatchers.Main.immediate) {
         evaluate(webView, script)
-        val raw = evaluate(webView, "window.__pureTranslateCollect ? window.__pureTranslateCollect() : null")
-            ?: throw TranslationException("Translation helper is unavailable")
-        val json = decodeString(raw) ?: throw TranslationException("Translation helper returned no data")
-        val root = runCatching { JSONObject(json) }.getOrElse {
-            throw TranslationException("Translation helper returned malformed data", it)
-        }
-        val array = root.optJSONArray("items") ?: JSONArray()
-        val items = buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val text = item.optString("text")
-                if (text.isNotBlank()) add(TranslationPageItem(item.optInt("id"), text))
-            }
-        }
-        TranslationPage(items, root.optInt("total"), root.optBoolean("truncated"))
+        decodePage(evaluate(webView, "window.__pureTranslateCollect ? window.__pureTranslateCollect() : null"))
+    }
+
+    suspend fun collectComparison(webView: WebView): TranslationPage = withContext(Dispatchers.Main.immediate) {
+        evaluate(webView, script)
+        decodePage(evaluate(webView, "window.__pureTranslateCompareCollect ? window.__pureTranslateCompareCollect() : null"))
     }
 
     suspend fun apply(webView: WebView, translated: List<Pair<Int, String>>) =
@@ -49,22 +40,75 @@ class PageTranslator(context: Context) {
             evaluate(webView, "window.__pureTranslateApply && window.__pureTranslateApply($array)")
         }
 
+    suspend fun applyComparison(webView: WebView, translated: List<Pair<Int, String>>, targetLanguage: String) =
+        withContext(Dispatchers.Main.immediate) {
+            val array = JSONArray()
+            translated.forEach { (id, text) -> array.put(JSONObject().put("id", id).put("text", text)) }
+            evaluate(
+                webView,
+                "window.__pureTranslateCompareApply && window.__pureTranslateCompareApply(" +
+                    "$array, ${JSONObject.quote(targetLanguage)})",
+            )
+        }
+
+    suspend fun visibleIds(webView: WebView, mode: TranslationPageMode): Set<Int> =
+        withContext(Dispatchers.Main.immediate) {
+            val raw = evaluate(
+                webView,
+                "window.__pureTranslateVisibleIds ? window.__pureTranslateVisibleIds(" +
+                    JSONObject.quote(if (mode == TranslationPageMode.COMPARE) "compare" else "replace") + ") : '[]'",
+            ) ?: return@withContext emptySet()
+            val decoded = decodeString(raw) ?: return@withContext emptySet()
+            runCatching {
+                val array = JSONArray(decoded)
+                buildSet { for (index in 0 until array.length()) add(array.optInt(index)) }
+            }.getOrDefault(emptySet())
+        }
+
     suspend fun restore(webView: WebView) = withContext(Dispatchers.Main.immediate) {
         evaluate(webView, "window.__pureTranslateRestore && window.__pureTranslateRestore()")
     }
 
-    suspend fun isTranslated(webView: WebView): Boolean = withContext(Dispatchers.Main.immediate) {
+    suspend fun restoreComparison(webView: WebView) = withContext(Dispatchers.Main.immediate) {
+        evaluate(webView, "window.__pureTranslateCompareRestore && window.__pureTranslateCompareRestore()")
+    }
+
+    suspend fun translatedMode(webView: WebView): TranslationPageMode? = withContext(Dispatchers.Main.immediate) {
         val raw = evaluate(
             webView,
-            "window.__pureTranslation ? window.__pureTranslation.translated === true : false",
+            "window.__pureTranslateTranslatedMode ? window.__pureTranslateTranslatedMode() : 'none'",
         )
-        raw == "true"
+        when (decodeString(raw)) {
+            "compare" -> TranslationPageMode.COMPARE
+            "replace" -> TranslationPageMode.REPLACE
+            else -> null
+        }
     }
+
+    suspend fun isTranslated(webView: WebView): Boolean = translatedMode(webView) != null
 
     suspend fun selection(webView: WebView): String = withContext(Dispatchers.Main.immediate) {
         val raw = evaluate(webView, "window.__pureTranslateSelection ? window.__pureTranslateSelection() : " +
             "(window.getSelection ? String(window.getSelection()) : '')")
         decodeString(raw).orEmpty().trim()
+    }
+
+    private fun decodePage(raw: String?): TranslationPage {
+        val json = decodeString(raw) ?: throw TranslationException("Translation helper returned no data")
+        val root = runCatching { JSONObject(json) }.getOrElse {
+            throw TranslationException("Translation helper returned malformed data", it)
+        }
+        val array = root.optJSONArray("items") ?: JSONArray()
+        val items = buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val text = item.optString("text")
+                if (text.isNotBlank()) {
+                    add(TranslationPageItem(item.optInt("id"), text, item.optBoolean("visible", true)))
+                }
+            }
+        }
+        return TranslationPage(items, root.optInt("total"), root.optBoolean("truncated"))
     }
 
     private suspend fun evaluate(webView: WebView, code: String): String? = withTimeout(12_000) {
