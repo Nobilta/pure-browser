@@ -787,6 +787,7 @@
     <string name="privacy_cleanup_title">清除無痕資料</string>
     <string name="privacy_cleanup_failed">無痕資料清除失敗，成功清除前已暫停網頁瀏覽。請重試或離開瀏覽器。</string>
 
+    <string name="translate_settings_title">翻譯設定</string>
     <string name="translate_title">網頁翻譯</string>
     <string name="translate_provider">翻譯服務</string>
     <string name="translate_target">目標語言</string>
@@ -795,10 +796,15 @@
     <string name="translate_api_key">API key</string>
     <string name="translate_region">區域（Azure）</string>
     <string name="translate_endpoint">服務位址（LibreTranslate）</string>
-    <string name="translate_mymemory_note">MyMemory 免費介面只適合短文字。整頁翻譯請設定 Azure、DeepL 或 LibreTranslate。</string>
+    <string name="translate_mymemory_note">MyMemory 是免登入免費服務，但單次請求最多 500 字元。整頁翻譯會拆成多次請求，可能耗盡每日額度；長頁面建議改用 Google 或在設定中配置服務。</string>
+    <string name="translate_google_note">Google 翻譯使用免 Key 的公共介面，可能被限流或隨時失效；請勿用於敏感頁面。</string>
+    <string name="translate_custom_active">目前使用設定中的自訂服務：%1$s。</string>
+    <string name="translate_settings_hint">整頁翻譯請從網頁選單啟動；本頁只用於設定翻譯服務。</string>
+    <string name="translate_other_providers">目前使用設定中的自訂服務；如未配置，請先到設定中填寫。內建選項為 MyMemory 和 Google。</string>
     <string name="translate_privacy">頁面文字會直接傳送到所選服務。密鑰只保存在應用程式私有儲存，不會隨設定匯出。</string>
     <string name="translate_page">翻譯本頁</string>
     <string name="translate_restore">顯示原文</string>
+    <string name="translate_short">翻譯</string>
     <string name="translate_selection">翻譯選取文字</string>
     <string name="translate_busy">正在翻譯… %1$d%%</string>
     <string name="translate_error">翻譯失敗：%1$s</string>

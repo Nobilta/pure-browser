@@ -789,6 +789,7 @@
     <string name="privacy_cleanup_title">Private data cleanup</string>
     <string name="privacy_cleanup_failed">Private data could not be cleared. Browsing is paused until cleanup succeeds. Retry or exit the browser.</string>
 
+    <string name="translate_settings_title">Translation</string>
     <string name="translate_title">Translate page</string>
     <string name="translate_provider">Translation service</string>
     <string name="translate_target">Target language</string>
@@ -797,10 +798,15 @@
     <string name="translate_api_key">API key</string>
     <string name="translate_region">Region (Azure)</string>
     <string name="translate_endpoint">Endpoint (LibreTranslate)</string>
-    <string name="translate_mymemory_note">MyMemory is free for short selections. Configure Azure, DeepL or LibreTranslate for full-page translation.</string>
+    <string name="translate_mymemory_note">MyMemory is a free no-login service. Each request is limited to 500 characters, so full-page translation is split into several requests and may use up its daily quota. For large pages, choose Google or a service configured in Settings.</string>
+    <string name="translate_google_note">Google translation uses a public no-key endpoint. It may be rate-limited or stop working without notice; avoid translating sensitive pages.</string>
+    <string name="translate_custom_active">Using the custom service from Settings: %1$s.</string>
+    <string name="translate_settings_hint">Start page translation from the webpage menu. This page only configures the service.</string>
+    <string name="translate_other_providers">This custom service is selected in Settings. Configure it there before translating. The built-in options are MyMemory and Google.</string>
     <string name="translate_privacy">Page text is sent directly to the selected service. Keys stay in this app\'s private storage and are never included in settings export.</string>
     <string name="translate_page">Translate this page</string>
     <string name="translate_restore">Show original</string>
+    <string name="translate_short">Translate</string>
     <string name="translate_selection">Translate selection</string>
     <string name="translate_busy">Translating… %1$d%%</string>
     <string name="translate_error">Translation failed: %1$s</string>
