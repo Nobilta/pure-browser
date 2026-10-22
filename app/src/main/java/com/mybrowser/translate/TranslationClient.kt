@@ -1,11 +1,14 @@
 package com.mybrowser.translate
 
 import android.text.Html
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -182,8 +185,17 @@ class TranslationClient(private val settings: TranslationSettings) {
         headers: Map<String, String>,
     ): Any {
         val job = currentCoroutineContext()[Job]
-        val disconnectOnCancel = job?.invokeOnCompletion { cause ->
-            if (cause is CancellationException) runCatching { connection.disconnect() }
+        // A blocking HttpURLConnection keeps its Job active until the request ends, so a
+        // completion hook would run too late. A child started undispatched observes parent
+        // cancellation immediately and closes the socket from the finally block.
+        val disconnectOnCancel = job?.let { parent ->
+            CoroutineScope(parent + Dispatchers.IO).launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    runCatching { connection.disconnect() }
+                }
+            }
         }
         try {
             connection.requestMethod = method
@@ -224,7 +236,7 @@ class TranslationClient(private val settings: TranslationSettings) {
             currentCoroutineContext().ensureActive()
             throw TranslationException(error.message ?: "Translation request failed", error)
         } finally {
-            disconnectOnCancel?.dispose()
+            disconnectOnCancel?.cancel()
             connection.disconnect()
         }
     }

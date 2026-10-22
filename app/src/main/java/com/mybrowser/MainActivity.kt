@@ -2191,6 +2191,7 @@ class MainActivity : ComponentActivity(),
         if (wasCurrent) {
             webView.stopLoading()
             loadCurrentTab()
+            refreshTranslationState()
         } else {
             viewOwnerId?.let { popupPages.releaseIfUnlinked(it)?.alive = false }
         }
@@ -2203,6 +2204,7 @@ class MainActivity : ComponentActivity(),
         tabManager.clearAllTabs()
         webView.stopLoading()
         loadCurrentTab()
+        refreshTranslationState()
         persistNormalSession()
     }
 
