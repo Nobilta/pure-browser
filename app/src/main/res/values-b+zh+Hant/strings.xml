@@ -804,7 +804,6 @@
     <string name="translate_privacy">頁面文字會直接傳送到所選服務。密鑰只保存在應用程式私有儲存，不會隨設定匯出。</string>
     <string name="translate_page">翻譯本頁</string>
     <string name="translate_restore">顯示原文</string>
-    <string name="translate_short">翻譯</string>
     <string name="translate_selection">翻譯選取文字</string>
     <string name="translate_busy">正在翻譯… %1$d%%</string>
     <string name="translate_error">翻譯失敗：%1$s</string>

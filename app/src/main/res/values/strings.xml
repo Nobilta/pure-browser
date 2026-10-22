@@ -806,7 +806,6 @@
     <string name="translate_privacy">Page text is sent directly to the selected service. Keys stay in this app\'s private storage and are never included in settings export.</string>
     <string name="translate_page">Translate this page</string>
     <string name="translate_restore">Show original</string>
-    <string name="translate_short">Translate</string>
     <string name="translate_selection">Translate selection</string>
     <string name="translate_busy">Translating… %1$d%%</string>
     <string name="translate_error">Translation failed: %1$s</string>
