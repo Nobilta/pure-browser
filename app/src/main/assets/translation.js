@@ -14,9 +14,19 @@
     SCRIPT: true, STYLE: true, NOSCRIPT: true, CODE: true, PRE: true,
     TEXTAREA: true, INPUT: true, SELECT: true, OPTION: true, SVG: true,
   };
-  var BLOCKS = {
-    P: true, LI: true, H1: true, H2: true, H3: true, H4: true, H5: true, H6: true,
-    BLOCKQUOTE: true, FIGCAPTION: true, DT: true, DD: true, TD: true, TH: true, DIV: true,
+  var BLOCK_TAGS = {
+    ADDRESS: true, ARTICLE: true, ASIDE: true, BLOCKQUOTE: true, CENTER: true,
+    DETAILS: true, DIALOG: true, DD: true, DIV: true, DL: true, DT: true,
+    FIELDSET: true, FIGCAPTION: true, FIGURE: true, FOOTER: true, FORM: true,
+    H1: true, H2: true, H3: true, H4: true, H5: true, H6: true, HEADER: true,
+    HR: true, LI: true, MAIN: true, NAV: true, OL: true, P: true, PRE: true,
+    SECTION: true, TABLE: true, TBODY: true, TD: true, TFOOT: true, TH: true,
+    THEAD: true, TR: true, UL: true,
+  };
+  var INLINE_TAGS = {
+    A: true, ABBR: true, B: true, BDI: true, BDO: true, CITE: true, DATA: true,
+    EM: true, I: true, LABEL: true, MARK: true, Q: true, S: true, SMALL: true,
+    SPAN: true, STRONG: true, SUB: true, SUP: true, TIME: true, U: true,
   };
 
   function isEditable(element) {
@@ -42,7 +52,7 @@
       var style = window.getComputedStyle(element);
       if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
       var rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
+      return rect.width > 0 || rect.height > 0;
     } catch (_) {
       return true;
     }
@@ -65,44 +75,88 @@
     return false;
   }
 
-  function directText(element) {
-    var branches = element.__pureCandidateBranches;
-    var parts = [];
+  function isBlockElement(element) {
+    if (!element || element.nodeType !== 1) return false;
+    var tag = element.tagName.toUpperCase();
+    if (tag === 'PURE-TRANSLATION-BLOCK') return false;
+    return !!BLOCK_TAGS[tag] || (tag.indexOf('-') >= 0);
+  }
+
+  function isInlineRoot(element) {
+    var tag = element.tagName.toUpperCase();
+    if (INLINE_TAGS[tag]) return true;
+    try {
+      return !!element.closest('a,button,[role="button"]');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function validGroupText(text) {
+    return !!text && !/^[0-9\s.\-_#:()!•+~@$%^&*\n/`]+$/.test(text);
+  }
+
+  function groupText(group) {
+    var text = group.parts.join('').replace(/[ \t\r\f\v]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    return text;
+  }
+
+  function significantChildren(element) {
+    var result = [];
     var child = element.firstChild;
     while (child) {
       if (child.nodeType === 3) {
-        parts.push(child.nodeValue);
-      } else if (child.nodeType === 1 && !(branches && branches.has(child))) {
-        parts.push(String(child.innerText || child.textContent || ''));
+        if (child.nodeValue && child.nodeValue.trim()) result.push(child);
+      } else if (child.nodeType === 1) {
+        var tag = child.tagName.toUpperCase();
+        if (tag !== 'PURE-TRANSLATION-BLOCK' && !SKIP[tag]) result.push(child);
       }
       child = child.nextSibling;
     }
-    return parts.join(' ').replace(/\s+/g, ' ').trim();
+    return result;
   }
 
-  function firstBranch(element) {
-    var branches = element.__pureCandidateBranches;
-    if (!branches) return null;
-    var child = element.firstElementChild;
-    while (child) {
-      if (branches.has(child)) return child;
-      child = child.nextElementSibling;
-    }
-    return null;
-  }
+  function collectGroups(root, pageRoot, output) {
+    if (!root || root.nodeType !== 1) return;
+    if (isSkipped(root, pageRoot) || !isVisible(root)) return;
 
-  function blockText(element) {
-    try {
-      return String(element.innerText || element.textContent || '').trim();
-    } catch (_) {
-      return '';
+    var group = null;
+    function flush() {
+      if (!group) return;
+      var text = groupText(group);
+      if (!validGroupText(text)) {
+        group = null;
+        return;
+      }
+      output.push({
+        root: group.root,
+        endNode: group.nodes[group.nodes.length - 1],
+        text: text,
+        inline: isInlineRoot(group.root),
+      });
+      group = null;
     }
+
+    var children = significantChildren(root);
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      if (child.nodeType === 1 && isBlockElement(child)) {
+        flush();
+        collectGroups(child, pageRoot, output);
+        continue;
+      }
+      if (!group) group = { root: root, nodes: [], parts: [] };
+      group.nodes.push(child);
+      group.parts.push(child.nodeType === 3
+        ? child.nodeValue
+        : String(child.innerText || child.textContent || ''));
+    }
+    flush();
   }
 
   var TRANSLATION_TAG = 'pure-translation-block';
   var TRANSLATION_HOST_STYLE = [
     'all: initial !important',
-    'display: block !important',
     'position: static !important',
     'inset: auto !important',
     'float: none !important',
@@ -141,21 +195,24 @@
     'text-align: inherit !important',
     'direction: inherit !important',
     'unicode-bidi: normal !important',
+    'vertical-align: baseline !important',
     'grid-column: 1 / -1 !important',
     'grid-row: auto !important',
     'flex: 0 0 auto !important',
     'align-self: stretch !important'
   ].join(';');
 
-  // A translation is a custom element with a shadow root. Custom tags avoid the page's
-  // `div`/`p` rules, the host inline styles neutralise layout rules, and the shadow root
-  // keeps the line's typography and spacing away from the article's CSS entirely.
-  function makeTranslation() {
+  // The result lives inside the paragraph's own container after its last source node.
+  // Custom-element + shadow-root isolation keeps page CSS out; the inline `display` is
+  // the only thing the page's layout needs to see.
+  function makeTranslation(inline) {
     var host = document.createElement(TRANSLATION_TAG);
     host.className = '__pure-translation-block';
-    host.style.cssText = TRANSLATION_HOST_STYLE;
+    host.style.cssText = TRANSLATION_HOST_STYLE +
+      ';display:' + (inline ? 'inline-block' : 'block') + ' !important;';
     var shadow = host.attachShadow ? host.attachShadow({ mode: 'open' }) : null;
     var line = document.createElement('div');
+    var lineClass = '__pure-translation-line' + (inline ? ' __pure-translation-line--inline' : '');
     if (shadow) {
       var style = document.createElement('style');
       style.textContent =
@@ -164,17 +221,22 @@
         'padding:.1em 0 .1em .8em;border-left:2px solid rgba(58,155,114,.72);' +
         'color:inherit;opacity:.86;font:inherit;line-height:inherit;' +
         'white-space:pre-wrap;overflow-wrap:break-word;}' +
+        '.__pure-translation-line--inline{display:inline;margin:0 0 0 .4em;' +
+        'padding:0;border:0;}' +
         '.__pure-translation-line[dir="rtl"]{border-left:0;' +
-        'border-right:2px solid rgba(58,155,114,.72);padding:.1em .8em .1em 0;}';
+        'border-right:2px solid rgba(58,155,114,.72);padding:.1em .8em .1em 0;}' +
+        '.__pure-translation-line--inline[dir="rtl"]{border:0;margin:0 .4em 0 0;}';
       shadow.appendChild(style);
       shadow.appendChild(line);
     } else {
-      line.style.cssText = 'display:block;margin:.45em 0 1em;padding:.1em 0 .1em .8em;' +
-        'border-left:2px solid rgba(58,155,114,.72);color:inherit;opacity:.86;' +
-        'font:inherit;line-height:inherit;white-space:pre-wrap;overflow-wrap:break-word;';
+      line.style.cssText = 'display:' + (inline ? 'inline' : 'block') + ';' +
+        (inline ? 'margin-left:.4em;' : 'margin:.45em 0 1em;padding:.1em 0 .1em .8em;' +
+          'border-left:2px solid rgba(58,155,114,.72);') +
+        'color:inherit;opacity:.86;font:inherit;line-height:inherit;' +
+        'white-space:pre-wrap;overflow-wrap:break-word;';
       host.appendChild(line);
     }
-    line.className = '__pure-translation-line';
+    line.className = lineClass;
     return { host: host, line: line };
   }
 
@@ -194,65 +256,30 @@
     if (window.__pureTranslateRestore) window.__pureTranslateRestore();
     state.compareBlocks.clear();
     state.nextId = 1;
-    var root = document.body || document.documentElement;
-    if (!root) return JSON.stringify({ items: [], total: 0, truncated: false });
+    var pageRoot = document.body || document.documentElement;
+    if (!pageRoot) return JSON.stringify({ items: [], total: 0, truncated: false });
 
-    var candidates = [];
-    var nodes = root.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,figcaption,dt,dd,td,th,div');
-    for (var i = 0; i < nodes.length; i++) {
-      var element = nodes[i];
-      if (isSkipped(element, root) || !BLOCKS[element.tagName] || !isVisible(element)) continue;
-      var text = blockText(element);
-      if (!text) continue;
-      candidates.push(element);
-    }
-
-    // A wrapper and its child paragraph can both match. Translate the deepest block only,
-    // otherwise the same sentence appears twice in the comparison.
-    var candidateSet = new Set(candidates);
-    // Branch sets are attached to page elements; clear them before a new pass so a page
-    // that changed since the previous translation does not keep a stale nested branch.
-    for (var reset = 0; reset < candidates.length; reset++) {
-      if (candidates[reset].__pureCandidateBranches) candidates[reset].__pureCandidateBranches.clear();
-    }
-    var nested = new Set();
-    for (var j = 0; j < candidates.length; j++) {
-      var child = candidates[j];
-      var parent = child.parentElement;
-      while (parent && parent !== root) {
-        if (candidateSet.has(parent)) {
-          nested.add(parent);
-          // Remember which direct child contains this nested candidate, so the parent's
-          // own text can be placed above that branch instead of after the whole subtree.
-          var branches = parent.__pureCandidateBranches;
-          if (!branches) {
-            branches = new Set();
-            parent.__pureCandidateBranches = branches;
-          }
-          branches.add(child);
-        }
-        child = parent;
-        parent = parent.parentElement;
-      }
-    }
+    var groups = [];
+    collectGroups(pageRoot, pageRoot, groups);
 
     var items = [];
     var total = 0;
     var truncated = false;
-    for (var k = 0; k < candidates.length; k++) {
-      var block = candidates[k];
-      var isNested = nested.has(block);
-      var value = isNested ? directText(block) : blockText(block);
-      if (!value) continue;
-      if (value.length > 5000) { truncated = true; continue; }
-      if (items.length >= 1200 || total + value.length > 60000) { truncated = true; break; }
+    for (var i = 0; i < groups.length; i++) {
+      var group = groups[i];
+      if (group.text.length > 5000) { truncated = true; continue; }
+      if (items.length >= 1200 || total + group.text.length > 60000) { truncated = true; break; }
       var id = state.nextId++;
       state.compareBlocks.set(id, {
-        element: block, text: value, translation: null,
-        anchor: isNested ? firstBranch(block) : null,
+        root: group.root,
+        endNode: group.endNode,
+        text: group.text,
+        inline: group.inline,
+        translation: null,
+        translationLine: null,
       });
-      items.push({ id: id, text: value, visible: isNearViewport(block) });
-      total += value.length;
+      items.push({ id: id, text: group.text, visible: isNearViewport(group.root) });
+      total += group.text.length;
     }
     state.compareTranslated = false;
     return JSON.stringify({ items: items, total: total, truncated: truncated });
@@ -262,23 +289,21 @@
     var applied = 0;
     for (var i = 0; i < items.length; i++) {
       var entry = state.compareBlocks.get(items[i].id);
-      if (!entry || !entry.element) continue;
+      if (!entry || !entry.root || !entry.endNode) continue;
       var translation = entry.translation;
       var line = entry.translationLine;
       if (!translation) {
-        var built = makeTranslation();
+        var built = makeTranslation(entry.inline);
         translation = built.host;
         line = built.line;
         translation.setAttribute('data-pure-translation', String(items[i].id));
-        var tag = entry.element.tagName;
-        if (entry.anchor && entry.anchor.parentNode === entry.element) {
-          entry.element.insertBefore(translation, entry.anchor);
-        } else if (tag === 'LI' || tag === 'TD' || tag === 'TH') {
-          entry.element.appendChild(translation);
-        } else if (entry.element.parentNode) {
-          entry.element.parentNode.insertBefore(translation, entry.element.nextSibling);
+        // Insert after the paragraph's last source node, inside the same container.
+        // This is what keeps the article's grid/flex layout from treating the result
+        // as a new top-level item.
+        if (entry.endNode.parentNode === entry.root) {
+          entry.root.insertBefore(translation, entry.endNode.nextSibling);
         } else {
-          continue;
+          entry.root.appendChild(translation);
         }
         entry.translation = translation;
         entry.translationLine = line;
@@ -303,7 +328,7 @@
     var ids = [];
     if (mode === 'compare') {
       state.compareBlocks.forEach(function (entry, id) {
-        if (entry.element && isNearViewport(entry.element)) ids.push(id);
+        if (entry.root && isNearViewport(entry.root)) ids.push(id);
       });
     } else {
       state.nodes.forEach(function (entry, id) {
