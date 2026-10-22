@@ -807,6 +807,7 @@
     <string name="translate_mode_compare">雙語對照</string>
     <string name="translate_privacy">頁面文字會直接傳送到所選服務。密鑰只保存在應用程式私有儲存，不會隨設定匯出。</string>
     <string name="translate_page">翻譯本頁</string>
+    <string name="translate_stop">停止翻譯</string>
     <string name="translate_floating_busy">翻譯中 %1$d%%</string>
     <string name="translate_restore">顯示原文</string>
     <string name="translate_selection">翻譯選取文字</string>
