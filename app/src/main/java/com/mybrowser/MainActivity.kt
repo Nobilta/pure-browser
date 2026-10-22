@@ -106,7 +106,6 @@ import com.mybrowser.core.ParkedWebViewClient
 import com.mybrowser.core.DefaultBrowser
 import com.mybrowser.core.PageContextTarget
 import com.mybrowser.core.PageContextMenuController
-import com.mybrowser.core.SelectionChipController
 import com.mybrowser.dlna.CastController
 import com.mybrowser.filter.BlockRules
 import com.mybrowser.filter.ElementPicker
@@ -344,11 +343,6 @@ class MainActivity : ComponentActivity(),
             pageContextTarget = target
         }
     }
-    private val selectionChip = SelectionChipController(
-        isCurrent = { it === webViewOrNull },
-        onTranslate = ::startSelectionTranslation,
-    )
-
     // Homepage settings and user-created navigation tiles.
     private lateinit var homeRepository: HomeRepository
     private var homepageMode by mutableStateOf(HomepageMode.NAVIGATION)
@@ -1541,7 +1535,6 @@ class MainActivity : ComponentActivity(),
         view.webViewClient = BrowserWebViewClient(this)
         view.webChromeClient = BrowserChromeClient(this, view)
         pageContextMenu.attach(view)
-        selectionChip.install(view)
         view.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             if (webViewOrNull === view) {
                 state.onPageScroll(scrollY, oldScrollY, resources.displayMetrics.density)
@@ -2819,7 +2812,6 @@ class MainActivity : ComponentActivity(),
         }
         state.onPageFinished(url, !resetHistory && canGoBack, !resetHistory && canGoForward)
         state.onTitleChanged(webView.title)
-        if (state.pageFailure == null) selectionChip.inject(webView, getString(R.string.translate_short))
         networkLogs.markMainFrameFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView, activeSites.get(url).desktopWidth)
         // Update current tab URL and title
