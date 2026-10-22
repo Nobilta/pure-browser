@@ -365,11 +365,16 @@ fun BrowserScreen(
             }
 
             PageOverlay(
-                visible = translationVisible && !showHomeDashboard && !state.isOmnibarFocused &&
-                    elementPicker == null,
+                visible = translationVisible && !showHomeDashboard && !isVideoFullscreen &&
+                    !state.isOmnibarFocused && elementPicker == null,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    // The page box extends under the system navigation bar when the browser
+                    // chrome is hidden; with the toolbar on screen it already carries the inset.
+                    .windowInsetsPadding(
+                        if (chromeShown) WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+                        else WindowInsets.safeDrawing
+                    )
                     .padding(16.dp),
                 enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it / 2 },
