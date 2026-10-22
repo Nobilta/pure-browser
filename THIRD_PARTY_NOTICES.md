@@ -13,6 +13,13 @@ The `ic_lock`, `ic_lock_open`, `ic_copy`, `ic_share`, `ic_edit`, `ic_add`,
 [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 Their SVG paths were converted to Android VectorDrawable resources.
 
+## Lucide Icons
+
+The `ic_ui_*` drawables used by the redesigned menu and settings are adapted from
+[Lucide](https://lucide.dev/), under the [ISC License](third_party/lucide-ISC.txt).
+Their SVG paths were converted to Android VectorDrawable resources and retain the
+24dp grid, 2dp round stroke, and outline style.
+
 ## AndroidX
 
 AndroidX dependencies, including Activity, WebKit, Compose and Material 3, use the
