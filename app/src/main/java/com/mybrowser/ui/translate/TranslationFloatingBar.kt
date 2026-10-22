@@ -64,12 +64,6 @@ fun TranslationFloatingBar(
                     strokeWidth = 2.dp,
                     trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.22f),
                 )
-            } else if (translating) {
-                Icon(
-                    painterResource(R.drawable.ic_ui_close),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
             } else {
                 Icon(
                     painterResource(R.drawable.ic_ui_translate),
@@ -79,15 +73,13 @@ fun TranslationFloatingBar(
             }
             Text(label, style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.width(2.dp))
-            if (!translating) {
-                Icon(
-                    painterResource(R.drawable.ic_ui_close),
-                    // The whole pill is one action; the cross is a visual affordance, not a
-                    // second control, so it must not repeat the action's TalkBack label.
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            Icon(
+                painterResource(R.drawable.ic_ui_close),
+                // The whole pill is one action; the cross is a visual affordance, not a
+                // second control, so it must not repeat the action's TalkBack label.
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

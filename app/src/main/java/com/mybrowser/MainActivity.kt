@@ -246,6 +246,7 @@ class MainActivity : ComponentActivity(),
     private var translationPageTranslated by mutableStateOf(false)
     private var translationSessionActive by mutableStateOf(false)
     private var translationComplete by mutableStateOf(false)
+    private var translationClosing by mutableStateOf(false)
     private var showWelcome by mutableStateOf(false)
     private var translationError by mutableStateOf<String?>(null)
     private var translationSelectionOriginal by mutableStateOf<String?>(null)
@@ -840,7 +841,8 @@ class MainActivity : ComponentActivity(),
                     },
                     tabCount = tabManager.count,
                     isVideoFullscreen = fullscreenView != null,
-                    translationVisible = translationSessionActive || translationPageTranslated || translationHasPending,
+                    translationVisible = !translationClosing &&
+                        (translationSessionActive || translationPageTranslated || translationHasPending),
                     translationBusy = translationBusy,
                     translationProgress = translationProgress,
                     translationTranslating = translationSessionActive && !translationComplete,
@@ -2789,6 +2791,7 @@ class MainActivity : ComponentActivity(),
         translationPageTranslated = false
         translationSessionActive = false
         translationComplete = false
+        translationClosing = false
         translationError = null
         translationSelectionOriginal = null
         translationSelectionTranslated = null
@@ -4159,6 +4162,7 @@ class MainActivity : ComponentActivity(),
         translationPageTranslated = false
         translationSessionActive = false
         translationComplete = false
+        translationClosing = false
         translationAppliedMode = null
         translationError = null
     }
@@ -4180,6 +4184,7 @@ class MainActivity : ComponentActivity(),
             return false
         }
         translationError = null
+        translationClosing = false
         translationJob?.cancel()
         translationScrollJob?.cancel()
         translationStateJob?.cancel()
@@ -4495,6 +4500,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun restoreTranslatedPage() {
+        translationClosing = true
         val view = webViewOrNull ?: run {
             translationPageTranslated = false
             translationSessionActive = false
