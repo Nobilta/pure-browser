@@ -99,17 +99,83 @@
     }
   }
 
-  function ensureStyle() {
-    if (document.getElementById('__pureTranslationStyle')) return;
-    var style = document.createElement('style');
-    style.id = '__pureTranslationStyle';
-    style.textContent = '.__pure-translation-block{' +
-      'display:block;margin:.45em 0 1em;padding:.1em 0 .1em .8em;' +
-      'border-left:2px solid rgba(58,155,114,.72);color:inherit;opacity:.86;' +
-      'font:inherit;line-height:inherit;white-space:pre-wrap;}' +
-      '.__pure-translation-block[dir="rtl"]{border-left:0;border-right:2px solid rgba(58,155,114,.72);' +
-      'padding:.1em .8em .1em 0;}';
-    (document.head || document.documentElement).appendChild(style);
+  var TRANSLATION_TAG = 'pure-translation-block';
+  var TRANSLATION_HOST_STYLE = [
+    'all: initial !important',
+    'display: block !important',
+    'position: static !important',
+    'inset: auto !important',
+    'float: none !important',
+    'clear: both !important',
+    'width: auto !important',
+    'height: auto !important',
+    'min-width: 0 !important',
+    'min-height: 0 !important',
+    'max-width: 100% !important',
+    'max-height: none !important',
+    'margin: 0 !important',
+    'padding: 0 !important',
+    'border: 0 !important',
+    'box-sizing: border-box !important',
+    'overflow: visible !important',
+    'transform: none !important',
+    'translate: none !important',
+    'scale: none !important',
+    'rotate: none !important',
+    'z-index: auto !important',
+    'visibility: visible !important',
+    'opacity: 1 !important',
+    'background: none !important',
+    'box-shadow: none !important',
+    'outline: none !important',
+    'filter: none !important',
+    'clip-path: none !important',
+    'text-decoration: none !important',
+    'text-indent: 0 !important',
+    'text-transform: none !important',
+    'letter-spacing: normal !important',
+    'word-spacing: normal !important',
+    'color: inherit !important',
+    'font: inherit !important',
+    'line-height: inherit !important',
+    'text-align: inherit !important',
+    'direction: inherit !important',
+    'unicode-bidi: normal !important',
+    'grid-column: 1 / -1 !important',
+    'grid-row: auto !important',
+    'flex: 0 0 auto !important',
+    'align-self: stretch !important'
+  ].join(';');
+
+  // A translation is a custom element with a shadow root. Custom tags avoid the page's
+  // `div`/`p` rules, the host inline styles neutralise layout rules, and the shadow root
+  // keeps the line's typography and spacing away from the article's CSS entirely.
+  function makeTranslation() {
+    var host = document.createElement(TRANSLATION_TAG);
+    host.className = '__pure-translation-block';
+    host.style.cssText = TRANSLATION_HOST_STYLE;
+    var shadow = host.attachShadow ? host.attachShadow({ mode: 'open' }) : null;
+    var line = document.createElement('div');
+    if (shadow) {
+      var style = document.createElement('style');
+      style.textContent =
+        ':host{display:block;}' +
+        '.__pure-translation-line{display:block;margin:.45em 0 1em;' +
+        'padding:.1em 0 .1em .8em;border-left:2px solid rgba(58,155,114,.72);' +
+        'color:inherit;opacity:.86;font:inherit;line-height:inherit;' +
+        'white-space:pre-wrap;overflow-wrap:break-word;}' +
+        '.__pure-translation-line[dir="rtl"]{border-left:0;' +
+        'border-right:2px solid rgba(58,155,114,.72);padding:.1em .8em .1em 0;}';
+      shadow.appendChild(style);
+      shadow.appendChild(line);
+    } else {
+      line.style.cssText = 'display:block;margin:.45em 0 1em;padding:.1em 0 .1em .8em;' +
+        'border-left:2px solid rgba(58,155,114,.72);color:inherit;opacity:.86;' +
+        'font:inherit;line-height:inherit;white-space:pre-wrap;overflow-wrap:break-word;';
+      host.appendChild(line);
+    }
+    line.className = '__pure-translation-line';
+    return { host: host, line: line };
   }
 
   window.__pureTranslateCompareRestore = function () {
@@ -193,15 +259,16 @@
   };
 
   window.__pureTranslateCompareApply = function (items, language) {
-    ensureStyle();
     var applied = 0;
     for (var i = 0; i < items.length; i++) {
       var entry = state.compareBlocks.get(items[i].id);
       if (!entry || !entry.element) continue;
       var translation = entry.translation;
+      var line = entry.translationLine;
       if (!translation) {
-        translation = document.createElement('div');
-        translation.className = '__pure-translation-block';
+        var built = makeTranslation();
+        translation = built.host;
+        line = built.line;
         translation.setAttribute('data-pure-translation', String(items[i].id));
         var tag = entry.element.tagName;
         if (entry.anchor && entry.anchor.parentNode === entry.element) {
@@ -214,10 +281,18 @@
           continue;
         }
         entry.translation = translation;
+        entry.translationLine = line;
       }
-      translation.setAttribute('lang', language || '');
-      translation.setAttribute('dir', 'auto');
-      translation.textContent = items[i].text;
+      if (!line) {
+        line = translation.shadowRoot
+          ? translation.shadowRoot.querySelector('.__pure-translation-line')
+          : translation.firstElementChild;
+        entry.translationLine = line;
+      }
+      if (!line) continue;
+      line.setAttribute('lang', language || '');
+      line.setAttribute('dir', 'auto');
+      line.textContent = items[i].text;
       applied++;
     }
     state.compareTranslated = applied > 0 || state.compareTranslated;
