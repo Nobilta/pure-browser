@@ -1,7 +1,11 @@
 package com.mybrowser.translate
 
 import android.text.Html
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -37,6 +41,7 @@ class TranslationClient(private val settings: TranslationSettings) {
                 if (text.toByteArray(Charsets.UTF_8).size > MYMEMORY_MAX_BYTES) {
                     throw TranslationException("MyMemory accepts at most 500 bytes per request")
                 }
+                currentCoroutineContext().ensureActive()
                 listOf(translateMyMemory(text, target))
             }
             TranslationProvider.AZURE -> {
@@ -44,6 +49,7 @@ class TranslationClient(private val settings: TranslationSettings) {
                 val output = ArrayList<String>(texts.size)
                 val chunks = chunk(texts, maxItems = 40, maxChars = 10_000)
                 chunks.forEachIndexed { index, chunk ->
+                    currentCoroutineContext().ensureActive()
                     output += translateAzure(chunk, target)
                     onProgress(index + 1, chunks.size)
                 }
@@ -54,6 +60,7 @@ class TranslationClient(private val settings: TranslationSettings) {
                 val output = ArrayList<String>(texts.size)
                 val chunks = chunk(texts, maxItems = 40, maxChars = 20_000)
                 chunks.forEachIndexed { index, chunk ->
+                    currentCoroutineContext().ensureActive()
                     output += translateDeepL(chunk, target)
                     onProgress(index + 1, chunks.size)
                 }
@@ -66,6 +73,7 @@ class TranslationClient(private val settings: TranslationSettings) {
                 }
                 val output = ArrayList<String>(texts.size)
                 texts.forEachIndexed { index, text ->
+                    currentCoroutineContext().ensureActive()
                     output += if (text.isBlank()) "" else translateLibre(text, target, endpoint)
                     onProgress(index + 1, texts.size)
                 }
@@ -74,7 +82,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         }
     }
 
-    private fun translateMyMemory(text: String, target: String): String {
+    private suspend fun translateMyMemory(text: String, target: String): String {
         val source = if (settings.sourceLanguage == "auto") detectSourceLanguage(text)
         else settings.sourceLanguage
         if (source == target) throw TranslationException("Source and target languages are the same")
@@ -98,7 +106,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         return Html.fromHtml(translated, Html.FROM_HTML_MODE_LEGACY).toString()
     }
 
-    private fun translateAzure(texts: List<String>, target: String): List<String> {
+    private suspend fun translateAzure(texts: List<String>, target: String): List<String> {
         val query = StringBuilder("api-version=3.0&to=").append(encode(azureTarget(target)))
         if (settings.sourceLanguage != "auto") query.append("&from=").append(encode(azureTarget(settings.sourceLanguage)))
         val body = JSONArray().apply {
@@ -122,7 +130,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         }
     }
 
-    private fun translateDeepL(texts: List<String>, target: String): List<String> {
+    private suspend fun translateDeepL(texts: List<String>, target: String): List<String> {
         val endpoint = if (settings.deeplKey.trim().endsWith(":fx")) {
             "https://api-free.deepl.com/v2/translate"
         } else {
@@ -148,11 +156,11 @@ class TranslationClient(private val settings: TranslationSettings) {
         return (0 until translations.length()).map { translations.getJSONObject(it).getString("text") }
     }
 
-    private fun translateLibre(text: String, target: String, endpoint: String): String {
+    private suspend fun translateLibre(text: String, target: String, endpoint: String): String {
         val body = JSONObject().apply {
             put("q", text)
-            put("source", settings.sourceLanguage)
-            put("target", libreTarget(target))
+            put("source", libreLanguage(settings.sourceLanguage))
+            put("target", libreLanguage(target))
             put("format", "text")
             if (settings.libreKey.isNotBlank()) put("api_key", settings.libreKey.trim())
         }.toString()
@@ -167,12 +175,16 @@ class TranslationClient(private val settings: TranslationSettings) {
         return translated
     }
 
-    private fun request(
+    private suspend fun request(
         connection: HttpURLConnection,
         method: String,
         body: String?,
         headers: Map<String, String>,
     ): Any {
+        val job = currentCoroutineContext()[Job]
+        val disconnectOnCancel = job?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) runCatching { connection.disconnect() }
+        }
         try {
             connection.requestMethod = method
             connection.connectTimeout = 15_000
@@ -185,6 +197,7 @@ class TranslationClient(private val settings: TranslationSettings) {
                 connection.doOutput = true
                 connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             }
+            currentCoroutineContext().ensureActive()
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
@@ -200,13 +213,18 @@ class TranslationClient(private val settings: TranslationSettings) {
             if (code !in 200..299) {
                 throw TranslationException(errorMessage(text).ifBlank { "HTTP $code" })
             }
+            currentCoroutineContext().ensureActive()
             return runCatching { JSONTokener(text).nextValue() }
                 .getOrElse { throw TranslationException("Invalid translation response", it) }
         } catch (error: TranslationException) {
             throw error
         } catch (error: Exception) {
+            // A cancellation disconnects the socket, which surfaces here as an IOException.
+            // Re-check the job so that cancellation wins over a translated network error.
+            currentCoroutineContext().ensureActive()
             throw TranslationException(error.message ?: "Translation request failed", error)
         } finally {
+            disconnectOnCancel?.dispose()
             connection.disconnect()
         }
     }
@@ -254,9 +272,10 @@ class TranslationClient(private val settings: TranslationSettings) {
         else -> target.substringBefore('-').uppercase()
     }
 
-    private fun libreTarget(target: String): String = when (target) {
+    private fun libreLanguage(language: String): String = when (language) {
+        "auto" -> "auto"
         "zh-CN", "zh-TW" -> "zh"
-        else -> target.substringBefore('-')
+        else -> language.substringBefore('-')
     }
 
     private companion object {

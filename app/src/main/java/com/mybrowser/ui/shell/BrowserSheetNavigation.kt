@@ -77,9 +77,17 @@ internal class BrowserSheetNavigation {
 
     fun restore(savedRoutes: List<Route>) {
         // Saved state is local but may come from an older version or malformed Bundle.
-        val valid = savedRoutes.size <= 2 &&
-            (savedRoutes.size < 2 || (savedRoutes.first().destination == Destination.MENU &&
-                savedRoutes.last().destination != Destination.MENU)) &&
+        val shapeValid = when (savedRoutes.size) {
+            0, 1 -> true
+            2 -> savedRoutes.first().destination == Destination.MENU &&
+                savedRoutes.last().destination != Destination.MENU
+            // The only legal three-level stack is the translation child of Settings.
+            3 -> savedRoutes[0].destination == Destination.MENU &&
+                savedRoutes[1].destination == Destination.SETTINGS &&
+                savedRoutes[2].destination == Destination.TRANSLATION
+            else -> false
+        }
+        val valid = shapeValid &&
             savedRoutes.all { it.key >= 0 && it.key < Long.MAX_VALUE } &&
             savedRoutes.map { it.key }.distinct().size == savedRoutes.size &&
             savedRoutes.map { it.destination }.distinct().size == savedRoutes.size

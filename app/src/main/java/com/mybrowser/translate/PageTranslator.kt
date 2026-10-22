@@ -53,6 +53,14 @@ class PageTranslator(context: Context) {
         evaluate(webView, "window.__pureTranslateRestore && window.__pureTranslateRestore()")
     }
 
+    suspend fun isTranslated(webView: WebView): Boolean = withContext(Dispatchers.Main.immediate) {
+        val raw = evaluate(
+            webView,
+            "window.__pureTranslation ? window.__pureTranslation.translated === true : false",
+        )
+        raw == "true"
+    }
+
     suspend fun selection(webView: WebView): String = withContext(Dispatchers.Main.immediate) {
         val raw = evaluate(webView, "window.__pureTranslateSelection ? window.__pureTranslateSelection() : " +
             "(window.getSelection ? String(window.getSelection()) : '')")

@@ -118,34 +118,38 @@ fun MenuSheet(
                     onSharePage = onSharePage,
                 )
 
-                if (canUsePageActions) {
-                    MenuSectionLabel(stringResource(R.string.menu_section_page))
+                if (canUsePageActions || hasCastSession) {
+                    MenuSectionLabel(stringResource(
+                        if (canUsePageActions) R.string.menu_section_page else R.string.menu_cast,
+                    ))
                     MenuCard {
-                        MenuRow(
-                            iconRes = R.drawable.ic_site_settings,
-                            title = stringResource(R.string.site_settings),
-                            subtitle = "",
-                            onClick = onOpenSiteSettings,
-                        )
-                        MenuDivider()
-                        MenuRow(
-                            iconRes = R.drawable.ic_desktop,
-                            title = stringResource(R.string.menu_desktop_site),
-                            subtitle = "",
-                            onClick = onToggleDesktopMode,
-                            toggleState = isDesktopMode,
-                            trailing = { Switch(checked = isDesktopMode, onCheckedChange = null) },
-                        )
-                        MenuDivider()
-                        MenuRow(
-                            iconRes = R.drawable.ic_fullscreen,
-                            title = stringResource(R.string.browser_fullscreen),
-                            subtitle = "",
-                            onClick = { onToggleBrowserFullscreen(!isBrowserFullscreen) },
-                            toggleState = isBrowserFullscreen,
-                            trailing = { Switch(checked = isBrowserFullscreen, onCheckedChange = null) },
-                        )
-                        MenuDivider()
+                        if (canUsePageActions) {
+                            MenuRow(
+                                iconRes = R.drawable.ic_site_settings,
+                                title = stringResource(R.string.site_settings),
+                                subtitle = "",
+                                onClick = onOpenSiteSettings,
+                            )
+                            MenuDivider()
+                            MenuRow(
+                                iconRes = R.drawable.ic_desktop,
+                                title = stringResource(R.string.menu_desktop_site),
+                                subtitle = "",
+                                onClick = onToggleDesktopMode,
+                                toggleState = isDesktopMode,
+                                trailing = { Switch(checked = isDesktopMode, onCheckedChange = null) },
+                            )
+                            MenuDivider()
+                            MenuRow(
+                                iconRes = R.drawable.ic_fullscreen,
+                                title = stringResource(R.string.browser_fullscreen),
+                                subtitle = "",
+                                onClick = { onToggleBrowserFullscreen(!isBrowserFullscreen) },
+                                toggleState = isBrowserFullscreen,
+                                trailing = { Switch(checked = isBrowserFullscreen, onCheckedChange = null) },
+                            )
+                            MenuDivider()
+                        }
                         MenuRow(
                             iconRes = R.drawable.ic_cast,
                             title = stringResource(R.string.menu_cast),
