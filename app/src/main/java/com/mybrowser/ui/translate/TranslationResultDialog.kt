@@ -28,7 +28,7 @@ fun TranslationResultDialog(
     onDismiss: () -> Unit,
 ) {
     BrowserAlertDialog(
-        onDismissRequest = { if (!busy) onDismiss() },
+        onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.translate_result_title)) },
         text = {
             Column(
@@ -53,7 +53,9 @@ fun TranslationResultDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.translate_close)) }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(if (busy) R.string.action_cancel else R.string.translate_close))
+            }
         },
     )
 }

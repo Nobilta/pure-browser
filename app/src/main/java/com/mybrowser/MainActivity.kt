@@ -713,11 +713,13 @@ class MainActivity : ComponentActivity(),
                         error = translationSelectionError,
                         onCopy = { copyToClipboard(it) },
                         onDismiss = {
-                            if (!translationSelectionBusy) {
-                                translationSelectionOriginal = null
-                                translationSelectionTranslated = null
-                                translationSelectionError = null
-                            }
+                            // Closing wins over a slow or stuck provider request. Clearing the
+                            // state first prevents a late response from reopening the dialog.
+                            translationSelectionJob?.cancel()
+                            translationSelectionOriginal = null
+                            translationSelectionTranslated = null
+                            translationSelectionError = null
+                            translationSelectionBusy = false
                         },
                     )
                 }
