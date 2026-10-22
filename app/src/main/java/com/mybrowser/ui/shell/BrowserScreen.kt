@@ -70,6 +70,7 @@ import com.mybrowser.home.ShortcutSaveResult
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchSuggestionProvider
 import com.mybrowser.ui.home.HomeDashboard
+import com.mybrowser.ui.translate.TranslationFloatingBar
 
 /**
  * The browser chrome: omnibar on top, page in the middle, navigation at the bottom.
@@ -93,6 +94,10 @@ fun BrowserScreen(
     onTabs: () -> Unit,
     tabCount: Int,
     isVideoFullscreen: Boolean = false,
+    translationVisible: Boolean = false,
+    translationBusy: Boolean = false,
+    translationProgress: Int = 0,
+    onRestoreTranslation: () -> Unit = {},
     mediaCount: Int = 0,
     onCast: () -> Unit = {},
     showHomeDashboard: Boolean = false,
@@ -356,6 +361,25 @@ fun BrowserScreen(
                     onChild = onPickerChild,
                     onBlock = onPickerBlock,
                     onCancel = onPickerCancel,
+                )
+            }
+
+            PageOverlay(
+                visible = translationVisible && !showHomeDashboard && !state.isOmnibarFocused &&
+                    elementPicker == null,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(16.dp),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
+                    slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it / 2 },
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
+                    slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it / 2 },
+            ) {
+                TranslationFloatingBar(
+                    busy = translationBusy,
+                    progress = translationProgress,
+                    onRestore = onRestoreTranslation,
                 )
             }
 

@@ -1,0 +1,77 @@
+package com.mybrowser.ui.translate
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import com.mybrowser.R
+
+/** Page-level translation control that survives closing the configuration sheet. */
+@Composable
+fun TranslationFloatingBar(
+    busy: Boolean,
+    progress: Int,
+    onRestore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = if (busy) {
+        stringResource(R.string.translate_floating_busy, progress.coerceIn(0, 100))
+    } else {
+        stringResource(R.string.translate_restore)
+    }
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        tonalElevation = 4.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .clickable(role = Role.Button, onClick = onRestore)
+                .padding(start = 16.dp, end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.22f),
+                )
+            } else {
+                Icon(
+                    painterResource(R.drawable.ic_ui_translate),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(2.dp))
+            Icon(
+                painterResource(R.drawable.ic_ui_close),
+                contentDescription = stringResource(R.string.translate_restore),
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}

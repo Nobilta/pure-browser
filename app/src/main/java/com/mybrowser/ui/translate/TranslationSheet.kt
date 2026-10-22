@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.mybrowser.R
 import com.mybrowser.translate.TRANSLATION_SOURCES
 import com.mybrowser.translate.TRANSLATION_TARGETS
+import com.mybrowser.translate.TranslationPageMode
 import com.mybrowser.translate.TranslationProvider
 import com.mybrowser.translate.TranslationSettings
 import com.mybrowser.ui.shell.BrowserBottomSheet
@@ -38,7 +39,7 @@ fun TranslationSheet(
     pageTranslated: Boolean,
     error: String?,
     onSettingsChange: (TranslationSettings) -> Unit,
-    onTranslatePage: () -> Unit,
+    onTranslatePage: () -> Boolean,
     onRestorePage: () -> Unit,
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
@@ -59,6 +60,7 @@ fun TranslationSheet(
             onTranslatePage = onTranslatePage,
             onRestorePage = onRestorePage,
             onCancel = onCancel,
+            onDismiss = onDismiss,
         )
     }
 
@@ -106,9 +108,10 @@ private fun ColumnScope.TranslationFields(
     pageTranslated: Boolean,
     error: String?,
     onSettingsChange: (TranslationSettings) -> Unit,
-    onTranslatePage: () -> Unit,
+    onTranslatePage: () -> Boolean,
     onRestorePage: () -> Unit,
     onCancel: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     var providerMenu by remember { mutableStateOf(false) }
     var targetMenu by remember { mutableStateOf(false) }
@@ -125,6 +128,24 @@ private fun ColumnScope.TranslationFields(
             stringResource(R.string.translate_custom_active, providerLabel(settings.provider)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    Text(
+        stringResource(R.string.translate_display_mode),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = settings.pageMode == TranslationPageMode.REPLACE,
+            onClick = { onSettingsChange(settings.copy(pageMode = TranslationPageMode.REPLACE)) },
+            label = { Text(stringResource(R.string.translate_mode_replace)) },
+        )
+        FilterChip(
+            selected = settings.pageMode == TranslationPageMode.COMPARE,
+            onClick = { onSettingsChange(settings.copy(pageMode = TranslationPageMode.COMPARE)) },
+            label = { Text(stringResource(R.string.translate_mode_compare)) },
         )
     }
 
@@ -261,7 +282,7 @@ private fun ColumnScope.TranslationFields(
     if (!advanced) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = onTranslatePage,
+                onClick = { if (onTranslatePage()) onDismiss() },
                 enabled = !busy && settings.supportsFullPage && settings.configured,
                 modifier = Modifier.weight(1f),
             ) { Text(stringResource(R.string.translate_page)) }

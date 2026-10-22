@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.core.content.edit
 import java.util.Locale
 
+enum class TranslationPageMode { REPLACE, COMPARE }
+
 enum class TranslationProvider {
     MYMEMORY,
     GOOGLE,
@@ -23,6 +25,7 @@ data class TranslationSettings(
     val provider: TranslationProvider = TranslationProvider.MYMEMORY,
     val targetLanguage: String = defaultTranslationTarget(),
     val sourceLanguage: String = "auto",
+    val pageMode: TranslationPageMode = TranslationPageMode.REPLACE,
     val azureKey: String = "",
     val azureRegion: String = "",
     val deeplKey: String = "",
@@ -61,6 +64,9 @@ class TranslationSettingsRepository(context: Context) {
         targetLanguage = prefs.getString("target", null)?.takeIf { it.length <= 16 }
             ?: defaultTranslationTarget(),
         sourceLanguage = prefs.getString("source", null)?.takeIf { it.length <= 16 } ?: "auto",
+        pageMode = runCatching {
+            TranslationPageMode.valueOf(prefs.getString("page_mode", null).orEmpty())
+        }.getOrDefault(TranslationPageMode.REPLACE),
         azureKey = prefs.getString("azure_key", null).orEmpty().take(512),
         azureRegion = prefs.getString("azure_region", null).orEmpty().take(64),
         deeplKey = prefs.getString("deepl_key", null).orEmpty().take(512),
@@ -73,6 +79,7 @@ class TranslationSettingsRepository(context: Context) {
             putString("provider", settings.provider.name)
             putString("target", settings.targetLanguage)
             putString("source", settings.sourceLanguage)
+            putString("page_mode", settings.pageMode.name)
             putString("azure_key", settings.azureKey)
             putString("azure_region", settings.azureRegion)
             putString("deepl_key", settings.deeplKey)
