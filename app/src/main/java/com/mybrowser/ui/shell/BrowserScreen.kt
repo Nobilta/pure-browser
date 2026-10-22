@@ -97,6 +97,8 @@ fun BrowserScreen(
     translationVisible: Boolean = false,
     translationBusy: Boolean = false,
     translationProgress: Int = 0,
+    translationTranslating: Boolean = false,
+    onStopTranslation: () -> Unit = {},
     onRestoreTranslation: () -> Unit = {},
     mediaCount: Int = 0,
     onCast: () -> Unit = {},
@@ -384,6 +386,8 @@ fun BrowserScreen(
                 TranslationFloatingBar(
                     busy = translationBusy,
                     progress = translationProgress,
+                    translating = translationTranslating,
+                    onStop = onStopTranslation,
                     onRestore = onRestoreTranslation,
                 )
             }

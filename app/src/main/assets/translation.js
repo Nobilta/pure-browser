@@ -4,6 +4,16 @@
   var state = {
     nodes: new Map(),
     compareBlocks: new Map(),
+    compareReady: new Set(),
+    compareTotalCharacters: 0,
+    compareDoneCharacters: 0,
+    compareTotalGroups: 0,
+    compareDoneGroups: 0,
+    compareTruncated: false,
+    compareObserver: null,
+    compareMutationObserver: null,
+    compareApplying: false,
+    compareRestoring: false,
     nextId: 1,
     translated: false,
     compareTranslated: false
@@ -240,85 +250,276 @@
     return { host: host, line: line };
   }
 
+  function markCompareReady(entry) {
+    if (!entry || entry.translated || entry.pending) return;
+    state.compareReady.add(entry.id);
+  }
+
+  function compareMetrics() {
+    var pending = 0;
+    state.compareBlocks.forEach(function (entry) { if (entry.pending) pending++; });
+    return {
+      totalCharacters: state.compareTotalCharacters,
+      doneCharacters: state.compareDoneCharacters,
+      totalGroups: state.compareTotalGroups,
+      doneGroups: state.compareDoneGroups,
+      pending: pending,
+      complete: state.compareTotalGroups > 0 &&
+        state.compareDoneGroups >= state.compareTotalGroups &&
+        state.compareReady.size === 0 && pending === 0
+    };
+  }
+
+  function removeCompareEntry(id, entry) {
+    if (!entry) return;
+    if (entry.translation && entry.translation.parentNode) {
+      entry.translation.parentNode.removeChild(entry.translation);
+    }
+    state.compareReady.delete(id);
+    if (entry.root) {
+      if (entry.root.__pureGroupEnds) entry.root.__pureGroupEnds.delete(entry.endNode);
+      if (entry.root.__pureGroupIds) entry.root.__pureGroupIds.delete(id);
+    }
+    if (entry.translated) {
+      state.compareDoneGroups = Math.max(0, state.compareDoneGroups - 1);
+      state.compareDoneCharacters = Math.max(0, state.compareDoneCharacters - entry.text.length);
+    }
+    state.compareTotalGroups = Math.max(0, state.compareTotalGroups - 1);
+    state.compareTotalCharacters = Math.max(0, state.compareTotalCharacters - entry.text.length);
+    state.compareBlocks.delete(id);
+  }
+
+  function cleanupRemovedGroups() {
+    var stale = [];
+    state.compareBlocks.forEach(function (entry, id) {
+      if (!entry.root || !entry.root.isConnected || !entry.endNode || !entry.endNode.isConnected) stale.push(id);
+    });
+    stale.forEach(function (id) { removeCompareEntry(id, state.compareBlocks.get(id)); });
+  }
+
+  function registerGroup(group) {
+    if (!group || !group.root || !group.endNode || !group.text) return;
+    var ends = group.root.__pureGroupEnds;
+    if (!ends) {
+      ends = new Set();
+      group.root.__pureGroupEnds = ends;
+    }
+    if (ends.has(group.endNode)) return;
+    if (state.compareTotalGroups >= 1200 ||
+        state.compareTotalCharacters + group.text.length > 60000) {
+      state.compareTruncated = true;
+      return;
+    }
+    var id = state.nextId++;
+    var entry = {
+      id: id,
+      root: group.root,
+      endNode: group.endNode,
+      text: group.text,
+      inline: group.inline,
+      translated: false,
+      pending: false,
+      translation: null,
+      translationLine: null,
+    };
+    ends.add(group.endNode);
+    var ids = group.root.__pureGroupIds;
+    if (!ids) {
+      ids = new Set();
+      group.root.__pureGroupIds = ids;
+    }
+    ids.add(id);
+    state.compareBlocks.set(id, entry);
+    state.compareTotalGroups++;
+    state.compareTotalCharacters += group.text.length;
+    if (state.compareObserver) {
+      if (!group.root.__pureGroupObserved) {
+        group.root.__pureGroupObserved = true;
+        state.compareObserver.observe(group.root);
+      }
+    } else {
+      markCompareReady(entry);
+    }
+    if (isNearViewport(group.root)) markCompareReady(entry);
+  }
+
+  function observeGroups(pageRoot) {
+    if ('IntersectionObserver' in window) {
+      state.compareObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (item) {
+          if (!item.isIntersecting) return;
+          var ids = item.target.__pureGroupIds;
+          if (!ids) return;
+          ids.forEach(function (id) { markCompareReady(state.compareBlocks.get(id)); });
+        });
+      }, { rootMargin: '100% 0px 100% 0px' });
+    }
+    if ('MutationObserver' in window) {
+      state.compareMutationObserver = new MutationObserver(function (mutations) {
+        if (state.compareRestoring || state.compareApplying) return;
+        var removed = false;
+        mutations.forEach(function (mutation) {
+          mutation.addedNodes.forEach(function (node) {
+            if (node.nodeType === 1 && node.tagName.toUpperCase() === 'PURE-TRANSLATION-BLOCK') return;
+            var scan = node.nodeType === 1 ? node : (mutation.target.nodeType === 1 ? mutation.target : null);
+            if (!scan || scan.nodeType !== 1) return;
+            if (scan.tagName.toUpperCase() === 'PURE-TRANSLATION-BLOCK') return;
+            var groups = [];
+            collectGroups(scan, pageRoot, groups);
+            groups.forEach(registerGroup);
+          });
+          if (mutation.removedNodes.length) removed = true;
+        });
+        if (removed) cleanupRemovedGroups();
+      });
+    }
+  }
+
   window.__pureTranslateCompareRestore = function () {
+    state.compareRestoring = true;
+    if (state.compareObserver) {
+      state.compareObserver.disconnect();
+      state.compareObserver = null;
+    }
+    if (state.compareMutationObserver) {
+      state.compareMutationObserver.disconnect();
+      state.compareMutationObserver = null;
+    }
     state.compareBlocks.forEach(function (entry) {
-      if (entry.translation && entry.translation.parentNode) entry.translation.parentNode.removeChild(entry.translation);
+      if (entry.translation && entry.translation.parentNode) {
+        entry.translation.parentNode.removeChild(entry.translation);
+      }
+      if (entry.root) {
+        if (entry.root.__pureGroupEnds) entry.root.__pureGroupEnds.clear();
+        if (entry.root.__pureGroupIds) entry.root.__pureGroupIds.clear();
+        entry.root.__pureGroupObserved = false;
+      }
     });
     state.compareBlocks.clear();
+    state.compareReady.clear();
+    state.compareTotalCharacters = 0;
+    state.compareDoneCharacters = 0;
+    state.compareTotalGroups = 0;
+    state.compareDoneGroups = 0;
+    state.compareTruncated = false;
     state.compareTranslated = false;
     var style = document.getElementById('__pureTranslationStyle');
     if (style) style.remove();
+    state.compareRestoring = false;
     return true;
   };
 
-  window.__pureTranslateCompareCollect = function () {
+  window.__pureTranslateCompareStart = function () {
     window.__pureTranslateCompareRestore();
-    if (window.__pureTranslateRestore) window.__pureTranslateRestore();
-    state.compareBlocks.clear();
-    state.nextId = 1;
     var pageRoot = document.body || document.documentElement;
-    if (!pageRoot) return JSON.stringify({ items: [], total: 0, truncated: false });
-
+    if (!pageRoot) return JSON.stringify({ totalCharacters: 0, totalGroups: 0, truncated: false });
+    observeGroups(pageRoot);
     var groups = [];
     collectGroups(pageRoot, pageRoot, groups);
-
-    var items = [];
-    var total = 0;
-    var truncated = false;
-    for (var i = 0; i < groups.length; i++) {
-      var group = groups[i];
-      if (group.text.length > 5000) { truncated = true; continue; }
-      if (items.length >= 1200 || total + group.text.length > 60000) { truncated = true; break; }
-      var id = state.nextId++;
-      state.compareBlocks.set(id, {
-        root: group.root,
-        endNode: group.endNode,
-        text: group.text,
-        inline: group.inline,
-        translation: null,
-        translationLine: null,
-      });
-      items.push({ id: id, text: group.text, visible: isNearViewport(group.root) });
-      total += group.text.length;
+    groups.forEach(registerGroup);
+    if (state.compareMutationObserver) {
+      state.compareMutationObserver.observe(pageRoot, { childList: true, subtree: true });
     }
     state.compareTranslated = false;
-    return JSON.stringify({ items: items, total: total, truncated: truncated });
+    return JSON.stringify({
+      totalCharacters: state.compareTotalCharacters,
+      totalGroups: state.compareTotalGroups,
+      truncated: state.compareTruncated,
+    });
+  };
+
+  window.__pureTranslateCompareCollect = function () {
+    var started = JSON.parse(window.__pureTranslateCompareStart());
+    return JSON.stringify({
+      items: [],
+      total: started.totalCharacters,
+      truncated: started.truncated,
+    });
+  };
+
+  window.__pureTranslateTakeReady = function (maxGroups, maxChars) {
+    maxGroups = Math.max(1, Number(maxGroups) || 16);
+    maxChars = Math.max(1, Number(maxChars) || 6000);
+    var items = [];
+    var chars = 0;
+    var iterator = state.compareReady.values();
+    for (var step = iterator.next(); !step.done; step = iterator.next()) {
+      var id = step.value;
+      var entry = state.compareBlocks.get(id);
+      if (!entry || entry.translated || entry.pending) {
+        state.compareReady.delete(id);
+        continue;
+      }
+      if (items.length > 0 && chars + entry.text.length > maxChars) break;
+      entry.pending = true;
+      state.compareReady.delete(id);
+      items.push({ id: id, text: entry.text });
+      chars += entry.text.length;
+      if (items.length >= maxGroups) break;
+    }
+    return JSON.stringify({ items: items, ...compareMetrics() });
+  };
+
+  window.__pureTranslateRequeue = function (ids) {
+    if (!ids) return 0;
+    var count = 0;
+    for (var i = 0; i < ids.length; i++) {
+      var entry = state.compareBlocks.get(ids[i]);
+      if (!entry || entry.translated) continue;
+      entry.pending = false;
+      markCompareReady(entry);
+      count++;
+    }
+    return count;
+  };
+
+  window.__pureTranslateCompareStatus = function () {
+    return JSON.stringify(compareMetrics());
   };
 
   window.__pureTranslateCompareApply = function (items, language) {
+    state.compareApplying = true;
     var applied = 0;
-    for (var i = 0; i < items.length; i++) {
-      var entry = state.compareBlocks.get(items[i].id);
-      if (!entry || !entry.root || !entry.endNode) continue;
-      var translation = entry.translation;
-      var line = entry.translationLine;
-      if (!translation) {
-        var built = makeTranslation(entry.inline);
-        translation = built.host;
-        line = built.line;
-        translation.setAttribute('data-pure-translation', String(items[i].id));
-        // Insert after the paragraph's last source node, inside the same container.
-        // This is what keeps the article's grid/flex layout from treating the result
-        // as a new top-level item.
-        if (entry.endNode.parentNode === entry.root) {
-          entry.root.insertBefore(translation, entry.endNode.nextSibling);
-        } else {
-          entry.root.appendChild(translation);
+    try {
+      for (var i = 0; i < items.length; i++) {
+        var entry = state.compareBlocks.get(items[i].id);
+        if (!entry || !entry.root || !entry.endNode) continue;
+        var translation = entry.translation;
+        var line = entry.translationLine;
+        if (!translation) {
+          var built = makeTranslation(entry.inline);
+          translation = built.host;
+          line = built.line;
+          translation.setAttribute('data-pure-translation', String(items[i].id));
+          // Insert after the paragraph's last source node, inside the same container.
+          if (entry.endNode.parentNode === entry.root) {
+            entry.root.insertBefore(translation, entry.endNode.nextSibling);
+          } else {
+            entry.root.appendChild(translation);
+          }
+          entry.translation = translation;
+          entry.translationLine = line;
         }
-        entry.translation = translation;
-        entry.translationLine = line;
+        if (!line) {
+          line = translation.shadowRoot
+            ? translation.shadowRoot.querySelector('.__pure-translation-line')
+            : translation.firstElementChild;
+          entry.translationLine = line;
+        }
+        if (!line) continue;
+        line.setAttribute('lang', language || '');
+        line.setAttribute('dir', 'auto');
+        line.textContent = items[i].text;
+        entry.pending = false;
+        if (!entry.translated) {
+          entry.translated = true;
+          state.compareDoneGroups++;
+          state.compareDoneCharacters += entry.text.length;
+        }
+        applied++;
       }
-      if (!line) {
-        line = translation.shadowRoot
-          ? translation.shadowRoot.querySelector('.__pure-translation-line')
-          : translation.firstElementChild;
-        entry.translationLine = line;
-      }
-      if (!line) continue;
-      line.setAttribute('lang', language || '');
-      line.setAttribute('dir', 'auto');
-      line.textContent = items[i].text;
-      applied++;
+    } finally {
+      state.compareApplying = false;
     }
     state.compareTranslated = applied > 0 || state.compareTranslated;
     return applied;
@@ -327,9 +528,7 @@
   window.__pureTranslateVisibleIds = function (mode) {
     var ids = [];
     if (mode === 'compare') {
-      state.compareBlocks.forEach(function (entry, id) {
-        if (entry.root && isNearViewport(entry.root)) ids.push(id);
-      });
+      state.compareReady.forEach(function (id) { ids.push(id); });
     } else {
       state.nodes.forEach(function (entry, id) {
         if (entry.element && isNearViewport(entry.element)) ids.push(id);
