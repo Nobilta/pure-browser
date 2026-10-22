@@ -390,6 +390,7 @@
     <string name="picker_unavailable">此頁面無法使用元素封鎖</string>
     <string name="context_share_unavailable">沒有可用於分享連結的應用程式</string>
     <string name="library_load_more">載入更多</string>
+    <string name="library_select_all">全選</string>
     <string name="library_retry">重試</string>
     <string name="library_load_failed">暫時無法載入</string>
     <string name="library_no_results">沒有符合的結果</string>

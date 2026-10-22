@@ -48,15 +48,47 @@
     }
   }
 
-  function isSkipped(element) {
-    if (!element || SKIP[element.tagName] || isEditable(element)) return true;
-    if (element.getAttribute && (element.getAttribute('aria-hidden') === 'true' ||
-        element.getAttribute('role') === 'button')) return true;
-    try {
-      return !!element.closest('nav,aside,button');
-    } catch (_) {
-      return false;
+  function isSkipped(element, root) {
+    var node = element;
+    while (node && node !== root) {
+      // SVG elements report lower-case tag names while the HTML table above is upper-case.
+      if (SKIP[node.tagName && node.tagName.toUpperCase()] || isEditable(node)) return true;
+      if (node.getAttribute && (node.getAttribute('aria-hidden') === 'true' ||
+          node.getAttribute('role') === 'button')) return true;
+      try {
+        if (node.matches && node.matches('nav,aside,button')) return true;
+      } catch (_) {
+        // Ignore selector support differences and keep walking.
+      }
+      node = node.parentElement;
     }
+    return false;
+  }
+
+  function directText(element) {
+    var branches = element.__pureCandidateBranches;
+    var parts = [];
+    var child = element.firstChild;
+    while (child) {
+      if (child.nodeType === 3) {
+        parts.push(child.nodeValue);
+      } else if (child.nodeType === 1 && !(branches && branches.has(child))) {
+        parts.push(String(child.innerText || child.textContent || ''));
+      }
+      child = child.nextSibling;
+    }
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function firstBranch(element) {
+    var branches = element.__pureCandidateBranches;
+    if (!branches) return null;
+    var child = element.firstElementChild;
+    while (child) {
+      if (branches.has(child)) return child;
+      child = child.nextElementSibling;
+    }
+    return null;
   }
 
   function blockText(element) {
@@ -103,7 +135,7 @@
     var nodes = root.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,figcaption,dt,dd,td,th,div');
     for (var i = 0; i < nodes.length; i++) {
       var element = nodes[i];
-      if (isSkipped(element) || !BLOCKS[element.tagName] || !isVisible(element)) continue;
+      if (isSkipped(element, root) || !BLOCKS[element.tagName] || !isVisible(element)) continue;
       var text = blockText(element);
       if (!text) continue;
       candidates.push(element);
@@ -112,11 +144,28 @@
     // A wrapper and its child paragraph can both match. Translate the deepest block only,
     // otherwise the same sentence appears twice in the comparison.
     var candidateSet = new Set(candidates);
+    // Branch sets are attached to page elements; clear them before a new pass so a page
+    // that changed since the previous translation does not keep a stale nested branch.
+    for (var reset = 0; reset < candidates.length; reset++) {
+      if (candidates[reset].__pureCandidateBranches) candidates[reset].__pureCandidateBranches.clear();
+    }
     var nested = new Set();
     for (var j = 0; j < candidates.length; j++) {
-      var parent = candidates[j].parentElement;
+      var child = candidates[j];
+      var parent = child.parentElement;
       while (parent && parent !== root) {
-        if (candidateSet.has(parent)) { nested.add(parent); break; }
+        if (candidateSet.has(parent)) {
+          nested.add(parent);
+          // Remember which direct child contains this nested candidate, so the parent's
+          // own text can be placed above that branch instead of after the whole subtree.
+          var branches = parent.__pureCandidateBranches;
+          if (!branches) {
+            branches = new Set();
+            parent.__pureCandidateBranches = branches;
+          }
+          branches.add(child);
+        }
+        child = parent;
         parent = parent.parentElement;
       }
     }
@@ -126,13 +175,16 @@
     var truncated = false;
     for (var k = 0; k < candidates.length; k++) {
       var block = candidates[k];
-      if (nested.has(block)) continue;
-      var value = blockText(block);
+      var isNested = nested.has(block);
+      var value = isNested ? directText(block) : blockText(block);
       if (!value) continue;
       if (value.length > 5000) { truncated = true; continue; }
       if (items.length >= 1200 || total + value.length > 60000) { truncated = true; break; }
       var id = state.nextId++;
-      state.compareBlocks.set(id, { element: block, text: value, translation: null });
+      state.compareBlocks.set(id, {
+        element: block, text: value, translation: null,
+        anchor: isNested ? firstBranch(block) : null,
+      });
       items.push({ id: id, text: value, visible: isNearViewport(block) });
       total += value.length;
     }
@@ -152,7 +204,9 @@
         translation.className = '__pure-translation-block';
         translation.setAttribute('data-pure-translation', String(items[i].id));
         var tag = entry.element.tagName;
-        if (tag === 'LI' || tag === 'TD' || tag === 'TH') {
+        if (entry.anchor && entry.anchor.parentNode === entry.element) {
+          entry.element.insertBefore(translation, entry.anchor);
+        } else if (tag === 'LI' || tag === 'TD' || tag === 'TH') {
           entry.element.appendChild(translation);
         } else if (entry.element.parentNode) {
           entry.element.parentNode.insertBefore(translation, entry.element.nextSibling);
@@ -201,7 +255,7 @@
       var raw = node.nodeValue;
       if (!raw || !raw.trim()) continue;
       var parent = node.parentElement;
-      if (!parent || SKIP[parent.tagName] || isEditable(parent) || !isVisible(parent)) continue;
+      if (!parent || isSkipped(parent, root) || !isVisible(parent)) continue;
       if (raw.length > 5000) { truncated = true; continue; }
       var core = raw.trim();
       if (!core) continue;

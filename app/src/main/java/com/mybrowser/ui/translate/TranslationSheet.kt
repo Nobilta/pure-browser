@@ -1,6 +1,5 @@
 package com.mybrowser.ui.translate
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -81,12 +80,11 @@ fun TranslationSheet(
             }
         }
     } else {
-        BackHandler(enabled = busy) { onCancel() }
-        BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
+        BrowserBottomSheet(onDismissRequest = onDismiss) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 BrowserSheetHeader(
                     stringResource(R.string.translate_title),
-                    onDismiss = { if (!busy) onDismiss() },
+                    onDismiss = onDismiss,
                 )
                 Column(
                     Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
@@ -283,7 +281,7 @@ private fun ColumnScope.TranslationFields(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = { if (onTranslatePage()) onDismiss() },
-                enabled = !busy && settings.supportsFullPage && settings.configured,
+                enabled = !busy && !pageTranslated && settings.supportsFullPage && settings.configured,
                 modifier = Modifier.weight(1f),
             ) { Text(stringResource(R.string.translate_page)) }
             OutlinedButton(

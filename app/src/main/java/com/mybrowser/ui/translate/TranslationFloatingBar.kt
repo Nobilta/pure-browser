@@ -69,7 +69,9 @@ fun TranslationFloatingBar(
             Spacer(Modifier.width(2.dp))
             Icon(
                 painterResource(R.drawable.ic_ui_close),
-                contentDescription = stringResource(R.string.translate_restore),
+                // The whole pill is one Restore button; the cross is a visual affordance, not a
+                // second control, so it must not repeat the action's TalkBack label.
+                contentDescription = null,
                 modifier = Modifier.size(18.dp),
             )
         }

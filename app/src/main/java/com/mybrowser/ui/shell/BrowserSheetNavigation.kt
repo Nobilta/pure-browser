@@ -14,6 +14,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
 /** The route stack owns navigation; a presentation owns callbacks from one mounted sheet. */
@@ -131,6 +132,7 @@ internal fun BrowserSheetHost(
     // (nothing to show yet) and is cleared when a route opens, so it never depends on a later write.
     var exitFinished by remember { mutableStateOf(true) }
     var measured by remember { mutableStateOf(false) }
+    var hasPresentedWindow by remember { mutableStateOf(false) }
     val progress = remember { SheetWindowProgress() }
     LaunchedEffect(current) {
         // Whether this movement is interrupting one that never arrived. Read before anything is
@@ -147,10 +149,14 @@ internal fun BrowserSheetHost(
         if (current != null) {
             exitFinished = false
             // The dialog window is created on this frame and its surface is measured a frame or two
-            // later. Animating straight away spends most of the entrance on an invisible panel and
-            // then snaps the remainder, so the travel starts from the measured surface instead.
-            measured = false
-            snapshotFlow { measured }.first { it }
+            // later. Wait for that first layout only when this window has not shown a page before:
+            // a route change inside an already-measured dialog will not fire onSizeChanged again,
+            // and re-arming the wait here left the shared progress short of 1 forever.
+            if (!hasPresentedWindow) {
+                measured = false
+                withTimeoutOrNull(500) { snapshotFlow { measured }.first { it } }
+                hasPresentedWindow = true
+            }
             progress.visibility.animateTo(
                 1f,
                 if (carried == null) progress.arriveSpec() else BrowserMotion.resume(),
@@ -171,6 +177,10 @@ internal fun BrowserSheetHost(
                 withContext(NonCancellable) { progress.visibility.snapTo(0f) }
                 exitFinished = true
                 leaving.value = null
+                if (navigation.current == null) {
+                    hasPresentedWindow = false
+                    measured = false
+                }
             }
         }
     }
@@ -186,20 +196,22 @@ internal fun BrowserSheetHost(
     }
 
     if (shown != null) {
-        BrowserSheetWindow(
-            progress = progress,
-            onDismissRequest = { navigation.current?.let(navigation::back) },
-            onMeasured = { measured = true },
-            // This host keeps the last page composed until its exit finishes, so the window has
-            // nothing left to animate once the route is gone.
-            composeDrivenExit = true,
-        ) {
-            // Replace content atomically inside the existing window. Stable keys
-            // restore parent state without hidden dialogs or stale Back callbacks.
-            // Depth tells the arriving page whether it travels from below (child) or above (parent).
-            CompositionLocalProvider(LocalSheetDepth provides navigation.routes.size) {
-                key(shown.route.key) {
-                    savedState.SaveableStateProvider(shown.route.key) { content(shown) }
+        CompositionLocalProvider(LocalSheetExiting provides (current == null)) {
+            BrowserSheetWindow(
+                progress = progress,
+                onDismissRequest = { navigation.current?.let(navigation::back) },
+                onMeasured = { measured = true },
+                // This host keeps the last page composed until its exit finishes, so the window
+                // has nothing left to animate once the route is gone.
+                composeDrivenExit = true,
+            ) {
+                // Replace content atomically inside the existing window. Stable keys
+                // restore parent state without hidden dialogs or stale Back callbacks.
+                // Depth tells the arriving page whether it travels from below (child) or above (parent).
+                CompositionLocalProvider(LocalSheetDepth provides navigation.routes.size) {
+                    key(shown.route.key) {
+                        savedState.SaveableStateProvider(shown.route.key) { content(shown) }
+                    }
                 }
             }
         }
