@@ -96,6 +96,32 @@ class BrowserSheetNavigationTest {
         assertEquals(2, recreated.routes.map { it.key }.distinct().size)
     }
 
+    @Test fun threeLevelTranslationStackSurvivesRecreation() {
+        val routes = listOf(
+            BrowserSheetNavigation.Route(10, MENU),
+            BrowserSheetNavigation.Route(11, SETTINGS),
+            BrowserSheetNavigation.Route(12, TRANSLATION),
+        )
+        val navigation = BrowserSheetNavigation()
+        navigation.restore(routes)
+        assertEquals(TRANSLATION, navigation.current!!.destination)
+        assertEquals(3, navigation.routes.size)
+        navigation.back(navigation.current!!)
+        assertEquals(SETTINGS, navigation.current!!.destination)
+        navigation.back(navigation.current!!)
+        assertEquals(MENU, navigation.current!!.destination)
+    }
+
+    @Test fun invalidThreeLevelStacksAreRejected() {
+        val navigation = BrowserSheetNavigation()
+        navigation.restore(listOf(
+            BrowserSheetNavigation.Route(1, MENU),
+            BrowserSheetNavigation.Route(2, SETTINGS),
+            BrowserSheetNavigation.Route(3, DEVELOPER_TOOLS),
+        ))
+        assertNull(navigation.current)
+    }
+
     @Test fun invalidRestoredRoutesDoNotTrapTheUserInADuplicateStack() {
         val navigation = BrowserSheetNavigation()
         navigation.restore(listOf(BrowserSheetNavigation.Route(1, MENU), BrowserSheetNavigation.Route(1, SETTINGS)))

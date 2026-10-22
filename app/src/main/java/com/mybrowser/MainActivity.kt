@@ -248,6 +248,7 @@ class MainActivity : ComponentActivity(),
     private var translationJob: Job? = null
     private var translationGeneration = 0
     private var translationSelectionJob: Job? = null
+    private var translationStateJob: Job? = null
     private var showFilterSettings by mutableStateOf(false)
     private var showUserScripts by mutableStateOf(false)
     private lateinit var normalSites: SiteSettingsRepository
@@ -2174,6 +2175,7 @@ class MainActivity : ComponentActivity(),
         stopDepartingPage()
         tabManager.switchToIndex(index)
         loadCurrentTab()
+        refreshTranslationState()
     }
 
     private fun closeTab(index: Int) {
@@ -2739,6 +2741,7 @@ class MainActivity : ComponentActivity(),
         translationJob?.cancel()
         translationGeneration++
         translationSelectionJob?.cancel()
+        translationStateJob?.cancel()
         translationBusy = false
         translationProgress = 0
         translationPageTranslated = false
@@ -4037,6 +4040,21 @@ class MainActivity : ComponentActivity(),
             translateSelection()
             mode.finish()
             true
+        }
+    }
+
+    private fun refreshTranslationState() {
+        val view = webViewOrNull ?: run {
+            translationPageTranslated = false
+            return
+        }
+        val tabId = tabManager.currentTab?.id
+        translationStateJob?.cancel()
+        translationStateJob = lifecycleScope.launch {
+            val translated = runCatching { pageTranslator.isTranslated(view) }.getOrDefault(false)
+            if (webViewOrNull === view && viewOwnerId == tabId && tabManager.currentTab?.id == tabId) {
+                translationPageTranslated = translated
+            }
         }
     }
 
