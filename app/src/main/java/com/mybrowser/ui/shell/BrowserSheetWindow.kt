@@ -664,9 +664,12 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
                 .background(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA)))
             motion.replaced?.let { replaced -> ReplacedSurface(replaced, { 1f - motion.content.value }, shape) }
             Surface(Modifier.fillMaxSize().graphicsLayer {
-                // A page covers the window instead of sliding through it: it fades in from a short
-                // offset, so a settings or bookmarks page does not drag the whole screen.
-                alpha = if (height == 0) 0f else motion.visibility.value
+                // A full-screen page must stay opaque even while a predictive-back hand-off or
+                // a route change has the shared window progress between 0 and 1. Letting the
+                // window's visibility become the page's alpha exposed the webpage through
+                // Settings after returning from History. The page still enters/leaves by
+                // translating from the shared progress; it does not fade to the page behind it.
+                alpha = if (height == 0) 0f else 1f
                 translationY = (1f - motion.visibility.value) * offset
             }) {
                 Box(Modifier.fillMaxSize().graphicsLayer {
