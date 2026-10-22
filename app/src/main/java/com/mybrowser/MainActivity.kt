@@ -255,6 +255,7 @@ class MainActivity : ComponentActivity(),
     private var translationGeneration = 0
     private var translationAppliedMode: TranslationPageMode? = null
     private var translationPending = linkedMapOf<Int, TranslationPageItem>()
+    private var translationHasPending by mutableStateOf(false)
     private var translationTotalChars = 0
     private var translationDoneChars = 0
     private var translationScrollPending = false
@@ -837,7 +838,7 @@ class MainActivity : ComponentActivity(),
                     },
                     tabCount = tabManager.count,
                     isVideoFullscreen = fullscreenView != null,
-                    translationVisible = translationBusy || translationPageTranslated,
+                    translationVisible = translationBusy || translationPageTranslated || translationHasPending,
                     translationBusy = translationBusy,
                     translationProgress = translationProgress,
                     onRestoreTranslation = ::restoreTranslatedPage,
@@ -2052,6 +2053,11 @@ class MainActivity : ComponentActivity(),
         cancelPendingSslError()
         if (navigationReadiness.awaitScripts(::loadCurrentTab)) return
         val tab = tabManager.currentTab ?: return
+        // Translation pending entries belong to one document. A tab switch does not run the
+        // WebViewClient's onPageStarted, so clear the queue before the next document can apply
+        // this tab's IDs. The old page keeps whatever was already translated; returning to it
+        // re-reads its mode and offers Show original.
+        detachTranslationSession()
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
         downloadRequests.selectTab(tab.id)
         val oldId = viewOwnerId
@@ -2770,6 +2776,7 @@ class MainActivity : ComponentActivity(),
         translationStateJob?.cancel()
         translationBusy = false
         translationPending.clear()
+        translationHasPending = false
         translationScrollPending = false
         translationAppliedMode = null
         translationTotalChars = 0
@@ -4126,8 +4133,25 @@ class MainActivity : ComponentActivity(),
         }
     }
 
+    private fun detachTranslationSession() {
+        translationJob?.cancel()
+        translationScrollJob?.cancel()
+        translationStateJob?.cancel()
+        translationGeneration++
+        translationPending.clear()
+        translationHasPending = false
+        translationScrollPending = false
+        translationBusy = false
+        translationProgress = 0
+        translationTotalChars = 0
+        translationDoneChars = 0
+        translationPageTranslated = false
+        translationAppliedMode = null
+        translationError = null
+    }
+
     private fun translateCurrentPage(): Boolean {
-        if (translationBusy) return false
+        if (translationBusy || translationPageTranslated) return false
         val view = webViewOrNull ?: return false
         if (!UrlUtils.isHttpUrl(state.currentUrl)) {
             translationError = getString(R.string.translate_no_text)
@@ -4145,7 +4169,9 @@ class MainActivity : ComponentActivity(),
         translationError = null
         translationJob?.cancel()
         translationScrollJob?.cancel()
+        translationStateJob?.cancel()
         translationPending.clear()
+        translationHasPending = false
         translationBusy = true
         translationProgress = 0
         translationPageTranslated = false
@@ -4173,6 +4199,7 @@ class MainActivity : ComponentActivity(),
                 }
                 translationTotalChars = page.totalCharacters.coerceAtLeast(1)
                 page.items.forEach { translationPending[it.id] = it }
+                translationHasPending = translationPending.isNotEmpty()
                 if (page.truncated) toast(getString(R.string.translate_truncated))
                 translateVisiblePageItems(view, pageUrl, pageGeneration, generation)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -4182,7 +4209,9 @@ class MainActivity : ComponentActivity(),
             } finally {
                 if (translationGeneration == generation) {
                     translationBusy = false
-                    if (!translationPageTranslated) translationAppliedMode = null
+                    if (!translationPageTranslated && !translationHasPending) {
+                        translationAppliedMode = null
+                    }
                     queueVisibleTranslationAfterBatch()
                 }
             }
@@ -4218,10 +4247,17 @@ class MainActivity : ComponentActivity(),
                 translationGeneration != generation
             ) break
             val visible = runCatching { pageTranslator.visibleIds(view, mode) }.getOrDefault(emptySet())
+            // A page can start with a full-screen hero and no text inside the prefetch window.
+            // Translate a small first batch anyway so the page control appears and a later
+            // scroll can continue, instead of leaving the session with no visible work.
+            val candidates = if (visible.isEmpty() && applied == 0) {
+                translationPending.values.take(24)
+            } else {
+                translationPending.values.filter { it.id in visible }
+            }
             val batch = ArrayList<TranslationPageItem>()
             var batchChars = 0
-            for ((id, item) in translationPending) {
-                if (id !in visible) continue
+            for (item in candidates) {
                 if (batch.isNotEmpty() && (batch.size >= 24 || batchChars + item.text.length > 6000)) break
                 batch += item
                 batchChars += item.text.length
@@ -4229,6 +4265,7 @@ class MainActivity : ComponentActivity(),
             }
             if (batch.isEmpty()) break
             batch.forEach { translationPending.remove(it.id) }
+            translationHasPending = translationPending.isNotEmpty()
             try {
                 val translated = TranslationClient(settings).translateAll(
                     batch.map { it.text },
@@ -4253,6 +4290,7 @@ class MainActivity : ComponentActivity(),
                 // Keep the batch available for a later scroll/retry, unless the page is gone.
                 if (webViewOrNull === view && state.currentUrl == pageUrl) {
                     batch.forEach { translationPending[it.id] = it }
+                    translationHasPending = true
                 }
                 throw error
             }
@@ -4315,7 +4353,9 @@ class MainActivity : ComponentActivity(),
     private fun cancelPageTranslation() {
         translationJob?.cancel()
         translationScrollJob?.cancel()
+        translationStateJob?.cancel()
         translationPending.clear()
+        translationHasPending = false
         translationScrollPending = false
         translationBusy = false
         translationProgress = 0
@@ -4333,8 +4373,10 @@ class MainActivity : ComponentActivity(),
         }
         translationJob?.cancel()
         translationScrollJob?.cancel()
+        translationStateJob?.cancel()
         translationGeneration++
         translationPending.clear()
+        translationHasPending = false
         translationScrollPending = false
         translationBusy = false
         translationProgress = 0

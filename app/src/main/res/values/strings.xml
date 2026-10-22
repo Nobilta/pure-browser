@@ -390,6 +390,7 @@
     <string name="picker_unavailable">Element blocking is not available on this page</string>
     <string name="context_share_unavailable">No app available to share this link</string>
     <string name="library_load_more">Load more</string>
+    <string name="library_select_all">Select all</string>
     <string name="library_retry">Retry</string>
     <string name="library_load_failed">Unable to load entries</string>
     <string name="library_no_results">No matching entries</string>

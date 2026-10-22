@@ -390,6 +390,7 @@
     <string name="picker_unavailable">此页面无法使用元素屏蔽</string>
     <string name="context_share_unavailable">没有可用于分享链接的应用</string>
     <string name="library_load_more">加载更多</string>
+    <string name="library_select_all">全选</string>
     <string name="library_retry">重试</string>
     <string name="library_load_failed">暂时无法加载</string>
     <string name="library_no_results">没有匹配的结果</string>

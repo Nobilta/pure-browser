@@ -161,6 +161,9 @@ internal class SheetWindowProgress(initial: Float = 0f) {
 
 private val LocalSheetProgress =
     staticCompositionLocalOf { SheetWindowProgress(initial = 1f).also { it.fullscreen = true } }
+/** True only while the host is animating a route away, so fullscreen pages can fade on exit. */
+internal val LocalSheetExiting = staticCompositionLocalOf { false }
+
 private val LocalSheetPresentation = staticCompositionLocalOf {
     SheetPresentation(first = true, previous = null, depth = 1, publishShape = {}, dismiss = {})
 }
@@ -656,6 +659,7 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
         val offset = with(LocalDensity.current) { BrowserMotion.FULLSCREEN_OFFSET.toPx() }
         val scrim = MaterialTheme.colorScheme.scrim
         val shape = sheetShape()
+        val exiting = LocalSheetExiting.current
         Box(Modifier.fillMaxSize().onSizeChanged { height = it.height; if (it.height > 0) measured() }) {
             // Hidden behind the opaque page at rest; it dims the page while a full-screen page
             // enters or leaves, from the surface's own progress so the two stay together.
@@ -664,12 +668,15 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
                 .background(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA)))
             motion.replaced?.let { replaced -> ReplacedSurface(replaced, { 1f - motion.content.value }, shape) }
             Surface(Modifier.fillMaxSize().graphicsLayer {
-                // A full-screen page must stay opaque even while a predictive-back hand-off or
-                // a route change has the shared window progress between 0 and 1. Letting the
-                // window's visibility become the page's alpha exposed the webpage through
-                // Settings after returning from History. The page still enters/leaves by
-                // translating from the shared progress; it does not fade to the page behind it.
-                alpha = if (height == 0) 0f else 1f
+                // A full-screen page must stay opaque while it is presented, even if a
+                // predictive-back hand-off or a route change has the shared window progress
+                // between 0 and 1. It may fade only during the host's own exit animation;
+                // otherwise the webpage shows through Settings after returning from History.
+                alpha = when {
+                    height == 0 -> 0f
+                    exiting -> motion.visibility.value.coerceIn(0f, 1f)
+                    else -> 1f
+                }
                 translationY = (1f - motion.visibility.value) * offset
             }) {
                 Box(Modifier.fillMaxSize().graphicsLayer {
