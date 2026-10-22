@@ -8,22 +8,28 @@
     <group
         android:rotation="-24"
         android:pivotX="54"
-        android:pivotY="54">
+        android:pivotY="50">
         <path
             android:fillColor="@android:color/transparent"
             android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="4.5"
+            android:strokeWidth="3.5"
             android:strokeLineCap="round"
-            android:pathData="M24,54 a30,13 0 1,0 60,0 a30,13 0 1,0 -60,0" />
+            android:pathData="M22,50 a32,13.5 0 1,0 64,0 a32,13.5 0 1,0 -64,0" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1.0"
+        android:scaleY="1.0">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M40,76 L40,44 C40,36.3 46.3,30 54,30 L56,30 C67,30 75,36.7 75,47 C75,57.3 67,64 56,64 L48,64" />
     </group>
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="11"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M40,76 L40,44 C40,36.3 46.3,30 54,30 L56,30 C67,30 75,36.7 75,47 C75,57.3 67,64 56,64 L48,64" />
-    <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M81,42 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+        android:pathData="M79,32 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
 </vector>
