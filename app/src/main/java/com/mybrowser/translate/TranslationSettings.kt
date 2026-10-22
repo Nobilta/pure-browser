@@ -6,6 +6,7 @@ import java.util.Locale
 
 enum class TranslationProvider {
     MYMEMORY,
+    GOOGLE,
     AZURE,
     DEEPL,
     LIBRETRANSLATE,
@@ -30,7 +31,7 @@ data class TranslationSettings(
 ) {
     val supportsFullPage: Boolean
         get() = when (provider) {
-            TranslationProvider.MYMEMORY -> false
+            TranslationProvider.MYMEMORY, TranslationProvider.GOOGLE -> true
             TranslationProvider.AZURE -> azureKey.isNotBlank()
             TranslationProvider.DEEPL -> deeplKey.isNotBlank()
             TranslationProvider.LIBRETRANSLATE -> libreEndpoint.trim().startsWith("http")
@@ -38,7 +39,7 @@ data class TranslationSettings(
 
     val configured: Boolean
         get() = when (provider) {
-            TranslationProvider.MYMEMORY -> true
+            TranslationProvider.MYMEMORY, TranslationProvider.GOOGLE -> true
             TranslationProvider.AZURE -> azureKey.isNotBlank()
             TranslationProvider.DEEPL -> deeplKey.isNotBlank()
             TranslationProvider.LIBRETRANSLATE -> libreEndpoint.trim().startsWith("http")
