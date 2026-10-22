@@ -17,10 +17,13 @@ class TranslationSettingsTest {
     }
 
     @Test
-    fun `mymemory is configured but cannot translate a whole page`() {
-        val settings = TranslationSettings(provider = TranslationProvider.MYMEMORY)
-        assertTrue(settings.configured)
-        assertFalse(settings.supportsFullPage)
+    fun `built-in providers are configured and can translate a whole page`() {
+        val myMemory = TranslationSettings(provider = TranslationProvider.MYMEMORY)
+        assertTrue(myMemory.configured)
+        assertTrue(myMemory.supportsFullPage)
+        val google = TranslationSettings(provider = TranslationProvider.GOOGLE)
+        assertTrue(google.configured)
+        assertTrue(google.supportsFullPage)
     }
 
     @Test

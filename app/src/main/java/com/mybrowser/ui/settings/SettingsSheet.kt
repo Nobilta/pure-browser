@@ -349,7 +349,7 @@ fun SettingsSheet(
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_ui_shield)
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_ui_script)
-                                            SettingsItem(textResources.getString(R.string.translate_title), textResources.getString(R.string.translate_settings_summary),
+                                            SettingsItem(textResources.getString(R.string.translate_settings_title), textResources.getString(R.string.translate_settings_summary),
                                                 onOpenTranslation, R.drawable.ic_ui_translate)
                                         }
                                         SettingsCategory.VIDEO -> {
@@ -888,7 +888,7 @@ private val SETTINGS_SEARCH = listOf(
     R.string.ui_ad_filtering to SettingsCategory.EXTENSIONS,
     R.string.ui_custom_ad_filter_rules to SettingsCategory.EXTENSIONS,
     R.string.script_title to SettingsCategory.EXTENSIONS,
-    R.string.translate_title to SettingsCategory.EXTENSIONS,
+    R.string.translate_settings_title to SettingsCategory.EXTENSIONS,
     R.string.menu_clear_data to SettingsCategory.PRIVACY,
     R.string.settings_export to SettingsCategory.PRIVACY,
     R.string.settings_import to SettingsCategory.PRIVACY,

@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,16 +38,23 @@ class TranslationClient(private val settings: TranslationSettings) {
     ): List<String> = withContext(Dispatchers.IO) {
         require(texts.isNotEmpty())
         when (settings.provider) {
-            TranslationProvider.MYMEMORY -> {
-                if (texts.size != 1) throw TranslationException("MyMemory only supports short selections")
-                val text = texts.single().trim()
-                if (text.isEmpty()) return@withContext listOf("")
-                if (text.toByteArray(Charsets.UTF_8).size > MYMEMORY_MAX_BYTES) {
-                    throw TranslationException("MyMemory accepts at most 500 bytes per request")
-                }
-                currentCoroutineContext().ensureActive()
-                listOf(translateMyMemory(text, target))
-            }
+            TranslationProvider.MYMEMORY -> translateBatched(
+                texts = texts,
+                target = target,
+                maxTextChars = MYMEMORY_MAX_CHARS,
+                maxChunkChars = MYMEMORY_CHUNK_CHARS,
+                translateOne = { text, lang -> translateMyMemory(text, lang) },
+                autoSourceOf = if (settings.sourceLanguage == "auto") ::detectSourceLanguage else null,
+                onProgress = onProgress,
+            )
+            TranslationProvider.GOOGLE -> translateBatched(
+                texts = texts,
+                target = target,
+                maxTextChars = GOOGLE_MAX_TEXT_CHARS,
+                maxChunkChars = GOOGLE_CHUNK_CHARS,
+                translateOne = { text, lang -> translateGoogle(text, lang) },
+                onProgress = onProgress,
+            )
             TranslationProvider.AZURE -> {
                 if (settings.azureKey.isBlank()) throw TranslationException("Azure API key is missing")
                 val output = ArrayList<String>(texts.size)
@@ -85,10 +93,152 @@ class TranslationClient(private val settings: TranslationSettings) {
         }
     }
 
+    /**
+     * Batches page text into provider-sized requests while preserving one output per input.
+     * A marker between pieces survives both providers and is removed before the result is
+     * returned; a provider that changes or drops a marker is rejected instead of silently
+     * shifting translations between text nodes.
+     */
+    private suspend fun translateBatched(
+        texts: List<String>,
+        target: String,
+        maxTextChars: Int,
+        maxChunkChars: Int,
+        translateOne: suspend (String, String) -> String,
+        autoSourceOf: ((String) -> String)? = null,
+        onProgress: (Int, Int) -> Unit,
+    ): List<String> {
+        if (texts.isEmpty()) return emptyList()
+        data class Piece(val item: Int, val part: Int, val text: String, val source: String?)
+
+        val parts = List(texts.size) { ArrayList<String>() }
+        val pieces = ArrayList<Piece>()
+        texts.forEachIndexed { item, text ->
+            if (text.isBlank()) return@forEachIndexed
+            splitForProvider(text, maxTextChars).forEachIndexed { part, chunk ->
+                parts[item] += ""
+                pieces += Piece(item, part, chunk, autoSourceOf?.invoke(chunk))
+            }
+        }
+        if (pieces.isEmpty()) return texts.map { "" }
+
+        val chunks = ArrayList<List<Piece>>()
+        var current = ArrayList<Piece>()
+        var currentChars = 0
+        for (piece in pieces) {
+            val extra = piece.text.length + MARKER_OVERHEAD
+            val sourceChanged = current.isNotEmpty() && autoSourceOf != null &&
+                current.first().source != piece.source
+            if (current.isNotEmpty() && (currentChars + extra > maxChunkChars || sourceChanged)) {
+                chunks += current
+                current = ArrayList()
+                currentChars = 0
+            }
+            current += piece
+            currentChars += extra
+        }
+        if (current.isNotEmpty()) chunks += current
+
+        chunks.forEachIndexed { chunkIndex, chunk ->
+            currentCoroutineContext().ensureActive()
+            val translated: List<String> = if (chunk.size == 1) {
+                listOf(translateOne(chunk.single().text, target))
+            } else {
+                val request = buildString {
+                    chunk.forEachIndexed { index, piece ->
+                        if (index > 0) append("\n[[[").append(index - 1).append("]]]\n")
+                        append(piece.text)
+                    }
+                }
+                parseMarkedTranslation(translateOne(request, target), chunk.size)
+            }
+            chunk.forEachIndexed { index, piece ->
+                parts[piece.item][piece.part] = translated[index]
+            }
+            onProgress(chunkIndex + 1, chunks.size)
+            if (chunkIndex + 1 < chunks.size) delay(BATCH_DELAY_MS)
+        }
+        return parts.map { itemParts -> itemParts.filter { it.isNotBlank() }.joinToString(" ").trim() }
+    }
+
+    /** Splits at a nearby space/punctuation boundary, never inside a UTF-16 surrogate pair. */
+    internal fun splitForProvider(text: String, maxChars: Int): List<String> {
+        if (text.length <= maxChars) return listOf(text)
+        val result = ArrayList<String>()
+        var start = 0
+        while (start < text.length) {
+            var end = minOf(start + maxChars, text.length)
+            if (end < text.length) {
+                val window = text.substring(start, end)
+                val cut = maxOf(window.lastIndexOf(' '), window.lastIndexOf('\n'), window.lastIndexOf(". "))
+                if (cut >= maxChars / 2) end = start + cut + 1
+                if (end < text.length && Character.isHighSurrogate(text[end - 1])) end--
+                if (end <= start) end = minOf(start + maxChars, text.length)
+            }
+            val part = text.substring(start, end).trim()
+            if (part.isNotEmpty()) result += part
+            start = end
+            while (start < text.length && text[start].isWhitespace()) start++
+        }
+        return result.ifEmpty { listOf(text.take(maxChars)) }
+    }
+
+    internal fun parseMarkedTranslation(raw: String, expected: Int): List<String> {
+        if (expected <= 1) return listOf(raw.trim())
+        val marker = Regex("""\[\[\[\s*(\d+)\s*\]\]\]""")
+        val matches = marker.findAll(raw).toList()
+        if (matches.size != expected - 1) {
+            throw TranslationException("Translation service changed page markers")
+        }
+        val result = ArrayList<String>(expected)
+        var cursor = 0
+        var expectedIndex = 0
+        for (match in matches) {
+            if (match.groupValues[1].toIntOrNull() != expectedIndex) {
+                throw TranslationException("Translation service returned page markers out of order")
+            }
+            result += raw.substring(cursor, match.range.first).trim()
+            cursor = match.range.last + 1
+            expectedIndex++
+        }
+        result += raw.substring(cursor).trim()
+        if (result.size != expected || result.any { it.isEmpty() }) {
+            throw TranslationException("Translation service returned a partial page translation")
+        }
+        return result
+    }
+
+    private suspend fun translateGoogle(text: String, target: String): String {
+        val source = if (settings.sourceLanguage == "auto") "auto" else settings.sourceLanguage
+        val url = URL(
+            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" + encode(source) +
+                "&tl=" + encode(target) + "&dt=t&q=" + encode(text),
+        )
+        val response = request(
+            url.openConnection() as HttpURLConnection,
+            "GET",
+            null,
+            mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"),
+        ) as? JSONArray
+            ?: throw TranslationException("Google returned an unexpected response")
+        val segments = response.optJSONArray(0)
+            ?: throw TranslationException("Google returned no translation")
+        val translated = buildString {
+            for (index in 0 until segments.length()) {
+                val segment = segments.optJSONArray(index) ?: continue
+                append(segment.optString(0))
+            }
+        }.trim()
+        if (translated.isEmpty()) throw TranslationException("Google returned no translation")
+        return translated
+    }
+
     private suspend fun translateMyMemory(text: String, target: String): String {
         val source = if (settings.sourceLanguage == "auto") detectSourceLanguage(text)
         else settings.sourceLanguage
-        if (source == target) throw TranslationException("Source and target languages are the same")
+        // A mixed-language page can contain nodes already in the target language. Returning
+        // those unchanged is better than failing the whole page on one such node.
+        if (source == target) return text
         val url = URL(
             "https://api.mymemory.translated.net/get?q=" + encode(text) +
                 "&langpair=" + encode("$source|${myMemoryTarget(target)}"),
@@ -223,7 +373,12 @@ class TranslationClient(private val settings: TranslationSettings) {
                 out.toString()
             }.orEmpty()
             if (code !in 200..299) {
-                throw TranslationException(errorMessage(text).ifBlank { "HTTP $code" })
+                val message = when (code) {
+                    429 -> "Translation service is rate limiting requests (HTTP 429)"
+                    413, 414 -> "Translation request is too long (HTTP $code)"
+                    else -> errorMessage(text)
+                }
+                throw TranslationException(message.ifBlank { "HTTP $code" })
             }
             currentCoroutineContext().ensureActive()
             return runCatching { JSONTokener(text).nextValue() }
@@ -291,7 +446,17 @@ class TranslationClient(private val settings: TranslationSettings) {
     }
 
     private companion object {
-        const val MYMEMORY_MAX_BYTES = 500
+        // MyMemory documents a 500-character request cap; Google's public web endpoint
+        // accepts larger inputs but is deliberately chunked well below its practical limit.
+        const val MYMEMORY_MAX_CHARS = 500
+        const val MYMEMORY_CHUNK_CHARS = 460
+        // Google is a web endpoint, not an API with a documented request limit. Keep the
+        // encoded URL comfortably below proxy/server URI limits; long pages become several
+        // requests instead of one 414.
+        const val GOOGLE_MAX_TEXT_CHARS = 1_800
+        const val GOOGLE_CHUNK_CHARS = 1_900
+        const val MARKER_OVERHEAD = 24
+        const val BATCH_DELAY_MS = 150L
         const val MAX_RESPONSE_CHARS = 256 * 1024
     }
 }

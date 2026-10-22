@@ -32,6 +32,7 @@ import com.mybrowser.translate.TranslationClient
 import com.mybrowser.translate.TranslationSettings
 import com.mybrowser.translate.TranslationSettingsRepository
 import com.mybrowser.ui.translate.TranslationResultDialog
+import com.mybrowser.ui.translate.TranslationSheetMode
 import com.mybrowser.ui.translate.TranslationSheet
 import com.mybrowser.ui.menu.MoreToolsSheet
 import com.mybrowser.ui.shell.WelcomeDialog
@@ -105,6 +106,7 @@ import com.mybrowser.core.ParkedWebViewClient
 import com.mybrowser.core.DefaultBrowser
 import com.mybrowser.core.PageContextTarget
 import com.mybrowser.core.PageContextMenuController
+import com.mybrowser.core.SelectionChipController
 import com.mybrowser.dlna.CastController
 import com.mybrowser.filter.BlockRules
 import com.mybrowser.filter.ElementPicker
@@ -248,6 +250,7 @@ class MainActivity : ComponentActivity(),
     private var translationJob: Job? = null
     private var translationGeneration = 0
     private var translationSelectionJob: Job? = null
+    private var selectionCaptureJob: Job? = null
     private var translationStateJob: Job? = null
     private var showFilterSettings by mutableStateOf(false)
     private var showUserScripts by mutableStateOf(false)
@@ -341,6 +344,10 @@ class MainActivity : ComponentActivity(),
             pageContextTarget = target
         }
     }
+    private val selectionChip = SelectionChipController(
+        isCurrent = { it === webViewOrNull },
+        onTranslate = ::startSelectionTranslation,
+    )
 
     // Homepage settings and user-created navigation tiles.
     private lateinit var homeRepository: HomeRepository
@@ -1212,6 +1219,8 @@ class MainActivity : ComponentActivity(),
 
                         Sheet.SITE_SETTINGS -> CurrentSiteSettings(entry)
                         Sheet.TRANSLATION -> TranslationSheet(
+                            mode = if (sheetNavigation.routes.dropLast(1).any { it.destination == Sheet.SETTINGS })
+                                TranslationSheetMode.SETTINGS else TranslationSheetMode.PAGE,
                             settings = translationSettings,
                             busy = translationBusy,
                             progress = translationProgress,
@@ -1223,7 +1232,6 @@ class MainActivity : ComponentActivity(),
                             },
                             onTranslatePage = ::translateCurrentPage,
                             onRestorePage = ::restoreTranslatedPage,
-                            onTranslateSelection = ::translateSelection,
                             onCancel = {
                                 translationJob?.cancel()
                                 translationGeneration++
@@ -1531,6 +1539,7 @@ class MainActivity : ComponentActivity(),
         view.webViewClient = BrowserWebViewClient(this)
         view.webChromeClient = BrowserChromeClient(this, view)
         pageContextMenu.attach(view)
+        selectionChip.install(view)
         view.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             if (webViewOrNull === view) {
                 state.onPageScroll(scrollY, oldScrollY, resources.displayMetrics.density)
@@ -2743,6 +2752,7 @@ class MainActivity : ComponentActivity(),
         translationJob?.cancel()
         translationGeneration++
         translationSelectionJob?.cancel()
+        selectionCaptureJob?.cancel()
         translationStateJob?.cancel()
         translationBusy = false
         translationProgress = 0
@@ -2807,6 +2817,7 @@ class MainActivity : ComponentActivity(),
         }
         state.onPageFinished(url, !resetHistory && canGoBack, !resetHistory && canGoForward)
         state.onTitleChanged(webView.title)
+        if (state.pageFailure == null) selectionChip.inject(webView, getString(R.string.translate_short))
         networkLogs.markMainFrameFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView, activeSites.get(url).desktopWidth)
         // Update current tab URL and title
@@ -4039,8 +4050,7 @@ class MainActivity : ComponentActivity(),
             getString(R.string.translate_selection))
         item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
         item.setOnMenuItemClickListener {
-            translateSelection()
-            mode.finish()
+            translateSelectionFromActionMode(mode)
             true
         }
     }
@@ -4060,19 +4070,36 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun translateSelection() {
-        val view = webViewOrNull ?: return
-        translationSelectionJob?.cancel()
-        translationSelectionJob = lifecycleScope.launch {
+    /**
+     * WebView owns the selection while ActionMode is alive. Read it before finishing the mode;
+     * finishing first clears the DOM selection and the async read then returns an empty string.
+     */
+    private fun translateSelectionFromActionMode(mode: ActionMode) {
+        val view = webViewOrNull ?: run {
+            runCatching { mode.finish() }
+            return
+        }
+        selectionCaptureJob?.cancel()
+        selectionCaptureJob = lifecycleScope.launch {
             val text = runCatching { pageTranslator.selection(view) }.getOrDefault("")
-            if (text.isBlank()) {
-                toast(getString(R.string.translate_selection_empty))
-                return@launch
-            }
-            translationSelectionOriginal = text
-            translationSelectionTranslated = null
-            translationSelectionError = null
-            translationSelectionBusy = true
+            runCatching { mode.finish() }
+            if (webViewOrNull !== view) return@launch
+            startSelectionTranslation(text)
+        }
+    }
+
+    /** Starts the result panel from text captured by ActionMode or the in-page selection chip. */
+    private fun startSelectionTranslation(text: String) {
+        if (text.isBlank()) {
+            toast(getString(R.string.translate_selection_empty))
+            return
+        }
+        translationSelectionJob?.cancel()
+        translationSelectionOriginal = text
+        translationSelectionTranslated = null
+        translationSelectionError = null
+        translationSelectionBusy = true
+        translationSelectionJob = lifecycleScope.launch {
             try {
                 translationSelectionTranslated = TranslationClient(translationSettings)
                     .translate(text, translationSettings.targetLanguage)
