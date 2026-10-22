@@ -17,6 +17,15 @@ class TranslationSettingsTest {
     }
 
     @Test
+    fun `page translation defaults to replacement and can choose comparison`() {
+        assertEquals(TranslationPageMode.REPLACE, TranslationSettings().pageMode)
+        assertEquals(
+            TranslationPageMode.COMPARE,
+            TranslationSettings(pageMode = TranslationPageMode.COMPARE).pageMode,
+        )
+    }
+
+    @Test
     fun `built-in providers are configured and can translate a whole page`() {
         val myMemory = TranslationSettings(provider = TranslationProvider.MYMEMORY)
         assertTrue(myMemory.configured)

@@ -801,8 +801,12 @@
     <string name="translate_custom_active">目前使用設定中的自訂服務：%1$s。</string>
     <string name="translate_settings_hint">整頁翻譯請從網頁選單啟動；本頁只用於設定翻譯服務。</string>
     <string name="translate_other_providers">目前使用設定中的自訂服務；如未配置，請先到設定中填寫。內建選項為 MyMemory 和 Google。</string>
+    <string name="translate_display_mode">顯示方式</string>
+    <string name="translate_mode_replace">取代原文</string>
+    <string name="translate_mode_compare">雙語對照</string>
     <string name="translate_privacy">頁面文字會直接傳送到所選服務。密鑰只保存在應用程式私有儲存，不會隨設定匯出。</string>
     <string name="translate_page">翻譯本頁</string>
+    <string name="translate_floating_busy">翻譯中 %1$d%%</string>
     <string name="translate_restore">顯示原文</string>
     <string name="translate_selection">翻譯選取文字</string>
     <string name="translate_busy">正在翻譯… %1$d%%</string>
