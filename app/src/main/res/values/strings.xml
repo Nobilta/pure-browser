@@ -809,6 +809,7 @@
     <string name="translate_mode_compare">Bilingual</string>
     <string name="translate_privacy">Page text is sent directly to the selected service. Keys stay in this app\'s private storage and are never included in settings export.</string>
     <string name="translate_page">Translate this page</string>
+    <string name="translate_stop">Stop translation</string>
     <string name="translate_floating_busy">Translating %1$d%%</string>
     <string name="translate_restore">Show original</string>
     <string name="translate_selection">Translate selection</string>

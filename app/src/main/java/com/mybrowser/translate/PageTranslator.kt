@@ -18,6 +18,22 @@ data class TranslationPage(
     val truncated: Boolean,
 )
 
+data class TranslationComparisonSession(
+    val totalCharacters: Int,
+    val totalGroups: Int,
+    val truncated: Boolean,
+)
+
+data class TranslationComparisonBatch(
+    val items: List<TranslationPageItem>,
+    val totalCharacters: Int,
+    val doneCharacters: Int,
+    val totalGroups: Int,
+    val doneGroups: Int,
+    val pending: Int,
+    val complete: Boolean,
+)
+
 /** Reads and replaces text nodes without handing the page's HTML back to the renderer. */
 class PageTranslator(context: Context) {
     private val script: String = context.applicationContext.assets
@@ -28,10 +44,83 @@ class PageTranslator(context: Context) {
         decodePage(evaluate(webView, "window.__pureTranslateCollect ? window.__pureTranslateCollect() : null"))
     }
 
-    suspend fun collectComparison(webView: WebView): TranslationPage = withContext(Dispatchers.Main.immediate) {
-        evaluate(webView, script)
-        decodePage(evaluate(webView, "window.__pureTranslateCompareCollect ? window.__pureTranslateCompareCollect() : null"))
-    }
+    suspend fun startComparison(webView: WebView): TranslationComparisonSession =
+        withContext(Dispatchers.Main.immediate) {
+            evaluate(webView, script)
+            val raw = evaluate(
+                webView,
+                "window.__pureTranslateCompareStart ? window.__pureTranslateCompareStart() : null",
+            ) ?: throw TranslationException("Translation helper is unavailable")
+            val json = decodeString(raw) ?: throw TranslationException("Translation helper returned no data")
+            val root = runCatching { JSONObject(json) }.getOrElse {
+                throw TranslationException("Translation helper returned malformed data", it)
+            }
+            TranslationComparisonSession(
+                totalCharacters = root.optInt("totalCharacters"),
+                totalGroups = root.optInt("totalGroups"),
+                truncated = root.optBoolean("truncated"),
+            )
+        }
+
+    suspend fun takeReady(webView: WebView, maxGroups: Int = 16): TranslationComparisonBatch =
+        withContext(Dispatchers.Main.immediate) {
+            val raw = evaluate(
+                webView,
+                "window.__pureTranslateTakeReady ? window.__pureTranslateTakeReady($maxGroups, 6000) : null",
+            ) ?: throw TranslationException("Translation helper is unavailable")
+            val json = decodeString(raw) ?: throw TranslationException("Translation helper returned no data")
+            val root = runCatching { JSONObject(json) }.getOrElse {
+                throw TranslationException("Translation helper returned malformed data", it)
+            }
+            val array = root.optJSONArray("items") ?: JSONArray()
+            val items = buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val text = item.optString("text")
+                    if (text.isNotBlank()) {
+                        add(TranslationPageItem(item.optInt("id"), text, visible = true))
+                    }
+                }
+            }
+            TranslationComparisonBatch(
+                items = items,
+                totalCharacters = root.optInt("totalCharacters"),
+                doneCharacters = root.optInt("doneCharacters"),
+                totalGroups = root.optInt("totalGroups"),
+                doneGroups = root.optInt("doneGroups"),
+                pending = root.optInt("pending"),
+                complete = root.optBoolean("complete"),
+            )
+        }
+
+    suspend fun requeueComparison(webView: WebView, ids: List<Int>) =
+        withContext(Dispatchers.Main.immediate) {
+            if (ids.isEmpty()) return@withContext
+            val array = JSONArray()
+            ids.forEach { array.put(it) }
+            evaluate(webView, "window.__pureTranslateRequeue && window.__pureTranslateRequeue($array)")
+        }
+
+    suspend fun comparisonStatus(webView: WebView): TranslationComparisonBatch =
+        withContext(Dispatchers.Main.immediate) {
+            val raw = evaluate(
+                webView,
+                "window.__pureTranslateCompareStatus ? window.__pureTranslateCompareStatus() : null",
+            ) ?: throw TranslationException("Translation helper is unavailable")
+            val json = decodeString(raw) ?: throw TranslationException("Translation helper returned no data")
+            val root = runCatching { JSONObject(json) }.getOrElse {
+                throw TranslationException("Translation helper returned malformed data", it)
+            }
+            TranslationComparisonBatch(
+                items = emptyList(),
+                totalCharacters = root.optInt("totalCharacters"),
+                doneCharacters = root.optInt("doneCharacters"),
+                totalGroups = root.optInt("totalGroups"),
+                doneGroups = root.optInt("doneGroups"),
+                pending = root.optInt("pending"),
+                complete = root.optBoolean("complete"),
+            )
+        }
 
     suspend fun apply(webView: WebView, translated: List<Pair<Int, String>>) =
         withContext(Dispatchers.Main.immediate) {

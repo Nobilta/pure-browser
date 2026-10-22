@@ -244,6 +244,8 @@ class MainActivity : ComponentActivity(),
     private var translationBusy by mutableStateOf(false)
     private var translationProgress by mutableIntStateOf(0)
     private var translationPageTranslated by mutableStateOf(false)
+    private var translationSessionActive by mutableStateOf(false)
+    private var translationComplete by mutableStateOf(false)
     private var showWelcome by mutableStateOf(false)
     private var translationError by mutableStateOf<String?>(null)
     private var translationSelectionOriginal by mutableStateOf<String?>(null)
@@ -838,9 +840,11 @@ class MainActivity : ComponentActivity(),
                     },
                     tabCount = tabManager.count,
                     isVideoFullscreen = fullscreenView != null,
-                    translationVisible = translationBusy || translationPageTranslated || translationHasPending,
+                    translationVisible = translationSessionActive || translationPageTranslated || translationHasPending,
                     translationBusy = translationBusy,
                     translationProgress = translationProgress,
+                    translationTranslating = translationSessionActive && !translationComplete,
+                    onStopTranslation = ::stopPageTranslation,
                     onRestoreTranslation = ::restoreTranslatedPage,
                     mediaCount = mediaSnapshot.count,
                     onCast = {
@@ -1233,7 +1237,7 @@ class MainActivity : ComponentActivity(),
                             mode = if (sheetNavigation.routes.dropLast(1).any { it.destination == Sheet.SETTINGS })
                                 TranslationSheetMode.SETTINGS else TranslationSheetMode.PAGE,
                             settings = translationSettings,
-                            busy = translationBusy,
+                            busy = translationBusy || (translationSessionActive && !translationComplete),
                             progress = translationProgress,
                             pageTranslated = translationPageTranslated,
                             error = translationError,
@@ -2783,6 +2787,8 @@ class MainActivity : ComponentActivity(),
         translationDoneChars = 0
         translationProgress = 0
         translationPageTranslated = false
+        translationSessionActive = false
+        translationComplete = false
         translationError = null
         translationSelectionOriginal = null
         translationSelectionTranslated = null
@@ -4077,15 +4083,20 @@ class MainActivity : ComponentActivity(),
     private fun refreshTranslationState() {
         val view = webViewOrNull ?: run {
             translationPageTranslated = false
+            translationSessionActive = false
+            translationComplete = false
             return
         }
         val tabId = tabManager.currentTab?.id
         translationStateJob?.cancel()
         translationStateJob = lifecycleScope.launch {
             val mode = runCatching { pageTranslator.translatedMode(view) }.getOrNull()
-            if (webViewOrNull === view && viewOwnerId == tabId && tabManager.currentTab?.id == tabId) {
+            if (webViewOrNull === view && viewOwnerId == tabId && tabManager.currentTab?.id == tabId &&
+                !translationSessionActive
+            ) {
                 translationPageTranslated = mode != null
                 translationAppliedMode = mode
+                translationComplete = mode != null
             }
         }
     }
@@ -4146,12 +4157,14 @@ class MainActivity : ComponentActivity(),
         translationTotalChars = 0
         translationDoneChars = 0
         translationPageTranslated = false
+        translationSessionActive = false
+        translationComplete = false
         translationAppliedMode = null
         translationError = null
     }
 
     private fun translateCurrentPage(): Boolean {
-        if (translationBusy || translationPageTranslated) return false
+        if (translationBusy || translationPageTranslated || translationSessionActive) return false
         val view = webViewOrNull ?: return false
         if (!UrlUtils.isHttpUrl(state.currentUrl)) {
             translationError = getString(R.string.translate_no_text)
@@ -4175,6 +4188,8 @@ class MainActivity : ComponentActivity(),
         translationBusy = true
         translationProgress = 0
         translationPageTranslated = false
+        translationSessionActive = true
+        translationComplete = false
         translationTotalChars = 0
         translationDoneChars = 0
         translationScrollPending = false
@@ -4185,23 +4200,36 @@ class MainActivity : ComponentActivity(),
         val generation = ++translationGeneration
         translationJob = lifecycleScope.launch {
             try {
-                val page = if (mode == TranslationPageMode.COMPARE) {
-                    pageTranslator.collectComparison(view)
+                if (mode == TranslationPageMode.COMPARE) {
+                    val session = pageTranslator.startComparison(view)
+                    if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
+                        translationGeneration != generation
+                    ) return@launch
+                    if (session.totalGroups == 0) {
+                        translationError = getString(R.string.translate_no_text)
+                        translationSessionActive = false
+                        return@launch
+                    }
+                    translationTotalChars = session.totalCharacters.coerceAtLeast(1)
+                    translationHasPending = true
+                    if (session.truncated) toast(getString(R.string.translate_truncated))
+                    runComparisonTranslationLoop(view, pageUrl, pageGeneration, generation)
                 } else {
-                    pageTranslator.collect(view)
+                    val page = pageTranslator.collect(view)
+                    if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
+                        translationGeneration != generation
+                    ) return@launch
+                    if (page.items.isEmpty()) {
+                        translationError = getString(R.string.translate_no_text)
+                        translationSessionActive = false
+                        return@launch
+                    }
+                    translationTotalChars = page.totalCharacters.coerceAtLeast(1)
+                    page.items.forEach { translationPending[it.id] = it }
+                    translationHasPending = translationPending.isNotEmpty()
+                    if (page.truncated) toast(getString(R.string.translate_truncated))
+                    translateVisiblePageItems(view, pageUrl, pageGeneration, generation)
                 }
-                if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
-                    translationGeneration != generation
-                ) return@launch
-                if (page.items.isEmpty()) {
-                    translationError = getString(R.string.translate_no_text)
-                    return@launch
-                }
-                translationTotalChars = page.totalCharacters.coerceAtLeast(1)
-                page.items.forEach { translationPending[it.id] = it }
-                translationHasPending = translationPending.isNotEmpty()
-                if (page.truncated) toast(getString(R.string.translate_truncated))
-                translateVisiblePageItems(view, pageUrl, pageGeneration, generation)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -4209,14 +4237,109 @@ class MainActivity : ComponentActivity(),
             } finally {
                 if (translationGeneration == generation) {
                     translationBusy = false
-                    if (!translationPageTranslated && !translationHasPending) {
+                    if (mode == TranslationPageMode.REPLACE) {
+                        updateReplaceSessionComplete()
+                        if (!translationPageTranslated && !translationHasPending) {
+                            translationSessionActive = false
+                            translationComplete = false
+                            translationAppliedMode = null
+                        }
+                        queueVisibleTranslationAfterBatch()
+                    } else if (!translationPageTranslated && !translationHasPending) {
+                        translationSessionActive = false
+                        translationComplete = false
                         translationAppliedMode = null
                     }
-                    queueVisibleTranslationAfterBatch()
                 }
             }
         }
         return true
+    }
+
+    /**
+     * Hcfy-style comparison loop. JS owns the IntersectionObserver/MutationObserver and only
+     * marks groups ready when they enter the viewport. Native takes those groups serially,
+     * applies each batch back into its paragraph, and keeps polling at a low rate once the
+     * current page is complete so dynamically inserted content can resume the session.
+     */
+    private suspend fun runComparisonTranslationLoop(
+        view: WebView,
+        pageUrl: String,
+        pageGeneration: Long,
+        generation: Int,
+    ) {
+        val settings = translationSettings
+        while (currentCoroutineContext().isActive) {
+            if (!translationSessionActive ||
+                webViewOrNull !== view || state.currentUrl != pageUrl ||
+                permissionEpoch != pageGeneration || translationGeneration != generation
+            ) break
+            val batch = pageTranslator.takeReady(view)
+            updateComparisonMetrics(batch)
+            if (batch.items.isEmpty()) {
+                translationBusy = false
+                translationHasPending = !batch.complete
+                translationComplete = batch.complete
+                if (batch.complete) delay(800) else delay(180)
+                continue
+            }
+            val ids = batch.items.map { it.id }
+            translationComplete = false
+            translationHasPending = true
+            translationBusy = true
+            try {
+                val translated = TranslationClient(settings).translateAll(
+                    batch.items.map { it.text },
+                    settings.targetLanguage,
+                )
+                if (webViewOrNull !== view || state.currentUrl != pageUrl ||
+                    permissionEpoch != pageGeneration || translationGeneration != generation
+                ) break
+                pageTranslator.applyComparison(
+                    view,
+                    batch.items.zip(translated) { item, text -> item.id to text },
+                    settings.targetLanguage,
+                )
+                translationPageTranslated = true
+                updateComparisonMetrics(pageTranslator.comparisonStatus(view))
+                translationBusy = false
+                delay(60)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                runCatching { pageTranslator.requeueComparison(view, ids) }
+                translationBusy = false
+                translationComplete = false
+                translationHasPending = true
+                reportPageTranslationError(error)
+                return
+            }
+        }
+    }
+
+    private fun updateComparisonMetrics(batch: com.mybrowser.translate.TranslationComparisonBatch) {
+        translationTotalChars = batch.totalCharacters.coerceAtLeast(1)
+        translationDoneChars = batch.doneCharacters
+        translationProgress = if (batch.totalCharacters > 0) {
+            (batch.doneCharacters * 100 / batch.totalCharacters).coerceIn(0, 100)
+        } else 0
+        translationHasPending = !batch.complete
+        translationComplete = batch.complete
+    }
+
+    private fun updateReplaceSessionComplete() {
+        if (translationAppliedMode == TranslationPageMode.REPLACE &&
+            translationPageTranslated && translationPending.isEmpty()
+        ) {
+            translationComplete = true
+            translationSessionActive = false
+            translationHasPending = false
+            translationProgress = 100
+        }
+    }
+
+    private fun stopPageTranslation() {
+        restoreTranslatedPage()
     }
 
     private fun reportPageTranslationError(error: Exception) {
@@ -4344,6 +4467,7 @@ class MainActivity : ComponentActivity(),
             } finally {
                 if (translationGeneration == generation) {
                     translationBusy = false
+                    updateReplaceSessionComplete()
                     queueVisibleTranslationAfterBatch()
                 }
             }
@@ -4362,12 +4486,19 @@ class MainActivity : ComponentActivity(),
         translationTotalChars = 0
         translationDoneChars = 0
         translationError = null
-        if (translationPageTranslated || translationAppliedMode != null) restoreTranslatedPage()
+        if (translationPageTranslated || translationAppliedMode != null || translationSessionActive) {
+            restoreTranslatedPage()
+        } else {
+            translationSessionActive = false
+            translationComplete = false
+        }
     }
 
     private fun restoreTranslatedPage() {
         val view = webViewOrNull ?: run {
             translationPageTranslated = false
+            translationSessionActive = false
+            translationComplete = false
             translationAppliedMode = null
             return
         }
@@ -4383,6 +4514,8 @@ class MainActivity : ComponentActivity(),
         translationTotalChars = 0
         translationDoneChars = 0
         translationPageTranslated = false
+        translationSessionActive = false
+        translationComplete = false
         translationError = null
         val mode = translationAppliedMode
         translationAppliedMode = null

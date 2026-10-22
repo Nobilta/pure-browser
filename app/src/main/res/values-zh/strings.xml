@@ -808,6 +808,7 @@
     <string name="translate_mode_compare">双语对照</string>
     <string name="translate_privacy">页面文本会直接发送到所选服务。密钥只保存在应用私有存储，不会随设置导出。</string>
     <string name="translate_page">翻译本页</string>
+    <string name="translate_stop">停止翻译</string>
     <string name="translate_floating_busy">翻译中 %1$d%%</string>
     <string name="translate_restore">显示原文</string>
     <string name="translate_selection">翻译选中文本</string>
