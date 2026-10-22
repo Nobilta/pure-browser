@@ -172,7 +172,7 @@ fun SettingsSheet(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it.take(128) },
                                 placeholder = { Text(textResources.getString(R.string.settings_search)) },
-                                leadingIcon = { Icon(painterResource(R.drawable.ic_search), contentDescription = null) },
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_ui_search), contentDescription = null) },
                                 singleLine = true,
                                 shape = CircleShape,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -245,7 +245,7 @@ fun SettingsSheet(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis)
                                         }
-                                        Icon(painterResource(R.drawable.ic_forward), null, Modifier.size(18.dp))
+                                        Icon(painterResource(R.drawable.ic_ui_chevron), null, Modifier.size(18.dp))
                                     }
                                 }
                                 }
@@ -267,7 +267,7 @@ fun SettingsSheet(
                                         SettingsCategory.BROWSING -> {
                                             SettingsGroup(textResources.getString(R.string.ui_startup))
                                             SettingsItem(textResources.getString(R.string.cd_home), if (currentHomepageMode == HomepageMode.NAVIGATION) textResources.getString(R.string.ui_shortcuts_homepage) else currentHomepage,
-                                                { openPicker("home") }, R.drawable.ic_home)
+                                                { openPicker("home") }, R.drawable.ic_ui_home)
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_restore_pages_on_startup),
                                                 summary = if (restoreLastSession) textResources.getString(R.string.ui_next_launch_restore_regular_tabs) else textResources.getString(R.string.ui_next_launch_homepage),
@@ -276,7 +276,7 @@ fun SettingsSheet(
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsGroup(textResources.getString(R.string.ui_search_and_system))
-                                            SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_search)
+                                            SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_ui_search)
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_online_search_suggestions),
                                                 summary = textResources.getString(R.string.ui_online_search_suggestions_summary),
@@ -292,7 +292,7 @@ fun SettingsSheet(
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_default_browser), if (isDefaultBrowser) textResources.getString(R.string.ui_set_as_default) else textResources.getString(R.string.ui_not_set_as_default),
-                                                onSetDefaultBrowser, R.drawable.ic_desktop)
+                                                onSetDefaultBrowser, R.drawable.ic_ui_monitor)
                                         }
                                         SettingsCategory.APPEARANCE -> {
                                             SettingsToggle(
@@ -316,7 +316,7 @@ fun SettingsSheet(
                                                 onChange = { onPreferencesChange(preferences.copy(swipeTabs = it)) },
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
-                                            SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_settings)
+                                            SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_ui_palette)
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
@@ -328,13 +328,13 @@ fun SettingsSheet(
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
-                                                { showSystemLogin = true }, R.drawable.ic_lock)
+                                                { showSystemLogin = true }, R.drawable.ic_ui_lock)
                                             SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                             SettingsGroup(textResources.getString(R.string.settings_sites_and_data))
-                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_site_settings)
-                                            SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_delete)
-                                            SettingsItem(textResources.getString(R.string.settings_export), textResources.getString(R.string.settings_export_summary), onExportSettings, R.drawable.ic_share)
-                                            SettingsItem(textResources.getString(R.string.settings_import), textResources.getString(R.string.settings_import_summary), onImportSettings, R.drawable.ic_download)
+                                            SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_ui_tools)
+                                            SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_ui_delete)
+                                            SettingsItem(textResources.getString(R.string.settings_export), textResources.getString(R.string.settings_export_summary), onExportSettings, R.drawable.ic_ui_share)
+                                            SettingsItem(textResources.getString(R.string.settings_import), textResources.getString(R.string.settings_import_summary), onImportSettings, R.drawable.ic_ui_download)
                                         }
                                         SettingsCategory.EXTENSIONS -> {
                                             // The things the user installs or points at. Sites,
@@ -347,10 +347,10 @@ fun SettingsSheet(
                                                 onChange = onFilterEnabledChange,
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
-                                            SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_shield)
-                                            SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_code)
+                                            SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_ui_shield)
+                                            SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_ui_script)
                                             SettingsItem(textResources.getString(R.string.translate_title), textResources.getString(R.string.translate_settings_summary),
-                                                onOpenTranslation, R.drawable.ic_translate)
+                                                onOpenTranslation, R.drawable.ic_ui_translate)
                                         }
                                         SettingsCategory.VIDEO -> {
                                             val video = preferences.video
@@ -405,7 +405,7 @@ fun SettingsSheet(
                                                 onChange = { updateVideo(video.copy(holdToBoost = it)) },
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
-                                            SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_speed)
+                                            SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_ui_media)
                                             SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
                                             SettingsGroup(textResources.getString(R.string.menu_playback_speed))
                                             SettingsToggle(
@@ -415,7 +415,7 @@ fun SettingsSheet(
                                                 onChange = { updateVideo(video.copy(rememberSpeed = it)) },
                                                 modifier = Modifier.padding(SettingsRowPadding),
                                             )
-                                            SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { openPicker("speed") }, R.drawable.ic_speed)
+                                            SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { openPicker("speed") }, R.drawable.ic_ui_media)
                                             SettingsNote(textResources.getString(R.string.ui_videos_keep_playing_through_the_webpage_preserving_sign))
                                         }
                                         SettingsCategory.ABOUT -> {
@@ -424,7 +424,7 @@ fun SettingsSheet(
                                             Text(textResources.getString(R.string.ui_pure_browser), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
                                             SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
                                             SettingsItem(textResources.getString(R.string.update_check),
-                                                "GitHub · Nobilta/pure-browser", { showUpdate = true }, R.drawable.ic_download)
+                                                "GitHub · Nobilta/pure-browser", { showUpdate = true }, R.drawable.ic_ui_download)
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.update_auto_check),
                                                 summary = textResources.getString(R.string.update_auto_check_summary),
@@ -514,13 +514,13 @@ private enum class SettingsCategoryGroup(val titleRes: Int) {
 }
 
 private enum class SettingsCategory(val titleRes: Int, val icon: Int, val group: SettingsCategoryGroup) {
-    BROWSING(R.string.settings_general, R.drawable.ic_home, SettingsCategoryGroup.BROWSER),
-    APPEARANCE(R.string.ui_appearance, R.drawable.ic_settings, SettingsCategoryGroup.BROWSER),
-    PRIVACY(R.string.settings_privacy_data, R.drawable.ic_shield, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
-    EXTENSIONS(R.string.settings_content_tools, R.drawable.ic_code, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
-    DOWNLOADS(R.string.ui_download_settings, R.drawable.ic_download, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
-    VIDEO(R.string.settings_media, R.drawable.ic_speed, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
-    ABOUT(R.string.settings_about_updates, R.drawable.ic_code, SettingsCategoryGroup.OTHER),
+    BROWSING(R.string.settings_general, R.drawable.ic_ui_home, SettingsCategoryGroup.BROWSER),
+    APPEARANCE(R.string.ui_appearance, R.drawable.ic_ui_palette, SettingsCategoryGroup.BROWSER),
+    PRIVACY(R.string.settings_privacy_data, R.drawable.ic_ui_shield, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    EXTENSIONS(R.string.settings_content_tools, R.drawable.ic_ui_layers, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    DOWNLOADS(R.string.ui_download_settings, R.drawable.ic_ui_download, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    VIDEO(R.string.settings_media, R.drawable.ic_ui_media, SettingsCategoryGroup.PRIVACY_CONTENT_MEDIA),
+    ABOUT(R.string.settings_about_updates, R.drawable.ic_ui_info, SettingsCategoryGroup.OTHER),
 }
 
 /**
@@ -624,7 +624,7 @@ private fun SearchEngineSettings(
                     {
                         IconButton(onClick = { onRemoveCustom(engine) }) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_delete),
+                                painter = painterResource(R.drawable.ic_ui_delete),
                                 contentDescription = stringResource(R.string.search_engine_delete),
                             )
                         }

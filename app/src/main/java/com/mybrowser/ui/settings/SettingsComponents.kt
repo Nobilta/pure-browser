@@ -172,7 +172,7 @@ internal fun SettingsItem(
         )
         }
         Spacer(Modifier.width(12.dp))
-        Icon(painterResource(R.drawable.ic_forward), null, modifier = Modifier.size(18.dp))
+        Icon(painterResource(R.drawable.ic_ui_chevron), null, modifier = Modifier.size(18.dp))
     }
 }
 

@@ -125,14 +125,14 @@ fun MenuSheet(
                     MenuCard {
                         if (canUsePageActions) {
                             MenuRow(
-                                iconRes = R.drawable.ic_site_settings,
+                                iconRes = R.drawable.ic_ui_tools,
                                 title = stringResource(R.string.site_settings),
                                 subtitle = "",
                                 onClick = onOpenSiteSettings,
                             )
                             MenuDivider()
                             MenuRow(
-                                iconRes = R.drawable.ic_desktop,
+                                iconRes = R.drawable.ic_ui_monitor,
                                 title = stringResource(R.string.menu_desktop_site),
                                 subtitle = "",
                                 onClick = onToggleDesktopMode,
@@ -141,7 +141,7 @@ fun MenuSheet(
                             )
                             MenuDivider()
                             MenuRow(
-                                iconRes = R.drawable.ic_fullscreen,
+                                iconRes = R.drawable.ic_ui_fullscreen,
                                 title = stringResource(R.string.browser_fullscreen),
                                 subtitle = "",
                                 onClick = { onToggleBrowserFullscreen(!isBrowserFullscreen) },
@@ -151,7 +151,7 @@ fun MenuSheet(
                             MenuDivider()
                         }
                         MenuRow(
-                            iconRes = R.drawable.ic_cast,
+                            iconRes = R.drawable.ic_ui_cast,
                             title = stringResource(R.string.menu_cast),
                             subtitle = castSubtitle(hasCastSession, mediaCount, hasVideo),
                             enabled = mediaCount > 0 || hasCastSession,
@@ -163,7 +163,7 @@ fun MenuSheet(
                 MenuSectionLabel(stringResource(R.string.menu_section_privacy))
                 MenuCard {
                     MenuRow(
-                        iconRes = R.drawable.ic_incognito,
+                        iconRes = R.drawable.ic_ui_incognito,
                         title = stringResource(
                             if (isIncognito) R.string.menu_exit_incognito
                             else R.string.menu_enter_incognito,
@@ -173,7 +173,7 @@ fun MenuSheet(
                     )
                     MenuDivider()
                     MenuRow(
-                        iconRes = R.drawable.ic_shield,
+                        iconRes = R.drawable.ic_ui_shield,
                         title = stringResource(R.string.menu_adblock),
                         subtitle = if (isFilterEnabled) {
                             stringResource(R.string.menu_adblock_blocked, blockedCount)
@@ -186,7 +186,7 @@ fun MenuSheet(
                     )
                     MenuDivider()
                     MenuRow(
-                        iconRes = R.drawable.ic_block,
+                        iconRes = R.drawable.ic_ui_block,
                         title = stringResource(R.string.menu_block_element),
                         subtitle = "",
                         enabled = canUsePageActions,
@@ -197,27 +197,27 @@ fun MenuSheet(
                 MenuSectionLabel(stringResource(R.string.menu_section_go_to))
                 MenuCard {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
-                        QuickDestination(R.drawable.ic_bookmark, stringResource(R.string.menu_bookmarks), true, onOpenBookmarks, Modifier.weight(1f))
-                        QuickDestination(R.drawable.ic_history, stringResource(R.string.menu_history), true, onOpenHistory, Modifier.weight(1f))
-                        QuickDestination(R.drawable.ic_download, stringResource(R.string.menu_downloads), true, onOpenDownloads, Modifier.weight(1f))
-                        QuickDestination(R.drawable.ic_settings, stringResource(R.string.menu_settings), true, onOpenSettings, Modifier.weight(1f))
+                        QuickDestination(R.drawable.ic_ui_bookmark, stringResource(R.string.menu_bookmarks), true, onOpenBookmarks, Modifier.weight(1f))
+                        QuickDestination(R.drawable.ic_ui_history, stringResource(R.string.menu_history), true, onOpenHistory, Modifier.weight(1f))
+                        QuickDestination(R.drawable.ic_ui_download, stringResource(R.string.menu_downloads), true, onOpenDownloads, Modifier.weight(1f))
+                        QuickDestination(R.drawable.ic_ui_settings, stringResource(R.string.menu_settings), true, onOpenSettings, Modifier.weight(1f))
                     }
                 }
 
                 MenuSectionLabel(stringResource(R.string.menu_section_more))
                 MenuCard {
                     MenuRow(
-                        iconRes = R.drawable.ic_more,
+                        iconRes = R.drawable.ic_ui_more,
                         title = stringResource(R.string.menu_more_tools),
                         subtitle = stringResource(R.string.menu_more_tools_summary),
                         onClick = onOpenMoreTools,
                         trailing = {
-                            Icon(painterResource(R.drawable.ic_forward), null, Modifier.size(18.dp))
+                            Icon(painterResource(R.drawable.ic_ui_chevron), null, Modifier.size(18.dp))
                         },
                     )
                     MenuDivider()
                     MenuRow(
-                        iconRes = R.drawable.ic_close,
+                        iconRes = R.drawable.ic_ui_exit,
                         title = textResources.getString(R.string.ui_exit_browser),
                         subtitle = "",
                         onClick = onExit,
@@ -258,7 +258,7 @@ fun MoreToolsSheet(
             ) {
                 MenuCard {
                     MenuRow(
-                        iconRes = R.drawable.ic_home,
+                        iconRes = R.drawable.ic_ui_home,
                         title = stringResource(R.string.pin_website),
                         subtitle = "",
                         enabled = canUsePageActions && !isIncognito,
@@ -266,17 +266,17 @@ fun MoreToolsSheet(
                     )
                     MenuDivider()
                     MenuRow(
-                        iconRes = R.drawable.ic_code,
+                        iconRes = R.drawable.ic_ui_script,
                         title = stringResource(R.string.script_title),
                         subtitle = userScriptSubtitle(userScriptStatus),
                         onClick = onManageUserScripts,
                     )
                 }
                 MenuCard {
-                    MenuRow(R.drawable.ic_qr_scan, stringResource(R.string.qr_scan), "", onScanQr)
+                    MenuRow(R.drawable.ic_ui_qr, stringResource(R.string.qr_scan), "", onScanQr)
                     MenuDivider()
                     MenuRow(
-                        iconRes = R.drawable.ic_code,
+                        iconRes = R.drawable.ic_ui_terminal,
                         title = stringResource(R.string.menu_developer_tools),
                         subtitle = "",
                         onClick = onOpenDeveloperTools,
@@ -284,7 +284,7 @@ fun MoreToolsSheet(
                 }
                 MenuCard {
                     MenuRow(
-                        iconRes = R.drawable.ic_delete,
+                        iconRes = R.drawable.ic_ui_delete,
                         title = stringResource(R.string.menu_clear_data),
                         subtitle = "",
                         onClick = onClearData,
@@ -323,7 +323,7 @@ private fun MenuSiteHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isSecure) {
                         Icon(
-                            painterResource(R.drawable.ic_lock),
+                            painterResource(R.drawable.ic_ui_lock),
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
                             tint = MaterialTheme.colorScheme.primary,
@@ -343,7 +343,7 @@ private fun MenuSiteHeader(
                 }
             }
         }
-        BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close), onClick = onDismiss)
+        BrowserIconAction(R.drawable.ic_ui_close, stringResource(R.string.ui_close), onClick = onDismiss)
     }
 }
 
@@ -361,28 +361,28 @@ private fun QuickActions(
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
         QuickMenuAction(
-            icon = if (isCurrentPageBookmarked) R.drawable.ic_bookmark_remove else R.drawable.ic_bookmark_add,
+            icon = if (isCurrentPageBookmarked) R.drawable.ic_ui_bookmark_filled else R.drawable.ic_ui_bookmark_add,
             label = stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark),
             enabled = canUsePageActions,
             action = onToggleBookmark,
             modifier = Modifier.weight(1f),
         )
         QuickMenuAction(
-            icon = R.drawable.ic_search,
+            icon = R.drawable.ic_ui_search,
             label = stringResource(R.string.menu_find),
             enabled = canUsePageActions,
             action = onOpenFind,
             modifier = Modifier.weight(1f),
         )
         QuickMenuAction(
-            icon = R.drawable.ic_translate,
+            icon = R.drawable.ic_ui_translate,
             label = stringResource(R.string.menu_translate),
             enabled = canUsePageActions,
             action = onOpenTranslation,
             modifier = Modifier.weight(1f),
         )
         QuickMenuAction(
-            icon = R.drawable.ic_share,
+            icon = R.drawable.ic_ui_share,
             label = stringResource(R.string.menu_share_page),
             enabled = canUsePageActions,
             action = onSharePage,
@@ -451,7 +451,7 @@ private fun MenuRow(
             .padding(start = 16.dp, end = 16.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(painterResource(iconRes), null, Modifier.size(22.dp), tint = contentColor)
+        Icon(painterResource(iconRes), null, Modifier.size(24.dp), tint = contentColor)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = contentColor)
@@ -489,13 +489,13 @@ private fun QuickMenuAction(
             shape = CircleShape,
             color = if (enabled) MaterialTheme.colorScheme.surfaceContainer
             else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
-            modifier = Modifier.size(38.dp),
+            modifier = Modifier.size(40.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     painterResource(icon),
                     contentDescription = null,
-                    modifier = Modifier.size(21.dp),
+                    modifier = Modifier.size(24.dp),
                     tint = if (enabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                 )
@@ -528,7 +528,7 @@ private fun QuickDestination(
         Icon(
             painterResource(icon),
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(24.dp),
             tint = MaterialTheme.colorScheme.primary,
         )
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
