@@ -445,6 +445,7 @@
     <string name="filter_user_rule_element_added_all">Blocked on every site. Remove it in Ad filter settings, under My rules.</string>
     <string name="script_title">User scripts</string>
     <string name="script_settings_summary">Import, enable and manage compatible user scripts</string>
+    <string name="script_status_running_count">Running on this page: %1$d scripts (%2$s)</string>
     <string name="script_status_running">Running on this page: %1$s</string>
     <string name="script_runs_here">Runs on this page</string>
     <string name="script_not_here">Not for this page</string>
@@ -826,7 +827,7 @@
     <string name="welcome_title">Welcome to Pure Browser</string>
     <string name="welcome_body">A lightweight browser that keeps the page in charge.</string>
     <string name="welcome_filter">Ad filtering and userscripts are in the menu whenever you need them.</string>
-    <string name="welcome_translate">Translate a selection or the whole page from the same menu.</string>
+    <string name="welcome_translate">Select text to translate it, or translate the whole page from the menu.</string>
     <string name="welcome_privacy">No account, no Google services, and no browsing profile is uploaded.</string>
     <string name="welcome_set_default">Set as default</string>
     <string name="welcome_start">Start browsing</string>
@@ -834,6 +835,7 @@
     <string name="translate_show_key">Show API key</string>
     <string name="translate_hide_key">Hide API key</string>
     <string name="menu_more_tools">More tools</string>
+    <string name="menu_more_tools_summary_scripts">%1$d userscripts active · QR · Clear data</string>
     <string name="menu_more_tools_summary">Add to home · Userscripts · QR · Clear data</string>
     <string name="menu_section_go_to">Go to</string>
     <string name="menu_section_more">More</string>

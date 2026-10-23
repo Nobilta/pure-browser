@@ -52,6 +52,7 @@ class TranslationClient(private val settings: TranslationSettings) {
                 target = target,
                 maxTextChars = GOOGLE_MAX_TEXT_CHARS,
                 maxChunkChars = GOOGLE_CHUNK_CHARS,
+                maxTextBytes = GOOGLE_MAX_URL_BYTES,
                 translateOne = { text, lang -> translateGoogle(text, lang) },
                 onProgress = onProgress,
             )
@@ -104,6 +105,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         target: String,
         maxTextChars: Int,
         maxChunkChars: Int,
+        maxTextBytes: Int? = null,
         translateOne: suspend (String, String) -> String,
         autoSourceOf: ((String) -> String)? = null,
         onProgress: (Int, Int) -> Unit,
@@ -115,7 +117,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         val pieces = ArrayList<Piece>()
         texts.forEachIndexed { item, text ->
             if (text.isBlank()) return@forEachIndexed
-            splitForProvider(text, maxTextChars).forEachIndexed { part, chunk ->
+            splitForUrl(text, maxTextChars, maxTextBytes).forEachIndexed { part, chunk ->
                 parts[item] += ""
                 pieces += Piece(item, part, chunk, autoSourceOf?.invoke(chunk))
             }
@@ -179,6 +181,47 @@ class TranslationClient(private val settings: TranslationSettings) {
             if (part.isNotEmpty()) result += part
             start = end
             while (start < text.length && text[start].isWhitespace()) start++
+        }
+        return result.ifEmpty { listOf(text.take(maxChars)) }
+    }
+
+    /**
+     * Provider text limits are in characters, but a GET URL limit is in percent-encoded UTF-8
+     * bytes. CJK text expands by roughly 9 bytes per character, so 1,800 characters can still
+     * produce a 16 KB URI. Split on a character boundary first, then tighten only the pieces
+     * whose encoded form would exceed the URL budget.
+     */
+    internal fun splitForUrl(text: String, maxChars: Int, maxBytes: Int?): List<String> {
+        val parts = splitForProvider(text, maxChars)
+        if (maxBytes == null) return parts
+        val result = ArrayList<String>()
+        for (part in parts) {
+            if (URLEncoder.encode(part, "UTF-8").length <= maxBytes) {
+                result += part
+                continue
+            }
+            var start = 0
+            while (start < part.length) {
+                var low = start + 1
+                var high = part.length
+                var best = start + 1
+                while (low <= high) {
+                    var mid = (low + high) / 2
+                    if (mid < part.length && Character.isHighSurrogate(part[mid - 1])) mid--
+                    val candidate = part.substring(start, mid)
+                    if (URLEncoder.encode(candidate, "UTF-8").length <= maxBytes) {
+                        best = mid
+                        low = mid + 1
+                    } else {
+                        high = mid - 1
+                    }
+                }
+                if (best <= start) best = minOf(start + 1, part.length)
+                val piece = part.substring(start, best).trim()
+                if (piece.isNotEmpty()) result += piece
+                start = best
+                while (start < part.length && part[start].isWhitespace()) start++
+            }
         }
         return result.ifEmpty { listOf(text.take(maxChars)) }
     }
@@ -435,7 +478,8 @@ class TranslationClient(private val settings: TranslationSettings) {
     }
 
     private fun deepLTarget(target: String): String = when (target) {
-        "zh-CN", "zh-TW" -> "ZH"
+        "zh-CN" -> "ZH"
+        "zh-TW" -> "ZH-HANT"
         else -> target.substringBefore('-').uppercase()
     }
 
@@ -455,6 +499,8 @@ class TranslationClient(private val settings: TranslationSettings) {
         // requests instead of one 414.
         const val GOOGLE_MAX_TEXT_CHARS = 1_800
         const val GOOGLE_CHUNK_CHARS = 1_900
+        // Leave room for the endpoint, parameters and marker overhead inside a typical 8 KB URI.
+        const val GOOGLE_MAX_URL_BYTES = 6_000
         const val MARKER_OVERHEAD = 24
         const val BATCH_DELAY_MS = 150L
         const val MAX_RESPONSE_CHARS = 256 * 1024
@@ -469,5 +515,32 @@ internal fun detectSourceLanguage(text: String): String {
     if (text.any { it.code in 0x0400..0x04FF }) return "ru"
     if (text.any { it.code in 0x0600..0x06FF }) return "ar"
     if (text.any { it.code in 0x0590..0x05FF }) return "he"
-    return "en"
+
+    // MyMemory cannot auto-detect. A small stop-word profile keeps French, German, Spanish,
+    // Portuguese and Italian pages from being sent as English; unknown Latin text still falls
+    // back to English rather than guessing a language the user did not choose.
+    val lower = text.lowercase()
+    val words = lower.split(Regex("[^\\p{L}']+")).filter { it.isNotEmpty() }.toSet()
+    // Use only words that are distinctive for one language. Shared articles ("la", "una",
+    // "le") made short French/Spanish/Italian text collapse to whichever profile came first.
+    val profiles = listOf(
+        "fr" to setOf("les", "des", "une", "est", "pour", "avec", "dans", "qui", "pas", "aux", "cette", "été"),
+        "de" to setOf("der", "die", "das", "und", "ist", "nicht", "mit", "für", "auf", "eine", "den", "dem", "sich"),
+        "es" to setOf("los", "las", "es", "para", "por", "del", "como", "y", "el"),
+        "pt" to setOf("os", "as", "uma", "não", "em", "do", "da", "com", "é"),
+        "it" to setOf("il", "gli", "è", "per", "che", "non", "della", "si", "come"),
+    )
+    val scores = profiles.associate { (language, stopWords) -> language to words.count { it in stopWords } }
+    val best = scores.values.maxOrNull() ?: 0
+    if (best <= 0) {
+        return when {
+            'ß' in lower -> "de"
+            'ñ' in lower || '¿' in lower || '¡' in lower -> "es"
+            'ã' in lower || 'õ' in lower -> "pt"
+            'œ' in lower || 'æ' in lower -> "fr"
+            'ì' in lower || 'ò' in lower -> "it"
+            else -> "en"
+        }
+    }
+    return scores.maxByOrNull { it.value }!!.key
 }

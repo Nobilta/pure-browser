@@ -3,6 +3,10 @@
 
   var state = {
     nodes: new Map(),
+    nodeIds: new Map(),
+    replaceDirty: true,
+    replaceObserver: null,
+    replaceTotal: 0,
     compareBlocks: new Map(),
     compareReady: new Set(),
     compareTotalCharacters: 0,
@@ -10,6 +14,7 @@
     compareTotalGroups: 0,
     compareDoneGroups: 0,
     compareTruncated: false,
+    compareActive: false,
     compareObserver: null,
     compareMutationObserver: null,
     compareApplying: false,
@@ -74,7 +79,7 @@
       // SVG elements report lower-case tag names while the HTML table above is upper-case.
       if (SKIP[node.tagName && node.tagName.toUpperCase()] || isEditable(node)) return true;
       if (node.getAttribute && (node.getAttribute('aria-hidden') === 'true' ||
-          node.getAttribute('role') === 'button')) return true;
+          node.getAttribute('role') === 'button' || node.getAttribute('translate') === 'no')) return true;
       try {
         if (node.matches && node.matches('nav,aside,button')) return true;
       } catch (_) {
@@ -116,7 +121,8 @@
     var child = element.firstChild;
     while (child) {
       if (child.nodeType === 3) {
-        if (child.nodeValue && child.nodeValue.trim()) result.push(child);
+        // Keep whitespace nodes: they are the only thing separating two inline elements.
+        result.push(child);
       } else if (child.nodeType === 1) {
         var tag = child.tagName.toUpperCase();
         if (tag !== 'PURE-TRANSLATION-BLOCK' && !SKIP[tag]) result.push(child);
@@ -124,6 +130,44 @@
       child = child.nextSibling;
     }
     return result;
+  }
+
+  function hasBlockDescendant(element) {
+    var stack = [];
+    var child = element.firstElementChild;
+    while (child) {
+      stack.push(child);
+      child = child.nextElementSibling;
+    }
+    while (stack.length) {
+      var current = stack.pop();
+      if (isBlockElement(current)) return true;
+      var nested = current.firstElementChild;
+      while (nested) {
+        stack.push(nested);
+        nested = nested.nextElementSibling;
+      }
+    }
+    return false;
+  }
+
+  function hasExcludedDescendant(element, pageRoot) {
+    var stack = [];
+    var child = element.firstElementChild;
+    while (child) {
+      stack.push(child);
+      child = child.nextElementSibling;
+    }
+    while (stack.length) {
+      var current = stack.pop();
+      if (isSkipped(current, pageRoot) || !isVisible(current)) return true;
+      var nested = current.firstElementChild;
+      while (nested) {
+        stack.push(nested);
+        nested = nested.nextElementSibling;
+      }
+    }
+    return false;
   }
 
   function collectGroups(root, pageRoot, output) {
@@ -155,11 +199,32 @@
         collectGroups(child, pageRoot, output);
         continue;
       }
+      if (child.nodeType === 1) {
+        var childTag = child.tagName.toUpperCase();
+        if (childTag === 'BR') {
+          if (group) {
+            group.nodes.push(child);
+            group.parts.push('\n');
+          }
+          continue;
+        }
+        if (isSkipped(child, pageRoot) || !isVisible(child)) continue;
+        if (hasBlockDescendant(child) || hasExcludedDescendant(child, pageRoot)) {
+          flush();
+          collectGroups(child, pageRoot, output);
+          continue;
+        }
+      }
+      if (child.nodeType === 3) {
+        if (!group && !child.nodeValue.trim()) continue;
+        if (!group) group = { root: root, nodes: [], parts: [] };
+        group.nodes.push(child);
+        group.parts.push(child.nodeValue);
+        continue;
+      }
       if (!group) group = { root: root, nodes: [], parts: [] };
       group.nodes.push(child);
-      group.parts.push(child.nodeType === 3
-        ? child.nodeValue
-        : String(child.innerText || child.textContent || ''));
+      group.parts.push(String(child.innerText || child.textContent || ''));
     }
     flush();
   }
@@ -305,6 +370,10 @@
       group.root.__pureGroupEnds = ends;
     }
     if (ends.has(group.endNode)) return;
+    if (group.text.length > 5000) {
+      state.compareTruncated = true;
+      return;
+    }
     if (state.compareTotalGroups >= 1200 ||
         state.compareTotalCharacters + group.text.length > 60000) {
       state.compareTruncated = true;
@@ -343,6 +412,40 @@
     if (isNearViewport(group.root)) markCompareReady(entry);
   }
 
+  function refreshCompareSubtree(target) {
+    if (!target) return;
+    var rootNode = target.nodeType === 1 ? target : target.parentElement;
+    if (!rootNode) return;
+    state.compareApplying = true;
+    try {
+      var roots = [];
+      state.compareBlocks.forEach(function (entry) {
+        if (entry.root && entry.root.isConnected && entry.root.contains(target) &&
+            roots.indexOf(entry.root) < 0) {
+          roots.push(entry.root);
+        }
+      });
+      if (roots.length > 0) {
+        roots.forEach(function (root) {
+          var ids = [];
+          state.compareBlocks.forEach(function (entry, id) {
+            if (entry.root === root) ids.push(id);
+          });
+          ids.forEach(function (id) { removeCompareEntry(id, state.compareBlocks.get(id)); });
+          var groups = [];
+          collectGroups(root, document.body || document.documentElement, groups);
+          groups.forEach(registerGroup);
+        });
+      } else {
+        var groups = [];
+        collectGroups(rootNode, document.body || document.documentElement, groups);
+        groups.forEach(registerGroup);
+      }
+    } finally {
+      state.compareApplying = false;
+    }
+  }
+
   function observeGroups(pageRoot) {
     if ('IntersectionObserver' in window) {
       state.compareObserver = new IntersectionObserver(function (entries) {
@@ -359,14 +462,24 @@
         if (state.compareRestoring || state.compareApplying) return;
         var removed = false;
         mutations.forEach(function (mutation) {
+          if (mutation.type === 'characterData' || mutation.type === 'attributes') {
+            refreshCompareSubtree(mutation.target);
+            return;
+          }
           mutation.addedNodes.forEach(function (node) {
             if (node.nodeType === 1 && node.tagName.toUpperCase() === 'PURE-TRANSLATION-BLOCK') return;
-            var scan = node.nodeType === 1 ? node : (mutation.target.nodeType === 1 ? mutation.target : null);
-            if (!scan || scan.nodeType !== 1) return;
-            if (scan.tagName.toUpperCase() === 'PURE-TRANSLATION-BLOCK') return;
-            var groups = [];
-            collectGroups(scan, pageRoot, groups);
-            groups.forEach(registerGroup);
+            if (node.nodeType === 3) {
+              refreshCompareSubtree(mutation.target);
+              return;
+            }
+            if (node.nodeType !== 1) return;
+            if (isBlockElement(node)) {
+              var groups = [];
+              collectGroups(node, pageRoot, groups);
+              groups.forEach(registerGroup);
+            } else {
+              refreshCompareSubtree(mutation.target);
+            }
           });
           if (mutation.removedNodes.length) removed = true;
         });
@@ -403,6 +516,7 @@
     state.compareDoneGroups = 0;
     state.compareTruncated = false;
     state.compareTranslated = false;
+    state.compareActive = false;
     var style = document.getElementById('__pureTranslationStyle');
     if (style) style.remove();
     state.compareRestoring = false;
@@ -418,7 +532,13 @@
     collectGroups(pageRoot, pageRoot, groups);
     groups.forEach(registerGroup);
     if (state.compareMutationObserver) {
-      state.compareMutationObserver.observe(pageRoot, { childList: true, subtree: true });
+      state.compareMutationObserver.observe(pageRoot, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'translate', 'open'],
+      });
     }
     state.compareTranslated = false;
     return JSON.stringify({
@@ -539,8 +659,13 @@
 
   window.__pureTranslateCollect = function () {
     window.__pureTranslateCompareRestore();
+    if (state.replaceObserver) {
+      state.replaceObserver.disconnect();
+      state.replaceObserver = null;
+    }
     if (state.translated) window.__pureTranslateRestore();
     state.nodes.clear();
+    state.nodeIds.clear();
     state.nextId = 1;
     var root = document.body || document.documentElement;
     if (!root) return JSON.stringify({ items: [], total: 0, truncated: false });
@@ -563,11 +688,37 @@
       var trailing = raw.slice(start + core.length);
       if (items.length >= 1200 || total + core.length > 60000) { truncated = true; break; }
       var id = state.nextId++;
-      state.nodes.set(id, { node: node, raw: raw, leading: leading, trailing: trailing, element: parent });
+      state.nodes.set(id, {
+        node: node,
+        raw: raw,
+        leading: leading,
+        trailing: trailing,
+        element: parent,
+        translated: false,
+        applied: null,
+      });
+      state.nodeIds.set(node, id);
       items.push({ id: id, text: core, visible: isNearViewport(parent) });
       total += core.length;
     }
     state.translated = false;
+    state.replaceTotal = total;
+    state.replaceDirty = true;
+    if ('MutationObserver' in window) {
+      state.replaceObserver = new MutationObserver(function () {
+        state.replaceDirty = true;
+      });
+      var pageRoot = document.body || document.documentElement;
+      if (pageRoot) {
+        state.replaceObserver.observe(pageRoot, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'translate', 'open'],
+        });
+      }
+    }
     return JSON.stringify({ items: items, total: total, truncated: truncated });
   };
 
@@ -576,24 +727,97 @@
     for (var i = 0; i < items.length; i++) {
       var entry = state.nodes.get(items[i].id);
       if (!entry || !entry.node) continue;
-      entry.node.nodeValue = entry.leading + items[i].text + entry.trailing;
+      entry.applied = entry.leading + items[i].text + entry.trailing;
+      entry.node.nodeValue = entry.applied;
+      entry.translated = true;
       applied++;
     }
     state.translated = applied > 0;
     return applied;
   };
 
+  window.__pureTranslateReplaceCollectNew = function () {
+    if (!state.replaceDirty) {
+      return JSON.stringify({ items: [], total: state.replaceTotal, truncated: false });
+    }
+    state.replaceDirty = false;
+    var root = document.body || document.documentElement;
+    if (!root) return JSON.stringify({ items: [], total: state.replaceTotal, truncated: false });
+    var items = [];
+    var total = state.replaceTotal;
+    var truncated = false;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    while (walker.nextNode()) {
+      var node = walker.currentNode;
+      var raw = node.nodeValue;
+      if (!raw || !raw.trim()) continue;
+      var parent = node.parentElement;
+      if (!parent || isSkipped(parent, root) || !isVisible(parent)) continue;
+      var core = raw.trim();
+      if (!core) continue;
+      var start = raw.indexOf(core);
+      var leading = start > 0 ? raw.slice(0, start) : '';
+      var trailing = raw.slice(start + core.length);
+      var existingId = state.nodeIds.get(node);
+      if (existingId != null) {
+        var entry = state.nodes.get(existingId);
+        if (!entry) {
+          state.nodeIds.delete(node);
+          continue;
+        }
+        if (entry.translated && node.nodeValue === entry.applied) continue;
+        if (entry.raw === raw && !entry.translated) continue;
+        total = Math.max(0, total - entry.raw.trim().length) + core.length;
+        entry.raw = raw;
+        entry.leading = leading;
+        entry.trailing = trailing;
+        entry.translated = false;
+        entry.applied = null;
+      } else {
+        if (core.length > 5000) { truncated = true; continue; }
+        if (items.length >= 1200 || total + core.length > 60000) { truncated = true; break; }
+        var id = state.nextId++;
+        state.nodes.set(id, {
+          node: node,
+          raw: raw,
+          leading: leading,
+          trailing: trailing,
+          element: parent,
+          translated: false,
+          applied: null,
+        });
+        state.nodeIds.set(node, id);
+        existingId = id;
+        total += core.length;
+      }
+      items.push({ id: existingId, text: core, visible: isNearViewport(parent) });
+    }
+    state.replaceTotal = total;
+    return JSON.stringify({ items: items, total: total, truncated: truncated });
+  };
+
   window.__pureTranslateRestore = function () {
+    if (state.replaceObserver) {
+      state.replaceObserver.disconnect();
+      state.replaceObserver = null;
+    }
     state.nodes.forEach(function (entry) {
-      if (entry.node) entry.node.nodeValue = entry.raw;
+      // Never roll back a node the site changed after we wrote its translation, and never
+      // touch a node that was collected but not translated.
+      if (entry.translated && entry.node && entry.node.nodeValue === entry.applied) {
+        entry.node.nodeValue = entry.raw;
+      }
     });
     state.nodes.clear();
+    state.nodeIds.clear();
+    state.replaceTotal = 0;
+    state.replaceDirty = true;
     state.translated = false;
     return true;
   };
 
   window.__pureTranslateTranslatedMode = function () {
-    if (state.compareTranslated) return 'compare';
+    if (state.compareActive || state.compareTranslated) return 'compare';
     if (state.translated) return 'replace';
     return 'none';
   };
