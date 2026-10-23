@@ -47,6 +47,15 @@ class TranslationSettingsTest {
     }
 
     @Test
+    fun `google chunks do not spin on surrogate pairs`() {
+        val original = "😀".repeat(900)
+        val pieces = TranslationClient(TranslationSettings()).splitForUrl(original, 1_800, 6_000)
+        assertTrue(pieces.size > 1)
+        assertTrue(pieces.all { java.net.URLEncoder.encode(it, "UTF-8").length <= 6_000 })
+        assertEquals(original, pieces.joinToString(""))
+    }
+
+    @Test
     fun `google chunks respect the encoded URI budget`() {
         val original = "中文段落".repeat(400)
         val pieces = TranslationClient(TranslationSettings()).splitForUrl(original, 1_800, 6_000)
