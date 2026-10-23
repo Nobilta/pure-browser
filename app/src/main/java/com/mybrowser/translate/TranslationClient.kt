@@ -202,24 +202,25 @@ class TranslationClient(private val settings: TranslationSettings) {
             }
             var start = 0
             while (start < part.length) {
-                var low = start + 1
-                var high = part.length
-                var best = start + 1
-                while (low <= high) {
-                    var mid = (low + high) / 2
-                    if (mid < part.length && Character.isHighSurrogate(part[mid - 1])) mid--
-                    val candidate = part.substring(start, mid)
-                    if (URLEncoder.encode(candidate, "UTF-8").length <= maxBytes) {
-                        best = mid
-                        low = mid + 1
-                    } else {
-                        high = mid - 1
-                    }
+                var end = start
+                var bytes = 0
+                // Walk whole code points. A binary search that adjusts out of the middle of a
+                // surrogate pair can return to `start` without moving forward and spin forever
+                // on a run of emoji.
+                while (end < part.length) {
+                    val codePoint = part.codePointAt(end)
+                    val next = end + Character.charCount(codePoint)
+                    val encoded = URLEncoder.encode(part.substring(end, next), "UTF-8").length
+                    if (end > start && bytes + encoded > maxBytes) break
+                    bytes += encoded
+                    end = next
                 }
-                if (best <= start) best = minOf(start + 1, part.length)
-                val piece = part.substring(start, best).trim()
+                if (end <= start) {
+                    end = start + Character.charCount(part.codePointAt(start))
+                }
+                val piece = part.substring(start, end).trim()
                 if (piece.isNotEmpty()) result += piece
-                start = best
+                start = end
                 while (start < part.length && part[start].isWhitespace()) start++
             }
         }

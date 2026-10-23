@@ -5,8 +5,10 @@
     nodes: new Map(),
     nodeIds: new Map(),
     replaceDirty: true,
+    replaceMutating: false,
     replaceObserver: null,
     replaceTotal: 0,
+    replaceActive: false,
     compareBlocks: new Map(),
     compareReady: new Set(),
     compareTotalCharacters: 0,
@@ -46,7 +48,14 @@
 
   function isEditable(element) {
     try {
-      return !!element.closest('[contenteditable="true"],[contenteditable=""]');
+      if (element.isContentEditable) return true;
+      var node = element;
+      while (node && node.getAttribute) {
+        var value = node.getAttribute('contenteditable');
+        if (value !== null && value.toLowerCase() !== 'false') return true;
+        node = node.parentElement;
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -151,23 +160,32 @@
     return false;
   }
 
-  function hasExcludedDescendant(element, pageRoot) {
-    var stack = [];
-    var child = element.firstElementChild;
-    while (child) {
-      stack.push(child);
-      child = child.nextElementSibling;
-    }
-    while (stack.length) {
-      var current = stack.pop();
-      if (isSkipped(current, pageRoot) || !isVisible(current)) return true;
-      var nested = current.firstElementChild;
-      while (nested) {
-        stack.push(nested);
-        nested = nested.nextElementSibling;
+  function inlineText(element, pageRoot) {
+    var text = '';
+    function visit(node) {
+      if (node.nodeType === 3) {
+        text += node.nodeValue;
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      var tag = node.tagName.toUpperCase();
+      if (tag === 'BR') {
+        text += '\n';
+        return;
+      }
+      if (isSkipped(node, pageRoot) || !isVisible(node)) return;
+      var child = node.firstChild;
+      while (child) {
+        visit(child);
+        child = child.nextSibling;
       }
     }
-    return false;
+    var child = element.firstChild;
+    while (child) {
+      visit(child);
+      child = child.nextSibling;
+    }
+    return text;
   }
 
   function collectGroups(root, pageRoot, output) {
@@ -209,7 +227,7 @@
           continue;
         }
         if (isSkipped(child, pageRoot) || !isVisible(child)) continue;
-        if (hasBlockDescendant(child) || hasExcludedDescendant(child, pageRoot)) {
+        if (hasBlockDescendant(child)) {
           flush();
           collectGroups(child, pageRoot, output);
           continue;
@@ -224,7 +242,7 @@
       }
       if (!group) group = { root: root, nodes: [], parts: [] };
       group.nodes.push(child);
-      group.parts.push(String(child.innerText || child.textContent || ''));
+      group.parts.push(inlineText(child, pageRoot));
     }
     flush();
   }
@@ -412,6 +430,31 @@
     if (isNearViewport(group.root)) markCompareReady(entry);
   }
 
+  function refreshCompareRoot(root, pageRoot) {
+    var next = [];
+    collectGroups(root, pageRoot, next);
+    var existing = [];
+    state.compareBlocks.forEach(function (entry, id) {
+      if (entry.root === root) existing.push({ id: id, entry: entry });
+    });
+    existing.forEach(function (saved) {
+      var match = -1;
+      for (var i = 0; i < next.length; i++) {
+        if (next[i] && next[i].endNode === saved.entry.endNode &&
+            next[i].text === saved.entry.text && next[i].inline === saved.entry.inline) {
+          match = i;
+          break;
+        }
+      }
+      if (match >= 0 && (!saved.entry.translation || saved.entry.translation.isConnected)) {
+        next[match] = null;
+      } else {
+        removeCompareEntry(saved.id, saved.entry);
+      }
+    });
+    next.forEach(function (group) { if (group) registerGroup(group); });
+  }
+
   function refreshCompareSubtree(target) {
     if (!target) return;
     var rootNode = target.nodeType === 1 ? target : target.parentElement;
@@ -420,22 +463,14 @@
     try {
       var roots = [];
       state.compareBlocks.forEach(function (entry) {
-        if (entry.root && entry.root.isConnected && entry.root.contains(target) &&
+        if (entry.root && entry.root.isConnected &&
+            (entry.root.contains(target) || target.contains(entry.root)) &&
             roots.indexOf(entry.root) < 0) {
           roots.push(entry.root);
         }
       });
       if (roots.length > 0) {
-        roots.forEach(function (root) {
-          var ids = [];
-          state.compareBlocks.forEach(function (entry, id) {
-            if (entry.root === root) ids.push(id);
-          });
-          ids.forEach(function (id) { removeCompareEntry(id, state.compareBlocks.get(id)); });
-          var groups = [];
-          collectGroups(root, document.body || document.documentElement, groups);
-          groups.forEach(registerGroup);
-        });
+        roots.forEach(function (root) { refreshCompareRoot(root, document.body || document.documentElement); });
       } else {
         var groups = [];
         collectGroups(rootNode, document.body || document.documentElement, groups);
@@ -481,7 +516,10 @@
               refreshCompareSubtree(mutation.target);
             }
           });
-          if (mutation.removedNodes.length) removed = true;
+          if (mutation.removedNodes.length) {
+            removed = true;
+            refreshCompareSubtree(mutation.target);
+          }
         });
         if (removed) cleanupRemovedGroups();
       });
@@ -541,6 +579,7 @@
       });
     }
     state.compareTranslated = false;
+    state.compareActive = state.compareTotalGroups > 0;
     return JSON.stringify({
       totalCharacters: state.compareTotalCharacters,
       totalGroups: state.compareTotalGroups,
@@ -703,9 +742,11 @@
     }
     state.translated = false;
     state.replaceTotal = total;
-    state.replaceDirty = true;
+    state.replaceActive = state.nodes.size > 0;
+    state.replaceDirty = false;
     if ('MutationObserver' in window) {
       state.replaceObserver = new MutationObserver(function () {
+        if (state.replaceMutating) return;
         state.replaceDirty = true;
       });
       var pageRoot = document.body || document.documentElement;
@@ -724,15 +765,22 @@
 
   window.__pureTranslateApply = function (items) {
     var applied = 0;
-    for (var i = 0; i < items.length; i++) {
-      var entry = state.nodes.get(items[i].id);
-      if (!entry || !entry.node) continue;
-      entry.applied = entry.leading + items[i].text + entry.trailing;
-      entry.node.nodeValue = entry.applied;
-      entry.translated = true;
-      applied++;
+    state.replaceMutating = true;
+    try {
+      for (var i = 0; i < items.length; i++) {
+        var entry = state.nodes.get(items[i].id);
+        if (!entry || !entry.node) continue;
+        entry.applied = entry.leading + items[i].text + entry.trailing;
+        entry.node.nodeValue = entry.applied;
+        entry.translated = true;
+        applied++;
+      }
+    } finally {
+      // MutationObserver callbacks run before this timer; clearing synchronously would let
+      // our own text writes mark the page dirty and force a full TreeWalker scan per batch.
+      setTimeout(function () { state.replaceMutating = false; }, 0);
     }
-    state.translated = applied > 0;
+    state.translated = applied > 0 || state.translated;
     return applied;
   };
 
@@ -811,14 +859,15 @@
     state.nodes.clear();
     state.nodeIds.clear();
     state.replaceTotal = 0;
-    state.replaceDirty = true;
+    state.replaceDirty = false;
+    state.replaceActive = false;
     state.translated = false;
     return true;
   };
 
   window.__pureTranslateTranslatedMode = function () {
     if (state.compareActive || state.compareTranslated) return 'compare';
-    if (state.translated) return 'replace';
+    if (state.replaceActive || state.translated) return 'replace';
     return 'none';
   };
 
