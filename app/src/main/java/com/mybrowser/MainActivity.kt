@@ -266,6 +266,8 @@ class MainActivity : ComponentActivity(),
     private var translationTotalChars = 0
     private var translationDoneChars = 0
     private var translationScrollPending = false
+    private var translationRetryAt = 0L
+    private var translationErrorReported = false
     private data class TranslationTabSnapshot(
         val url: String,
         val mode: TranslationPageMode,
@@ -2794,6 +2796,8 @@ class MainActivity : ComponentActivity(),
         translationComplete = false
         translationClosing = false
         translationError = null
+        translationRetryAt = 0L
+        translationErrorReported = false
         translationSelectionOriginal = null
         translationSelectionTranslated = null
         translationSelectionBusy = false
@@ -4148,8 +4152,7 @@ class MainActivity : ComponentActivity(),
         when {
             snapshot.mode == TranslationPageMode.COMPARE && snapshot.sessionActive ->
                 startComparisonResume(view, tabId)
-            snapshot.mode == TranslationPageMode.REPLACE && snapshot.sessionActive &&
-                !snapshot.complete -> {
+            snapshot.mode == TranslationPageMode.REPLACE && snapshot.sessionActive -> {
                 translationSessionActive = true
                 startReplacePolling(view, state.currentUrl, permissionEpoch, translationGeneration)
                 if (translationPending.isNotEmpty()) startVisibleTranslationJob()
@@ -4264,6 +4267,8 @@ class MainActivity : ComponentActivity(),
         translationClosing = false
         translationAppliedMode = null
         translationError = null
+        translationRetryAt = 0L
+        translationErrorReported = false
     }
 
     private fun translateCurrentPage(): Boolean {
@@ -4283,6 +4288,8 @@ class MainActivity : ComponentActivity(),
             return false
         }
         translationError = null
+        translationErrorReported = false
+        translationRetryAt = 0L
         translationClosing = false
         translationJob?.cancel()
         translationScrollJob?.cancel()
@@ -4334,11 +4341,12 @@ class MainActivity : ComponentActivity(),
                     translationHasPending = translationPending.isNotEmpty()
                     if (page.truncated) toast(getString(R.string.translate_truncated))
                     startReplacePolling(view, pageUrl, pageGeneration, generation)
-                    translateVisiblePageItems(view, pageUrl, pageGeneration, generation)
+                    translateVisiblePageItems(view, pageUrl, pageGeneration, generation, allowFallback = true)
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                translationPollJob?.cancel()
                 translationBusy = false
                 translationSessionActive = false
                 translationComplete = false
@@ -4424,6 +4432,8 @@ class MainActivity : ComponentActivity(),
                 translationPageTranslated = true
                 updateComparisonMetrics(pageTranslator.comparisonStatus(view))
                 translationBusy = false
+                translationError = null
+                translationErrorReported = false
                 delay(60)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 // The batch has already left JS's ready queue. Put it back before unwinding so a
@@ -4437,15 +4447,19 @@ class MainActivity : ComponentActivity(),
                 translationComplete = false
                 if (translationPageTranslated) {
                     runCatching { pageTranslator.requeueComparison(view, ids) }
-                    translationSessionActive = false
                     translationHasPending = true
-                } else {
-                    runCatching { pageTranslator.restoreComparison(view) }
-                    translationSessionActive = false
-                    translationHasPending = false
-                    translationAppliedMode = null
-                    translationClosing = true
+                    reportPageTranslationError(error)
+                    // Keep the session alive: the requeued groups are retried after a pause
+                    // instead of leaving a page that is half translated, with both the sheet
+                    // and the scroll path refusing to continue.
+                    delay(2_000)
+                    continue
                 }
+                runCatching { pageTranslator.restoreComparison(view) }
+                translationSessionActive = false
+                translationHasPending = false
+                translationAppliedMode = null
+                translationClosing = true
                 reportPageTranslationError(error)
                 return
             }
@@ -4467,7 +4481,6 @@ class MainActivity : ComponentActivity(),
             translationPageTranslated && translationPending.isEmpty()
         ) {
             translationComplete = true
-            translationSessionActive = false
             translationHasPending = false
             translationProgress = 100
         }
@@ -4487,7 +4500,7 @@ class MainActivity : ComponentActivity(),
         translationPollJob?.cancel()
         translationPollJob = lifecycleScope.launch {
             while (isActive) {
-                delay(350)
+                delay(if (translationComplete) 800 else 350)
                 if (!translationSessionActive ||
                     translationAppliedMode != TranslationPageMode.REPLACE ||
                     translationGeneration != generation ||
@@ -4499,18 +4512,27 @@ class MainActivity : ComponentActivity(),
                     if (updated.items.isNotEmpty()) {
                         updated.items.forEach { translationPending[it.id] = it }
                         translationHasPending = true
+                        translationComplete = false
                     }
                     translationTotalChars = updated.totalCharacters.coerceAtLeast(1)
-                    if (updated.truncated) {
-                        translationHasPending = translationHasPending || translationPending.isNotEmpty()
-                    }
                 }
-                if (translationJob?.isActive != true && !translationBusy && translationPending.isNotEmpty()) {
+                val now = SystemClock.uptimeMillis()
+                val visible = if (translationJob?.isActive != true && !translationBusy &&
+                    translationPending.isNotEmpty() && now >= translationRetryAt
+                ) {
+                    runCatching { pageTranslator.visibleIds(view, TranslationPageMode.REPLACE) }
+                        .getOrDefault(emptySet())
+                } else {
+                    emptySet()
+                }
+                val hasVisiblePending = visible.any { translationPending.containsKey(it) }
+                if (hasVisiblePending) {
                     startVisibleTranslationJob()
                 }
                 if (translationPending.isEmpty() && !translationBusy) {
                     updateReplaceSessionComplete()
-                    if (translationComplete || !translationSessionActive) break
+                    // Keep watching after the last batch: user-opened panels and infinite
+                    // scroll can add text later. Only Stop/navigation ends this loop.
                 }
             }
         }
@@ -4524,8 +4546,12 @@ class MainActivity : ComponentActivity(),
         val message = error.message ?: ""
         translationError = message
         // The sheet is normally dismissed once a page translation starts, so an error must
-        // also be visible from the page-level floating control.
-        if (sheet != Sheet.TRANSLATION) toast(getString(R.string.translate_error, message))
+        // also be visible from the page-level floating control. Retries keep the error text
+        // but do not repeat the toast every retry.
+        if (!translationErrorReported && sheet != Sheet.TRANSLATION) {
+            toast(getString(R.string.translate_error, message))
+        }
+        translationErrorReported = true
     }
 
     /**
@@ -4538,6 +4564,7 @@ class MainActivity : ComponentActivity(),
         pageGeneration: Long,
         generation: Int,
         modeOverride: TranslationPageMode? = null,
+        allowFallback: Boolean = false,
     ): Int {
         val mode = modeOverride ?: translationAppliedMode ?: return 0
         val settings = translationSettings
@@ -4551,7 +4578,7 @@ class MainActivity : ComponentActivity(),
             // A page can start with a full-screen hero and no text inside the prefetch window.
             // Translate a small first batch anyway so the page control appears and a later
             // scroll can continue, instead of leaving the session with no visible work.
-            val candidates = if (visible.isEmpty() && applied == 0) {
+            val candidates = if (allowFallback && visible.isEmpty() && applied == 0) {
                 translationPending.values.take(24)
             } else {
                 translationPending.values.filter { it.id in visible }
@@ -4586,6 +4613,9 @@ class MainActivity : ComponentActivity(),
                 translationProgress = if (translationTotalChars > 0) {
                     (translationDoneChars * 100 / translationTotalChars).coerceIn(0, 100)
                 } else 0
+                translationRetryAt = 0L
+                translationErrorReported = false
+                translationError = null
                 applied += batch.size
             } catch (error: Exception) {
                 // Keep the batch available for a later scroll/retry, unless the page is gone.
@@ -4629,6 +4659,7 @@ class MainActivity : ComponentActivity(),
 
     private fun startVisibleTranslationJob() {
         if (!translationSessionActive) return
+        if (SystemClock.uptimeMillis() < translationRetryAt) return
         val view = webViewOrNull ?: return
         val mode = translationAppliedMode ?: return
         if (translationPending.isEmpty() || translationBusy) return
@@ -4642,6 +4673,9 @@ class MainActivity : ComponentActivity(),
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                translationComplete = false
+                translationHasPending = translationPending.isNotEmpty()
+                translationRetryAt = SystemClock.uptimeMillis() + 2_000
                 reportPageTranslationError(error)
             } finally {
                 if (translationGeneration == generation) {
@@ -4701,6 +4735,8 @@ class MainActivity : ComponentActivity(),
         translationSessionActive = false
         translationComplete = false
         translationError = null
+        translationRetryAt = 0L
+        translationErrorReported = false
         val mode = translationAppliedMode
         translationAppliedMode = null
         lifecycleScope.launch {
