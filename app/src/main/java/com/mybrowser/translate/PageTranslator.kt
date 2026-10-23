@@ -44,6 +44,14 @@ class PageTranslator(context: Context) {
         decodePage(evaluate(webView, "window.__pureTranslateCollect ? window.__pureTranslateCollect() : null"))
     }
 
+    suspend fun collectNewReplace(webView: WebView): TranslationPage =
+        withContext(Dispatchers.Main.immediate) {
+            decodePage(evaluate(
+                webView,
+                "window.__pureTranslateReplaceCollectNew ? window.__pureTranslateReplaceCollectNew() : null",
+            ))
+        }
+
     suspend fun startComparison(webView: WebView): TranslationComparisonSession =
         withContext(Dispatchers.Main.immediate) {
             evaluate(webView, script)

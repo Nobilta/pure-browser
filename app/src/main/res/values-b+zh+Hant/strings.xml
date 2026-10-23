@@ -444,6 +444,7 @@
     <string name="filter_user_rule_element_added_all">已在所有網站封鎖。可在「廣告過濾設定 → 我的規則」裡刪除。</string>
     <string name="script_title">使用者腳本</string>
     <string name="script_settings_summary">匯入、啟用和管理相容的使用者腳本</string>
+    <string name="script_status_running_count">本頁正在執行 %1$d 個腳本：%2$s</string>
     <string name="script_status_running">本頁正在執行：%1$s</string>
     <string name="script_runs_here">在本頁執行</string>
     <string name="script_not_here">不適用於本頁</string>
@@ -824,7 +825,7 @@
     <string name="welcome_title">歡迎使用 Pure Browser</string>
     <string name="welcome_body">一個把頁面還給你的輕量瀏覽器。</string>
     <string name="welcome_filter">需要時，廣告過濾和使用者腳本都在選單裡。</string>
-    <string name="welcome_translate">同一個選單裡可以翻譯選取文字或整個網頁。</string>
+    <string name="welcome_translate">選取文字後可翻譯，也可以在選單中翻譯整個網頁。</string>
     <string name="welcome_privacy">無需帳號、不依賴 Google 服務，也不會上傳瀏覽畫像。</string>
     <string name="welcome_set_default">設為預設瀏覽器</string>
     <string name="welcome_start">開始瀏覽</string>
@@ -832,6 +833,7 @@
     <string name="translate_show_key">顯示 API key</string>
     <string name="translate_hide_key">隱藏 API key</string>
     <string name="menu_more_tools">更多工具</string>
+    <string name="menu_more_tools_summary_scripts">%1$d 個油猴腳本生效 · 掃碼 · 清理資料</string>
     <string name="menu_more_tools_summary">加入桌面 · 使用者腳本 · 掃碼 · 清理資料</string>
     <string name="menu_section_go_to">前往</string>
     <string name="menu_section_more">更多</string>

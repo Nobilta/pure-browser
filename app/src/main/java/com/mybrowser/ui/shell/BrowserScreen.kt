@@ -95,8 +95,6 @@ fun BrowserScreen(
     tabCount: Int,
     isVideoFullscreen: Boolean = false,
     translationVisible: Boolean = false,
-    translationBusy: Boolean = false,
-    translationProgress: Int = 0,
     translationTranslating: Boolean = false,
     onStopTranslation: () -> Unit = {},
     onRestoreTranslation: () -> Unit = {},
@@ -384,8 +382,6 @@ fun BrowserScreen(
                     slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { it / 2 },
             ) {
                 TranslationFloatingBar(
-                    busy = translationBusy,
-                    progress = translationProgress,
                     translating = translationTranslating,
                     onStop = onStopTranslation,
                     onRestore = onRestoreTranslation,

@@ -444,6 +444,7 @@
     <string name="filter_user_rule_element_added_all">已在所有网站屏蔽。可在「广告过滤设置 → 我的规则」里删除。</string>
     <string name="script_title">油猴脚本</string>
     <string name="script_settings_summary">导入、启用和管理兼容的油猴脚本</string>
+    <string name="script_status_running_count">本页正在运行 %1$d 个脚本：%2$s</string>
     <string name="script_status_running">本页正在运行：%1$s</string>
     <string name="script_runs_here">在本页运行</string>
     <string name="script_not_here">不适用于本页</string>
@@ -825,7 +826,7 @@
     <string name="welcome_title">欢迎使用 Pure Browser</string>
     <string name="welcome_body">一个把页面还给你的轻量浏览器。</string>
     <string name="welcome_filter">需要时，广告过滤和用户脚本都在菜单里。</string>
-    <string name="welcome_translate">同一个菜单里可以翻译选中文本或整个网页。</string>
+    <string name="welcome_translate">选中文字后可翻译，也可以在菜单中翻译整个网页。</string>
     <string name="welcome_privacy">无需账号、不依赖 Google 服务，也不会上传浏览画像。</string>
     <string name="welcome_set_default">设为默认浏览器</string>
     <string name="welcome_start">开始浏览</string>
@@ -833,6 +834,7 @@
     <string name="translate_show_key">显示 API key</string>
     <string name="translate_hide_key">隐藏 API key</string>
     <string name="menu_more_tools">更多工具</string>
+    <string name="menu_more_tools_summary_scripts">%1$d 个油猴脚本生效 · 扫码 · 清理数据</string>
     <string name="menu_more_tools_summary">添加到桌面 · 用户脚本 · 扫码 · 清理数据</string>
     <string name="menu_section_go_to">前往</string>
     <string name="menu_section_more">更多</string>
