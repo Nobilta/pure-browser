@@ -4346,21 +4346,30 @@ class MainActivity : ComponentActivity(),
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                translationPollJob?.cancel()
                 translationBusy = false
-                translationSessionActive = false
                 translationComplete = false
-                if (!translationPageTranslated) {
-                    translationPending.clear()
-                    translationHasPending = false
-                    translationAppliedMode = null
-                    translationClosing = true
-                    runCatching {
-                        if (mode == TranslationPageMode.COMPARE) pageTranslator.restoreComparison(view)
-                        else pageTranslator.restore(view)
-                    }
+                if (mode == TranslationPageMode.REPLACE && translationPageTranslated) {
+                    // The initial viewport pass can contain several batches. A failure after
+                    // the first one used to cancel the poll and stop the session, unlike the
+                    // same failure from a scroll-triggered batch. Keep the watcher alive and
+                    // use the same 2-second backoff.
+                    translationHasPending = translationPending.isNotEmpty()
+                    translationRetryAt = SystemClock.uptimeMillis() + 2_000
                 } else {
-                    translationHasPending = true
+                    translationPollJob?.cancel()
+                    translationSessionActive = false
+                    if (!translationPageTranslated) {
+                        translationPending.clear()
+                        translationHasPending = false
+                        translationAppliedMode = null
+                        translationClosing = true
+                        runCatching {
+                            if (mode == TranslationPageMode.COMPARE) pageTranslator.restoreComparison(view)
+                            else pageTranslator.restore(view)
+                        }
+                    } else {
+                        translationHasPending = true
+                    }
                 }
                 reportPageTranslationError(error)
             } finally {

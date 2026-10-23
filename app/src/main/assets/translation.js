@@ -5,7 +5,6 @@
     nodes: new Map(),
     nodeIds: new Map(),
     replaceDirty: true,
-    replaceMutating: false,
     replaceObserver: null,
     replaceTotal: 0,
     replaceActive: false,
@@ -469,13 +468,14 @@
           roots.push(entry.root);
         }
       });
-      if (roots.length > 0) {
-        roots.forEach(function (root) { refreshCompareRoot(root, document.body || document.documentElement); });
-      } else {
-        var groups = [];
-        collectGroups(rootNode, document.body || document.documentElement, groups);
-        groups.forEach(registerGroup);
-      }
+      var pageRoot = document.body || document.documentElement;
+      roots.forEach(function (root) { refreshCompareRoot(root, pageRoot); });
+      // Attribute changes can reveal a new panel that is a sibling of every existing root.
+      // Refreshing the old roots alone would never see it, so scan the mutated subtree too;
+      // registerGroup de-duplicates groups that were just refreshed.
+      var revealed = [];
+      collectGroups(rootNode, pageRoot, revealed);
+      revealed.forEach(registerGroup);
     } finally {
       state.compareApplying = false;
     }
@@ -745,9 +745,17 @@
     state.replaceActive = state.nodes.size > 0;
     state.replaceDirty = false;
     if ('MutationObserver' in window) {
-      state.replaceObserver = new MutationObserver(function () {
-        if (state.replaceMutating) return;
-        state.replaceDirty = true;
+      state.replaceObserver = new MutationObserver(function (mutations) {
+        var dirty = false;
+        mutations.forEach(function (mutation) {
+          if (mutation.type === 'characterData') {
+            var id = state.nodeIds.get(mutation.target);
+            var entry = id != null ? state.nodes.get(id) : null;
+            if (entry && entry.translated && mutation.target.nodeValue === entry.applied) return;
+          }
+          dirty = true;
+        });
+        if (dirty) state.replaceDirty = true;
       });
       var pageRoot = document.body || document.documentElement;
       if (pageRoot) {
@@ -765,20 +773,13 @@
 
   window.__pureTranslateApply = function (items) {
     var applied = 0;
-    state.replaceMutating = true;
-    try {
-      for (var i = 0; i < items.length; i++) {
-        var entry = state.nodes.get(items[i].id);
-        if (!entry || !entry.node) continue;
-        entry.applied = entry.leading + items[i].text + entry.trailing;
-        entry.node.nodeValue = entry.applied;
-        entry.translated = true;
-        applied++;
-      }
-    } finally {
-      // MutationObserver callbacks run before this timer; clearing synchronously would let
-      // our own text writes mark the page dirty and force a full TreeWalker scan per batch.
-      setTimeout(function () { state.replaceMutating = false; }, 0);
+    for (var i = 0; i < items.length; i++) {
+      var entry = state.nodes.get(items[i].id);
+      if (!entry || !entry.node) continue;
+      entry.applied = entry.leading + items[i].text + entry.trailing;
+      entry.node.nodeValue = entry.applied;
+      entry.translated = true;
+      applied++;
     }
     state.translated = applied > 0 || state.translated;
     return applied;
