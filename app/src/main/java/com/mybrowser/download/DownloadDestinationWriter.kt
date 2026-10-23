@@ -21,6 +21,9 @@ internal data class PublishedDownload(
     val displayName: String,
     /** True for a SAF temporary document that must be renamed after its bytes are complete. */
     val temporary: Boolean = false,
+    /** Parent/children URIs used to recover from a same-name rename race. */
+    val parentUri: Uri? = null,
+    val childrenUri: Uri? = null,
 )
 
 /** Publishes verified temporary parts to public Downloads or a persisted SAF tree. */
@@ -164,7 +167,13 @@ internal class DownloadDestinationWriter(context: Context) {
         val temporaryUri = DocumentsContract.createDocument(resolver, parent, mimeType, temporaryName)
             ?: throw IOException("Unable to create a file in the selected directory")
         if (supportsRename(temporaryUri)) {
-            return PublishedDownload(temporaryUri, displayName, temporary = true)
+            return PublishedDownload(
+                uri = temporaryUri,
+                displayName = displayName,
+                temporary = true,
+                parentUri = parent,
+                childrenUri = children,
+            )
         }
         Log.w(TAG, "SAF provider cannot rename; writing the final document directly")
         runCatching { DocumentsContract.deleteDocument(resolver, temporaryUri) }
@@ -191,11 +200,57 @@ internal class DownloadDestinationWriter(context: Context) {
     }.getOrDefault(false)
 
     private fun finalizeCustomDirectory(published: PublishedDownload): PublishedDownload {
-        val renamed = runCatching {
-            DocumentsContract.renameDocument(resolver, published.uri, published.displayName)
-        }.getOrNull() ?: throw IOException("Selected destination cannot rename the completed file")
-        return published.copy(uri = renamed, temporary = false)
+        var candidate = published.displayName
+        repeat(MAX_RENAME_ATTEMPTS) {
+            val renamed = runCatching {
+                DocumentsContract.renameDocument(resolver, published.uri, candidate)
+            }.getOrNull()
+            if (renamed != null) {
+                return published.copy(
+                    uri = renamed,
+                    // Providers may append an extension or de-duplicate after rename. The
+                    // download list must show what the provider actually stored.
+                    displayName = displayNameOf(renamed) ?: candidate,
+                    temporary = false,
+                    parentUri = null,
+                    childrenUri = null,
+                )
+            }
+            // Another task may have published the same display name while this one was
+            // copying. Pick the next free name and retry instead of deleting the completed
+            // temporary bytes.
+            candidate = uniqueName(published.displayName, displayNames(published.childrenUri)::contains)
+            if (candidate == published.displayName) return@repeat
+        }
+        throw IOException("Selected destination cannot rename the completed file")
     }
+
+    private fun displayNames(childrenUri: Uri?): Set<String> {
+        if (childrenUri == null) return emptySet()
+        val names = HashSet<String>()
+        runCatching {
+            resolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) cursor.getString(0)?.let(names::add)
+            }
+        }
+        return names
+    }
+
+    private fun displayNameOf(uri: Uri): String? = runCatching {
+        resolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     private fun markCompleteIfMediaStore(uri: Uri) {
         if (uri.authority != MediaStore.AUTHORITY) return
@@ -216,5 +271,6 @@ internal class DownloadDestinationWriter(context: Context) {
         const val TAG = "DownloadDestinationWriter"
         const val COPY_BUFFER_SIZE = 64 * 1024
         const val MAX_DUPLICATE_ATTEMPTS = 10_000
+        const val MAX_RENAME_ATTEMPTS = 3
     }
 }

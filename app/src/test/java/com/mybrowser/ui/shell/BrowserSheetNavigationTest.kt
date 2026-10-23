@@ -184,6 +184,31 @@ class BrowserSheetNavigationTest {
         assertNull(navigation.current)
     }
 
+    @Test fun moreToolsOpensScannerAsAChildAndReturnsToMoreTools() {
+        val navigation = BrowserSheetNavigation()
+        navigation.open(MENU)
+        assertTrue(navigation.push(navigation.current!!, MORE_TOOLS))
+        val more = navigation.current!!
+        assertTrue(navigation.push(more, QR_SCANNER))
+        assertEquals(QR_SCANNER, navigation.current!!.destination)
+        navigation.back(navigation.current!!)
+        assertEquals(MORE_TOOLS, navigation.current!!.destination)
+        navigation.back(navigation.current!!)
+        assertEquals(MENU, navigation.current!!.destination)
+    }
+
+    @Test fun moreToolsChildStackSurvivesRecreation() {
+        val routes = listOf(
+            BrowserSheetNavigation.Route(20, MENU),
+            BrowserSheetNavigation.Route(21, MORE_TOOLS),
+            BrowserSheetNavigation.Route(22, DEVELOPER_TOOLS),
+        )
+        val navigation = BrowserSheetNavigation()
+        navigation.restore(routes)
+        assertEquals(DEVELOPER_TOOLS, navigation.current!!.destination)
+        assertEquals(3, navigation.routes.size)
+    }
+
     @Test fun openingOrClosingAMenuDisarmsAnEarlierExitAttempt() {
         val exit = BrowserExitConfirmation(2_000)
         assertFalse(exit.onBack(10_000))

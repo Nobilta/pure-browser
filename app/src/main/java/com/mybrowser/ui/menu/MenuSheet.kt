@@ -63,7 +63,6 @@ fun MenuSheet(
     isCurrentPageBookmarked: Boolean,
     canUsePageActions: Boolean,
     onOpenSiteSettings: () -> Unit,
-    onPinWebsite: () -> Unit = {},
     onToggleIncognito: () -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onBlockElement: () -> Unit = {},
@@ -77,13 +76,8 @@ fun MenuSheet(
     onOpenDownloads: () -> Unit,
     onOpenSettings: () -> Unit,
     onToggleBookmark: () -> Unit,
-    onClearData: () -> Unit,
-    onOpenDeveloperTools: () -> Unit = {},
-    onManageUserScripts: () -> Unit = {},
     onOpenMoreTools: () -> Unit = {},
-    /** What the userscript layer did for this page; null while no page is loaded. */
-    userScriptStatus: UserScriptStatus? = null,
-    onScanQr: () -> Unit = {},
+    runningScriptCount: Int = 0,
     onSharePage: () -> Unit = {},
     siteTitle: String = "",
     siteHost: String = "",
@@ -209,7 +203,11 @@ fun MenuSheet(
                     MenuRow(
                         iconRes = R.drawable.ic_ui_more,
                         title = stringResource(R.string.menu_more_tools),
-                        subtitle = stringResource(R.string.menu_more_tools_summary),
+                        subtitle = if (runningScriptCount > 0) {
+                            stringResource(R.string.menu_more_tools_summary_scripts, runningScriptCount)
+                        } else {
+                            stringResource(R.string.menu_more_tools_summary)
+                        },
                         onClick = onOpenMoreTools,
                         trailing = {
                             Icon(painterResource(R.drawable.ic_ui_chevron), null, Modifier.size(18.dp))
@@ -538,7 +536,9 @@ private fun QuickDestination(
 @Composable
 private fun userScriptSubtitle(status: UserScriptStatus?): String =
     status?.running?.takeIf { it.isNotEmpty() }
-        ?.let { stringResource(R.string.script_status_running, it.joinToString(", ")) }
+        ?.let { running ->
+            stringResource(R.string.script_status_running_count, running.size, running.joinToString(", "))
+        }
         .orEmpty()
 
 @Composable

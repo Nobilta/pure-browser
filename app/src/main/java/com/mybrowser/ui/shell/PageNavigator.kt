@@ -81,10 +81,21 @@ internal class PageNavigator(
     fun openIncoming(text: String) {
         if (importUserScript(text)) return
         val manager = tabs()
-        if (isHomeDocument(state.currentUrl) || manager.currentTab?.url.isNullOrBlank() ||
-            !manager.canCreateTab
-        ) navigate(text)
-        else openNewTab(text)
+        when (val target = NavigationPolicy.resolve(text, searchEngine())) {
+            is NavigationTarget.External -> openExternal(target.url)
+            is NavigationTarget.Load -> {
+                // At cold start the restored tab's URL is already in the manager while the
+                // WebView is still catching up, so state.currentUrl alone is not enough to
+                // decide whether this is a fresh tab.
+                val current = if (isHomeDocument(state.currentUrl)) manager.currentTab?.url.orEmpty()
+                else state.currentUrl
+                if (isHomeDocument(current) || current.isBlank() || !manager.canCreateTab) {
+                    navigate(target.url)
+                } else {
+                    openNewTab(target.url)
+                }
+            }
+        }
     }
 
     fun showBackHistory() {

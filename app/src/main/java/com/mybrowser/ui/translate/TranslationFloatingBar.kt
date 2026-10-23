@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,18 +27,12 @@ import com.mybrowser.R
 /** Page-level translation control that survives closing the configuration sheet. */
 @Composable
 fun TranslationFloatingBar(
-    busy: Boolean,
-    progress: Int,
     translating: Boolean,
     onStop: () -> Unit,
     onRestore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val label = when {
-        translating && busy -> stringResource(R.string.translate_floating_busy, progress.coerceIn(0, 100))
-        translating -> stringResource(R.string.translate_stop)
-        else -> stringResource(R.string.translate_restore)
-    }
+    val label = if (translating) stringResource(R.string.translate_stop) else stringResource(R.string.translate_restore)
     val actionLabel = if (translating) stringResource(R.string.translate_stop) else stringResource(R.string.translate_restore)
     Surface(
         modifier = modifier,
@@ -58,19 +51,11 @@ fun TranslationFloatingBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (translating && busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.22f),
-                )
-            } else {
-                Icon(
-                    painterResource(R.drawable.ic_ui_translate),
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            Icon(
+                painterResource(R.drawable.ic_ui_translate),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
             Text(label, style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.width(2.dp))
             Icon(

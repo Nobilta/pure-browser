@@ -53,6 +53,8 @@ internal class BrowserSheetNavigation {
             // Translation is a settings child as well as a page tool: from Settings it must
             // return to Settings, not replace the category the user came from.
             Destination.SETTINGS -> destination == Destination.TRANSLATION && routes.size == 2
+            Destination.MORE_TOOLS -> routes.size == 2 &&
+                (destination == Destination.QR_SCANNER || destination == Destination.DEVELOPER_TOOLS)
             else -> false
         }
         if (!allowed) return false
@@ -82,10 +84,13 @@ internal class BrowserSheetNavigation {
             0, 1 -> true
             2 -> savedRoutes.first().destination == Destination.MENU &&
                 savedRoutes.last().destination != Destination.MENU
-            // The only legal three-level stack is the translation child of Settings.
+            // Three-level stacks: the translation child of Settings, or a tool opened from More tools.
             3 -> savedRoutes[0].destination == Destination.MENU &&
-                savedRoutes[1].destination == Destination.SETTINGS &&
-                savedRoutes[2].destination == Destination.TRANSLATION
+                ((savedRoutes[1].destination == Destination.SETTINGS &&
+                    savedRoutes[2].destination == Destination.TRANSLATION) ||
+                    (savedRoutes[1].destination == Destination.MORE_TOOLS &&
+                        (savedRoutes[2].destination == Destination.QR_SCANNER ||
+                            savedRoutes[2].destination == Destination.DEVELOPER_TOOLS)))
             else -> false
         }
         val valid = shapeValid &&

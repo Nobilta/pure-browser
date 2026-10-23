@@ -15,7 +15,7 @@
   var MAX_DEPTH = 12, MAX_CLASS_MATCHES = 12;
   var STYLE_ID = '__purePickerStyle', BOX_ID = '__purePickerBox', LABEL_ID = '__purePickerLabel';
   var accent = '#6750a4', bottomInset = 0;
-  var active = false, chain = [], index = 0, hovered = null, hoverPoint = null;
+  var active = false, chain = [], index = 0, hovered = null, hoverPoint = null, pointerDown = false;
   var box = null, label = null, style = null;
   var preview = null;
 
@@ -348,9 +348,32 @@
    * measured, and the outline is cleared first so a press on nothing selectable does not leave
    * the last element's frame on screen while `hover()` finds nothing to replace it with.
    */
-  function onDown(event) { if (active) { claim(event); restorePreview(); hovered = null; clear(); hover(event); } }
-  function onMove(event) { if (active) { claim(event); hover(event); } }
-  function onUp(event) { if (active) { claim(event); choose(event); } }
+  function onDown(event) {
+    if (!active) return;
+    claim(event);
+    pointerDown = true;
+    // Keep the previous chain: a blank tap must still be able to restore the choice in the
+    // app bar. reposition() is suppressed by pointerDown while a new candidate is inspected.
+    restorePreview();
+    hovered = null;
+    clear();
+    hover(event);
+  }
+  function onMove(event) {
+    if (!active) return;
+    // Hover-select is useful before the first choice, but after a selection an unpressed
+    // mousemove must not move the outline away from the committed element and leave its
+    // preview hidden.
+    if (event.type === 'mousemove' && event.buttons === 0 && chain[index]) return;
+    claim(event);
+    hover(event);
+  }
+  function onUp(event) {
+    if (!active) return;
+    claim(event);
+    choose(event);
+    pointerDown = false;
+  }
   /*
    * A cancelled touch is not a tap. The system sends touchcancel when it takes the gesture over —
    * a call arriving, a system edge swipe, the app being backgrounded — and treating it as a release
@@ -360,12 +383,13 @@
   function onCancel(event) {
     if (!active) return;
     claim(event);
+    pointerDown = false;
     // The app has to be told, or its bar would outlive the pick: the page stops outlining here,
     // and the app is the only side that can take the bar away.
     post({ type: "ended" });
     api.stop();
   }
-  function reposition() { if (active && chain[index]) report(false); }
+  function reposition() { if (active && !pointerDown && chain[index]) report(false); }
 
   function listen(on) {
     var method = on ? 'addEventListener' : 'removeEventListener';
@@ -396,6 +420,7 @@
       index = 0;
       hovered = null;
       hoverPoint = null;
+      pointerDown = false;
       listen(true);
       return true;
     },
@@ -410,6 +435,7 @@
       chain = [];
       hovered = null;
       hoverPoint = null;
+      pointerDown = false;
       return true;
     },
     /** Moves one level towards the document (1) or back into the element (-1). */
