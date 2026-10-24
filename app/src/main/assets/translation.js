@@ -454,6 +454,14 @@
     next.forEach(function (group) { if (group) registerGroup(group); });
   }
 
+  function nearestGroupRoot(node) {
+    var element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+    while (element && element !== document.body && !isBlockElement(element)) {
+      element = element.parentElement;
+    }
+    return element || document.body || document.documentElement;
+  }
+
   function refreshCompareSubtree(target) {
     if (!target) return;
     var rootNode = target.nodeType === 1 ? target : target.parentElement;
@@ -471,11 +479,18 @@
       var pageRoot = document.body || document.documentElement;
       roots.forEach(function (root) { refreshCompareRoot(root, pageRoot); });
       // Attribute changes can reveal a new panel that is a sibling of every existing root.
-      // Refreshing the old roots alone would never see it, so scan the mutated subtree too;
-      // registerGroup de-duplicates groups that were just refreshed.
-      var revealed = [];
-      collectGroups(rootNode, pageRoot, revealed);
-      revealed.forEach(registerGroup);
+      // Scan the mutated subtree only when the refresh above did not already cover it; otherwise
+      // a text/class change on an inline span would register both the paragraph and the span.
+      var covered = roots.some(function (root) {
+        return root === rootNode || root.contains(rootNode);
+      });
+      if (!covered) {
+        var revealed = [];
+        // A newly revealed inline span has no paragraph group yet; collecting the span alone
+        // would later coexist with the whole paragraph. Start at its nearest block ancestor.
+        collectGroups(nearestGroupRoot(rootNode), pageRoot, revealed);
+        revealed.forEach(registerGroup);
+      }
     } finally {
       state.compareApplying = false;
     }
@@ -735,9 +750,10 @@
         element: parent,
         translated: false,
         applied: null,
+        version: 1,
       });
       state.nodeIds.set(node, id);
-      items.push({ id: id, text: core, visible: isNearViewport(parent) });
+      items.push({ id: id, text: core, visible: isNearViewport(parent), version: 1 });
       total += core.length;
     }
     state.translated = false;
@@ -776,6 +792,13 @@
     for (var i = 0; i < items.length; i++) {
       var entry = state.nodes.get(items[i].id);
       if (!entry || !entry.node) continue;
+      // Bind the result to the source revision the request was made for. The page may have
+      // changed this node while the request was in flight, in which case this batch is stale.
+      if ((items[i].version != null && entry.version !== items[i].version) ||
+          entry.node.nodeValue !== entry.raw) {
+        state.replaceDirty = true;
+        continue;
+      }
       entry.applied = entry.leading + items[i].text + entry.trailing;
       entry.node.nodeValue = entry.applied;
       entry.translated = true;
@@ -820,8 +843,10 @@
         entry.raw = raw;
         entry.leading = leading;
         entry.trailing = trailing;
+        entry.text = core;
         entry.translated = false;
         entry.applied = null;
+        entry.version++;
       } else {
         if (core.length > 5000) { truncated = true; continue; }
         if (items.length >= 1200 || total + core.length > 60000) { truncated = true; break; }
@@ -834,12 +859,13 @@
           element: parent,
           translated: false,
           applied: null,
+          version: 1,
         });
         state.nodeIds.set(node, id);
         existingId = id;
         total += core.length;
       }
-      items.push({ id: existingId, text: core, visible: isNearViewport(parent) });
+      items.push({ id: existingId, text: core, visible: isNearViewport(parent), version: state.nodes.get(existingId).version });
     }
     state.replaceTotal = total;
     return JSON.stringify({ items: items, total: total, truncated: truncated });

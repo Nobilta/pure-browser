@@ -11,7 +11,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import kotlin.coroutines.resume
 
-data class TranslationPageItem(val id: Int, val text: String, val visible: Boolean = true)
+data class TranslationPageItem(val id: Int, val text: String, val visible: Boolean = true, val version: Int = 0)
 data class TranslationPage(
     val items: List<TranslationPageItem>,
     val totalCharacters: Int,
@@ -86,7 +86,7 @@ class PageTranslator(context: Context) {
                     val item = array.optJSONObject(index) ?: continue
                     val text = item.optString("text")
                     if (text.isNotBlank()) {
-                        add(TranslationPageItem(item.optInt("id"), text, visible = true))
+                        add(TranslationPageItem(item.optInt("id"), text, visible = true, version = item.optInt("version")))
                     }
                 }
             }
@@ -130,10 +130,12 @@ class PageTranslator(context: Context) {
             )
         }
 
-    suspend fun apply(webView: WebView, translated: List<Pair<Int, String>>) =
+    suspend fun apply(webView: WebView, translated: List<Triple<Int, Int, String>>) =
         withContext(Dispatchers.Main.immediate) {
             val array = JSONArray()
-            translated.forEach { (id, text) -> array.put(JSONObject().put("id", id).put("text", text)) }
+            translated.forEach { (id, version, text) ->
+                array.put(JSONObject().put("id", id).put("version", version).put("text", text))
+            }
             evaluate(webView, "window.__pureTranslateApply && window.__pureTranslateApply($array)")
         }
 
@@ -201,7 +203,12 @@ class PageTranslator(context: Context) {
                 val item = array.optJSONObject(index) ?: continue
                 val text = item.optString("text")
                 if (text.isNotBlank()) {
-                    add(TranslationPageItem(item.optInt("id"), text, item.optBoolean("visible", true)))
+                    add(TranslationPageItem(
+                        item.optInt("id"),
+                        text,
+                        item.optBoolean("visible", true),
+                        item.optInt("version"),
+                    ))
                 }
             }
         }
