@@ -70,6 +70,7 @@ require_command java
 require_command cargo
 require_command rustup
 require_command node
+require_command npm
 
 echo "检查中英文提示资源..."
 "$PYTHON" validation/check-localization.py
@@ -78,6 +79,7 @@ echo "运行发布工具测试..."
 "$PYTHON" -m unittest discover -s release -p 'test_*.py'
 
 echo "运行网页视频控制及用户脚本协议测试..."
+npm ci --prefix validation --no-audit --no-fund
 node --test validation/*.test.cjs
 
 java_version="$(java -version 2>&1 | sed -n '1s/.*version \"\([^\"]*\)\".*/\1/p')"

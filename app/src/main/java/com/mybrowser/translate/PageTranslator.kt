@@ -16,7 +16,15 @@ data class TranslationPage(
     val items: List<TranslationPageItem>,
     val totalCharacters: Int,
     val truncated: Boolean,
-)
+    val removedIds: Set<Int> = emptySet(),
+) {
+    fun updatePending(pending: MutableMap<Int, TranslationPageItem>) {
+        removedIds.forEach { pending.remove(it) }
+        items.forEach { item ->
+            if (item.version >= (pending[item.id]?.version ?: -1)) pending[item.id] = item
+        }
+    }
+}
 
 data class TranslationComparisonSession(
     val totalCharacters: Int,
@@ -130,16 +138,24 @@ class PageTranslator(context: Context) {
             )
         }
 
-    suspend fun apply(webView: WebView, translated: List<Triple<Int, Int, String>>) =
+    suspend fun apply(webView: WebView, translated: List<Triple<Int, Int, String>>): Int =
         withContext(Dispatchers.Main.immediate) {
             val array = JSONArray()
             translated.forEach { (id, version, text) ->
                 array.put(JSONObject().put("id", id).put("version", version).put("text", text))
             }
             evaluate(webView, "window.__pureTranslateApply && window.__pureTranslateApply($array)")
+                ?.toIntOrNull() ?: 0
         }
 
-    suspend fun applyComparison(webView: WebView, translated: List<Pair<Int, String>>, targetLanguage: String) =
+    suspend fun requeueReplace(webView: WebView, items: List<TranslationPageItem>) =
+        withContext(Dispatchers.Main.immediate) {
+            val array = JSONArray()
+            items.forEach { array.put(JSONObject().put("id", it.id).put("version", it.version)) }
+            evaluate(webView, "window.__pureTranslateReplaceRequeue && window.__pureTranslateReplaceRequeue($array)")
+        }
+
+    suspend fun applyComparison(webView: WebView, translated: List<Pair<Int, String>>, targetLanguage: String): Int =
         withContext(Dispatchers.Main.immediate) {
             val array = JSONArray()
             translated.forEach { (id, text) -> array.put(JSONObject().put("id", id).put("text", text)) }
@@ -147,7 +163,7 @@ class PageTranslator(context: Context) {
                 webView,
                 "window.__pureTranslateCompareApply && window.__pureTranslateCompareApply(" +
                     "$array, ${JSONObject.quote(targetLanguage)})",
-            )
+            )?.toIntOrNull() ?: 0
         }
 
     suspend fun visibleIds(webView: WebView, mode: TranslationPageMode): Set<Int> =
@@ -212,7 +228,11 @@ class PageTranslator(context: Context) {
                 }
             }
         }
-        return TranslationPage(items, root.optInt("total"), root.optBoolean("truncated"))
+        val removed = root.optJSONArray("removedIds") ?: JSONArray()
+        return TranslationPage(
+            items, root.optInt("total"), root.optBoolean("truncated"),
+            buildSet { for (index in 0 until removed.length()) add(removed.getInt(index)) },
+        )
     }
 
     private suspend fun evaluate(webView: WebView, code: String): String? = withTimeout(12_000) {
