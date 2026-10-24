@@ -13,7 +13,7 @@ windows-latest 上运行同一套快速检查）：
 | 工具 | 版本 |
 |---|---|
 | JDK | 21 |
-| Node.js | 22 |
+| Node.js（含 npm） | 22 |
 | Python | 3.9 或更高 |
 | Rust | 1.98.0，包含 rustfmt、clippy 和 `aarch64-linux-android` target |
 | Android SDK | Platform 37（`platforms;android-37.0`）、Build Tools 37.0.0、Platform Tools |

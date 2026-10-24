@@ -23,6 +23,7 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 ## Features
 
 - **Ad blocking and userscripts**: built-in filter lists, custom subscriptions and userscript installation.
+- **Page translation**: translate selected text or whole pages with built-in services or your own Azure, DeepL or LibreTranslate configuration. Dynamic content continues translating; editable regions and content marked against translation are excluded.
 - **Tabs and bookmarks**: tab groups and search, find in page, and bookmark import and export.
 - **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
 - **Downloads**: every download is confirmed first, then pause, resume, configurable folders and bulk delete; repeat requests are merged.

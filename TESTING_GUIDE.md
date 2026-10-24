@@ -11,6 +11,10 @@
 包含三语言资源校验、Python 发布工具测试、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
 发布工具测试覆盖 CI 运行选择、GitHub CLI 路径、版本递增、签名失败和验证记录的版本边界；不调用真实发布接口。
 Android 测试会构建 host JNI，Node 使用内置测试运行器。
+脚本先用 `npm ci --prefix validation` 安装锁定的 DOM 测试依赖。单独运行 Node 回归时也先执行该命令。
+翻译 DOM 回归用 jsdom 覆盖段落拆分/合并、动态排除节点、源版本校验和失败重试；布局尺寸由夹具提供，
+不代表真实 WebView 的布局与滚动验证。
+其中还覆盖根编辑区过滤、移除后重新插入段落的懒加载观察器，以及动态文本更新的字符预算。
 导航协调测试覆盖等待请求替换、生命周期取消、当前 WebView/Profile、外部链接的标签选择及过期历史操作；
 下载存储测试覆盖记录数量/字符预算、损坏快照和 Cookie 不落盘，调度器测试继续验证迁移、隐私与并发续传。
 修改这些边界后，设备回归应包含 `navigation-recovery`、`private-lifecycle`、`resident`、`download`、

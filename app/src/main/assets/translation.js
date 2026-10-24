@@ -44,6 +44,8 @@
     EM: true, I: true, LABEL: true, MARK: true, Q: true, S: true, SMALL: true,
     SPAN: true, STRONG: true, SUB: true, SUP: true, TIME: true, U: true,
   };
+  var OBSERVED_ATTRIBUTES = ['style', 'class', 'hidden', 'aria-hidden', 'translate', 'open',
+    'contenteditable', 'role'];
 
   function isEditable(element) {
     try {
@@ -83,7 +85,7 @@
 
   function isSkipped(element, root) {
     var node = element;
-    while (node && node !== root) {
+    while (node) {
       // SVG elements report lower-case tag names while the HTML table above is upper-case.
       if (SKIP[node.tagName && node.tagName.toUpperCase()] || isEditable(node)) return true;
       if (node.getAttribute && (node.getAttribute('aria-hidden') === 'true' ||
@@ -93,6 +95,7 @@
       } catch (_) {
         // Ignore selector support differences and keep walking.
       }
+      if (node === root) break;
       node = node.parentElement;
     }
     return false;
@@ -346,7 +349,7 @@
       totalGroups: state.compareTotalGroups,
       doneGroups: state.compareDoneGroups,
       pending: pending,
-      complete: state.compareTotalGroups > 0 &&
+      complete: state.compareActive &&
         state.compareDoneGroups >= state.compareTotalGroups &&
         state.compareReady.size === 0 && pending === 0
     };
@@ -361,6 +364,10 @@
     if (entry.root) {
       if (entry.root.__pureGroupEnds) entry.root.__pureGroupEnds.delete(entry.endNode);
       if (entry.root.__pureGroupIds) entry.root.__pureGroupIds.delete(id);
+      if (entry.root.__pureGroupIds && entry.root.__pureGroupIds.size === 0) {
+        if (state.compareObserver) state.compareObserver.unobserve(entry.root);
+        entry.root.__pureGroupObserved = false;
+      }
     }
     if (entry.translated) {
       state.compareDoneGroups = Math.max(0, state.compareDoneGroups - 1);
@@ -434,12 +441,12 @@
     collectGroups(root, pageRoot, next);
     var existing = [];
     state.compareBlocks.forEach(function (entry, id) {
-      if (entry.root === root) existing.push({ id: id, entry: entry });
+      if (entry.root === root || root.contains(entry.root)) existing.push({ id: id, entry: entry });
     });
     existing.forEach(function (saved) {
       var match = -1;
       for (var i = 0; i < next.length; i++) {
-        if (next[i] && next[i].endNode === saved.entry.endNode &&
+        if (next[i] && next[i].root === saved.entry.root && next[i].endNode === saved.entry.endNode &&
             next[i].text === saved.entry.text && next[i].inline === saved.entry.inline) {
           match = i;
           break;
@@ -464,36 +471,29 @@
 
   function refreshCompareSubtree(target) {
     if (!target) return;
-    var rootNode = target.nodeType === 1 ? target : target.parentElement;
+    var rootNode = nearestGroupRoot(target);
     if (!rootNode) return;
     state.compareApplying = true;
     try {
-      var roots = [];
+      // Reconcile the whole affected region once. Structural changes can merge an old
+      // inline group into its parent, or split one parent group into several children.
       state.compareBlocks.forEach(function (entry) {
         if (entry.root && entry.root.isConnected &&
-            (entry.root.contains(target) || target.contains(entry.root)) &&
-            roots.indexOf(entry.root) < 0) {
-          roots.push(entry.root);
+            entry.root.contains(rootNode)) {
+          rootNode = entry.root;
         }
       });
       var pageRoot = document.body || document.documentElement;
-      roots.forEach(function (root) { refreshCompareRoot(root, pageRoot); });
-      // Attribute changes can reveal a new panel that is a sibling of every existing root.
-      // Scan the mutated subtree only when the refresh above did not already cover it; otherwise
-      // a text/class change on an inline span would register both the paragraph and the span.
-      var covered = roots.some(function (root) {
-        return root === rootNode || root.contains(rootNode);
-      });
-      if (!covered) {
-        var revealed = [];
-        // A newly revealed inline span has no paragraph group yet; collecting the span alone
-        // would later coexist with the whole paragraph. Start at its nearest block ancestor.
-        collectGroups(nearestGroupRoot(rootNode), pageRoot, revealed);
-        revealed.forEach(registerGroup);
-      }
+      refreshCompareRoot(rootNode, pageRoot);
+      cleanupRemovedGroups();
     } finally {
       state.compareApplying = false;
     }
+  }
+
+  function isTranslationNode(node) {
+    var element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+    return !!(element && element.closest && element.closest('pure-translation-block'));
   }
 
   function observeGroups(pageRoot) {
@@ -510,33 +510,21 @@
     if ('MutationObserver' in window) {
       state.compareMutationObserver = new MutationObserver(function (mutations) {
         if (state.compareRestoring || state.compareApplying) return;
-        var removed = false;
         mutations.forEach(function (mutation) {
+          if (isTranslationNode(mutation.target)) return;
           if (mutation.type === 'characterData' || mutation.type === 'attributes') {
             refreshCompareSubtree(mutation.target);
             return;
           }
-          mutation.addedNodes.forEach(function (node) {
-            if (node.nodeType === 1 && node.tagName.toUpperCase() === 'PURE-TRANSLATION-BLOCK') return;
-            if (node.nodeType === 3) {
-              refreshCompareSubtree(mutation.target);
-              return;
-            }
-            if (node.nodeType !== 1) return;
-            if (isBlockElement(node)) {
-              var groups = [];
-              collectGroups(node, pageRoot, groups);
-              groups.forEach(registerGroup);
-            } else {
-              refreshCompareSubtree(mutation.target);
-            }
+          var changed = Array.prototype.some.call(mutation.addedNodes, function (node) {
+            return !isTranslationNode(node);
+          }) || Array.prototype.some.call(mutation.removedNodes, function (node) {
+            return !isTranslationNode(node);
           });
-          if (mutation.removedNodes.length) {
-            removed = true;
+          if (changed) {
             refreshCompareSubtree(mutation.target);
           }
         });
-        if (removed) cleanupRemovedGroups();
       });
     }
   }
@@ -590,7 +578,7 @@
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'translate', 'open'],
+        attributeFilter: OBSERVED_ATTRIBUTES,
       });
     }
     state.compareTranslated = false;
@@ -658,6 +646,12 @@
       for (var i = 0; i < items.length; i++) {
         var entry = state.compareBlocks.get(items[i].id);
         if (!entry || !entry.root || !entry.endNode) continue;
+        var pageRoot = document.body || document.documentElement;
+        if (!entry.root.isConnected || !entry.endNode.isConnected ||
+            isSkipped(entry.root, pageRoot) || !isVisible(entry.root)) {
+          removeCompareEntry(entry.id, entry);
+          continue;
+        }
         var translation = entry.translation;
         var line = entry.translationLine;
         if (!translation) {
@@ -705,11 +699,19 @@
       state.compareReady.forEach(function (id) { ids.push(id); });
     } else {
       state.nodes.forEach(function (entry, id) {
-        if (entry.element && isNearViewport(entry.element)) ids.push(id);
+        if (isReplaceEligible(entry) && isNearViewport(entry.node.parentElement)) ids.push(id);
       });
     }
     return JSON.stringify(ids);
   };
+
+  function isReplaceEligible(entry) {
+    var root = document.body || document.documentElement;
+    var node = entry && entry.node;
+    var parent = node && node.parentElement;
+    return !!(root && node && node.isConnected && root.contains(node) && parent &&
+      !isSkipped(parent, root) && isVisible(parent));
+  }
 
   window.__pureTranslateCollect = function () {
     window.__pureTranslateCompareRestore();
@@ -780,7 +782,7 @@
           subtree: true,
           characterData: true,
           attributes: true,
-          attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'translate', 'open'],
+          attributeFilter: OBSERVED_ATTRIBUTES,
         });
       }
     }
@@ -792,6 +794,14 @@
     for (var i = 0; i < items.length; i++) {
       var entry = state.nodes.get(items[i].id);
       if (!entry || !entry.node) continue;
+      if (!isReplaceEligible(entry)) {
+        // If eligibility returns before the next scan, the rejected batch still needs
+        // to be queued again; unchanged raw text alone must not suppress that retry.
+        entry.invalidated = true;
+        entry.version++;
+        state.replaceDirty = true;
+        continue;
+      }
       // Bind the result to the source revision the request was made for. The page may have
       // changed this node while the request was in flight, in which case this batch is stale.
       if ((items[i].version != null && entry.version !== items[i].version) ||
@@ -808,6 +818,16 @@
     return applied;
   };
 
+  window.__pureTranslateReplaceRequeue = function (items) {
+    items.forEach(function (item) {
+      var entry = state.nodes.get(item.id);
+      if (entry && !entry.translated && entry.version === item.version) entry.invalidated = true;
+    });
+    // A retry must read the live DOM. Reusing the native batch could resurrect a removed
+    // node or overwrite a newer revision that the poll collected during the request.
+    state.replaceDirty = true;
+  };
+
   window.__pureTranslateReplaceCollectNew = function () {
     if (!state.replaceDirty) {
       return JSON.stringify({ items: [], total: state.replaceTotal, truncated: false });
@@ -818,6 +838,15 @@
     var items = [];
     var total = state.replaceTotal;
     var truncated = false;
+    var removedIds = [];
+    state.nodes.forEach(function (entry, id) {
+      if (isReplaceEligible(entry) && entry.node.nodeValue && entry.node.nodeValue.trim()) return;
+      if (entry.translated && entry.node.nodeValue === entry.applied) entry.node.nodeValue = entry.raw;
+      total = Math.max(0, total - entry.raw.trim().length);
+      state.nodes.delete(id);
+      state.nodeIds.delete(entry.node);
+      removedIds.push(id);
+    });
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     while (walker.nextNode()) {
       var node = walker.currentNode;
@@ -838,7 +867,15 @@
           continue;
         }
         if (entry.translated && node.nodeValue === entry.applied) continue;
-        if (entry.raw === raw && !entry.translated) continue;
+        if (entry.raw === raw && !entry.translated && !entry.invalidated) continue;
+        if (core.length > 5000 || total - entry.raw.trim().length + core.length > 60000) {
+          total = Math.max(0, total - entry.raw.trim().length);
+          state.nodes.delete(existingId);
+          state.nodeIds.delete(node);
+          removedIds.push(existingId);
+          truncated = true;
+          continue;
+        }
         total = Math.max(0, total - entry.raw.trim().length) + core.length;
         entry.raw = raw;
         entry.leading = leading;
@@ -847,9 +884,10 @@
         entry.translated = false;
         entry.applied = null;
         entry.version++;
+        entry.invalidated = false;
       } else {
         if (core.length > 5000) { truncated = true; continue; }
-        if (items.length >= 1200 || total + core.length > 60000) { truncated = true; break; }
+        if (state.nodes.size >= 1200 || total + core.length > 60000) { truncated = true; break; }
         var id = state.nextId++;
         state.nodes.set(id, {
           node: node,
@@ -868,7 +906,7 @@
       items.push({ id: existingId, text: core, visible: isNearViewport(parent), version: state.nodes.get(existingId).version });
     }
     state.replaceTotal = total;
-    return JSON.stringify({ items: items, total: total, truncated: truncated });
+    return JSON.stringify({ items: items, total: total, truncated: truncated, removedIds: removedIds });
   };
 
   window.__pureTranslateRestore = function () {

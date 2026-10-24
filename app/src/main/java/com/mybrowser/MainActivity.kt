@@ -4433,12 +4433,12 @@ class MainActivity : ComponentActivity(),
                 if (webViewOrNull !== view || state.currentUrl != pageUrl ||
                     permissionEpoch != pageGeneration || translationGeneration != generation
                 ) break
-                pageTranslator.applyComparison(
+                val appliedCount = pageTranslator.applyComparison(
                     view,
                     batch.items.zip(translated) { item, text -> item.id to text },
                     settings.targetLanguage,
                 )
-                translationPageTranslated = true
+                translationPageTranslated = translationPageTranslated || appliedCount > 0
                 updateComparisonMetrics(pageTranslator.comparisonStatus(view))
                 translationBusy = false
                 translationError = null
@@ -4518,12 +4518,13 @@ class MainActivity : ComponentActivity(),
                 ) break
                 val updated = runCatching { pageTranslator.collectNewReplace(view) }.getOrNull()
                 if (updated != null) {
+                    updated.updatePending(translationPending)
                     if (updated.items.isNotEmpty()) {
-                        updated.items.forEach { translationPending[it.id] = it }
                         translationHasPending = true
                         translationComplete = false
                     }
                     translationTotalChars = updated.totalCharacters.coerceAtLeast(1)
+                    translationHasPending = translationPending.isNotEmpty()
                 }
                 val now = SystemClock.uptimeMillis()
                 val visible = if (translationJob?.isActive != true && !translationBusy &&
@@ -4612,7 +4613,7 @@ class MainActivity : ComponentActivity(),
                     translationGeneration != generation
                 ) break
                 val pairs = batch.zip(translated) { item, text -> item.id to text }
-                if (mode == TranslationPageMode.COMPARE) {
+                val appliedCount = if (mode == TranslationPageMode.COMPARE) {
                     pageTranslator.applyComparison(view, pairs, settings.targetLanguage)
                 } else {
                     pageTranslator.apply(
@@ -4620,20 +4621,39 @@ class MainActivity : ComponentActivity(),
                         batch.zip(translated) { item, text -> Triple(item.id, item.version, text) },
                     )
                 }
-                translationPageTranslated = true
-                translationDoneChars += batchChars
+                if (mode == TranslationPageMode.REPLACE) {
+                    // Rejected results may be the first batch. Collect their replacements
+                    // before completion logic can mistake the temporarily empty native queue
+                    // for an ended session and stop the watcher.
+                    val fresh = pageTranslator.collectNewReplace(view)
+                    fresh.updatePending(translationPending)
+                    translationHasPending = translationPending.isNotEmpty()
+                }
+                translationPageTranslated = translationPageTranslated || appliedCount > 0
+                if (appliedCount > 0) translationDoneChars += batchChars
                 translationProgress = if (translationTotalChars > 0) {
                     (translationDoneChars * 100 / translationTotalChars).coerceIn(0, 100)
                 } else 0
                 translationRetryAt = 0L
                 translationErrorReported = false
                 translationError = null
-                applied += batch.size
+                applied += appliedCount
             } catch (error: Exception) {
-                // Keep the batch available for a later scroll/retry, unless the page is gone.
-                if (webViewOrNull === view && state.currentUrl == pageUrl) {
-                    batch.forEach { translationPending[it.id] = it }
-                    translationHasPending = true
+                // Let JS requeue the current revision, including on tab-switch cancellation.
+                // The original batch may now refer to an excluded node or an older revision.
+                withContext(NonCancellable) {
+                    runCatching { pageTranslator.requeueReplace(view, batch) }
+                    if (webViewOrNull === view && state.currentUrl == pageUrl &&
+                        translationGeneration == generation
+                    ) {
+                        val fresh = runCatching { pageTranslator.collectNewReplace(view) }.getOrNull()
+                        if (fresh != null && webViewOrNull === view && state.currentUrl == pageUrl &&
+                            translationGeneration == generation && permissionEpoch == pageGeneration
+                        ) {
+                            fresh.updatePending(translationPending)
+                            translationHasPending = translationPending.isNotEmpty()
+                        }
+                    }
                 }
                 throw error
             }
