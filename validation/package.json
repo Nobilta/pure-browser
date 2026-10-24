@@ -1,0 +1,7 @@
+{
+  "name": "pure-browser-validation",
+  "private": true,
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}
