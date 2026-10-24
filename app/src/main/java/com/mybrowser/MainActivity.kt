@@ -4615,7 +4615,10 @@ class MainActivity : ComponentActivity(),
                 if (mode == TranslationPageMode.COMPARE) {
                     pageTranslator.applyComparison(view, pairs, settings.targetLanguage)
                 } else {
-                    pageTranslator.apply(view, pairs)
+                    pageTranslator.apply(
+                        view,
+                        batch.zip(translated) { item, text -> Triple(item.id, item.version, text) },
+                    )
                 }
                 translationPageTranslated = true
                 translationDoneChars += batchChars
