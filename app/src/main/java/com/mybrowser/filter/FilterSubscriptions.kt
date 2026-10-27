@@ -142,6 +142,12 @@ class FilterSubscriptions(
         prefs.commitConfirmed(mapOf(USER_RULES_KEY to text))
     }.onSuccess { userRulesLoadFailed = false }.isSuccess
 
+    /**
+     * Payloads read while initialising, so the first rebuild does not read and hash every file
+     * a second time. Cleared as soon as that rebuild finishes; later rebuilds read the disk.
+     */
+    @Volatile private var initPayloads: Map<String, String>? = null
+
     private suspend fun initializeLocked() {
         if (initialized) return
         directory.mkdirs()
@@ -172,18 +178,31 @@ class FilterSubscriptions(
             }
         }
         if (saved == null) migrateLegacy(loaded)
+        val startupPayloads = HashMap<String, String>(loaded.size)
         _subscriptions.value = loaded.map { savedList ->
-            val list = if (savedList.file != null && readSavedPayload(savedList) == null) {
+            // One read per list: a saved snapshot is verified once, and the built-in fallback is
+            // only touched when there is no usable snapshot. The result is kept for the first
+            // rebuild instead of being read, hashed and validated again there.
+            val savedPayload = if (savedList.file != null) readSavedPayload(savedList) else null
+            val list = if (savedList.file != null && savedPayload == null) {
                 savedList.copy(file = null, etag = null, modified = null, updatedAt = 0, checkedAt = 0)
             } else savedList
-            val payload = readPayload(list)
+            val payload = savedPayload ?: readBuiltInPayload(list)
             if (payload == null) list.copy(file = null, ruleCount = 0, bytes = 0, etag = null, modified = null,
                 error = appContext.getString(R.string.filter_missing_snapshot))
-            else list.copy(ruleCount = FilterListFormat.validate(payload), bytes = payload.toByteArray().size)
+            else {
+                startupPayloads[list.id] = payload
+                list.copy(ruleCount = FilterListFormat.validate(payload), bytes = payload.toByteArray().size)
+            }
         }
         _userRules.value = readUserRules()
         initialized = true
-        rebuild()
+        initPayloads = startupPayloads
+        try {
+            rebuild()
+        } finally {
+            initPayloads = null
+        }
     }
 
     /**
@@ -501,7 +520,12 @@ class FilterSubscriptions(
     }
 
     private fun readPayload(list: Subscription): String? {
+        initPayloads?.get(list.id)?.let { return it }
         readSavedPayload(list)?.let { return it }
+        return readBuiltInPayload(list)
+    }
+
+    private fun readBuiltInPayload(list: Subscription): String? {
         val source = builtIns.find { it.id == list.id } ?: return null
         return runCatching {
             appContext.assets.open(source.asset).use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }

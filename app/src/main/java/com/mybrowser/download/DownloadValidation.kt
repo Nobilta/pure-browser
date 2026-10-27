@@ -1,6 +1,6 @@
 package com.mybrowser.download
 
-import androidx.core.net.toUri
+import com.mybrowser.core.UrlUtils
 
 /** Input limits shared by new requests and persisted records. */
 internal object DownloadValidation {
@@ -16,14 +16,8 @@ internal object DownloadValidation {
 
     fun validHttpUrl(raw: String?): String? {
         val value = raw?.trim().orEmpty()
-        if (value.isEmpty() || value.length > MAX_URL_LENGTH ||
-            value.any { it.isWhitespace() || it.isISOControl() }
-        ) return null
-        val uri = runCatching { value.toUri() }.getOrNull() ?: return null
-        val scheme = uri.scheme?.lowercase()
-        return value.takeIf {
-            (scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()
-        }
+        if (value.isEmpty()) return null
+        return value.takeIf { UrlUtils.isHttpUrl(it, MAX_URL_LENGTH) }
     }
 
     fun sanitizeFilename(raw: String): String =

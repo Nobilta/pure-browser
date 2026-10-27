@@ -31,7 +31,11 @@ import kotlin.concurrent.write
  * short read lock around the JNI call. Custom lists are part of the same engine as the
  * bundled list; the previous implementation's static placeholder silently ignored them.
  */
-class FilterController(private val appContext: Context) {
+class FilterController(
+    private val appContext: Context,
+    /** Debounce for rebuilds; tests pass 0 instead of waiting out the real coalescing window. */
+    private val rebuildDebounceMs: Long = 80,
+) {
 
     private val blocked = AtomicInteger(0)
     private val _blockedCount = MutableStateFlow(0)
@@ -154,7 +158,7 @@ class FilterController(private val appContext: Context) {
         if (closed.get()) return null
         val generation = rebuildGeneration.incrementAndGet()
         return rebuildScope.launch {
-            delay(80) // Coalesce rapid subscription changes before parsing large lists.
+            delay(rebuildDebounceMs) // Coalesce rapid subscription changes before parsing large lists.
             if (generation != rebuildGeneration.get()) return@launch
             val snapshot = payloads
             val names = sourceNames
