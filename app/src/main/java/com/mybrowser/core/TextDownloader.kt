@@ -7,7 +7,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -69,12 +68,8 @@ class TextDownloader {
         }
 
     companion object {
-        fun isHttpUrl(raw: String): Boolean = runCatching {
-            val uri = URI(raw)
-            raw.length <= 2048 && raw.none { it.isWhitespace() || it.isISOControl() } &&
-                uri.scheme?.lowercase() in listOf("http", "https") &&
-                !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawFragment == null
-        }.getOrDefault(false)
+        fun isHttpUrl(raw: String): Boolean =
+            UrlUtils.isHttpUrl(raw, maxLength = 2_048, allowUserInfo = false, allowFragment = false)
 
         fun readText(input: InputStream, maxBytes: Int): String {
             val output = ByteArrayOutputStream()
