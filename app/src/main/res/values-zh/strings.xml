@@ -479,6 +479,18 @@
     <string name="library_update_failed">暂时无法更新记录，请重试。</string>
 
     <!-- Website preferences and permission consent. -->
+    <string name="site_user_agent">浏览器标识（UA）</string>
+    <string name="site_user_agent_default">默认</string>
+    <string name="site_user_agent_custom">自定义…</string>
+    <string name="site_user_agent_dialog">自定义浏览器标识</string>
+    <string name="site_user_agent_hint">例如：Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
+    <string name="reader_mode">阅读模式</string>
+    <string name="reader_entered">已进入阅读模式，再次点击可退出</string>
+    <string name="reader_exited">已退出阅读模式</string>
+    <string name="reader_unavailable">此页面无法进入阅读模式</string>
+    <string name="menu_print">打印 / 保存为 PDF</string>
+    <string name="print_unavailable">此页面无法打印</string>
+    <string name="search_metaso">秘塔 AI 搜索</string>
     <string name="site_settings">网站设置</string>
     <string name="site_settings_summary">按网站管理权限、过滤和显示</string>
     <string name="site_scope">桌面模式与同站的 m.、mobile. 和 www. 地址共用；其他设置、不同协议和端口仍分别管理。</string>

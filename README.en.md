@@ -25,12 +25,13 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Ad blocking and userscripts**: built-in filter lists, custom subscriptions and userscript installation.
 - **Page translation**: translate selected text or whole pages with built-in services or your own Azure, DeepL or LibreTranslate configuration. Dynamic content continues translating; editable regions and content marked against translation are excluded.
 - **Tabs and bookmarks**: tab groups and search, find in page, and bookmark import and export.
+- **Reader mode and printing**: reformat an article for reading, then print the page or save it as PDF from the system print sheet.
 - **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
 - **Downloads**: every download is confirmed first, then pause, resume, configurable folders and bulk delete; repeat requests are merged.
 - **Immersive fullscreen**: hide the system bars and toolbar so the page fills the screen, with a floating button for browser actions.
 - **Loading and recovery**: loading progress, with a built-in recovery page for failed loads.
 - **Offline QR scanning**: scan with the camera or read a code from an image, without an internet connection.
-- **Personalisation**: customise the home page, address bar position, theme and three interface languages; settings can be exported to a file and imported on another device.
+- **Personalisation**: customise the home page, address bar position, theme and three interface languages; set a per-site browser identity; settings can be exported to a file and imported on another device.
 - **Privacy controls**: incognito browsing, per-site permissions and browsing data cleanup; page navigation waits for private data cleanup to finish.
 
 See the [feature guide](FEATURES.md) for details, website compatibility and incognito limitations.

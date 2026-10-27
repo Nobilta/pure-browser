@@ -122,9 +122,10 @@ object WebViewConfig {
         setUserAgent(webView, desktop = false)
     }
 
-    fun setUserAgent(webView: WebView, desktop: Boolean) {
+    fun setUserAgent(webView: WebView, desktop: Boolean, customUserAgent: String? = null) {
         val s = webView.settings
-        val userAgent = if (desktop) UserAgent.desktop(s) else UserAgent.mobile(s)
+        val userAgent = customUserAgent?.takeIf { it.isNotBlank() }
+            ?: if (desktop) UserAgent.desktop(s) else UserAgent.mobile(s)
         // Changing the UA during navigation can restart the load. Redirect and page
         // callbacks reapply site settings, so leave an already-correct UA untouched.
         if (s.userAgentString != userAgent) s.userAgentString = userAgent
@@ -138,8 +139,8 @@ object WebViewConfig {
      * width. Call [applyDesktopViewport] from onPageFinished, once the new document
      * exists. Injecting it here would mutate the previous page during navigation.
      */
-    fun applyDesktopMode(webView: WebView, desktop: Boolean) {
-        setUserAgent(webView, desktop)
+    fun applyDesktopMode(webView: WebView, desktop: Boolean, customUserAgent: String? = null) {
+        setUserAgent(webView, desktop, customUserAgent)
         val s = webView.settings
         s.useWideViewPort = true
         s.loadWithOverviewMode = true
@@ -167,7 +168,7 @@ object WebViewConfig {
         webView.settings.textZoom = settings.textZoom
         setImagesEnabled(webView, settings.images)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, settings.thirdPartyCookies)
-        applyDesktopMode(webView, settings.desktop)
+        applyDesktopMode(webView, settings.desktop, settings.userAgent)
     }
 
     /**

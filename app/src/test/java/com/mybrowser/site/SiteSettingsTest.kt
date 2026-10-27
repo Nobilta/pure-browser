@@ -225,4 +225,20 @@ class SiteSettingsTest {
         assertFalse(repo.get("https://example.com").javaScript)
         assertTrue(SiteCapability.entries.all { repo.get("https://example.com").permission(it) == SitePermission.ASK })
     }
+
+    @Test fun aPerSiteUserAgentSurvivesReloadAndBlankOrOversizedValuesAreDropped() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val repo = SiteSettingsRepository(context)
+        repo.update("https://ua.example.com") { it.copy(userAgent = "  CustomUA/1.0  ") }
+        assertEquals("CustomUA/1.0", repo.get("https://ua.example.com").userAgent)
+
+        val reloaded = SiteSettingsRepository(context)
+        assertEquals("CustomUA/1.0", reloaded.get("https://ua.example.com").userAgent)
+
+        reloaded.update("https://ua.example.com") { it.copy(userAgent = "   ") }
+        assertEquals(null, reloaded.get("https://ua.example.com").userAgent)
+
+        reloaded.update("https://ua.example.com") { it.copy(userAgent = "x".repeat(513)) }
+        assertEquals(null, reloaded.get("https://ua.example.com").userAgent)
+    }
 }

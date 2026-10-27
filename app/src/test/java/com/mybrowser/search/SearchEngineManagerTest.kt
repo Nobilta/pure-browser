@@ -55,7 +55,7 @@ class SearchEngineManagerTest {
                 // expected
             }
         }
-        assertEquals(4, manager.getAvailableEngines().size)
+        assertEquals(SearchEngine.BUILTIN_ENGINES.size, manager.getAvailableEngines().size)
     }
 
     @Test
@@ -71,7 +71,7 @@ class SearchEngineManagerTest {
         repeat(11) { index ->
             manager.addCustomEngine("Engine $index", "https://search.example/$index?q=%s")
         }
-        assertEquals(16, manager.getAvailableEngines().size)
+        assertEquals(SearchEngine.BUILTIN_ENGINES.size + 12, manager.getAvailableEngines().size)
         try {
             manager.addCustomEngine("Overflow", "https://search.example/overflow?q=%s")
             throw AssertionError("engine cap not enforced")
@@ -139,4 +139,10 @@ class SearchEngineManagerTest {
         assertEquals(accepted, manager.getAvailableEngines().count { it.isCustom })
     }
 
+
+    @Test
+    fun `metaso is a built-in engine with an encoded query template`() {
+        val metaso = SearchEngine.BUILTIN_ENGINES.single { it.id == "metaso" }
+        assertEquals("https://metaso.cn/?q=%E4%B8%AD%E6%96%87", metaso.buildSearchUrl("中文"))
+    }
 }

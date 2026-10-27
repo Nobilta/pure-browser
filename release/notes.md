@@ -1,21 +1,30 @@
-## 0.15.2 验证范围
+## 0.16.0 验证范围
 
-被测产物：`PureBrowser-v0.15.2-release.apk`（versionCode 57），本地签名 Release 候选。
-SHA-256：`f0c9fc5a6f762c5c564bf7a2d9fe278ee143089eb8b80c6e8b61ac5e78cf1d29`。
+被测产物：`PureBrowser-v0.16.0-release.apk`（versionCode 58），本地签名 Release 候选。
+SHA-256：`0bb8ddd00ead1f6c5315b7a702120050eb5b15e4ace61be6caacc65daefa7092`。
 
 设备：`emulator-5554`，Android 17 / API 37、arm64-v8a，WebView 145.0.7632.218。
 
-- 本次改动：外部应用确认框先解析目标应用并在标题显示其名称，例如 `Open “DeepLinkStub”?`；
-  多个应用可处理时不指名，交给系统选择；不显示图标。名称与真正启动使用同一个净化后的 Intent，
-  不会出现「说的是 A、打开的是 B」。解析名称需要读取已安装应用，因此声明 `QUERY_ALL_PACKAGES`，
-  只用于这次查找。0.15.1 的任意应用 scheme 跳转修复一并包含。
-- Android/JVM 单元测试 669 项全部通过，新增 `ExternalTargets` 4 项：唯一处理器显示其 label、
-  多处理器不指名、无处理器、必须留在浏览器内的 scheme 不被解析。
-- 模拟器回归：安装声明 `bocmbankpsn` 的测试应用（label `DeepLinkStub`），在本地页面点击
-  `bocmbankpsn://startwith/N26K365Mci`，弹窗标题为 `Open “DeepLinkStub”?`（见
-  `outputs/validation/handoff-dialog-named-api37.png`），选择 Allow 后该应用被拉起，
-  `mCurrentFocus=com.example.deeplinkstub/android.app.Activity`。
-- APK 通过 v2 单签名校验，包名 com.mybrowser、versionName 0.15.2、versionCode 57、arm64-v8a。
+本次改动：
 
-未覆盖：真机与中国银行 App 的真实联调（`mbs.boc.cn` 页面未在模拟器打开）、其他 Android 版本与
-真机、完整设备功能矩阵、真实线上更新下载与系统安装链路。
+- 阅读模式（Readability，Apache-2.0）：从当前页提取正文重排，再次点击还原；
+- 打印 / 保存为 PDF：菜单打开系统打印界面，由 WebView 渲染；
+- 站点级 UA：网站设置可为单站点填写自定义 UA，确认后重载生效；
+- 内置搜索引擎新增秘塔（`metaso.cn`）；
+- 评审修复：下载页失败路径不再在写锁被占用时删文件、SHA-256 查表编码、
+  菜单拦截计数实时刷新、历史/书签建议前缀已满时跳过全表扫描、WebView 安全开关测试。
+
+验证：
+
+- `./build-and-test.sh --quick` 通过；Android/JVM 单元测试 674 项全部通过（新增站点 UA 持久化、
+  Metaso 模板、阅读模式资源打包、WebView 文件访问开关等用例）。
+- 模拟器回归：
+  - 阅读模式：打开本地长文页面，菜单 → 更多工具 → 阅读模式，正文以统一排版重排；再次进入
+    阅读模式后原页面的导航与广告块恢复；
+  - 打印：同一页面菜单 → 打印 / 保存为 PDF，系统打印界面显示「Page 1 of 1」，可取消；
+  - 站点 UA：为 `localhost` 设置 `TestUA/1.0` 并保存，页面重载后 `navigator.userAgent`
+    输出 `TestUA/1.0`。
+- APK 通过 v2 单签名校验，包名 com.mybrowser、versionName 0.16.0、versionCode 58、arm64-v8a。
+
+未覆盖：真机、其他 Android 版本与 WebView 版本、完整设备功能矩阵；站点 UA 未纳入设置备份；
+「保存为 PDF」依赖系统打印界面的 PDF 目标，没有一键直存文件（框架回调不可公开构造）。

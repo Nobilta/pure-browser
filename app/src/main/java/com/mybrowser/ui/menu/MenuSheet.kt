@@ -237,6 +237,8 @@ fun MoreToolsSheet(
     onScanQr: () -> Unit,
     onOpenDeveloperTools: () -> Unit,
     onClearData: () -> Unit,
+    onOpenReader: () -> Unit = {},
+    onPrintPage: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     BrowserBottomSheet(
@@ -268,6 +270,23 @@ fun MoreToolsSheet(
                         title = stringResource(R.string.script_title),
                         subtitle = userScriptSubtitle(userScriptStatus),
                         onClick = onManageUserScripts,
+                    )
+                }
+                MenuCard {
+                    MenuRow(
+                        iconRes = R.drawable.ic_ui_reader,
+                        title = stringResource(R.string.reader_mode),
+                        subtitle = "",
+                        enabled = canUsePageActions,
+                        onClick = onOpenReader,
+                    )
+                    MenuDivider()
+                    MenuRow(
+                        iconRes = R.drawable.ic_ui_print,
+                        title = stringResource(R.string.menu_print),
+                        subtitle = "",
+                        enabled = canUsePageActions,
+                        onClick = onPrintPage,
                     )
                 }
                 MenuCard {

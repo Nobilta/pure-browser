@@ -4,7 +4,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
+import com.mybrowser.core.Hex
 import java.util.Properties
 
 /**
@@ -50,8 +50,7 @@ internal data class DownloadCheckpoint(
         /** Base name of the sidecar, so its location can be asserted from outside. */
         internal const val FILE_NAME = NAME
 
-        internal fun digest(url: String): String =
-            MessageDigest.getInstance("SHA-256").digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
+        internal fun digest(url: String): String = Hex.sha256(url.toByteArray())
 
         fun read(directory: File, expectedUrl: String): DownloadCheckpoint? = runCatching {
             val file = File(directory, NAME)

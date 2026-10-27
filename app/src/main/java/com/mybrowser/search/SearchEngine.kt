@@ -24,8 +24,12 @@ data class SearchEngine(
             .replace("%s", encoded)
     }
 
-    fun displayName(resources: Resources): String =
-        if (!isCustom && id == "baidu") resources.getString(R.string.ui_baidu) else name
+    fun displayName(resources: Resources): String = when {
+        isCustom -> name
+        id == "baidu" -> resources.getString(R.string.ui_baidu)
+        id == "metaso" -> resources.getString(R.string.search_metaso)
+        else -> name
+    }
 
     companion object {
         // Built-in search engines
@@ -53,6 +57,12 @@ data class SearchEngine(
             searchUrlTemplate = "https://duckduckgo.com/?q={query}",
         )
 
-        val BUILTIN_ENGINES = listOf(BAIDU, GOOGLE, BING, DUCKDUCKGO)
+        val METASO = SearchEngine(
+            id = "metaso",
+            name = "Metaso AI",
+            searchUrlTemplate = "https://metaso.cn/?q={query}",
+        )
+
+        val BUILTIN_ENGINES = listOf(BAIDU, GOOGLE, BING, DUCKDUCKGO, METASO)
     }
 }

@@ -8,7 +8,8 @@ Dependency versions are recorded in [app/gradle.lockfile](app/gradle.lockfile) a
 ## Material Icons
 
 The `ic_lock`, `ic_lock_open`, `ic_copy`, `ic_share`, `ic_edit`, `ic_add`,
-`ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_pip` and `ic_translate` drawables are adapted from
+`ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_pip`, `ic_translate`, `ic_ui_reader`
+and `ic_ui_print` drawables are adapted from
 [Google Material Icons](https://github.com/google/material-design-icons), under the
 [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 Their SVG paths were converted to Android VectorDrawable resources.
@@ -19,6 +20,13 @@ The `ic_ui_*` drawables used by the redesigned menu and settings are adapted fro
 [Lucide](https://lucide.dev/), under the [ISC License](third_party/lucide-ISC.txt).
 Their SVG paths were converted to Android VectorDrawable resources and retain the
 24dp grid, 2dp round stroke, and outline style.
+
+## Mozilla Readability
+
+Reader mode uses [Readability.js](https://github.com/mozilla/readability), copyright Arc90 Inc
+and Mozilla, under the [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
+The unmodified script is shipped as `app/src/main/assets/readability.js`; the presentation
+script around it is original to this project.
 
 ## AndroidX
 
