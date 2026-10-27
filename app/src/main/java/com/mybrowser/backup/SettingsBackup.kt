@@ -156,6 +156,8 @@ data class BackupSitePreferences(
     /** Same tri-state: an unset picture shape is a choice the file may carry back. */
     val videoMirror: BackupOptional<Boolean?> = BackupOptional.Absent,
     val videoFit: BackupOptional<String?> = BackupOptional.Absent,
+    /** Same tri-state: an absent key keeps the device's value, null clears the override. */
+    val userAgent: BackupOptional<String?> = BackupOptional.Absent,
 )
 
 /** Anything wrong with a backup file; shown to the user without stack traces. */

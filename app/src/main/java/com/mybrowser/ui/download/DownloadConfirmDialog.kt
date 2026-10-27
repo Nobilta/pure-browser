@@ -60,7 +60,7 @@ fun DownloadConfirmDialog(
                 Text(
                     text = request.contentLength?.let {
                         textResources.getString(R.string.download_confirm_size,
-                            android.text.format.Formatter.formatFileSize(androidx.compose.ui.platform.LocalContext.current, it))
+                            com.mybrowser.core.formatBytes(it))
                     } ?: textResources.getString(R.string.download_confirm_size_unknown),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

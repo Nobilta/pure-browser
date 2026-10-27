@@ -164,6 +164,10 @@ object SettingsBackupCodec {
                     is BackupOptional.Present -> preferences.put("videoFit", fit.value ?: JSONObject.NULL)
                     BackupOptional.Absent -> Unit
                 }
+                when (val agent = p.userAgent) {
+                    is BackupOptional.Present -> preferences.put("userAgent", agent.value ?: JSONObject.NULL)
+                    BackupOptional.Absent -> Unit
+                }
                 array.put(JSONObject().put("origin", site.origin).put("preferences", preferences))
             }
             settings.put("sites", array)
@@ -476,6 +480,17 @@ object SettingsBackupCodec {
                             if (preferencesObject.isNull("videoMirror")) null
                             else requiredBoolean(preferencesObject, "videoMirror"))
                     } else BackupOptional.Absent,
+                    userAgent = when {
+                        !preferencesObject.has("userAgent") -> BackupOptional.Absent
+                        preferencesObject.isNull("userAgent") -> BackupOptional.Present(null)
+                        else -> {
+                            val value = string(preferencesObject, "userAgent")
+                            if (value.length > SiteSettingsRepository.MAX_USER_AGENT ||
+                                value.any(Char::isISOControl)
+                            ) throw SettingsBackupException("Invalid site user agent")
+                            BackupOptional.Present(value.trim().ifEmpty { null })
+                        }
+                    },
                     videoFit = fit,
                 ),
             )

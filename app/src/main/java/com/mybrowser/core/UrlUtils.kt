@@ -55,6 +55,9 @@ object UrlUtils {
      */
     private val DOTLESS_HOSTS = setOf("localhost")
 
+    /** Characters a URI authority may not contain unescaped; keeps this parser Android-free. */
+    private val FORBIDDEN_HOST_CHARS = charArrayOf('\\', '<', '>', '"', '^', '`', '{', '}', '|')
+
     private val IPV4 = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
     private val PORT = Regex("""^\d{1,5}$""")
 
@@ -272,17 +275,31 @@ object UrlUtils {
         return text.substring(start, end)
     }
 
-    /** Conservative HTTP(S) URL validation for the omnibar and navigation policy. */
-    fun isHttpUrl(url: String): Boolean {
+    /**
+     * Conservative HTTP(S) URL validation shared by navigation, downloads and filter lists.
+     *
+     * [maxLength], [allowUserInfo] and [allowFragment] are the only differences callers ever
+     * needed; every caller goes through this parser so a stricter rule cannot be applied in one
+     * place and forgotten in the others.
+     */
+    fun isHttpUrl(
+        url: String,
+        maxLength: Int = Int.MAX_VALUE,
+        allowUserInfo: Boolean = true,
+        allowFragment: Boolean = true,
+    ): Boolean {
         val text = url.trim()
-        if (text.isEmpty() || text.any { it.isWhitespace() || it.isISOControl() }) return false
+        if (text.isEmpty() || text.length > maxLength) return false
+        if (text.any { it.isWhitespace() || it.isISOControl() }) return false
         val scheme = schemeOf(text)
         if (scheme != "http" && scheme != "https") return false
         if (!text.startsWith("$scheme://", ignoreCase = true)) return false
+        if (!allowFragment && text.indexOf('#') >= 0) return false
         val authority = authorityForHttp(text) ?: return false
+        if (!allowUserInfo && authority.indexOf('@') >= 0) return false
         val parts = parseAuthority(authority) ?: return false
         if (parts.host.isEmpty()) return false
-        return runCatching { text.toUri().host }.getOrNull()?.isNotBlank() == true
+        return parts.host.none { it in FORBIDDEN_HOST_CHARS }
     }
 
     private fun hasOpaquePayload(text: String): Boolean {

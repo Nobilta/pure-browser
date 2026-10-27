@@ -26,6 +26,7 @@ import com.mybrowser.site.SiteSettingsRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -45,7 +46,7 @@ class SettingsTransferTest {
         assertTrue(warm.importConfiguration(mapOf("easylist" to false),
             listOf(Triple("Saved", "https://example.test/list", true))).ok)
         val cold = FilterSubscriptions(context)
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val result = transfer(filter, cold, SiteSettingsRepository(context)).collect("0.11")
             val settings = result.backup.settings
@@ -57,7 +58,7 @@ class SettingsTransferTest {
     }
 
     @Test fun successfulImportRequestsFirstDownloadsAndReportsTheirCount() = runBlocking {
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context)
         var scheduled = 0
         try {
@@ -113,7 +114,7 @@ class SettingsTransferTest {
     }
 
     @Test fun roundTripRestoresEveryGroupOnAFreshDevice() = runBlocking {
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter) { _, _, _ ->
             TextDownloader.Response("! fixture\n||ads.example.com^\n", "\"v1\"", "yesterday")
         }
@@ -170,7 +171,7 @@ class SettingsTransferTest {
         } finally {
             filter.close()
         }
-        val targetFilter = FilterController(context)
+        val targetFilter = FilterController(context, 0)
         val targetSubscriptions = FilterSubscriptions(context, targetFilter) { _, _, _ ->
             throw IOException("The import path must not fetch anything")
         }
@@ -255,7 +256,7 @@ class SettingsTransferTest {
         // Enough rows that a character-counted budget would keep them all and still produce a
         // file over the limit (three UTF-8 bytes per CJK character), which is the bug this pins.
         repeat(12_000) { index -> manager.addHistory(title + index, baseUrl + "/" + index) }
-        val exported = transfer(FilterController(context), subscriptions, SiteSettingsRepository(context)).collect("0.13.10")
+        val exported = transfer(FilterController(context, 0), subscriptions, SiteSettingsRepository(context)).collect("0.13.10")
         val encoded = SettingsBackupCodec.encode(exported.backup)
         assertTrue(
             "an exported file has to fit the importer's limit: " + encoded.toByteArray().size,
@@ -291,7 +292,7 @@ class SettingsTransferTest {
         val title = "\"".repeat(400)
         val baseUrl = "https://example.com/" + "\\".repeat(400)
         repeat(8_000) { index -> manager.addBookmark(title + index, baseUrl + "/" + index) }
-        val exported = transfer(FilterController(context), subscriptions, SiteSettingsRepository(context)).collect("0.13.10")
+        val exported = transfer(FilterController(context, 0), subscriptions, SiteSettingsRepository(context)).collect("0.13.10")
         val encoded = SettingsBackupCodec.encode(exported.backup)
         assertTrue(encoded.toByteArray().size <= SettingsBackupCodec.MAX_FILE_BYTES)
         assertTrue("some bookmarks have to be reported as left out", exported.omittedBookmarks > 0)
@@ -306,7 +307,7 @@ class SettingsTransferTest {
         val engines = SearchEngineManager(context)
         val existing = engines.addCustomEngine("Existing", "https://existing.example.com/?q={query}")
         engines.setCurrentEngineById(existing.id)
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val backup = SettingsBackup(
                 format = SettingsBackup.FORMAT_ID,
@@ -335,20 +336,24 @@ class SettingsTransferTest {
     @Test fun sitesImportResetsUnlistedOriginsAndKeepsPermissions() = runBlocking {
         val sites = SiteSettingsRepository(context)
         sites.update("https://a.example.com/", {
-            it.copy(filtering = false).withPermission(SiteCapability.CAMERA, SitePermission.ALLOW)
+            it.copy(filtering = false, userAgent = "DeviceUA/1.0")
+                .withPermission(SiteCapability.CAMERA, SitePermission.ALLOW)
         })
         sites.update("https://b.example.com/", { it.copy(desktop = true, javaScript = false) })
+        sites.update("https://c.example.com/", { it.copy(userAgent = "DeviceC/1.0") })
         val backup = SettingsBackup(
             format = SettingsBackup.FORMAT_ID,
             schemaVersion = SettingsBackup.SCHEMA_VERSION,
             appVersion = "9.9.9",
             exportedAt = "2026-09-20T00:00:00Z",
             settings = BackupSettings(sites = listOf(
-                BackupSite("https://a.example.com", BackupSitePreferences(filtering = true)),
-                BackupSite("https://c.example.com", BackupSitePreferences(javaScript = false)),
+                BackupSite("https://a.example.com", BackupSitePreferences(
+                    filtering = true, userAgent = BackupOptional.Present("BackupUA/1.0"))),
+                BackupSite("https://c.example.com", BackupSitePreferences(
+                    javaScript = false, userAgent = BackupOptional.Present(null))),
             )),
         )
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val result = transfer(filter, FilterSubscriptions(context, filter), sites).apply(backup)
             assertEquals(listOf("sites"), result.applied)
@@ -357,11 +362,14 @@ class SettingsTransferTest {
             val a = sites.entries.value.getValue("https://a.example.com")
             assertTrue(a.filtering)
             assertEquals(SitePermission.ALLOW, a.camera)
+            // A UA in the file replaces the device's; a null in the file clears the override.
+            assertEquals("BackupUA/1.0", a.userAgent)
             // b is unlisted: migratable choices reset, the entry becomes all-default and drops.
             assertFalse(sites.entries.value.containsKey("https://b.example.com"))
             val c = sites.entries.value.getValue("https://c.example.com")
             assertFalse(c.javaScript)
             assertEquals(SitePermission.ASK, c.camera)
+            assertNull(c.userAgent)
         } finally {
             filter.close()
         }
@@ -383,7 +391,7 @@ class SettingsTransferTest {
                 BackupSite("https://a.example.com", BackupSitePreferences(filtering = true)),
             )),
         )
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             assertEquals(listOf("sites"), transfer(filter, FilterSubscriptions(context, filter), sites).apply(backup).applied)
             assertEquals(VideoFit.RATIO_16_9, sites.get("https://a.example.com").useVideoFit())
@@ -401,7 +409,7 @@ class SettingsTransferTest {
                 )),
             )),
         )
-        val second = FilterController(context)
+        val second = FilterController(context, 0)
         try {
             assertEquals(listOf("sites"), transfer(second, FilterSubscriptions(context, second), sites).apply(clearing).applied)
             assertEquals(VideoFit.NATURAL, sites.get("https://a.example.com").useVideoFit())
@@ -428,7 +436,7 @@ class SettingsTransferTest {
                 sites = listOf(BackupSite("https://a.example.com", BackupSitePreferences(filtering = true))),
             ),
         )
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val result = transfer(filter, FilterSubscriptions(context, filter), brokenSites).apply(backup)
             assertEquals(listOf("browser"), result.applied)
@@ -451,7 +459,7 @@ class SettingsTransferTest {
     @Test fun malformedUserRulesAreLeftOutOfAnExportInsteadOfBecomingAnEmptyList() = runBlocking {
         context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
             .putString("user_rules", "{broken}").commit()
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .collect("9.9.9")
@@ -465,7 +473,7 @@ class SettingsTransferTest {
     @Test fun oversizedUserRulesAreLeftOutOfAnExportInsteadOfClearingThem() = runBlocking {
         context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
             .putString("user_rules", "x".repeat(1_000_000)).commit()
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .collect("9.9.9")
@@ -479,7 +487,7 @@ class SettingsTransferTest {
     @Test fun unreadableFilterManifestIsLeftOutOfAnExportInsteadOfClearingSubscriptions() = runBlocking {
         context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
             .putString("subscriptions_manifest", "{not json").commit()
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .collect("9.9.9")
@@ -493,7 +501,7 @@ class SettingsTransferTest {
     @Test fun unreadableCustomEnginesAreLeftOutOfAnExportInsteadOfBecomingAnEmptyList() = runBlocking {
         context.getSharedPreferences("search_engines", Context.MODE_PRIVATE).edit()
             .putString("custom_engines", "{not json").commit()
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .collect("9.9.9")
@@ -520,7 +528,7 @@ class SettingsTransferTest {
                 ),
             )),
         )
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .apply(backup)
@@ -538,7 +546,7 @@ class SettingsTransferTest {
     @Test fun previewReportsWhatTheImportWouldChange() = runBlocking {
         val sites = SiteSettingsRepository(context)
         sites.update("https://a.example.com/", { it.copy(filtering = false) })
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter)
         try {
             subscriptions.initialize()
@@ -580,7 +588,7 @@ class SettingsTransferTest {
     }
 
     @Test fun handWrittenRulesTravelWithAFileAndSurviveOneThatNeverHadThem() = runBlocking {
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter) { _, _, _ ->
             TextDownloader.Response("! fixture\n||ads.example.com^\n", "\"v1\"", "yesterday")
         }
@@ -634,7 +642,7 @@ class SettingsTransferTest {
     }
 
     @Test fun subscriptionImportKeepsCustomsWhenAbsentAndClearsWhenEmptyList() = runBlocking {
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter) { _, _, _ ->
             TextDownloader.Response("! fixture\n||ads.example.com^\n", "\"v1\"", "yesterday")
         }
@@ -695,7 +703,7 @@ class SettingsTransferTest {
                 BackupSite("https://off.example.com", BackupSitePreferences(enhancedPlayback = BackupOptional.Present(false))),
             )),
         )
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val result = transfer(filter, FilterSubscriptions(context, filter), sites).apply(backup)
             assertEquals(listOf("sites"), result.applied)
@@ -757,7 +765,7 @@ class SettingsTransferTest {
 
     @Test fun everyGroupCommitsOnceIncludingFilterListAndBothSwitches() = runBlocking {
         val observed = ObservedContext(context)
-        val filter = FilterController(observed)
+        val filter = FilterController(observed, 0)
         val subscriptions = FilterSubscriptions(observed, filter, builtIns = emptyList())
         val observedLibrary = BookmarkManager(observed)
         val observedVisits = HistoryManager(observed)
@@ -789,7 +797,7 @@ class SettingsTransferTest {
         )) {
             wipeStorage()
             val observed = ObservedContext(context, store)
-            val filter = FilterController(observed)
+            val filter = FilterController(observed, 0)
             val subscriptions = FilterSubscriptions(observed, filter, builtIns = emptyList())
             val sites = SiteSettingsRepository(observed)
             val observedLibrary = BookmarkManager(observed)
@@ -822,7 +830,7 @@ class SettingsTransferTest {
             "https://example.com/list#fragment", "https://user:pass@example.com/list",
             "https://example.com/" + "a".repeat(2048), FilterSubscriptions.BUILT_INS.first().url,
         )
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             for (url in urls) {
                 val backup = allGroupsBackup().copy(settings = BackupSettings(
@@ -846,7 +854,7 @@ class SettingsTransferTest {
         val backup = allGroupsBackup().copy(settings = BackupSettings(
             browser = BackupBrowser(theme = "DARK"), search = BackupSearch("custom_1", engines),
         ))
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         try {
             val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .apply(SettingsBackupCodec.decode(SettingsBackupCodec.encode(backup)))
@@ -875,7 +883,7 @@ class SettingsTransferTest {
      * in that state; this pins the reporting that hid it.
      */
     @Test fun aGroupThatCannotBeWrittenIsReportedAsFailedRatherThanApplied() = runBlocking {
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter)
         val incoming = SettingsBackup(
             SettingsBackup.FORMAT_ID, SettingsBackup.SCHEMA_VERSION, "test", "2026-09-20T00:00:00Z",
@@ -902,7 +910,7 @@ class SettingsTransferTest {
     }
 
     @Test fun libraryImportMergesWithoutDeletingAndStaysIdempotent() = runBlocking {
-        val filter = FilterController(context)
+        val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter)
         val existing = "https://keep.example.com/"
         val incoming = SettingsBackup(

@@ -265,6 +265,7 @@ class SettingsTransfer(
                             enhancedPlayback = BackupOptional.Present(settings.enhancedPlayback),
                             videoMirror = BackupOptional.Present(settings.videoMirror),
                             videoFit = BackupOptional.Present(settings.videoFit?.name),
+                            userAgent = BackupOptional.Present(settings.userAgent),
                         ),
                     )
                 },
@@ -573,6 +574,10 @@ class SettingsTransfer(
                                     ?.takeIf { name -> VideoFit.entries.any { it.name == name } }
                                     ?.let(VideoFit::valueOf)
                                 BackupOptional.Absent -> current.videoFit
+                            },
+                            userAgent = when (val agent = p.userAgent) {
+                                is BackupOptional.Present -> agent.value
+                                BackupOptional.Absent -> current.userAgent
                             },
                         )
                     }
