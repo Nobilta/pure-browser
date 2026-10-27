@@ -1,7 +1,7 @@
 ## 0.16.0 验证范围
 
 被测产物：`PureBrowser-v0.16.0-release.apk`（versionCode 58），本地签名 Release 候选。
-SHA-256：`0bb8ddd00ead1f6c5315b7a702120050eb5b15e4ace61be6caacc65daefa7092`。
+SHA-256：`5ef2948271c94e34356d06ae4ffe97b8d5dc99a91e3d040d5eab6a70f6bacf3d`。
 
 设备：`emulator-5554`，Android 17 / API 37、arm64-v8a，WebView 145.0.7632.218。
 
@@ -19,11 +19,12 @@ SHA-256：`0bb8ddd00ead1f6c5315b7a702120050eb5b15e4ace61be6caacc65daefa7092`。
 - `./build-and-test.sh --quick` 通过；Android/JVM 单元测试 674 项全部通过（新增站点 UA 持久化、
   Metaso 模板、阅读模式资源打包、WebView 文件访问开关等用例）。
 - 模拟器回归：
-  - 阅读模式：打开本地长文页面，菜单 → 更多工具 → 阅读模式，正文以统一排版重排；再次进入
-    阅读模式后原页面的导航与广告块恢复；
+  - 阅读模式：打开本地长文页面，菜单 → 更多工具 → 阅读模式，正文以统一排版重排，再次进入
+    阅读模式后原页面恢复；在带 CSP 的页面上用 constructable stylesheet 保留排版；
+    对没有正文的短页面会提示「此页面无法进入阅读模式」；
   - 打印：同一页面菜单 → 打印 / 保存为 PDF，系统打印界面显示「Page 1 of 1」，可取消；
   - 站点 UA：为 `localhost` 设置 `TestUA/1.0` 并保存，页面重载后 `navigator.userAgent`
-    输出 `TestUA/1.0`。
+    输出 `TestUA/1.0`；强制停止进程后再打开仍保持，重置为「默认」后恢复手机 UA。
 - APK 通过 v2 单签名校验，包名 com.mybrowser、versionName 0.16.0、versionCode 58、arm64-v8a。
 
 未覆盖：真机、其他 Android 版本与 WebView 版本、完整设备功能矩阵；站点 UA 未纳入设置备份；
