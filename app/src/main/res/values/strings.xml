@@ -480,6 +480,18 @@
     <string name="library_update_failed">Unable to update entries. Please try again.</string>
 
     <!-- Website preferences and permission consent. -->
+    <string name="site_user_agent">Browser identity (UA)</string>
+    <string name="site_user_agent_default">Default</string>
+    <string name="site_user_agent_custom">Custom…</string>
+    <string name="site_user_agent_dialog">Custom user agent</string>
+    <string name="site_user_agent_hint">For example: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
+    <string name="reader_mode">Reader mode</string>
+    <string name="reader_entered">Reader mode on. Tap again to exit.</string>
+    <string name="reader_exited">Reader mode off</string>
+    <string name="reader_unavailable">This page cannot be opened in reader mode</string>
+    <string name="menu_print">Print / Save as PDF</string>
+    <string name="print_unavailable">This page cannot be printed</string>
+    <string name="search_metaso">Metaso AI</string>
     <string name="site_settings">Website settings</string>
     <string name="site_settings_summary">Permissions, filtering and display for each website</string>
     <string name="site_scope">Desktop mode is shared with this site’s m., mobile. and www. addresses. Other settings, schemes and ports stay separate.</string>

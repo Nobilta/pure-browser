@@ -11,7 +11,6 @@ import java.net.URI
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
-import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 import kotlin.coroutines.coroutineContext
 
@@ -93,7 +92,6 @@ class TextDownloader {
                 .decode(ByteBuffer.wrap(bytes)).toString().removePrefix("\uFEFF")
         }
 
-        fun sha256(text: String): String = MessageDigest.getInstance("SHA-256")
-            .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        fun sha256(text: String): String = Hex.sha256(text.toByteArray(Charsets.UTF_8))
     }
 }

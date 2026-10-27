@@ -479,6 +479,18 @@
     <string name="library_update_failed">暫時無法更新記錄，請重試。</string>
 
     <!-- Website preferences and permission consent. -->
+    <string name="site_user_agent">瀏覽器識別（UA）</string>
+    <string name="site_user_agent_default">預設</string>
+    <string name="site_user_agent_custom">自訂…</string>
+    <string name="site_user_agent_dialog">自訂瀏覽器識別</string>
+    <string name="site_user_agent_hint">例如：Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
+    <string name="reader_mode">閱讀模式</string>
+    <string name="reader_entered">已進入閱讀模式，再次點擊可退出</string>
+    <string name="reader_exited">已退出閱讀模式</string>
+    <string name="reader_unavailable">此頁面無法進入閱讀模式</string>
+    <string name="menu_print">列印 / 儲存為 PDF</string>
+    <string name="print_unavailable">此頁面無法列印</string>
+    <string name="search_metaso">秘塔 AI 搜尋</string>
     <string name="site_settings">網站設定</string>
     <string name="site_settings_summary">依網站管理權限、過濾與顯示</string>
     <string name="site_scope">桌面模式與同站的 m.、mobile. 和 www. 位址共用；其他設定、不同通訊協定和連接埠仍分別管理。</string>
