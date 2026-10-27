@@ -546,6 +546,8 @@
     <string name="recovery_details">技術詳情</string>
     <string name="external_title">開啟外部應用程式？</string>
     <string name="external_message">%1$s 要求透過 %2$s 開啟其他應用程式。可在網站設定中修改選擇。</string>
+    <string name="external_title_app">開啟「%1$s」？</string>
+    <string name="external_message_app">%1$s 要求開啟此應用程式。可在網站設定中修改選擇。</string>
     <string name="external_apps">外部應用程式啟動</string>
     <string name="back_history">返回歷史</string>
     <string name="back_history_empty">此分頁沒有先前的頁面</string>

@@ -93,6 +93,7 @@ import com.mybrowser.core.BrowserWebViewClient
 import com.mybrowser.core.ConsoleLogLevel
 import com.mybrowser.core.ConsoleLogStore
 import com.mybrowser.core.ExternalIntentHandler
+import com.mybrowser.core.ExternalTargets
 import com.mybrowser.core.ExternalNavigationGate
 import com.mybrowser.core.RendererRecovery
 import com.mybrowser.core.PageFailure
@@ -208,7 +209,12 @@ class MainActivity : ComponentActivity(),
     private val dialogs = Dialogs()
     private val rendererRecovery = RendererRecovery()
     private val externalGate = ExternalNavigationGate()
-    private data class ExternalPrompt(val url: String, val origin: String?, val epoch: Long)
+    private data class ExternalPrompt(
+        val url: String,
+        val origin: String?,
+        val epoch: Long,
+        val appLabel: String?,
+    )
     private var externalPrompt by mutableStateOf<ExternalPrompt?>(null)
     private lateinit var filter: FilterController
     private lateinit var customFilter: FilterSubscriptions
@@ -794,7 +800,7 @@ class MainActivity : ComponentActivity(),
                     )
                 }
                 externalPrompt?.let { prompt ->
-                    ExternalAppDialog(prompt.origin.orEmpty(), UrlUtils.schemeOf(prompt.url), privacy.isIncognito) { allow, remember ->
+                    ExternalAppDialog(prompt.origin.orEmpty(), prompt.appLabel, UrlUtils.schemeOf(prompt.url), privacy.isIncognito) { allow, remember ->
                         externalPrompt = null
                         val repository = activeSites
                         lifecycleScope.launch {
@@ -2941,7 +2947,9 @@ class MainActivity : ComponentActivity(),
         when (externalGate.decide(activeSites.get(state.currentUrl).externalApps, hasGesture, isMainFrame,
             externalPrompt != null, SystemClock.elapsedRealtime())) {
             ExternalNavigationGate.Decision.OPEN -> launchExternalUrl(url)
-            ExternalNavigationGate.Decision.ASK -> externalPrompt = ExternalPrompt(url, origin, permissionEpoch)
+            ExternalNavigationGate.Decision.ASK -> externalPrompt = ExternalPrompt(
+                url, origin, permissionEpoch, ExternalTargets.labelOf(this, url),
+            )
             ExternalNavigationGate.Decision.BLOCK -> Unit
         }
         return true
