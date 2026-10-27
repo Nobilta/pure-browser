@@ -2523,7 +2523,7 @@ class MainActivity : ComponentActivity(),
         val scheme = UrlUtils.schemeOf(normalized)
         val accepted = when {
             (scheme == "http" || scheme == "https") && UrlUtils.isHttpUrl(normalized) -> true
-            UrlUtils.isAllowedExternalScheme(normalized) -> true
+            UrlUtils.isTypedHandoff(normalized) -> true
             scheme == "about" && normalized != ABOUT_BLANK -> true
             else -> false
         }
@@ -2936,7 +2936,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onExternalNavigation(url: String, hasGesture: Boolean, isMainFrame: Boolean): Boolean {
-        if (!UrlUtils.isAllowedExternalScheme(url)) return true
+        if (!UrlUtils.isExternalHandoff(url)) return true
         val origin = SiteOrigin.of(state.currentUrl)
         when (externalGate.decide(activeSites.get(state.currentUrl).externalApps, hasGesture, isMainFrame,
             externalPrompt != null, SystemClock.elapsedRealtime())) {

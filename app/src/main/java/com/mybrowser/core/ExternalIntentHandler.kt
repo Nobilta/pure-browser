@@ -19,7 +19,9 @@ import java.net.URISyntaxException
  * would let any page start any exported component of any installed app with attacker-
  * controlled extras. The mitigations below mirror what Chrome does: strip the explicit
  * component and selector, force the BROWSABLE category, drop URI-permission grant flags,
- * and refuse to target ourselves.
+ * and refuse to target ourselves. Which schemes may be handed off is decided by
+ * [UrlUtils.isExternalHandoff]; a browser cannot enumerate every installed app's scheme,
+ * so consent per site plus this sanitising is what makes an unrecognised one safe.
  */
 object ExternalIntentHandler {
 
@@ -40,8 +42,8 @@ object ExternalIntentHandler {
     }
 
     fun handle(context: Context, url: String): Result {
-        if (!UrlUtils.isAllowedExternalScheme(url)) {
-            Log.i(TAG, "scheme not allow-listed: ${UrlUtils.schemeOf(url)}")
+        if (!UrlUtils.isExternalHandoff(url)) {
+            Log.i(TAG, "scheme must stay in the browser: ${UrlUtils.schemeOf(url)}")
             return Result.Rejected
         }
 
@@ -55,14 +57,15 @@ object ExternalIntentHandler {
         sanitize(intent)
 
         // An `intent://...#Intent;scheme=foo;end` URI rewrites `intent.data` to `foo://...`.
-        // Re-check the unwrapped scheme so `intent:` cannot smuggle a non-allowlisted scheme.
+        // Re-check the unwrapped scheme so `intent:` cannot smuggle a blocked scheme
+        // (file:, content:, javascript:, …) past the outer gate.
         val targetScheme = intent.data?.scheme
         if (targetScheme != null &&
             !targetScheme.equals("http", ignoreCase = true) &&
             !targetScheme.equals("https", ignoreCase = true) &&
-            !UrlUtils.isAllowedExternalScheme("$targetScheme:")
+            !UrlUtils.isExternalHandoff("$targetScheme:")
         ) {
-            Log.i(TAG, "intent target scheme not allow-listed: $targetScheme")
+            Log.i(TAG, "intent target scheme must stay in the browser: $targetScheme")
             return fallback?.let(Result::Fallback) ?: Result.Rejected
         }
 

@@ -45,11 +45,14 @@ class UrlUtilsTest {
     }
 
     @Test
-    fun `unknown opaque scheme becomes a search`() {
+    fun `app deep link is preserved instead of searched`() {
+        // A browser cannot know every installed app's scheme; pasting a deep link must
+        // reach the same hand-off path a page's link would.
         assertEquals(
-            "${SEARCH_PREFIX}evilapp%3A%2F%2Ftakeover",
-            normalize("evilapp://takeover"),
+            "bocmbankpsn://startwith/N26K365Mci",
+            normalize("bocmbankpsn://startwith/N26K365Mci"),
         )
+        assertEquals("evilapp://takeover", normalize("evilapp://takeover"))
     }
 
     @Test
@@ -59,7 +62,6 @@ class UrlUtilsTest {
             "data:text/html,<h1>x</h1>",
             "file:///sdcard/private.txt",
             "ftp://example.com/file",
-            "evilapp://takeover",
             "evilapp:1234",
         )) {
             assertEquals(
@@ -70,7 +72,7 @@ class UrlUtilsTest {
     }
 
     @Test
-    fun `allowlisted external schemes are preserved only with payload`() {
+    fun `external hand-offs are preserved only with payload`() {
         assertEquals("MAILTO:user@example.com", normalize("MAILTO:user@example.com"))
         assertEquals("${SEARCH_PREFIX}mailto%3A", normalize("mailto:"))
         assertEquals("${SEARCH_PREFIX}https%3A%2F%2F", normalize("https://"))
@@ -205,15 +207,24 @@ class UrlUtilsTest {
     }
 
     @Test
-    fun `allowlisted external schemes are recognised`() {
-        assertTrue(UrlUtils.isAllowedExternalScheme("weixin://dl/business"))
-        assertTrue(UrlUtils.isAllowedExternalScheme("intent://scan/#Intent;end"))
+    fun `app schemes are hand-off candidates unless the browser must keep them`() {
+        assertTrue(UrlUtils.isExternalHandoff("weixin://dl/business"))
+        assertTrue(UrlUtils.isExternalHandoff("intent://scan/#Intent;end"))
+        assertTrue(UrlUtils.isExternalHandoff("bocmbankpsn://startwith/N26K365Mci"))
+        assertFalse(UrlUtils.isExternalHandoff("file:///sdcard/private.txt"))
+        assertFalse(UrlUtils.isExternalHandoff("javascript:alert(1)"))
+        assertFalse(UrlUtils.isExternalHandoff("https://example.com"))
     }
 
     @Test
-    fun `unknown external scheme is not allowlisted`() {
-        // The whole point of the allowlist: an arbitrary deep link must not launch.
-        assertFalse(UrlUtils.isAllowedExternalScheme("evilapp://takeover"))
+    fun `typed hand-offs need a url form or a known opaque scheme`() {
+        assertTrue(UrlUtils.isTypedHandoff("bocmbankpsn://startwith/N26K365Mci"))
+        assertTrue(UrlUtils.isTypedHandoff("mailto:user@example.com"))
+        assertTrue(UrlUtils.isTypedHandoff("intent://scan/#Intent;end"))
+        // Prose and host:port shapes must not become app launches.
+        assertFalse(UrlUtils.isTypedHandoff("evilapp:1234"))
+        assertFalse(UrlUtils.isTypedHandoff("example.com:8080"))
+        assertFalse(UrlUtils.isTypedHandoff("javascript:alert(1)"))
     }
 
     @Test
@@ -223,12 +234,13 @@ class UrlUtilsTest {
         assertTrue(UrlUtils.isNavigableInput("localhost:8080"))
         assertTrue(UrlUtils.isNavigableInput("mailto:user@example.com"))
         assertTrue(UrlUtils.isNavigableInput("tel:1234"))
+        assertTrue(UrlUtils.isNavigableInput("bocmbankpsn://startwith/N26K365Mci"))
     }
 
     @Test
     fun `navigable input keeps searches and unsafe opaque schemes as searches`() {
         assertFalse(UrlUtils.isNavigableInput("how to use kotlin"))
-        assertFalse(UrlUtils.isNavigableInput("evilapp://takeover"))
+        assertFalse(UrlUtils.isNavigableInput("evilapp:1234"))
         assertFalse(UrlUtils.isNavigableInput("javascript:alert(1)"))
         assertFalse(UrlUtils.isNavigableInput(""))
     }

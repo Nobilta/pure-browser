@@ -7,9 +7,9 @@ import com.mybrowser.search.UrlOrSearch
  * The result of submitting text from the omnibar.
  *
  * Keeping this decision separate from [MainActivity] makes the security boundary explicit:
- * only HTTP(S), `about:` and the small external-scheme allow-list can become a direct
- * navigation. Everything else is converted to a search URL, even if a native helper returns
- * an opaque scheme unchanged after a library upgrade.
+ * only HTTP(S), `about:` and app hand-offs (`scheme://…`, or a known opaque scheme with a
+ * payload) can become a direct navigation. Everything else is converted to a search URL,
+ * even if a native helper returns an opaque scheme unchanged after a library upgrade.
  */
 sealed interface NavigationTarget {
     data class Load(val url: String) : NavigationTarget
@@ -28,7 +28,7 @@ object NavigationPolicy {
             directInput && (scheme == "http" || scheme == "https" || scheme == "about") ->
                 NavigationTarget.Load(normalized)
 
-            directInput && UrlUtils.isAllowedExternalScheme(normalized) ->
+            directInput && UrlUtils.isTypedHandoff(normalized) ->
                 NavigationTarget.External(normalized)
 
             // Do not trust a native normalizer with an unknown opaque scheme. This second
