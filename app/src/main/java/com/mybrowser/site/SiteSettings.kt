@@ -50,6 +50,8 @@ data class SiteSettings(
     val externalApps: SitePermission = SitePermission.ASK,
     val webDarkening: Boolean = true,
     val desktopWidth: Int = 1024,
+    /** Per-site UA override; null keeps the browser's own mobile/desktop choice. */
+    val userAgent: String? = null,
     // Null inherits the browser default; an explicit choice belongs to this origin only.
     val enhancedPlayback: Boolean? = null,
     // The enhanced player's picture shape for this origin. Null is the source's own ratio and an
@@ -108,8 +110,15 @@ class SiteSettingsRepository private constructor(
         mutex.withLock {
             val next = mutable.value.toMutableMap()
             val desktopSite = requireNotNull(DesktopSite.of(origin))
-            val settings = transform(settingsFor(mutable.value, origin)).let { it.copy(textZoom = it.textZoom.coerceIn(50, 200),
-                desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024) }
+            val settings = transform(settingsFor(mutable.value, origin)).let {
+                it.copy(
+                    textZoom = it.textZoom.coerceIn(50, 200),
+                    desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024,
+                    userAgent = it.userAgent?.trim()?.takeIf { ua ->
+                        ua.isNotEmpty() && ua.length <= MAX_USER_AGENT && ua.none(Char::isISOControl)
+                    },
+                )
+            }
             next[origin] = settings
             // One display choice across existing aliases, committed atomically. Do
             // not create extra origins or copy any permission to another host.
@@ -180,6 +189,7 @@ class SiteSettingsRepository private constructor(
                 .put("desktop", settings.desktop).put("textZoom", settings.textZoom)
                 .put("externalApps", settings.externalApps.name)
                 .put("webDarkening", settings.webDarkening).put("desktopWidth", settings.desktopWidth)
+                .put("userAgent", settings.userAgent)
                 .put("enhancedPlayback", settings.enhancedPlayback)
                 .put("videoMirror", settings.videoMirror)
                 .put("videoFit", settings.videoFit?.name)
@@ -208,6 +218,9 @@ class SiteSettingsRepository private constructor(
     companion object {
         val DESKTOP_WIDTHS = listOf(0, 980, 1024, 1280, 1440)
         const val MAX_SITES = 256
+
+        /** Long enough for a real UA, short enough that a stored value cannot bloat the file. */
+        const val MAX_USER_AGENT = 512
         private fun settingsFor(sites: Snapshot, url: String): SiteSettings {
             val desktopSite = DesktopSite.of(url)
             // Read legacy exact-origin records directly; no lossy migration or extra
@@ -234,6 +247,8 @@ class SiteSettingsRepository private constructor(
                         externalApps = runCatching { SitePermission.valueOf(entry.optString("externalApps")) }.getOrDefault(SitePermission.ASK),
                         webDarkening = entry.optBoolean("webDarkening", true),
                         desktopWidth = entry.optInt("desktopWidth", 1024).takeIf { it in DESKTOP_WIDTHS } ?: 1024,
+                        userAgent = entry.optString("userAgent").trim()
+                            .takeIf { it.isNotEmpty() && it.length <= MAX_USER_AGENT && it.none(Char::isISOControl) },
                         enhancedPlayback = entry.opt("enhancedPlayback") as? Boolean,
                         // A stored value the app cannot read is a value it must not act on; the
                         // page is better served by the source's own ratio than by a wrong crop.

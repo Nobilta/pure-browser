@@ -94,6 +94,8 @@ import com.mybrowser.core.ConsoleLogLevel
 import com.mybrowser.core.ConsoleLogStore
 import com.mybrowser.core.ExternalIntentHandler
 import com.mybrowser.core.ExternalTargets
+import com.mybrowser.print.PagePrinter
+import com.mybrowser.reader.ReaderMode
 import com.mybrowser.core.ExternalNavigationGate
 import com.mybrowser.core.RendererRecovery
 import com.mybrowser.core.PageFailure
@@ -935,7 +937,7 @@ class MainActivity : ComponentActivity(),
                         Sheet.MENU -> MenuSheet(
                             isIncognito = privacy.isIncognito,
                             isFilterEnabled = filter.enabled.collectAsState().value,
-                            blockedCount = filter.blockedCount,
+                            blockedCount = filter.blockedCount.collectAsState().value,
                             mediaCount = mediaSnapshot.count,
                             hasCastSession = cast.state.collectAsState().value.connected != null,
                             hasVideo = hasVideo,
@@ -1272,6 +1274,8 @@ class MainActivity : ComponentActivity(),
                             onScanQr = { sheetNavigation.push(entry, Sheet.QR_SCANNER) },
                             onOpenDeveloperTools = { sheetNavigation.push(entry, Sheet.DEVELOPER_TOOLS) },
                             onClearData = { sheetAction(entry) { showClearData = true } },
+                            onOpenReader = { sheetAction(entry, ::toggleReaderMode) },
+                            onPrintPage = { sheetAction(entry, ::printCurrentPage) },
                             onDismiss = { dismissSheet(entry) },
                         )
                         Sheet.QR_SCANNER -> com.mybrowser.ui.qr.QrScannerSheet(
@@ -2935,6 +2939,23 @@ class MainActivity : ComponentActivity(),
         // ERROR_UNKNOWN with an empty description is what a cancelled navigation looks
         // like; a toast for it would fire on every fast tap.
         if (description.isNotEmpty()) state.pageFailure = PageFailure(url, PageFailureKind.NETWORK, "$code: $description")
+    }
+
+    private fun toggleReaderMode() {
+        val view = webViewOrNull ?: return
+        ReaderMode.toggle(view) { outcome ->
+            toast(getString(when (outcome) {
+                ReaderMode.Outcome.ENTERED -> R.string.reader_entered
+                ReaderMode.Outcome.EXITED -> R.string.reader_exited
+                ReaderMode.Outcome.UNSUPPORTED -> R.string.reader_unavailable
+            }))
+        }
+    }
+
+    private fun printCurrentPage() {
+        val view = webViewOrNull ?: return
+        val job = state.pageTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.app_name)
+        if (!PagePrinter.print(this, view, job)) toast(getString(R.string.print_unavailable))
     }
 
     override fun onExternalUrl(url: String): Boolean {

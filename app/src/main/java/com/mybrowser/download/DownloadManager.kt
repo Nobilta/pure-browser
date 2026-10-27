@@ -508,7 +508,10 @@ class DownloadHandler(context: Context) : Closeable {
                 writerLock.unlock()
             }
         } else {
-            failPageFileLocked(id, reason)
+            // A writer still owns the lock, so this is not the thread allowed to delete its
+            // files: record the failure and let that writer's completion path publish it.
+            // Cleaning up here could delete sources in the middle of an in-flight publish.
+            pageFileFailures.putIfAbsent(id, reason)
         }
     }
 

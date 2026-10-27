@@ -34,6 +34,7 @@ import kotlin.concurrent.write
 class FilterController(private val appContext: Context) {
 
     private val blocked = AtomicInteger(0)
+    private val _blockedCount = MutableStateFlow(0)
     private val closed = AtomicBoolean(false)
     private val rebuildGeneration = AtomicLong(0)
     private val lock = ReentrantReadWriteLock()
@@ -55,14 +56,18 @@ class FilterController(private val appContext: Context) {
 
     /** Rules refused because the loaded subscriptions together exceed the engine's capacity. */
     val refusedCount: StateFlow<Int> = _refusedCount.asStateFlow()
-    val blockedCount: Int get() = blocked.get()
+    /** Requests blocked for the current page; observable so an open menu refreshes. */
+    val blockedCount: StateFlow<Int> = _blockedCount.asStateFlow()
 
     @Volatile private var payloads: List<String> = emptyList()
     @Volatile private var sourceNames: List<String> = emptyList()
     private var activeSources: List<Pair<String, String>> = emptyList()
     private var filter: NativeFilter? = null
 
-    fun resetPageCount() = blocked.set(0)
+    fun resetPageCount() {
+        blocked.set(0)
+        _blockedCount.value = 0
+    }
 
     fun setEnabled(value: Boolean) {
         prefs.edit { putBoolean("enabled", value) }
@@ -122,7 +127,7 @@ class FilterController(private val appContext: Context) {
         val hit = lock.read {
             filter?.shouldBlock(requestUrl, documentUrl, type) ?: false
         }
-        if (hit && countForPage) blocked.incrementAndGet()
+        if (hit && countForPage) _blockedCount.value = blocked.incrementAndGet()
         return hit
     }
 

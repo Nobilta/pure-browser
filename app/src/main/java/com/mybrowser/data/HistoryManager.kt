@@ -141,6 +141,9 @@ class HistoryManager(context: Context) {
             "host LIKE ?${SqlLike.ESCAPE_CLAUSE} OR title LIKE ?${SqlLike.ESCAPE_CLAUSE} OR url LIKE ?${SqlLike.ESCAPE_CLAUSE}",
             arrayOf(prefix, SqlLike.prefix(query), SqlLike.prefix(query)), null, null,
             "visit_time DESC, id DESC", "30").use { c -> buildList { while (c.moveToNext()) add(c.toHistoryEntry()) } }
+        // The substring fallback cannot use an index; when the prefix query already filled
+        // the result set there is nothing it could add, so do not scan the whole table.
+        if (first.size >= 30) return first
         return (first + searchHistory(query, 20)).distinctBy { it.id }
     }
 
