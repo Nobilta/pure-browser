@@ -41,13 +41,29 @@ object ExternalIntentHandler {
         data object Rejected : Result
     }
 
-    fun handle(context: Context, url: String): Result {
+    /** A URL after sanitising: either the intent a launch would use, or a refusal. */
+    internal sealed interface Prepared {
+        data class Ready(val intent: Intent, val fallbackUrl: String?) : Prepared
+
+        /** The unwrapped target must stay in the browser; only a web fallback remains. */
+        data class Refused(val fallbackUrl: String?) : Prepared
+    }
+
+    /**
+     * Builds the sanitized intent a launch would use, without launching it.
+     *
+     * The confirmation prompt resolves the target app from exactly this intent, so the name
+     * it shows and the app that opens cannot drift apart. Returns null when the URL is not a
+     * hand-off at all; a refused inner scheme is [Prepared.Refused] so its web fallback still
+     * works.
+     */
+    internal fun prepare(url: String): Prepared? {
         if (!UrlUtils.isExternalHandoff(url)) {
             Log.i(TAG, "scheme must stay in the browser: ${UrlUtils.schemeOf(url)}")
-            return Result.Rejected
+            return null
         }
 
-        val intent = parse(url) ?: return Result.Rejected
+        val intent = parse(url) ?: return null
         // Intent fallbacks are page-controlled data. Only ordinary web URLs may be
         // loaded here; accepting javascript:, data:, or content: would turn an absent
         // external app into a script/opaque-URL execution primitive.
@@ -66,8 +82,19 @@ object ExternalIntentHandler {
             !UrlUtils.isExternalHandoff("$targetScheme:")
         ) {
             Log.i(TAG, "intent target scheme must stay in the browser: $targetScheme")
-            return fallback?.let(Result::Fallback) ?: Result.Rejected
+            return Prepared.Refused(fallback)
         }
+        return Prepared.Ready(intent, fallback)
+    }
+
+    fun handle(context: Context, url: String): Result {
+        val prepared = prepare(url) ?: return Result.Rejected
+        val fallback = when (prepared) {
+            is Prepared.Ready -> prepared.fallbackUrl
+            is Prepared.Refused -> prepared.fallbackUrl
+        }
+        if (prepared !is Prepared.Ready) return fallback?.let(Result::Fallback) ?: Result.Rejected
+        val intent = prepared.intent
 
         if (intent.resolveActivity(context.packageManager)?.packageName == context.packageName) {
             return fallback?.let(Result::Fallback) ?: Result.Rejected

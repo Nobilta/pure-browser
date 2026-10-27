@@ -546,6 +546,8 @@
     <string name="recovery_details">技术详情</string>
     <string name="external_title">打开外部应用？</string>
     <string name="external_message">%1$s 请求通过 %2$s 打开其他应用。可在网站设置中修改选择。</string>
+    <string name="external_title_app">打开「%1$s」？</string>
+    <string name="external_message_app">%1$s 请求打开此应用。可在网站设置中修改选择。</string>
     <string name="external_apps">外部应用唤起</string>
     <string name="back_history">返回历史</string>
     <string name="back_history_empty">此标签没有之前的页面</string>

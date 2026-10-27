@@ -547,6 +547,8 @@
     <string name="recovery_details">Technical details</string>
     <string name="external_title">Open another app?</string>
     <string name="external_message">%1$s wants to open an app using %2$s. You can change this choice in site settings.</string>
+    <string name="external_title_app">Open “%1$s”?</string>
+    <string name="external_message_app">%1$s wants to open this app. You can change this choice in site settings.</string>
     <string name="external_apps">Open external apps</string>
     <string name="back_history">Back history</string>
     <string name="back_history_empty">No previous pages in this tab</string>

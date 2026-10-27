@@ -18,6 +18,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- WebView's browser WebAuthn mode supplies the website origin to CredentialManager. -->
     <uses-permission android:name="android.permission.CREDENTIAL_MANAGER_SET_ORIGIN" />
+    <!--
+      Package visibility (API 30+): the external-app prompt names the app a deep link is
+      about to open ("Open 中国银行?"), which needs queryIntentActivities on a scheme no
+      <queries> entry can enumerate. Launching does not need this permission; only naming
+      does. The inventory is read for that one lookup and never stored or sent anywhere.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -121,9 +128,9 @@
     </application>
 
     <!--
-      Package visibility (API 30+): resolving intent:// and custom-scheme handoffs needs
-      to know whether a target exists. Without this, queryIntentActivities returns empty
-      and every external-scheme link looks unhandled.
+      Package visibility (API 30+): WebView's file pickers and the default-browser checks
+      query camera, web and mail handlers. Custom app schemes are covered by
+      QUERY_ALL_PACKAGES above, because <queries> cannot wildcard a scheme.
     -->
     <queries>
         <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>
