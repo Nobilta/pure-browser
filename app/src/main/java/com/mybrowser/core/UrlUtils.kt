@@ -29,22 +29,25 @@ object UrlUtils {
     )
 
     /**
-     * Schemes handed to other apps via Intent. Anything not here and not in
-     * [INTERNAL_SCHEMES] is dropped rather than blindly launched, so a page cannot
-     * probe for installed apps or fire off arbitrary deep links.
+     * Schemes that must never leave the browser for another app, even though the WebView
+     * cannot render them either. Everything else is a handoff candidate: an allow-list of
+     * the schemes we happen to recognise silently swallows every other app's deep link.
+     * The per-site "open external apps" prompt, the user-gesture rule and
+     * [ExternalIntentHandler]'s sanitising are what make an arbitrary handoff safe, not the
+     * set of names below.
      */
-    private val EXTERNAL_SCHEME_ALLOWLIST = setOf(
-        "tel", "sms", "smsto", "mailto", "geo", "market",
-        "intent", "android-app",
-        // Payment and messaging handoffs common on Chinese sites.
-        "weixin", "alipays", "alipay", "mqq", "mqqapi", "tbopen", "taobao",
-        "openapp.jdmobile", "jdmobile", "pinduoduo", "bilibili", "zhihu",
-        "baiduboxapp", "sinaweibo", "snssdk1128", "kwai",
+    private val BLOCKED_HANDOFF_SCHEMES = setOf(
+        "chrome", "chrome-native", "devtools", "view-source", "resource", "ftp",
     )
 
-    /** Schemes an omnibar submission may navigate to directly. */
-    private val OMNIBAR_DIRECT_SCHEMES = setOf("http", "https", "about") +
-        EXTERNAL_SCHEME_ALLOWLIST
+    /**
+     * Opaque `scheme:payload` input the omnibar treats as a visit. App schemes in
+     * `scheme://…` form are visits too; these are the ones that normally have no authority
+     * part. A bare `word:word` stays a search, so typed prose is not launched by accident.
+     */
+    private val OPAQUE_HANDOFF_SCHEMES = setOf(
+        "tel", "sms", "smsto", "mailto", "geo", "market", "intent", "android-app",
+    )
 
     /**
      * Hosts that are valid without a dot. Without this, "localhost:8080" would be
@@ -74,7 +77,7 @@ object UrlUtils {
         if ((explicitScheme == "http" || explicitScheme == "https") && !isHttpUrl(text)) {
             return buildSearchUrl(text, searchTemplate)
         }
-        if ((explicitScheme == "about" || isAllowedExternalScheme(text)) && !hasOpaquePayload(text)) {
+        if (explicitScheme == "about" && !hasOpaquePayload(text)) {
             return buildSearchUrl(text, searchTemplate)
         }
         if (looksLikeInvalidHostPort(text)) {
@@ -86,7 +89,8 @@ object UrlUtils {
         // opaque values. Known direct schemes take precedence over the host:port carve-out
         // so mailto:1234 and tel:1234 remain opaque hand-offs rather than local hosts.
         if (HAS_SCHEME.containsMatchIn(text)) {
-            if (explicitScheme in OMNIBAR_DIRECT_SCHEMES) {
+            if (explicitScheme == "http" || explicitScheme == "https" ||
+                explicitScheme == "about" || isTypedHandoff(text)) {
                 return text
             }
             if (!isHostPortShape(text)) {
@@ -236,7 +240,7 @@ object UrlUtils {
 
     private fun isKnownOpaqueScheme(value: String): Boolean =
         value.substringBefore(':').lowercase(Locale.ROOT) in
-            (INTERNAL_SCHEMES + EXTERNAL_SCHEME_ALLOWLIST)
+            (INTERNAL_SCHEMES + OPAQUE_HANDOFF_SCHEMES)
 
     private fun isValidHostName(host: String): Boolean {
         val lower = host.lowercase(Locale.ROOT)
@@ -289,17 +293,47 @@ object UrlUtils {
 
     fun isInternalScheme(url: String): Boolean = schemeOf(url) in INTERNAL_SCHEMES
 
-    fun isAllowedExternalScheme(url: String): Boolean =
-        schemeOf(url) in EXTERNAL_SCHEME_ALLOWLIST
+    /**
+     * Whether a page may hand this URL to another app.
+     *
+     * Everything the WebView cannot render is a candidate except [BLOCKED_HANDOFF_SCHEMES]:
+     * an installed app's scheme is unknowable here, and refusing names we did not enumerate
+     * is what made every bank and local-service deep link disappear. Consent is the per-site
+     * prompt, not this list; [ExternalIntentHandler] still strips components, packages and
+     * URI grants before anything is launched.
+     */
+    fun isExternalHandoff(url: String): Boolean {
+        val text = url.trim()
+        if (!HAS_SCHEME.containsMatchIn(text)) return false
+        val scheme = schemeOf(text)
+        return scheme.isNotEmpty() &&
+            scheme !in INTERNAL_SCHEMES &&
+            scheme !in BLOCKED_HANDOFF_SCHEMES
+    }
+
+    /**
+     * Whether typed omnibar text is an app handoff rather than a search.
+     *
+     * `scheme://…` is accepted for any app scheme so a pasted deep link still opens the app,
+     * and a known opaque scheme must carry a payload. A bare `host:port` and prose such as
+     * `note:buy` stay on the web/search side.
+     */
+    fun isTypedHandoff(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() || it.isISOControl() }) return false
+        if (!isExternalHandoff(trimmed) || !hasOpaquePayload(trimmed)) return false
+        val scheme = schemeOf(trimmed)
+        return trimmed.substringAfter(':').startsWith("//") || scheme in OPAQUE_HANDOFF_SCHEMES
+    }
 
     /**
      * Whether raw omnibar text represents something the browser can visit directly.
      *
      * This deliberately mirrors the navigation policy in [MainActivity]: ordinary web
-     * URLs and allow-listed hand-off schemes are visits, while arbitrary opaque schemes
-     * (and strings that need a search engine) remain searches.  Keeping this decision next
-     * to [normalizeOrSearch] prevents the action label in the address bar from promising a
-     * direct visit when navigation would actually fall back to a search.
+     * URLs and app hand-offs in `scheme://…` form are visits, while unsafe or payload-less
+     * opaque values (and strings that need a search engine) remain searches.  Keeping this
+     * decision next to [normalizeOrSearch] prevents the action label in the address bar from
+     * promising a direct visit when navigation would actually fall back to a search.
      */
     fun isNavigableInput(input: String): Boolean {
         val text = input.trim()
@@ -310,7 +344,7 @@ object UrlUtils {
             when {
                 scheme == "http" || scheme == "https" -> return isHttpUrl(text)
                 scheme == "about" -> return hasOpaquePayload(text)
-                isAllowedExternalScheme(text) -> return hasOpaquePayload(text)
+                isTypedHandoff(text) -> return true
             }
 
             // A schemeless host with a port also matches HAS_SCHEME ("localhost:8080").

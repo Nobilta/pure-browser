@@ -3,6 +3,8 @@ package com.mybrowser.core
 import android.app.Application
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,28 +24,54 @@ class ExternalIntentHandlerTest {
     }
 
     @Test
-    fun `intent uri smuggling an unallowlisted inner scheme is rejected`() {
+    fun `intent uri keeps an app scheme but strips the page-chosen component and package`() {
+        Shadows.shadowOf(context).checkActivities(false)
         val result = ExternalIntentHandler.handle(
             context,
             "intent://scan/#Intent;scheme=evilapp;package=com.example.evil;end",
         )
-        assertEquals(ExternalIntentHandler.Result.Rejected, result)
+        assertEquals(ExternalIntentHandler.Result.Launched, result)
+        val started = Shadows.shadowOf(context).nextStartedActivity
+        assertEquals("evilapp", started.data?.scheme)
+        assertNull(started.component)
+        assertNull(started.`package`)
+        assertTrue(started.categories?.contains(android.content.Intent.CATEGORY_BROWSABLE) == true)
     }
 
     @Test
-    fun `intent uri with unallowlisted inner scheme uses valid http fallback`() {
+    fun `intent uri with a blocked inner scheme uses valid http fallback`() {
         val result = ExternalIntentHandler.handle(
             context,
-            "intent://scan/#Intent;scheme=evilapp;S.browser_fallback_url=https%3A%2F%2Fexample.com%2Finstall;end",
+            "intent://scan/#Intent;scheme=file;S.browser_fallback_url=https%3A%2F%2Fexample.com%2Finstall;end",
         )
         assertEquals(ExternalIntentHandler.Result.Fallback("https://example.com/install"), result)
     }
 
     @Test
+    fun `arbitrary app scheme is launched after sanitising`() {
+        Shadows.shadowOf(context).checkActivities(false)
+        val result = ExternalIntentHandler.handle(context, "bocmbankpsn://startwith/N26K365Mci")
+        assertEquals(ExternalIntentHandler.Result.Launched, result)
+        val started = Shadows.shadowOf(context).nextStartedActivity
+        assertEquals("bocmbankpsn://startwith/N26K365Mci", started.data.toString())
+        assertNull(started.component)
+        assertNull(started.`package`)
+    }
+
+    @Test
+    fun `blocked scheme is rejected without a fallback`() {
+        assertEquals(
+            ExternalIntentHandler.Result.Rejected,
+            ExternalIntentHandler.handle(context, "file:///sdcard/private.txt"),
+        )
+    }
+
+    @Test
     fun `intent uri with non-http fallback url ignores fallback`() {
+        // javascript: is a blocked inner scheme, and the page may only fall back to http(s).
         val result = ExternalIntentHandler.handle(
             context,
-            "intent://scan/#Intent;scheme=evilapp;S.browser_fallback_url=javascript%3Aalert(1);end",
+            "intent://scan/#Intent;scheme=javascript;S.browser_fallback_url=javascript%3Aalert(1);end",
         )
         assertEquals(ExternalIntentHandler.Result.Rejected, result)
     }

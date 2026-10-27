@@ -37,11 +37,27 @@ class NavigationPolicyTest {
     }
 
     @Test
-    fun `allowlisted opaque scheme is handed to another app`() {
+    fun `opaque hand-off scheme is handed to another app`() {
         assertEquals(
             NavigationTarget.External("mailto:user@example.com"),
             NavigationPolicy.resolve("mailto:user@example.com", engine),
         )
+    }
+
+    @Test
+    fun `app deep link is handed to another app instead of searched`() {
+        // Regression: a bank-app link used to be sent to the search engine because the
+        // scheme was not on the browser's fixed allow-list.
+        assertEquals(
+            NavigationTarget.External("bocmbankpsn://startwith/N26K365Mci"),
+            NavigationPolicy.resolve("bocmbankpsn://startwith/N26K365Mci", engine),
+        )
+    }
+
+    @Test
+    fun `blocked scheme cannot be turned into a hand-off`() {
+        assertTrue(NavigationPolicy.resolve("file:///sdcard/private.txt", engine) is NavigationTarget.Load)
+        assertTrue(NavigationPolicy.resolve("ftp://example.com/file", engine) is NavigationTarget.Load)
     }
 
     @Test
