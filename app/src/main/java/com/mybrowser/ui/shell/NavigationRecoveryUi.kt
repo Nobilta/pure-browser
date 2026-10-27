@@ -33,13 +33,25 @@ fun PageRecovery(failure: PageFailure, onRetry: () -> Unit, onHome: () -> Unit, 
     }
 }
 
+/**
+ * Consent for a page's hand-off to another app.
+ *
+ * [appLabel] is the resolved application name; when it is null the prompt falls back to the
+ * raw scheme, which is the only honest description of an unknown or ambiguous target.
+ */
 @Composable
-fun ExternalAppDialog(origin: String, scheme: String, privateSession: Boolean, onAnswer: (Boolean, Boolean) -> Unit) {
+fun ExternalAppDialog(
+    origin: String,
+    appLabel: String?,
+    scheme: String,
+    privateSession: Boolean,
+    onAnswer: (Boolean, Boolean) -> Unit,
+) {
     var rememberChoice by remember(origin, scheme) { mutableStateOf(false) }
     AlertDialog(onDismissRequest = { onAnswer(false, false) },
-        title = { Text(stringResource(R.string.external_title)) },
+        title = { Text(if (appLabel != null) stringResource(R.string.external_title_app, appLabel) else stringResource(R.string.external_title)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text(stringResource(R.string.external_message, origin, scheme))
+            Text(if (appLabel != null) stringResource(R.string.external_message_app, origin) else stringResource(R.string.external_message, origin, scheme))
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(rememberChoice, role = Role.Checkbox) { rememberChoice = it },
                 verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(rememberChoice, null)
