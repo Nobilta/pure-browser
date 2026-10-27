@@ -8,6 +8,9 @@
 (function () {
   var state = window.__pureReaderState;
   if (state && state.active) {
+    if (state.sheets && document.adoptedStyleSheets) {
+      document.adoptedStyleSheets = state.sheets;
+    }
     document.documentElement.innerHTML = state.html;
     if (state.title) document.title = state.title;
     window.__pureReaderState = null;
@@ -33,6 +36,7 @@
   var savedHtml = document.documentElement.innerHTML;
   var savedTitle = document.title;
   var savedScroll = window.scrollY || 0;
+  var savedSheets = document.adoptedStyleSheets ? document.adoptedStyleSheets.slice() : null;
   var escape = function (value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
@@ -44,9 +48,7 @@
     return escape(part);
   }).join(" · ");
 
-  var css = document.createElement("style");
-  css.id = "__pure_reader_css";
-  css.textContent =
+  var cssText =
     "html{background:#f6f6f4!important}body{margin:0!important;background:#f6f6f4!important}" +
     "#__pure_reader{max-width:42em;margin:0 auto;padding:24px 18px 64px;color:#1b1b1b;" +
     "font:18px/1.75 -apple-system,'Noto Serif SC','Songti SC',serif;overflow-wrap:break-word}" +
@@ -60,14 +62,36 @@
     "#__pure_reader .reader-body blockquote{margin:0 0 20px;padding-left:14px;border-left:3px solid #ccc;color:#555}" +
     "#__pure_reader .reader-body table{border-collapse:collapse;max-width:100%}" +
     "#__pure_reader .reader-body td,#__pure_reader .reader-body th{border:1px solid #ccc;padding:4px 8px}";
-  document.head.appendChild(css);
+
+  // A <style> element is an inline style and strict style-src policies block it. A
+  // constructed stylesheet is not inline, so it keeps the reader's typography on those
+  // sites; the <style> path stays for WebViews without constructable stylesheets.
+  if (savedSheets && typeof CSSStyleSheet === "function") {
+    try {
+      var sheet = new CSSStyleSheet();
+      sheet.replaceSync(cssText);
+      document.adoptedStyleSheets = savedSheets.concat([sheet]);
+    } catch (e) {
+      var css = document.createElement("style");
+      css.id = "__pure_reader_css";
+      css.textContent = cssText;
+      document.head.appendChild(css);
+    }
+  } else {
+    var css = document.createElement("style");
+    css.id = "__pure_reader_css";
+    css.textContent = cssText;
+    document.head.appendChild(css);
+  }
 
   document.body.innerHTML =
     '<main id="__pure_reader"><h1>' + escape(article.title || document.title) + "</h1>" +
     (meta ? '<p class="reader-meta">' + meta + "</p>" : "") +
     '<div class="reader-body">' + article.content + "</div></main>";
   if (article.title) document.title = article.title;
-  window.__pureReaderState = { active: true, html: savedHtml, title: savedTitle, scroll: savedScroll };
+  window.__pureReaderState = {
+    active: true, html: savedHtml, title: savedTitle, scroll: savedScroll, sheets: savedSheets
+  };
   window.scrollTo(0, 0);
   return "on";
 })();
