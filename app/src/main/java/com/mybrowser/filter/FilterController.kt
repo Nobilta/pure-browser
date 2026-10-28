@@ -11,13 +11,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
@@ -37,7 +37,6 @@ class FilterController(
     private val rebuildDebounceMs: Long = 80,
 ) {
 
-    private val blocked = AtomicInteger(0)
     private val _blockedCount = MutableStateFlow(0)
     private val closed = AtomicBoolean(false)
     private val rebuildGeneration = AtomicLong(0)
@@ -69,7 +68,6 @@ class FilterController(
     private var filter: NativeFilter? = null
 
     fun resetPageCount() {
-        blocked.set(0)
         _blockedCount.value = 0
     }
 
@@ -131,7 +129,7 @@ class FilterController(
         val hit = lock.read {
             filter?.shouldBlock(requestUrl, documentUrl, type) ?: false
         }
-        if (hit && countForPage) _blockedCount.value = blocked.incrementAndGet()
+        if (hit && countForPage) _blockedCount.update { it + 1 }
         return hit
     }
 

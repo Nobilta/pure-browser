@@ -11,6 +11,7 @@ import com.mybrowser.ui.settings.WebsitePermissionDialog
 import android.Manifest
 import android.app.ActivityManager
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentCallbacks2
@@ -132,6 +133,7 @@ import com.mybrowser.media.MediaPlaybackTracker
 import com.mybrowser.media.MediaTrackerRegistry
 import com.mybrowser.media.FullscreenVideoView
 import com.mybrowser.data.BrowserPreferences
+import com.mybrowser.data.ThemeMode
 import com.mybrowser.data.BrowserPreferencesRepository
 import com.mybrowser.core.PlaybackSpeed
 import com.mybrowser.search.SearchEngine
@@ -159,6 +161,7 @@ import com.mybrowser.download.DownloadHandler
 import com.mybrowser.download.DownloadSettings
 import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.data.Bookmark
+import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.HistoryEntry
 import com.mybrowser.ui.shell.BrowserScreen
 import com.mybrowser.ui.shell.ElementPickerState
@@ -1061,9 +1064,29 @@ class MainActivity : ComponentActivity(),
                             onClearAll = {
                                 dialogs.confirm(this, getString(R.string.bookmarks_clear),
                                     getString(R.string.bookmarks_clear_confirm)) { confirmed ->
-                                    if (confirmed) updateLibrary({ bookmarkManager.clearAll() }) {
-                                        bookmarkStatus.setKnown(state.currentUrl, false)
-                                        loadBookmarks()
+                                    if (confirmed) {
+                                        var folders = emptyList<BookmarkFolder>()
+                                        var bookmarks = emptyList<Bookmark>()
+                                        updateLibrary({
+                                            folders = bookmarkManager.getFolders()
+                                            bookmarks = bookmarkManager.getAllBookmarks()
+                                            bookmarkManager.clearAll()
+                                        }) {
+                                            bookmarkStatus.setKnown(state.currentUrl, false)
+                                            loadBookmarks()
+                                            snackbar(getString(R.string.bookmarks_cleared),
+                                                getString(R.string.action_undo)) {
+                                                updateLibrary({
+                                                    check(bookmarkManager.restoreSnapshot(folders, bookmarks)) {
+                                                        "bookmark snapshot restore failed"
+                                                    }
+                                                }) {
+                                                    refreshBookmarkStatus(state.currentUrl)
+                                                    loadBookmarks()
+                                                    toast(getString(R.string.bookmarks_restored))
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             },
@@ -2652,8 +2675,8 @@ class MainActivity : ComponentActivity(),
             snackbar(getString(R.string.bookmark_removed), getString(R.string.action_undo)) {
                 val bookmark = removed ?: return@snackbar
                 updateLibrary({
-                    if (bookmarkManager.restoreBookmark(bookmark) == -1L) {
-                        bookmarkManager.addBookmark(bookmark.title, bookmark.url, bookmark.faviconUrl)
+                    check(bookmarkManager.restoreBookmark(bookmark) != -1L) {
+                        "bookmark restore failed"
                     }
                 }) {
                     bookmarkStatus.setKnown(url, true)
@@ -2964,13 +2987,22 @@ class MainActivity : ComponentActivity(),
 
     private fun toggleReaderMode() {
         val view = webViewOrNull ?: return
-        ReaderMode.toggle(view) { outcome ->
+        ReaderMode.toggle(view, isDarkUi()) { outcome ->
             toast(getString(when (outcome) {
                 ReaderMode.Outcome.ENTERED -> R.string.reader_entered
                 ReaderMode.Outcome.EXITED -> R.string.reader_exited
                 ReaderMode.Outcome.UNSUPPORTED -> R.string.reader_unavailable
             }))
         }
+    }
+
+    /** Reader follows the app theme, including a forced light/dark preference. */
+    private fun isDarkUi(): Boolean = when (browserPreferences.theme) {
+        ThemeMode.SYSTEM ->
+            resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                Configuration.UI_MODE_NIGHT_YES
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
     }
 
     private fun printCurrentPage() {
@@ -2989,9 +3021,19 @@ class MainActivity : ComponentActivity(),
         when (externalGate.decide(activeSites.get(state.currentUrl).externalApps, hasGesture, isMainFrame,
             externalPrompt != null, SystemClock.elapsedRealtime())) {
             ExternalNavigationGate.Decision.OPEN -> launchExternalUrl(url)
-            ExternalNavigationGate.Decision.ASK -> externalPrompt = ExternalPrompt(
-                url, origin, permissionEpoch, ExternalTargets.labelOf(this, url),
-            )
+            ExternalNavigationGate.Decision.ASK -> {
+                // PackageManager resolution is a binder call. Show the prompt immediately (the
+                // scheme is already known) and fill the app name off the main thread; the
+                // identity check keeps a late result from replacing a newer prompt.
+                val prompt = ExternalPrompt(url, origin, permissionEpoch, appLabel = null)
+                externalPrompt = prompt
+                lifecycleScope.launch {
+                    val label = withContext(Dispatchers.IO) {
+                        ExternalTargets.labelOf(this@MainActivity, url)
+                    }
+                    if (externalPrompt === prompt) externalPrompt = prompt.copy(appLabel = label)
+                }
+            }
             ExternalNavigationGate.Decision.BLOCK -> Unit
         }
         return true

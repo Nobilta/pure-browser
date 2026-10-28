@@ -485,10 +485,11 @@ object SettingsBackupCodec {
                         preferencesObject.isNull("userAgent") -> BackupOptional.Present(null)
                         else -> {
                             val value = string(preferencesObject, "userAgent")
-                            if (value.length > SiteSettingsRepository.MAX_USER_AGENT ||
-                                value.any(Char::isISOControl)
-                            ) throw SettingsBackupException("Invalid site user agent")
-                            BackupOptional.Present(value.trim().ifEmpty { null })
+                            val normalized = SiteSettingsRepository.normalizeUserAgent(value)
+                            if (normalized == null && value.trim().isNotEmpty()) {
+                                throw SettingsBackupException("Invalid site user agent")
+                            }
+                            BackupOptional.Present(normalized)
                         }
                     },
                     videoFit = fit,

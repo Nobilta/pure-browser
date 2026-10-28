@@ -114,9 +114,7 @@ class SiteSettingsRepository private constructor(
                 it.copy(
                     textZoom = it.textZoom.coerceIn(50, 200),
                     desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024,
-                    userAgent = it.userAgent?.trim()?.takeIf { ua ->
-                        ua.isNotEmpty() && ua.length <= MAX_USER_AGENT && ua.none(Char::isISOControl)
-                    },
+                    userAgent = normalizeUserAgent(it.userAgent),
                 )
             }
             next[origin] = settings
@@ -221,6 +219,11 @@ class SiteSettingsRepository private constructor(
 
         /** Long enough for a real UA, short enough that a stored value cannot bloat the file. */
         const val MAX_USER_AGENT = 512
+
+        /** The one place that decides what counts as a stored user agent. */
+        fun normalizeUserAgent(raw: String?): String? = raw?.trim()?.takeIf { ua ->
+            ua.isNotEmpty() && ua.length <= MAX_USER_AGENT && ua.none(Char::isISOControl)
+        }
         private fun settingsFor(sites: Snapshot, url: String): SiteSettings {
             val desktopSite = DesktopSite.of(url)
             // Read legacy exact-origin records directly; no lossy migration or extra
@@ -247,8 +250,7 @@ class SiteSettingsRepository private constructor(
                         externalApps = runCatching { SitePermission.valueOf(entry.optString("externalApps")) }.getOrDefault(SitePermission.ASK),
                         webDarkening = entry.optBoolean("webDarkening", true),
                         desktopWidth = entry.optInt("desktopWidth", 1024).takeIf { it in DESKTOP_WIDTHS } ?: 1024,
-                        userAgent = entry.optString("userAgent").trim()
-                            .takeIf { it.isNotEmpty() && it.length <= MAX_USER_AGENT && it.none(Char::isISOControl) },
+                        userAgent = normalizeUserAgent(entry.opt("userAgent") as? String),
                         enhancedPlayback = entry.opt("enhancedPlayback") as? Boolean,
                         // A stored value the app cannot read is a value it must not act on; the
                         // page is better served by the source's own ratio than by a wrong crop.

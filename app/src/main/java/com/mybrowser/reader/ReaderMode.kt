@@ -9,8 +9,9 @@ import org.json.JSONTokener
  * In-page reader mode: Readability (Apache-2.0) plus our own presentation script.
  *
  * The article replaces the live document rather than opening a second one, so Back and the
- * address bar keep pointing at the article's own URL; exiting restores the saved markup.
- * A navigation drops the saved state with the document, which is why nothing is persisted.
+ * address bar keep pointing at the article's own URL; exiting swaps the original body node
+ * back, so listeners and form values survive. A navigation drops the saved state with the
+ * document, which is why nothing is persisted.
  */
 object ReaderMode {
 
@@ -18,14 +19,14 @@ object ReaderMode {
 
     @Volatile private var payload: String? = null
 
-    fun toggle(webView: WebView, onResult: (Outcome) -> Unit) {
+    fun toggle(webView: WebView, darkTheme: Boolean, onResult: (Outcome) -> Unit) {
         val url = webView.url
         if (url.isNullOrBlank() || !UrlUtils.isHttpUrl(url)) {
             onResult(Outcome.UNSUPPORTED)
             return
         }
         val script = payload ?: load(webView.context).also { payload = it }
-        webView.evaluateJavascript(script) { raw ->
+        webView.evaluateJavascript("window.__pureReaderDark = $darkTheme;\n$script") { raw ->
             onResult(
                 when (decodeString(raw)) {
                     "on" -> Outcome.ENTERED
