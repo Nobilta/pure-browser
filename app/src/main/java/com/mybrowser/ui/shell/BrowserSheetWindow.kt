@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -662,7 +661,7 @@ internal fun BrowserBottomSheet(
                     }
                     val sheetHost = LocalSnackbarHostState.current
                     sheetHost?.let { host ->
-                        SnackbarHost(
+                        SwipeDismissSnackbarHost(
                             hostState = host,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -714,7 +713,7 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
                 }) { content() }
             }
             LocalSnackbarHostState.current?.let { host ->
-                SnackbarHost(
+                SwipeDismissSnackbarHost(
                     hostState = host,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)

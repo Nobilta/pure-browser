@@ -240,5 +240,20 @@ class SiteSettingsTest {
 
         reloaded.update("https://ua.example.com") { it.copy(userAgent = "x".repeat(513)) }
         assertEquals(null, reloaded.get("https://ua.example.com").userAgent)
+
+        // A pasted line break is not a valid UA; it must not become a silent default either.
+        reloaded.update("https://ua.example.com") { it.copy(userAgent = "Line\nBreak") }
+        assertEquals(null, reloaded.get("https://ua.example.com").userAgent)
+    }
+
+    @Test fun aJsonNullUserAgentIsNotTheStringNull() {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().putString(
+            "sites",
+            """{"https://null.example.com":{"userAgent":null}}""",
+        ).commit())
+        val repo = SiteSettingsRepository(context)
+        assertNull(repo.get("https://null.example.com").userAgent)
     }
 }

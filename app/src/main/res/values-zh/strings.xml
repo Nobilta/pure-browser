@@ -486,6 +486,8 @@
     <string name="site_user_agent_custom">自定义…</string>
     <string name="site_user_agent_dialog">自定义浏览器标识</string>
     <string name="site_user_agent_hint">例如：Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
+    <string name="site_user_agent_priority">自定义 UA 在开启桌面版网站时仍然生效。</string>
+    <string name="site_user_agent_invalid">UA 不能包含换行或控制字符。</string>
     <string name="reader_mode">阅读模式</string>
     <string name="reader_entered">已进入阅读模式，再次点击可退出</string>
     <string name="reader_exited">已退出阅读模式</string>
@@ -634,6 +636,9 @@
     <string name="bookmarks_select">选择书签</string>
     <string name="bookmarks_root">书签根目录</string>
     <string name="bookmarks_selected">已选 %1$d 项</string>
+    <string name="bookmarks_deleted">已删除 %1$d 个书签</string>
+    <string name="bookmarks_cleared">已删除全部书签</string>
+    <string name="bookmarks_restored">已恢复书签</string>
     <string name="bookmarks_move">移动</string>
     <string name="bookmarks_move_to">移动到文件夹</string>
     <string name="bookmarks_move_up">上移</string>

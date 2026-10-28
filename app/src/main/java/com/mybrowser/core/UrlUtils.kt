@@ -202,11 +202,44 @@ object UrlUtils {
     private fun isIpv6Literal(value: String): Boolean {
         if (!value.startsWith('[') || !value.endsWith(']')) return false
         val body = value.substring(1, value.length - 1)
-        val groups = body.split(':')
-        return groups.size in 3..8 &&
-            (groups.size == 8 || groups.any { it.isEmpty() }) && groups.all { group ->
-            group.isEmpty() ||
-                (group.length <= 4 && group.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' })
+        // Zone IDs (`%25wlan0`) are not accepted by Chromium in a URL either.
+        if (body.isEmpty() || body.contains('%') || body.contains(":::")) return false
+        val compressed = body.indexOf("::")
+        if (compressed >= 0 && body.indexOf("::", compressed + 2) >= 0) return false
+        val groups: List<String>
+        var hasIpv4Tail = false
+        if (compressed >= 0) {
+            val left = body.substring(0, compressed)
+            val right = body.substring(compressed + 2)
+            val leftGroups = if (left.isEmpty()) emptyList() else left.split(':')
+            val rightGroups = if (right.isEmpty()) emptyList() else right.split(':')
+            groups = leftGroups + rightGroups
+        } else {
+            groups = body.split(':')
+        }
+        if (groups.isEmpty()) return compressed >= 0
+        groups.forEachIndexed { index, group ->
+            if (group.isEmpty()) return false
+            val isTail = index == groups.lastIndex
+            if (isTail && group.contains('.')) {
+                if (!isIpv4Literal(group)) return false
+                hasIpv4Tail = true
+            } else if (group.length > 4 || group.any {
+                    !it.isDigit() && it.lowercaseChar() !in 'a'..'f'
+                }) {
+                return false
+            }
+        }
+        val units = groups.size + if (hasIpv4Tail) 1 else 0
+        return if (compressed >= 0) units <= 7 else units == 8
+    }
+
+    private fun isIpv4Literal(value: String): Boolean {
+        val parts = value.split('.')
+        if (parts.size != 4) return false
+        return parts.all { part ->
+            part.isNotEmpty() && part.length <= 3 && part.all(Char::isDigit) &&
+                part.toIntOrNull()?.let { it in 0..255 } == true
         }
     }
 

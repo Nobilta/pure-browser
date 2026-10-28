@@ -114,29 +114,86 @@ class BookmarkManager(context: Context) {
         ).use { cursor -> if (cursor.moveToFirst()) cursor.toBookmark() else null }
     }
 
-    /** Puts back a row removed moments ago, keeping its folder, order and creation time. */
+    /**
+     * Puts back a row removed moments ago, keeping its folder, order and creation time when
+     * that folder still exists. If the folder was deleted in the meantime the row returns to
+     * the root rather than becoming an orphan the folder UI cannot show. A URL that was added
+     * again in the window is updated in place instead of failing the undo.
+     */
     @Synchronized
     fun restoreBookmark(bookmark: Bookmark): Long {
         if (closed) return -1L
         return try {
-            val values = ContentValues().apply {
-                put("title", bookmark.title)
-                put("url", bookmark.url)
-                put("host", SearchKey.host(bookmark.url))
-                if (bookmark.faviconUrl == null) putNull("favicon_url")
-                else put("favicon_url", bookmark.faviconUrl)
-                put("created_at", bookmark.createdAt)
-                put("folder_id", bookmark.folderId)
-                put("position", bookmark.position)
-            }
-            db.writableDatabase.insertWithOnConflict(
-                "bookmarks", null, values, SQLiteDatabase.CONFLICT_IGNORE,
-            )
+            db.writableDatabase.transaction { restoreBookmarkLocked(this, bookmark) }
         } catch (error: RuntimeException) {
             Log.w(TAG, "Unable to restore bookmark", error)
             -1L
         }
     }
+
+    /**
+     * Undo for "clear all": folders keep their ids so restored bookmarks land in the same
+     * places, and bookmarks are inserted in one transaction with the rest of their row.
+     */
+    @Synchronized
+    fun restoreSnapshot(folders: List<BookmarkFolder>, bookmarks: List<Bookmark>): Boolean {
+        if (closed) return false
+        return try {
+            db.writableDatabase.transaction {
+                folders.forEach { folder ->
+                    val values = ContentValues().apply {
+                        put("id", folder.id)
+                        put("parent_id", folder.parentId)
+                        put("title", folder.title)
+                        put("position", folder.position)
+                    }
+                    insertWithOnConflict(
+                        "bookmark_folders", null, values, SQLiteDatabase.CONFLICT_IGNORE,
+                    )
+                }
+                bookmarks.forEach { restoreBookmarkLocked(this, it) }
+            }
+            true
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Unable to restore bookmark snapshot", error)
+            false
+        }
+    }
+
+    private fun restoreBookmarkLocked(database: SQLiteDatabase, bookmark: Bookmark): Long {
+        val folderId = bookmark.folderId.takeIf { it == 0L || folderExists(database, it) } ?: 0L
+        val position = if (folderId == bookmark.folderId) {
+            bookmark.position
+        } else {
+            nextPosition(database, "bookmarks", "folder_id", folderId)
+        }
+        val values = ContentValues().apply {
+            put("title", bookmark.title)
+            put("url", bookmark.url)
+            put("host", SearchKey.host(bookmark.url))
+            if (bookmark.faviconUrl == null) putNull("favicon_url")
+            else put("favicon_url", bookmark.faviconUrl)
+            put("created_at", bookmark.createdAt)
+            put("folder_id", folderId)
+            put("position", position)
+        }
+        val existing = findId(database, bookmark.url)
+        return if (existing > 0L) {
+            database.update("bookmarks", values, "id = ?", arrayOf(existing.toString()))
+            existing
+        } else {
+            val inserted = database.insertWithOnConflict(
+                "bookmarks", null, values, SQLiteDatabase.CONFLICT_IGNORE,
+            )
+            if (inserted != -1L) inserted else findId(database, bookmark.url)
+        }
+    }
+
+    private fun folderExists(database: SQLiteDatabase, id: Long): Boolean =
+        database.query(
+            "bookmark_folders", arrayOf("id"), "id = ?", arrayOf(id.toString()),
+            null, null, null, "1",
+        ).use { it.moveToFirst() }
 
     /** Removes a bookmark by URL. */
     @Synchronized

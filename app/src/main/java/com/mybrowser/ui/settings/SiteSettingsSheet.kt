@@ -112,6 +112,8 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
+                Text(stringResource(R.string.site_user_agent_priority), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SiteToggle(stringResource(R.string.site_web_darkening), draft.webDarkening, !busy) { draft = draft.copy(webDarkening = it) }
                 SiteToggle(stringResource(R.string.site_enhanced_playback), draft.useEnhancedPlayback(defaultEnhancedPlayback), !busy) {
                     draft = draft.copy(enhancedPlayback = it)
@@ -173,30 +175,39 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 TextButton(onClick = { confirmReset = true }, enabled = !busy && !needsRepair) { Text(stringResource(R.string.site_reset)) }
                 if (onClearSiteData != null) TextButton(onClick = onClearSiteData, enabled = !busy) { Text(stringResource(R.string.clear_this_site)) }
             }
-            if (editingUserAgent) AlertDialog(
+            if (editingUserAgent) {
+                val invalidUserAgent = userAgentDraft.any(Char::isISOControl)
+                AlertDialog(
                 onDismissRequest = { editingUserAgent = false },
                 title = { Text(stringResource(R.string.site_user_agent_dialog)) },
                 text = {
                     OutlinedTextField(
                         value = userAgentDraft,
                         onValueChange = { userAgentDraft = it.take(SiteSettingsRepository.MAX_USER_AGENT) },
-                        singleLine = false,
-                        minLines = 2,
+                        singleLine = true,
+                        isError = invalidUserAgent,
+                        supportingText = if (invalidUserAgent) {
+                            { Text(stringResource(R.string.site_user_agent_invalid)) }
+                        } else null,
                         placeholder = { Text(stringResource(R.string.site_user_agent_hint)) },
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        draft = draft.copy(
-                            userAgent = userAgentDraft.trim().takeIf { it.isNotEmpty() },
-                        )
-                        editingUserAgent = false
-                    }) { Text(stringResource(R.string.action_confirm)) }
+                    TextButton(
+                        enabled = !invalidUserAgent,
+                        onClick = {
+                            draft = draft.copy(
+                                userAgent = SiteSettingsRepository.normalizeUserAgent(userAgentDraft),
+                            )
+                            editingUserAgent = false
+                        },
+                    ) { Text(stringResource(R.string.action_confirm)) }
                 },
                 dismissButton = {
                     TextButton(onClick = { editingUserAgent = false }) { Text(stringResource(R.string.action_cancel)) }
                 },
             )
+            }
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.weight(1f).fillMaxHeight()) { Text(stringResource(R.string.action_cancel)) }
                 Button(onClick = { onSave(mergeSiteDraft(initial, draft, settings)) },

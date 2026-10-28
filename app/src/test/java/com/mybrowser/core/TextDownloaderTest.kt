@@ -12,6 +12,7 @@ class TextDownloaderTest {
     @Test fun urlValidationRejectsCredentialsSchemesWhitespaceAndFragments() {
         assertTrue(TextDownloader.isHttpUrl("https://example.com/list.txt?key=abc"))
         assertTrue(TextDownloader.isHttpUrl("http://127.0.0.1:8875/list.txt"))
+        assertTrue(TextDownloader.isHttpUrl("http://[::ffff:192.0.2.1]/list.txt"))
         for (url in listOf("file:///tmp/list", "https://user:pass@example.com/list", "https://example.com/a b", "https://example.com/list#fragment")) {
             assertFalse(url, TextDownloader.isHttpUrl(url))
         }
