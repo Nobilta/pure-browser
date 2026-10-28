@@ -287,6 +287,10 @@ class UrlUtilsTest {
         assertTrue(UrlUtils.isHttpUrl("HTTPS://EXAMPLE.COM/path"))
         assertFalse(UrlUtils.isHttpUrl("https://"))
         assertFalse(UrlUtils.isHttpUrl("https:example.com"))
+        assertFalse(UrlUtils.isHttpUrl(" https://example.com"))
+        assertFalse(UrlUtils.isHttpUrl("https://example.com "))
+        assertFalse(UrlUtils.isHttpUrl("https://../"))
+        assertFalse(UrlUtils.isHttpUrl("https://%/"))
     }
 
     @Test

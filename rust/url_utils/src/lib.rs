@@ -46,6 +46,8 @@ pub extern "system" fn Java_com_mybrowser_data_BookmarkHtml_nativeParse(
         .unwrap_or(std::ptr::null_mut())
 }
 
+const FORBIDDEN_HOST_CHARS: &[char] = &['\\', '<', '>', '"', '^', '`', '{', '}', '|'];
+
 pub(crate) fn is_valid_http_url(value: &str) -> bool {
     let Some((scheme, rest)) = value.split_once("://") else {
         return false;
@@ -75,12 +77,25 @@ pub(crate) fn is_valid_http_url(value: &str) -> bool {
     if colon_count > 1 {
         return false;
     }
-    if colon_count == 1 {
+    let (host, port) = if colon_count == 1 {
         let (host, port) = without_user.split_once(':').unwrap_or_default();
-        !host.is_empty() && valid_port(port)
+        if !valid_port(port) {
+            return false;
+        }
+        (host, true)
     } else {
-        !without_user.is_empty()
+        (without_user, false)
+    };
+    let _ = port;
+    if host.is_empty()
+        || host == "."
+        || host == ".."
+        || host.contains('%')
+        || host.chars().any(|c| FORBIDDEN_HOST_CHARS.contains(&c))
+    {
+        return false;
     }
+    true
 }
 
 fn valid_port(value: &str) -> bool {
@@ -94,13 +109,62 @@ fn valid_port(value: &str) -> bool {
 }
 
 fn is_ipv6_literal(value: &str) -> bool {
-    let groups = value.split(':').collect::<Vec<_>>();
-    groups.len() >= 3
-        && groups.len() <= 8
-        && (groups.len() == 8 || groups.iter().any(|group| group.is_empty()))
-        && value.contains(':')
-        && groups.iter().all(|group| {
-            group.is_empty() || (group.len() <= 4 && group.chars().all(|c| c.is_ascii_hexdigit()))
+    if value.is_empty() || value.contains('%') || value.contains(":::") {
+        return false;
+    }
+    let compressed = value.find("::");
+    if let Some(index) = compressed {
+        if value[index + 2..].contains("::") {
+            return false;
+        }
+    }
+    let groups: Vec<&str> = if let Some(index) = compressed {
+        let left = &value[..index];
+        let right = &value[index + 2..];
+        let mut groups = Vec::new();
+        if !left.is_empty() {
+            groups.extend(left.split(':'));
+        }
+        if !right.is_empty() {
+            groups.extend(right.split(':'));
+        }
+        groups
+    } else {
+        value.split(':').collect()
+    };
+    if groups.is_empty() {
+        return compressed.is_some();
+    }
+    let mut has_ipv4_tail = false;
+    for (index, group) in groups.iter().enumerate() {
+        if group.is_empty() {
+            return false;
+        }
+        if index == groups.len() - 1 && group.contains('.') {
+            if !is_ipv4_literal(group) {
+                return false;
+            }
+            has_ipv4_tail = true;
+        } else if group.len() > 4 || !group.chars().all(|c| c.is_ascii_hexdigit()) {
+            return false;
+        }
+    }
+    let units = groups.len() + usize::from(has_ipv4_tail);
+    if compressed.is_some() {
+        units <= 7
+    } else {
+        units == 8
+    }
+}
+
+fn is_ipv4_literal(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    parts.len() == 4
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.len() <= 3
+                && part.chars().all(|c| c.is_ascii_digit())
+                && part.parse::<u16>().map(|n| n <= 255).unwrap_or(false)
         })
 }
 
@@ -114,5 +178,12 @@ mod tests {
         assert!(!is_valid_http_url("https://example.com/path with space"));
         assert!(!is_valid_http_url("https://example.com/path\u{0007}"));
         assert!(!is_valid_http_url("https://example.com/path\u{007f}"));
+        assert!(!is_valid_http_url(" https://example.com"));
+        assert!(!is_valid_http_url("https://example.com "));
+        assert!(is_valid_http_url("http://[::ffff:192.0.2.1]/list.txt"));
+        assert!(is_valid_http_url("http://[2001:db8::192.0.2.1]/"));
+        assert!(!is_valid_http_url("http://[::ffff:999.0.0.1]/"));
+        assert!(!is_valid_http_url("https://bad|host/"));
+        assert!(!is_valid_http_url("https://../"));
     }
 }

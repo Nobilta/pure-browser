@@ -3,6 +3,28 @@
 按发布时间记录主要变化。旧条目描述当时的功能，当前使用方法见[功能介绍](FEATURES.md)；
 安装包和版本说明见 [GitHub Releases](https://github.com/Nobilta/pure-browser/releases)。
 
+## 0.17.2 - 2026-10-28
+
+第二轮评审修复：
+
+- **导入设置**：未列出的站点同时重置 `userAgent`，不再留下无法被默认值清理的覆盖。
+- **书签导出**：历史遗留的孤儿 `folder_id` 在导出时回到根目录，而不是让整份导出断言失败；
+  撤销恢复继续保证文件夹存在或回退根目录。
+- **页面文件下载**：失败标记改为在写锁内读取；`failPageFile` 先记录再尝试锁，
+  避免泵协程提前读取后把失败任务发布为 COMPLETED，或把标记永久残留。
+- **URL 校验**：Kotlin 不再 trim 后校验，拒绝首尾空白、`.`/`..`/含 `%` 的主机；
+  Rust 书签解析同步禁止字符与 IPv4 嵌入 IPv6，避免 Rust 放行后 Kotlin 断言导致整份导入失败。
+- **外跳**：弹确认框前先 `prepare()`，`file:` 等被拒目标不再询问；`intent://` 内层
+  http(s) 留在当前 WebView；应用名取 Application label 而不是 Activity label。
+- **阅读模式**：先构建正文再改样式，Trusted Types 拒绝 `innerHTML` 时干净退出、不污染页面；
+  临时禁用站点样式表并在退出恢复；Readability 首次在 IO 读取并缓存，注入标记后退出/再入
+  只发送小型控制器。
+- **Material 3 细节**：恢复禁用行的 `disabled`/Role/ToggleableState 语义；站点设置的开关行
+  使用 0 内部边距，消除 36dp 双重缩进；Snackbar 按实际底栏高度定位，并避让查找栏、
+  地址栏收起、FAB、翻译条和元素选择条。
+- **过滤列表**：读取时只校验一次并把规则数带入初始化，不再对 MB 级快照重复
+  `FilterListFormat.validate`。
+
 ## 0.17.1 - 2026-10-28
 
 修复 0.17.0 评审中确认的问题：

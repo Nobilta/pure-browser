@@ -147,6 +147,7 @@ class SiteSettingsRepository private constructor(
                     filtering = true, javaScript = true, images = true, thirdPartyCookies = true,
                     desktop = false, textZoom = 100, webDarkening = true, desktopWidth = 1024,
                     enhancedPlayback = null, videoMirror = null, videoFit = null,
+                    userAgent = null,
                 )
             }.toMutableMap()
             migratable.forEach { (origin, transform) ->
