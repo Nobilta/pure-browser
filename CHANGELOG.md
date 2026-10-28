@@ -3,6 +3,31 @@
 按发布时间记录主要变化。旧条目描述当时的功能，当前使用方法见[功能介绍](FEATURES.md)；
 安装包和版本说明见 [GitHub Releases](https://github.com/Nobilta/pure-browser/releases)。
 
+## 0.17.3 - 2026-10-28
+
+第三轮评审修复：
+
+- **外跳**：`Prepared.Refused` 的 fallback 也经过 `ExternalNavigationGate`；子框架无手势或站点
+  拒绝时不会再直接把顶层页面导航到页面提供的 URL。
+- **批量删除撤销**：改由 Activity 持有 Snackbar 和恢复逻辑，关闭书签面板不会取消撤销；
+  删除/恢复改用 `updateLibrary`，不受书签库 `busy` 静默丢弃；删除前按 id 批量读取完整记录，
+  跨页选择也能恢复；批量路径同样刷新当前页书签状态并提示「已恢复」。
+- **清空全部撤销**：`restoreSnapshot` 在事务内校验文件夹上限，撤销期间新建文件夹导致超过 256 时
+  整体回滚，不会把目录表写坏。
+- **URL 校验**：Rust 禁止非 IPv6 主机包含 `[`/`]`；两端都拒绝 `[1.2.3.4::]`（IPv4 必须在末尾）；
+  简化 Rust 端口变量，补双端允许/拒绝用例。
+- **页面文件**：`failPageFile` 统一 `computeIfAbsent` 取写锁，消除 null 分支与完成收尾的无锁并发；
+  锁被占用时安排一次加锁清理，移除可能残留的失败标记；发布后到达的失败会清空 `destinationUri`
+  并按 FAILED 收尾。
+- **阅读模式注入**：不再依赖独立布尔标记，直接检查 `window.__pureReaderReady`（由我们注入的
+  Readability 设置）；异步读取和最终注入都校验当前 URL，页面切换后不会把控制器注入新文档。
+- **阅读模式保留页面树**：不再替换整个 `<body>`，而是隐藏原 body 子节点并在同一 body 中追加
+  文章；iframe 及其内部文档、草稿输入和监听器不因进出阅读模式被重建。
+- **无障碍/手势**：禁用行语义使用 `mergeDescendants = true`；Snackbar 的拖拽 offset 与当前
+  提示绑定，提示替换或超时后不会把新提示误关。
+- **清理**：移除 SettingsComponents/MenuSheet 未使用 import；CHANGELOG 补充后台 Toast 例外；
+  THIRD_PARTY_NOTICES 固定 Readability 上游 commit 与 SHA-256；根目录只保留最新 APK。
+
 ## 0.17.2 - 2026-10-28
 
 第二轮评审修复：
@@ -55,7 +80,8 @@
 - **反馈改为 Snackbar**：应用内提示不再用系统 Toast，而是显示在底栏上方的 M3 Snackbar；
   带操作的提示停留 10 秒，可左右滑走。删除书签后提供「撤销」，恢复到原文件夹与顺序。
   设置、书签、下载等弹层有自己的窗口，弹层内的 Snackbar 显示在弹层底部；弹层关闭后
-  同一条 Snackbar 会接着显示在页面上，不丢失。
+  同一条 Snackbar 会接着显示在页面上，不丢失。例外：后台下载完成仍走系统 Toast，
+  Activity 不在前台时应用内提示也会回退 Toast。
 - **底部面板加 M3 拖拽把手**：32×4dp 的可见把手出现在菜单、标签页、站点设置、下载等
   非全屏面板顶部；拖拽、返回和 scrim 行为不变。
 - **菜单/设置行统一为 M3 ListItem**：单行 56dp、双行 72dp，24dp 前置图标，

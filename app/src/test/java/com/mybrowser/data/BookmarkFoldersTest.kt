@@ -70,6 +70,18 @@ class BookmarkFoldersTest {
         } finally { manager.close() }
     }
 
+    @Test fun restoringASnapshotRefusesToExceedTheFolderLimit() {
+        val manager = BookmarkManager(RuntimeEnvironment.getApplication())
+        try {
+            val folders = (1..(BookmarkFolders.MAX_FOLDERS + 1)).map {
+                BookmarkFolder(id = it.toLong(), parentId = 0, title = "F$it")
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                manager.restoreSnapshot(folders, emptyList())
+            }
+        } finally { manager.close() }
+    }
+
     @Test fun restoringIntoADeletedFolderFallsBackToRoot() {
         val manager = BookmarkManager(RuntimeEnvironment.getApplication())
         try {

@@ -1,42 +1,41 @@
-## 0.17.2 验证范围
+## 0.17.3 验证范围
 
-被测产物：`PureBrowser-v0.17.2-release.apk`（versionCode 62），本地签名 Release。
-SHA-256：`1f1e3ed5024da77b2cf1c1d5e0ed1499ab77df49b54afa765935db5fe9c8a591`。
+被测产物：`PureBrowser-v0.17.3-release.apk`（versionCode 63），本地签名 Release。
+SHA-256：`e978067c64d0e6e6fa37a5f9ed1f2b5f2d2d79906ca031ccb4731c95fa71e8c4`。
 
 设备：`emulator-5554`，Android 17 / API 37、arm64-v8a，WebView 145.0.7632.218。
 
-第二轮评审修复：
+第三轮评审修复：
 
-- **导入设置**：未列出的站点重置 `userAgent`，不会再留下无法被默认值清理的覆盖。
-- **书签导出**：孤儿 `folder_id` 在导出时回到根目录，导出不再整份失败；撤销仍校验文件夹。
-- **页面文件失败竞态**：失败标记先记录，并在 `onPageFileFinished` 的写锁内读取；
-  泵协程不再提前消费标记，也不会把失败任务发布为 COMPLETED。
-- **URL 校验一致性**：Kotlin 去掉 trim 放宽，拒绝首尾空白与 `.`/`..`/`%` 主机；
-  Rust 同步禁止字符和 IPv4 嵌入 IPv6，书签导入不会因 Rust 放行、Kotlin 拒绝而整份失败。
-- **外跳**：确认框前先 `prepare()`，被拒目标不弹窗；`intent://` 内层 http(s) 留在当前
-  WebView；应用名取 Application label；应用名查询仍在 IO。
-- **阅读模式**：先构建正文再改样式，Trusted Types 拒绝时干净退出；临时禁用站点样式并在
-  退出恢复；Readability 首次在 IO 读取并缓存，注入标记后只发送小型控制器。
-- **Material 3 细节**：恢复禁用行 `disabled`/Role/ToggleableState 语义；站点设置开关
-  0 内部边距，消除 36dp 双缩进；Snackbar 依据实际底栏高度定位并避让查找栏、地址栏收起、
-  FAB、翻译条和元素选择条。
-- **过滤列表**：初始化只校验一次并复用规则数，不再重复校验 MB 级 payload。
+- **外跳 fallback**：`Prepared.Refused` 的 fallback 也先过 `ExternalNavigationGate`；
+  无手势子框架或站点拒绝时不会直接导航顶层页面。
+- **批量删除撤销**：移到 Activity 持有；关闭书签面板不会取消撤销；用 `updateLibrary`
+  而不是会因 busy 静默返回的 `library.mutate`；删除前按 id 批量读取（分块绕开 SQLite
+  参数上限），跨页选择也能恢复；批量删除/撤销都刷新当前页书签状态。
+- **清空全部撤销**：事务内校验文件夹上限，撤销期间新建文件夹导致超限时整体回滚。
+- **URL**：Rust 禁止非 IPv6 主机含 `[`/`]`；两端拒绝 `[1.2.3.4::]`；补 parity 用例。
+- **页面文件**：`failPageFile` 统一 `computeIfAbsent` 写锁；锁被占时的清理协程保证
+  失败标记不残留、锁不泄漏；发布后到达的失败清空 `destinationUri` 并 FAILED 收尾。
+- **阅读模式**：用 `window.__pureReaderReady` 检查我们注入的 Readability；异步读取和最终
+  注入都校验 URL，导航后不会把控制器注入新文档。保留原 `<body>` 树并隐藏旧子节点，
+  iframe 内部文档/草稿不因进出阅读模式重建。
+- **无障碍/手势**：禁用行 `mergeDescendants = true`；Snackbar offset 随当前提示重置，
+  不会误关替换后的提示。
+- **卫生**：清理未使用 import；CHANGELOG 补 Toast 例外；THIRD_PARTY_NOTICES 固定
+  Readability commit `ab4027a…` 与 SHA-256；根目录只保留最新 APK。
 
 验证：
 
-- 强制重跑 JVM 单测：680 项全部通过；`lintDebug` 通过；`assembleRelease` 与签名校验通过。
-- 模拟器实测：
-  - 阅读模式输入 `hello`、计数 `clicked 1`，进出后输入保留、按钮继续累加到 `clicked 2`；
-  - Trusted Types 页面提示不支持，页面仍是原来的白底，没有残留阅读样式；
-  - 站点设置开关与说明文本左边缘对齐；
-  - Snackbar 横向滑动关闭；
-  - 设置导入对未列出站点 UA 的重置、书签孤儿导出、外跳 intent 测试均有单测覆盖。
-- 新增截图：`outputs/validation/0.17.2-site-settings.png`、
-  `0.17.2-reader-trusted-types.png`；阅读浅色/深色见 0.17.1 截图。
+- 682 个 JVM 单测全部通过；`lintDebug` 通过；`assembleRelease` 与签名校验通过。
+- 既有 API 37 回归仍有效：阅读模式输入/监听器保留、Trusted Types 页面不被污染、
+  站点设置 20dp 对齐、Snackbar 滑动关闭。
+- 本轮新增单测：外跳 web intent 留在当前 WebView、Rust 放行的方括号主机被跳过、
+  孤儿书签导出、文件夹上限回滚、批量恢复查询。
 
 未覆盖：
 
-- 页面文件失败竞态只有代码路径和既有单测覆盖，没有专门的并发复现测试；
-- 平板/折叠屏 P1 自适应布局未实现；
-- TalkBack 手工走查、200% 字体、横屏、Snackbar 与所有悬浮条组合未逐项截图；
-- `QUERY_ALL_PACKAGES` 仍为 lint 抑制，Play 分发需申报。
+- 外跳 fallback 的 gate 分支没有专门 UI/跨框架测试，只有代码路径与既有 gate 单测；
+- 页面文件失败与完成收尾的并发窗口没有专门并发复现测试；
+- 批量删除/清空全部撤销的 UI 流程没有逐项截图；
+- 平板/折叠屏 P1 自适应仍未实现；Play 的 `QUERY_ALL_PACKAGES` 申报仍未验证；
+- 本地 `main` 落后、远端 tag/Release 未创建，属于发布操作，未擅自执行。

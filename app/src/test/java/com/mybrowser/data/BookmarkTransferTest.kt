@@ -53,6 +53,12 @@ class BookmarkTransferTest {
         assertTrue(html.endsWith("</DL><p>\n"))
     }
 
+    @Test fun aBracketedHostIsSkippedByTheRustParserNotRejectedAfterwards() {
+        val parsed = BookmarkHtml.parse("<A HREF='https://a[b]/'>Bad</A>")
+        assertTrue(parsed.entries.isEmpty())
+        assertEquals(1, parsed.skipped)
+    }
+
     @Test fun anOrphanedFolderIdIsExportedAtTheRootInsteadOfFailing() {
         val html = BookmarkHtml.encode(
             listOf(Bookmark(title = "Orphan", url = "https://orphan.test", folderId = 999L, position = 7L)),

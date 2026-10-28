@@ -1,10 +1,9 @@
 /*
  * Reader mode controller, paired with readability.js (Apache-2.0).
  *
- * Runs as a single evaluateJavascript payload after Readability is defined. It swaps the
- * original <body> node for an article body and swaps the node back on exit. Keeping the node
- * instead of an innerHTML snapshot preserves listeners, input values and script-held
- * references; only the presentation changes while reader mode is active.
+ * Runs as a single evaluateJavascript payload after Readability is defined. It hides the
+ * original body children and appends the article to the same body, so the page tree (including
+ * iframes and their documents) stays alive; only the presentation changes.
  *
  * window.__pureReaderDark is set by ReaderMode before this payload, so the article follows the
  * app's light/dark theme (including when the page CSS would otherwise force a white page).
@@ -24,9 +23,8 @@
     if (state.sheets && document.adoptedStyleSheets) {
       document.adoptedStyleSheets = state.sheets;
     }
-    if (state.body && document.body !== state.body) {
-      document.documentElement.replaceChild(state.body, document.body);
-    }
+    if (state.reader && state.reader.parentNode) state.reader.parentNode.removeChild(state.reader);
+    if (document.body) document.body.classList.remove("__pure_reader_active");
     if (state.title) document.title = state.title;
     window.__pureReaderState = null;
     window.scrollTo(0, state.scroll || 0);
@@ -71,15 +69,16 @@
     return escape(part);
   }).join(" · ");
 
-  // Build the article body before touching any document-level state. A Trusted Types policy can
+  // Build the article before touching any document-level state. A Trusted Types policy can
   // reject this innerHTML assignment; if it does, returning "empty" must leave the page exactly
   // as it was, not half-switched with reader CSS applied.
-  var readerBody = document.createElement("body");
+  var reader = document.createElement("main");
+  reader.id = "__pure_reader";
   try {
-    readerBody.innerHTML =
-      '<main id="__pure_reader"><h1>' + escape(article.title || document.title) + "</h1>" +
+    reader.innerHTML =
+      "<h1>" + escape(article.title || document.title) + "</h1>" +
       (meta ? '<p class="reader-meta">' + meta + "</p>" : "") +
-      '<div class="reader-body">' + article.content + "</div></main>";
+      '<div class="reader-body">' + article.content + "</div>";
   } catch (e) {
     return "empty";
   }
@@ -87,6 +86,11 @@
   var cssText =
     "html{background:" + bg + "!important;color-scheme:" + (dark ? "dark" : "light") + "!important}" +
     "body{margin:0!important;background:" + bg + "!important}" +
+    // Hide, do not detach: an iframe keeps its nested document only while it stays in the
+    // document. display:none removes the old layout; visibility:hidden also covers text nodes.
+    "body.__pure_reader_active{display:block!important;visibility:hidden!important}" +
+    "body.__pure_reader_active > :not(#__pure_reader){display:none!important}" +
+    "body.__pure_reader_active #__pure_reader{visibility:visible!important}" +
     "#__pure_reader{max-width:42em!important;margin:0 auto!important;padding:24px 18px 64px!important;" +
     "color:" + fg + "!important;font:18px/1.75 -apple-system,'Noto Serif SC','Songti SC',serif!important;" +
     "overflow-wrap:break-word!important}" +
@@ -144,8 +148,13 @@
       cssNode.textContent = cssText;
       (document.head || document.documentElement).appendChild(cssNode);
     }
-    document.documentElement.replaceChild(readerBody, savedBody);
+    var stale = document.getElementById("__pure_reader");
+    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+    savedBody.appendChild(reader);
+    savedBody.classList.add("__pure_reader_active");
   } catch (e) {
+    if (reader.parentNode) reader.parentNode.removeChild(reader);
+    if (document.body) document.body.classList.remove("__pure_reader_active");
     if (cssNode && cssNode.parentNode) cssNode.parentNode.removeChild(cssNode);
     if (savedSheets && document.adoptedStyleSheets) document.adoptedStyleSheets = savedSheets;
     restoreStyles();
@@ -153,7 +162,7 @@
   }
   if (article.title) document.title = article.title;
   window.__pureReaderState = {
-    active: true, body: savedBody, title: savedTitle, scroll: savedScroll,
+    active: true, title: savedTitle, scroll: savedScroll, reader: reader,
     sheets: savedSheets, cssNode: cssNode, savedStyles: savedStyles
   };
   window.scrollTo(0, 0);

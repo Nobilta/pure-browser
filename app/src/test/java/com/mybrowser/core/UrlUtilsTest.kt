@@ -284,6 +284,8 @@ class UrlUtilsTest {
         assertTrue(UrlUtils.isHttpUrl("http://[::1]/"))
         assertFalse(UrlUtils.isHttpUrl("http://[::ffff:999.0.0.1]/"))
         assertFalse(UrlUtils.isHttpUrl("http://[1:2:3:4:5:6:7]/"))
+        assertFalse(UrlUtils.isHttpUrl("http://[1.2.3.4::]/"))
+        assertFalse(UrlUtils.isHttpUrl("https://a[b]/"))
         assertTrue(UrlUtils.isHttpUrl("HTTPS://EXAMPLE.COM/path"))
         assertFalse(UrlUtils.isHttpUrl("https://"))
         assertFalse(UrlUtils.isHttpUrl("https:example.com"))

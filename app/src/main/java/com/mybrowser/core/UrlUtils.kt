@@ -207,6 +207,7 @@ object UrlUtils {
         val compressed = body.indexOf("::")
         if (compressed >= 0 && body.indexOf("::", compressed + 2) >= 0) return false
         val groups: List<String>
+        var ipv4Allowed = true
         var hasIpv4Tail = false
         if (compressed >= 0) {
             val left = body.substring(0, compressed)
@@ -214,6 +215,9 @@ object UrlUtils {
             val leftGroups = if (left.isEmpty()) emptyList() else left.split(':')
             val rightGroups = if (right.isEmpty()) emptyList() else right.split(':')
             groups = leftGroups + rightGroups
+            // With compression, the dotted quad has to be in the right-hand part; an address
+            // such as 1.2.3.4:: puts zeros after the v4 tail and is not a valid IPv6 literal.
+            ipv4Allowed = right.contains('.')
         } else {
             groups = body.split(':')
         }
@@ -222,7 +226,7 @@ object UrlUtils {
             if (group.isEmpty()) return false
             val isTail = index == groups.lastIndex
             if (isTail && group.contains('.')) {
-                if (!isIpv4Literal(group)) return false
+                if (!ipv4Allowed || !isIpv4Literal(group)) return false
                 hasIpv4Tail = true
             } else if (group.length > 4 || group.any {
                     !it.isDigit() && it.lowercaseChar() !in 'a'..'f'
