@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -37,13 +38,15 @@ fun SwipeDismissSnackbarHost(
     modifier: Modifier = Modifier,
 ) {
     var offsetX by remember(hostState) { mutableFloatStateOf(0f) }
+    val current = hostState.currentSnackbarData
+    LaunchedEffect(current) { offsetX = 0f }
     val threshold = with(LocalDensity.current) { 80.dp.toPx() }
     Box(
-        modifier = modifier.pointerInput(hostState) {
+        modifier = modifier.pointerInput(hostState, current) {
             detectHorizontalDragGestures(
                 onDragEnd = {
                     val dismissed = abs(offsetX) >= threshold
-                    if (dismissed) hostState.currentSnackbarData?.dismiss()
+                    if (dismissed && hostState.currentSnackbarData === current) current?.dismiss()
                     offsetX = 0f
                 },
                 onDragCancel = { offsetX = 0f },
