@@ -76,6 +76,16 @@ object ExternalIntentHandler {
         // Re-check the unwrapped scheme so `intent:` cannot smuggle a blocked scheme
         // (file:, content:, javascript:, …) past the outer gate.
         val targetScheme = intent.data?.scheme
+        if (targetScheme != null && UrlUtils.schemeOf(url).equals("intent", ignoreCase = true) &&
+            (targetScheme.equals("http", ignoreCase = true) ||
+                targetScheme.equals("https", ignoreCase = true))
+        ) {
+            // `intent://...#Intent;scheme=https...` is a page asking another browser to take a
+            // web URL. Handing that to the resolver would either open Chrome or bounce back as
+            // "target is ourselves"; keep it in this WebView instead.
+            val target = intent.dataString?.takeIf { UrlUtils.isHttpUrl(it) }
+            return Prepared.Refused(target ?: fallback)
+        }
         if (targetScheme != null &&
             !targetScheme.equals("http", ignoreCase = true) &&
             !targetScheme.equals("https", ignoreCase = true) &&

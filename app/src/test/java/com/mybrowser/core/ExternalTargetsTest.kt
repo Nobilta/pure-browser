@@ -8,6 +8,7 @@ import android.content.pm.ResolveInfo
 import androidx.core.net.toUri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -52,6 +53,15 @@ class ExternalTargetsTest {
     @Test
     fun `a scheme that must stay in the browser is never named`() {
         assertNull(ExternalTargets.labelOf(context, "file:///sdcard/secret.txt"))
+    }
+
+    @Test
+    fun `an intent that wraps a web url stays in this browser`() {
+        val prepared = ExternalIntentHandler.prepare(
+            "intent://example.com/#Intent;scheme=https;S.browser_fallback_url=https%3A%2F%2Fexample.com;end",
+        )
+        assertTrue(prepared is ExternalIntentHandler.Prepared.Refused)
+        assertEquals("https://example.com/", (prepared as ExternalIntentHandler.Prepared.Refused).fallbackUrl)
     }
 
     private fun matchIntent(): Intent =

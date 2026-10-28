@@ -23,6 +23,7 @@ import com.mybrowser.core.VideoFit
 import com.mybrowser.site.*
 import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibrarySearchField
 
@@ -177,7 +178,7 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
             }
             if (editingUserAgent) {
                 val invalidUserAgent = userAgentDraft.any(Char::isISOControl)
-                AlertDialog(
+                BrowserAlertDialog(
                 onDismissRequest = { editingUserAgent = false },
                 title = { Text(stringResource(R.string.site_user_agent_dialog)) },
                 text = {
@@ -289,8 +290,12 @@ fun WebsitePermissionDialog(prompt: WebsitePermissions.Prompt, onRespond: (Boole
 private fun SiteToggle(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     // No horizontal inset here: the sheet's own column already indents this form, and the
     // settings-page row padding would stack on top of it.
-    SettingsToggle(title = label, checked = checked, enabled = enabled, onChange = onChange,
-        modifier = Modifier.heightIn(min = 56.dp))
+    SettingsToggle(
+        title = label, checked = checked, enabled = enabled, onChange = onChange,
+        modifier = Modifier.heightIn(min = 56.dp),
+        // The sheet column already applies the 20dp inset; ListItem's default 16dp would stack.
+        contentPadding = PaddingValues(horizontal = 0.dp),
+    )
 }
 
 @Composable

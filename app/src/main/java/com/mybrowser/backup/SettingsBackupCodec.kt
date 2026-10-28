@@ -394,10 +394,11 @@ object SettingsBackupCodec {
                 if (subscription.name.isEmpty() || subscription.name.length > 128) {
                     throw SettingsBackupException("Subscription name out of range")
                 }
-                if (!com.mybrowser.core.TextDownloader.isHttpUrl(subscription.url.trim())) {
+                val trimmed = subscription.url.trim()
+                if (!com.mybrowser.core.TextDownloader.isHttpUrl(trimmed)) {
                     throw SettingsBackupException("Subscription URL is not HTTP(S): ${subscription.url}")
                 }
-                subscription
+                subscription.copy(url = trimmed)
             }
             try {
                 com.mybrowser.filter.FilterSubscriptions.validateCustomLists(customs!!.map { Triple(it.name, it.url, it.enabled) })

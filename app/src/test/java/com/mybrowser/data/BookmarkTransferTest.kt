@@ -53,6 +53,14 @@ class BookmarkTransferTest {
         assertTrue(html.endsWith("</DL><p>\n"))
     }
 
+    @Test fun anOrphanedFolderIdIsExportedAtTheRootInsteadOfFailing() {
+        val html = BookmarkHtml.encode(
+            listOf(Bookmark(title = "Orphan", url = "https://orphan.test", folderId = 999L, position = 7L)),
+            emptyList(),
+        ).toString(Charsets.UTF_8)
+        assertTrue(html.contains("https://orphan.test"))
+    }
+
     @Test fun oversizedExportFailsBeforeReturningPartialBytes() {
         val entries = List(1500) { Bookmark(title = "中文".repeat(256), url = "https://example.com/?" + "a".repeat(7900)) }
         assertThrows(IllegalArgumentException::class.java) { BookmarkHtml.encode(entries) }

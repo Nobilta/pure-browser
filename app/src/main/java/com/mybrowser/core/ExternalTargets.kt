@@ -24,8 +24,11 @@ object ExternalTargets {
      * Null when nothing resolves (the launch will fail anyway) or when several apps would
      * handle it: the system picker then decides, so promising one name would be wrong.
      */
-    fun labelOf(context: Context, url: String): String? {
-        val intent = intentFor(url) ?: return null
+    fun labelOf(context: Context, url: String): String? =
+        (ExternalIntentHandler.prepare(url) as? ExternalIntentHandler.Prepared.Ready)
+            ?.let { labelOf(context, it.intent) }
+
+    fun labelOf(context: Context, intent: Intent): String? {
         val manager = context.packageManager
         val packages = runCatching { manager.queryIntentActivities(intent, 0) }
             .getOrNull()
@@ -33,7 +36,11 @@ object ExternalTargets {
             .mapNotNull { info ->
                 val packageName = info.activityInfo?.packageName ?: return@mapNotNull null
                 if (packageName == context.packageName) return@mapNotNull null
-                packageName to runCatching { info.loadLabel(manager)?.toString() }.getOrNull()
+                val application = info.activityInfo?.applicationInfo
+                val label = application
+                    ?.let { app -> runCatching { manager.getApplicationLabel(app).toString() }.getOrNull() }
+                    ?: runCatching { info.loadLabel(manager)?.toString() }.getOrNull()
+                packageName to label
             }
             .distinctBy { it.first }
         if (packages.size != 1) return null
@@ -42,9 +49,6 @@ object ExternalTargets {
             ?.takeIf { it.isNotEmpty() }
             ?.take(LABEL_LIMIT)
     }
-
-    private fun intentFor(url: String): Intent? =
-        (ExternalIntentHandler.prepare(url) as? ExternalIntentHandler.Prepared.Ready)?.intent
 
     /** Labels are app-controlled text; the dialog is not a place for a paragraph. */
     private const val LABEL_LIMIT = 80

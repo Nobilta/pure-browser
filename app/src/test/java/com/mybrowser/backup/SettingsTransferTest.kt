@@ -339,7 +339,9 @@ class SettingsTransferTest {
             it.copy(filtering = false, userAgent = "DeviceUA/1.0")
                 .withPermission(SiteCapability.CAMERA, SitePermission.ALLOW)
         })
-        sites.update("https://b.example.com/", { it.copy(desktop = true, javaScript = false) })
+        sites.update("https://b.example.com/", {
+            it.copy(desktop = true, javaScript = false, userAgent = "UnlistedUA/1.0")
+        })
         sites.update("https://c.example.com/", { it.copy(userAgent = "DeviceC/1.0") })
         val backup = SettingsBackup(
             format = SettingsBackup.FORMAT_ID,

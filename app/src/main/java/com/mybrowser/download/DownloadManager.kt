@@ -329,14 +329,12 @@ class DownloadHandler(context: Context) : Closeable {
                 runCatching { output?.close() }
                 // The file was closed here, so the publish happens here too and the entry is recorded
                 // by the shared path the HTTP transfers use.
-                val failure = result.get() ?: pageFileFailures.remove(id) ?: source.failureReason(id)
                 onPageFileFinished(
-                    id, failure, temporaryDirectory(id).listFiles().orEmpty().filter { it.isFile }, written,
+                    id, result.get(), temporaryDirectory(id).listFiles().orEmpty().filter { it.isFile }, written,
                     owner = pump,
                 )
             }
         }
-        pageFileFailures.remove(id)
         jobs.put(id, job)?.cancel()
 
         val sink = PageFileSink { bytes ->
@@ -433,15 +431,37 @@ class DownloadHandler(context: Context) : Closeable {
             val publishing = owner ?: jobs[id] ?: return@withLock
             if (jobs[id] !== publishing) return@withLock
             fromPageTasks.remove(id)
-            pageFileFailures.remove(id)
             // Taken out here rather than in failPageFile, because this method is the production path
             // and it used to remove the source *before* delegating — so the cancel inside failPageFile
             // found nothing, and a failed write left the page still reporting a transfer it would never
             // finish. The reference is dropped either way; only a failure also stops the source.
             val source = pageFileSources.remove(id)
-            if (reason == null && parts.sumOf { it.length() } >= entry.totalBytes) {
+            // Read the registry inside the lock: failPageFile may record while the pump is
+            // finishing, and the pump's own finally must not consume the marker either.
+            val failure = reason ?: pageFileFailures.remove(id) ?: source?.failureReason(id)
+            if (failure == null && parts.sumOf { it.length() } >= entry.totalBytes) {
                 try {
                     publishParts(id, parts, parts.sumOf { it.length() }, actualThreads = 1, clearSource = true, owner = publishing)
+                    // A failure may arrive while publishParts holds the lock. The marker is
+                    // checked once more here; the published copy is removed and the record ends
+                    // FAILED instead of flapping to COMPLETED after the page already gave up.
+                    val lateFailure = pageFileFailures.remove(id)
+                    if (lateFailure != null) {
+                        val destination = metadata[id]?.destinationUri
+                        if (destination != null) runCatching { destinationWriter.delete(destination) }
+                        source?.cancel()
+                        synchronized(taskLock) {
+                            metadata.computeIfPresent(id) { _, latest ->
+                                latest.copy(status = DownloadStatus.FAILED)
+                            }
+                        }
+                        cleanupTemporaryFiles(id)
+                        jobs.remove(id, publishing)
+                        releaseLock = true
+                        persistMetadata()
+                        publishSnapshots()
+                        return@withLock
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -471,7 +491,7 @@ class DownloadHandler(context: Context) : Closeable {
                 return@withLock
             }
             source?.cancel()
-            failPageFileLocked(id, reason ?: "short")
+            failPageFileLocked(id, failure ?: "short")
             releaseLock = true
         }
         if (releaseLock) {
@@ -493,6 +513,9 @@ class DownloadHandler(context: Context) : Closeable {
      */
     fun failPageFile(id: Long, reason: String) {
         if (closed) return
+        // Record first, so a writer that is already past its success check still has a chance
+        // to see the marker when it takes the lock. The lock paths below remove it again.
+        pageFileFailures.putIfAbsent(id, reason)
         val writerLock = transferLocks[id]
         if (writerLock == null) {
             failPageFileLocked(id, reason)
