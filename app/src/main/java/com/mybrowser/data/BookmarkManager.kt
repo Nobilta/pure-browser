@@ -103,6 +103,41 @@ class BookmarkManager(context: Context) {
         ).use { cursor -> return cursor.moveToFirst() }
     }
 
+    /** The row a removal would delete, so it can be offered back from a snackbar. */
+    @Synchronized
+    fun findBookmark(url: String): Bookmark? {
+        if (closed) return null
+        val cleanUrl = url.trim()
+        if (cleanUrl.isEmpty()) return null
+        return db.readableDatabase.query(
+            "bookmarks", COLUMNS, "url = ?", arrayOf(cleanUrl), null, null, null, "1",
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.toBookmark() else null }
+    }
+
+    /** Puts back a row removed moments ago, keeping its folder, order and creation time. */
+    @Synchronized
+    fun restoreBookmark(bookmark: Bookmark): Long {
+        if (closed) return -1L
+        return try {
+            val values = ContentValues().apply {
+                put("title", bookmark.title)
+                put("url", bookmark.url)
+                put("host", SearchKey.host(bookmark.url))
+                if (bookmark.faviconUrl == null) putNull("favicon_url")
+                else put("favicon_url", bookmark.faviconUrl)
+                put("created_at", bookmark.createdAt)
+                put("folder_id", bookmark.folderId)
+                put("position", bookmark.position)
+            }
+            db.writableDatabase.insertWithOnConflict(
+                "bookmarks", null, values, SQLiteDatabase.CONFLICT_IGNORE,
+            )
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Unable to restore bookmark", error)
+            -1L
+        }
+    }
+
     /** Removes a bookmark by URL. */
     @Synchronized
     fun removeBookmark(url: String): Int {

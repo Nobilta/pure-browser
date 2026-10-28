@@ -43,6 +43,8 @@
     <string name="bookmarks_clear">Clear all bookmarks</string>
     <string name="bookmark_added">Bookmark added</string>
     <string name="bookmark_removed">Bookmark removed</string>
+    <string name="bookmark_restored">Bookmark restored</string>
+    <string name="action_undo">Undo</string>
     <string name="bookmark_editor_title">Add bookmark</string>
     <string name="bookmark_edit_title">Title</string>
     <string name="bookmark_edit_url">URL</string>

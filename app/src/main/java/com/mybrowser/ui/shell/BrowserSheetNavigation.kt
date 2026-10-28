@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -120,6 +121,7 @@ internal class BrowserSheetNavigation {
 @Composable
 internal fun BrowserSheetHost(
     navigation: BrowserSheetNavigation,
+    snackbarHostState: SnackbarHostState? = null,
     content: @Composable (BrowserSheetNavigation.Presentation) -> Unit,
 ) {
     val savedState = rememberSaveableStateHolder()
@@ -213,7 +215,10 @@ internal fun BrowserSheetHost(
                 // Replace content atomically inside the existing window. Stable keys
                 // restore parent state without hidden dialogs or stale Back callbacks.
                 // Depth tells the arriving page whether it travels from below (child) or above (parent).
-                CompositionLocalProvider(LocalSheetDepth provides navigation.routes.size) {
+                CompositionLocalProvider(
+                    LocalSheetDepth provides navigation.routes.size,
+                    LocalSnackbarHostState provides snackbarHostState,
+                ) {
                     key(shown.route.key) {
                         savedState.SaveableStateProvider(shown.route.key) { content(shown) }
                     }

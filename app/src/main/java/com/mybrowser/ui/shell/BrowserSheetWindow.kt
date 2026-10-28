@@ -11,7 +11,10 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -635,13 +638,39 @@ internal fun BrowserBottomSheet(
                     shape = shape,
                     color = containerColor,
                 ) {
-                    Column(Modifier.windowInsetsPadding(safeInsets.only(WindowInsetsSides.Bottom)).padding(top = 12.dp)
+                    Box {
+                    Column(Modifier.windowInsetsPadding(safeInsets.only(WindowInsetsSides.Bottom))
                         .graphicsLayer {
                             // The surface stays opaque under incoming content, so a submenu never
                             // flashes the layer behind it.
                             alpha = motion.contentFade.value
                             translationY = (1f - motion.content.value) * contentDistance * motion.direction
-                        }, content = content)
+                        }) {
+                        // Material 3's modal sheet handle: the visible affordance for a surface
+                        // that can be dragged down. Full-screen sheets do not get one.
+                        Box(
+                            Modifier.fillMaxWidth().height(22.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier.size(32.dp, 4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                            )
+                        }
+                        content()
+                    }
+                    val sheetHost = LocalSnackbarHostState.current
+                    sheetHost?.let { host ->
+                        SnackbarHost(
+                            hostState = host,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .windowInsetsPadding(safeInsets.only(WindowInsetsSides.Bottom))
+                                .padding(16.dp),
+                        )
+                    }
+                    }
                 }
             }
         }
@@ -683,6 +712,19 @@ internal fun BrowserFullscreenSheet(onDismissRequest: () -> Unit, content: @Comp
                     alpha = motion.contentFade.value
                     translationY = (1f - motion.content.value) * contentDistance * motion.direction
                 }) { content() }
+            }
+            LocalSnackbarHostState.current?.let { host ->
+                SnackbarHost(
+                    hostState = host,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(
+                                WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                            ),
+                        )
+                        .padding(16.dp),
+                )
             }
         }
     }
