@@ -28,4 +28,4 @@ Markdown 标记。主要包含：
 - 外跳 fallback gate、页面文件失败/完成并发窗口没有专门并发 UI/压力测试；
 - 批量删除/清空全部撤销的 UI 流程未逐项截图；
 - 平板/折叠屏 P1 自适应未实现；Play 的 QUERY_ALL_PACKAGES 申报未验证；
-- GitHub Release 与 tag 的创建待推送后执行。
+- 已发布：https://github.com/Nobilta/pure-browser/releases/tag/v0.17.5（tag v0.17.5，latest）。
