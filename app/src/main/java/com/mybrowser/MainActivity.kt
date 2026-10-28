@@ -60,6 +60,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.luminance
@@ -404,6 +407,8 @@ class MainActivity : ComponentActivity(),
      * The accessor asserts that rather than letting a null leak into the UI.
      */
     private var webViewOrNull: WebView? by mutableStateOf(null)
+    /** In-app feedback; ships to BrowserScreen so the host sits above the toolbar. */
+    private val snackbarHostState = SnackbarHostState()
     private var clearHistoryOnNextFinish = false
     private var readyWebViewTabId: String? = null
     private var viewOwnerId: String? = null
@@ -922,9 +927,10 @@ class MainActivity : ComponentActivity(),
                     suggestionProvider = (application as App).searchSuggestionProvider,
                     onOmnibarSearch = { query -> navigator.navigate(searchEngine.buildSearchUrl(query)) },
                     certificateError = hasCertificateWarning,
+                    snackbarHostState = snackbarHostState,
                 )
 
-                BrowserSheetHost(sheetNavigation) { entry ->
+                BrowserSheetHost(sheetNavigation, snackbarHostState = snackbarHostState) { entry ->
                     // The outline the page draws is the app's own accent, so a pick reads as part of
                     // the browser rather than as something the page put there. Both of these have to
                     // be read while a composition is available: the action they belong to runs later,
@@ -2636,10 +2642,25 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun removeBookmark(url: String) {
-        updateLibrary({ bookmarkManager.removeBookmark(url) }) {
+        var removed: com.mybrowser.data.Bookmark? = null
+        updateLibrary({
+            removed = bookmarkManager.findBookmark(url)
+            bookmarkManager.removeBookmark(url)
+        }) {
             bookmarkStatus.setKnown(url, false)
             loadBookmarks()
-            toast(getString(R.string.bookmark_removed))
+            snackbar(getString(R.string.bookmark_removed), getString(R.string.action_undo)) {
+                val bookmark = removed ?: return@snackbar
+                updateLibrary({
+                    if (bookmarkManager.restoreBookmark(bookmark) == -1L) {
+                        bookmarkManager.addBookmark(bookmark.title, bookmark.url, bookmark.faviconUrl)
+                    }
+                }) {
+                    bookmarkStatus.setKnown(url, true)
+                    loadBookmarks()
+                    toast(getString(R.string.bookmark_restored))
+                }
+            }
         }
     }
 
@@ -3907,8 +3928,39 @@ class MainActivity : ComponentActivity(),
     private fun settingsGroupName(groupId: String): String =
         com.mybrowser.ui.settings.settingsGroupTitle(groupId)?.let(::getString) ?: groupId
 
-    private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    /**
+     * Transient feedback. Material 3 has no toast: an in-app message is a snackbar, which can
+     * carry an action and reaches TalkBack. Before the UI is resumed (or after it is gone) there
+     * is no host to show it, so the platform toast remains the fallback.
+     */
+    private fun toast(message: String) = snackbar(message)
+
+    private fun snackbar(
+        message: String,
+        actionLabel: String? = null,
+        onAction: (() -> Unit)? = null,
+    ) {
+        if (isFinishing || isDestroyed) return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val current = snackbarHostState.currentSnackbarData
+            // A burst of identical confirmations (downloads, permission callbacks) should not
+            // queue one snackbar per event; a new action-bearing message still replaces it.
+            if (current != null && current.visuals.message == message && actionLabel == null) {
+                return@launch
+            }
+            current?.dismiss()
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = actionLabel,
+                withDismissAction = false,
+                duration = if (actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+        }
     }
 
     /**

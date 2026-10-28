@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.ui.components.BrowserListItem
 import com.mybrowser.userscript.UserScriptStatus
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserIconAction
@@ -448,45 +449,16 @@ private fun MenuRow(
     trailing: (@Composable () -> Unit)? = null,
     toggleState: Boolean? = null,
 ) {
-    val contentColor = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clip(MaterialTheme.shapes.large)
-            .then(
-                if (toggleState != null) {
-                    Modifier.toggleable(toggleState, enabled, Role.Switch) { onClick() }
-                } else {
-                    Modifier.clickable(enabled = enabled, onClick = onClick)
-                },
-            )
-            .padding(start = 16.dp, end = 16.dp, top = 7.dp, bottom = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(painterResource(iconRes), null, Modifier.size(24.dp), tint = contentColor)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = contentColor)
-            if (subtitle.isNotEmpty()) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else contentColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (trailing != null) {
-            Spacer(Modifier.width(8.dp))
-            trailing()
-        }
-    }
+    BrowserListItem(
+        title = title,
+        subtitle = subtitle,
+        iconRes = iconRes,
+        onClick = onClick,
+        enabled = enabled,
+        destructive = destructive,
+        toggleState = toggleState,
+        trailing = trailing,
+    )
 }
 
 @Composable

@@ -273,7 +273,6 @@ fun SettingsSheet(
                                                 summary = if (restoreLastSession) textResources.getString(R.string.ui_next_launch_restore_regular_tabs) else textResources.getString(R.string.ui_next_launch_homepage),
                                                 checked = restoreLastSession,
                                                 onChange = onRestoreLastSessionChange,
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsGroup(textResources.getString(R.string.ui_search_and_system))
                                             SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_ui_search)
@@ -282,14 +281,12 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.ui_online_search_suggestions_summary),
                                                 checked = preferences.searchSuggestionsEnabled,
                                                 onChange = { onPreferencesChange(preferences.copy(searchSuggestionsEnabled = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_private_search_suggestions),
                                                 summary = textResources.getString(R.string.ui_private_search_suggestions_summary),
                                                 checked = preferences.privateSearchSuggestionsEnabled,
                                                 onChange = { onPreferencesChange(preferences.copy(privateSearchSuggestionsEnabled = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_default_browser), if (isDefaultBrowser) textResources.getString(R.string.ui_set_as_default) else textResources.getString(R.string.ui_not_set_as_default),
                                                 onSetDefaultBrowser, R.drawable.ic_ui_monitor)
@@ -300,21 +297,18 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.browser_fullscreen_summary),
                                                 checked = preferences.browserFullscreenEnabled,
                                                 onChange = { onPreferencesChange(preferences.copy(browserFullscreenEnabled = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.bottom_address_bar),
                                                 summary = textResources.getString(R.string.preference_immediate),
                                                 checked = preferences.bottomAddressBar,
                                                 onChange = { onPreferencesChange(preferences.copy(bottomAddressBar = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.swipe_tab_switch),
                                                 summary = textResources.getString(R.string.swipe_tab_switch_summary),
                                                 checked = preferences.swipeTabs,
                                                 onChange = { onPreferencesChange(preferences.copy(swipeTabs = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_ui_palette)
                                             SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
@@ -325,7 +319,6 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.ui_incognito_persistent_summary),
                                                 checked = isIncognito,
                                                 onChange = onIncognitoChange,
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_ui_lock)
@@ -345,7 +338,6 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter),
                                                 checked = isFilterEnabled,
                                                 onChange = onFilterEnabledChange,
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_custom_ad_filter_rules), textResources.getString(R.string.ui_add_and_manage_filter_lists), onManageCustomFilters, R.drawable.ic_ui_shield)
                                             SettingsItem(textResources.getString(R.string.script_title), textResources.getString(R.string.script_settings_summary), onManageUserScripts, R.drawable.ic_ui_script)
@@ -359,14 +351,12 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.automatic_pip_summary),
                                                 checked = video.automaticPip,
                                                 onChange = { updateVideo(video.copy(automaticPip = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.background_playback),
                                                 summary = textResources.getString(R.string.background_playback_summary),
                                                 checked = video.backgroundPlayback,
                                                 onChange = { updateVideo(video.copy(backgroundPlayback = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_experience))
                                             SettingsToggle(
@@ -374,14 +364,12 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to),
                                                 checked = video.enhancedControls,
                                                 onChange = { updateVideo(video.copy(enhancedControls = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_rotate_landscape_videos_automatically),
                                                 summary = textResources.getString(R.string.ui_portrait_videos_stay_upright_orientation_is_restored_on),
                                                 checked = video.landscapeFullscreen,
                                                 onChange = { updateVideo(video.copy(landscapeFullscreen = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsGroup(textResources.getString(R.string.ui_fullscreen_gestures))
                                             SettingsToggle(
@@ -389,21 +377,18 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.ui_swipe_vertically_on_the_left_for_brightness_and),
                                                 checked = video.verticalGestures,
                                                 onChange = { updateVideo(video.copy(verticalGestures = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_swipe_to_seek),
                                                 summary = textResources.getString(R.string.ui_swipe_horizontally_to_preview_a_position_release_to),
                                                 checked = video.horizontalSeek,
                                                 onChange = { updateVideo(video.copy(horizontalSeek = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_hold_for_temporary_speed_boost),
                                                 summary = textResources.getString(R.string.ui_release_to_restore_the_previous_playback_speed),
                                                 checked = video.holdToBoost,
                                                 onChange = { updateVideo(video.copy(holdToBoost = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_ui_media)
                                             SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
@@ -413,7 +398,6 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.ui_use_the_selected_speed_for_future_videos_temporary),
                                                 checked = video.rememberSpeed,
                                                 onChange = { updateVideo(video.copy(rememberSpeed = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { openPicker("speed") }, R.drawable.ic_ui_media)
                                             SettingsNote(textResources.getString(R.string.ui_videos_keep_playing_through_the_webpage_preserving_sign))
@@ -430,7 +414,6 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.update_auto_check_summary),
                                                 checked = preferences.autoCheckUpdates,
                                                 onChange = { onPreferencesChange(preferences.copy(autoCheckUpdates = it)) },
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                         }
                                         SettingsCategory.DOWNLOADS -> {
@@ -439,7 +422,6 @@ fun SettingsSheet(
                                                 summary = textResources.getString(R.string.download_budget_summary),
                                                 checked = downloadSettings.unmeteredOnly,
                                                 onChange = onDownloadNetworkChange,
-                                                modifier = Modifier.padding(SettingsRowPadding),
                                             )
                                             DownloadNotificationItem(downloadNotificationsEnabled, onDownloadNotifications)
                                             DownloadSettingsSection(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,

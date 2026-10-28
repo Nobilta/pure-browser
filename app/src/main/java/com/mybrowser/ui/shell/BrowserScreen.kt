@@ -41,6 +41,8 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -137,6 +139,7 @@ fun BrowserScreen(
     /** Searches the exact text with the current engine, bypassing URL-vs-search guessing. */
     onOmnibarSearch: (String) -> Unit = {},
     certificateError: Boolean = false,
+    snackbarHostState: SnackbarHostState? = null,
 ) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -203,6 +206,7 @@ fun BrowserScreen(
         } else showProgress = false
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
 
         // --- top bar ---
@@ -603,6 +607,25 @@ fun BrowserScreen(
             )
         }
         }
+    }
+    if (snackbarHostState != null) {
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                )
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(
+                    bottom = if (!chromeShown) 0.dp
+                    else if (bottomAddressBar) 120.dp
+                    else 64.dp,
+                ),
+        )
+    }
     }
 }
 

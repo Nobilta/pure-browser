@@ -1,5 +1,7 @@
 package com.mybrowser.ui.settings
 
+import android.widget.Toast
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +19,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.mybrowser.R
+import com.mybrowser.ui.shell.LocalSnackbarHostState
 import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.FilterSubscriptions
 import kotlinx.coroutines.launch
@@ -26,7 +29,6 @@ import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.shell.userItemMotion
-import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
@@ -45,6 +47,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     var adding by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<FilterSubscriptions.Subscription?>(null) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = LocalSnackbarHostState.current
     val context = LocalContext.current
     val dateFormat = remember(res.configuration.locales.toLanguageTags()) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, res.configuration.locales[0])
@@ -123,8 +126,10 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                         IconButton(onClick = {
                             scope.launch {
                                 if (!controller.removeUserRule(rule)) {
-                                    Toast.makeText(context, res.getString(R.string.filter_user_rule_failed),
-                                        Toast.LENGTH_SHORT).show()
+                                    val message = res.getString(R.string.filter_user_rule_failed)
+                                    val host = snackbarHostState
+                                    if (host != null) scope.launch { host.showSnackbar(message) }
+                                    else Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }) {

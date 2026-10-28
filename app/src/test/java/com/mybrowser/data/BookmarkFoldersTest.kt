@@ -52,6 +52,24 @@ class BookmarkFoldersTest {
         } finally { manager.close() }
     }
 
+    @Test fun aRemovedBookmarkRestoresItsFolderAndOrder() {
+        val manager = BookmarkManager(RuntimeEnvironment.getApplication())
+        try {
+            val folder = manager.addFolder("Work")
+            val id = manager.addBookmark("Docs", "https://docs.test")
+            manager.moveBookmarks(linkedSetOf(id), folder)
+            val before = manager.findBookmark("https://docs.test")!!
+            assertEquals(1, manager.removeBookmark("https://docs.test"))
+            assertNull(manager.findBookmark("https://docs.test"))
+            val restoredId = manager.restoreBookmark(before)
+            assertTrue(restoredId > 0)
+            val after = manager.findBookmark("https://docs.test")!!
+            assertEquals(folder, after.folderId)
+            assertEquals(before.createdAt, after.createdAt)
+            assertEquals(before.position, after.position)
+        } finally { manager.close() }
+    }
+
     @Test fun rejectsCyclesAndUnknownDestinationsWithoutMovingData() {
         val manager = BookmarkManager(RuntimeEnvironment.getApplication())
         try {
