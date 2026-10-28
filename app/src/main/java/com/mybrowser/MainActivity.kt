@@ -1061,6 +1061,7 @@ class MainActivity : ComponentActivity(),
                                 sheetAction(entry) { navigator.navigate(url) }
                             },
                             onDeleteBookmark = ::removeBookmark,
+                            onDeleteBookmarks = ::deleteBookmarksWithUndo,
                             onClearAll = {
                                 dialogs.confirm(this, getString(R.string.bookmarks_clear),
                                     getString(R.string.bookmarks_clear_confirm)) { confirmed ->
@@ -2687,6 +2688,32 @@ class MainActivity : ComponentActivity(),
         }
     }
 
+    /** Batch delete owned by the Activity, so closing the sheet cannot cancel its Undo. */
+    private fun deleteBookmarksWithUndo(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        var removed = emptyList<Bookmark>()
+        updateLibrary({
+            removed = bookmarkManager.findBookmarks(ids)
+            bookmarkManager.deleteBookmarks(ids)
+        }) {
+            refreshBookmarkStatus(state.currentUrl)
+            loadBookmarks()
+            snackbar(getString(R.string.bookmarks_deleted, removed.size), getString(R.string.action_undo)) {
+                updateLibrary({
+                    removed.forEach { bookmark ->
+                        check(bookmarkManager.restoreBookmark(bookmark) != -1L) {
+                            "bookmark restore failed"
+                        }
+                    }
+                }) {
+                    refreshBookmarkStatus(state.currentUrl)
+                    loadBookmarks()
+                    toast(getString(R.string.bookmarks_restored))
+                }
+            }
+        }
+    }
+
     private fun removeCurrentPageFromBookmarks() {
         state.currentUrl.takeIf(String::isNotBlank)?.let(::removeBookmark)
     }
@@ -3020,17 +3047,23 @@ class MainActivity : ComponentActivity(),
         // Validate the wrapped intent before asking the user: a file:/javascript: target or a
         // malformed intent:// cannot launch anything, so a consent dialog would only be noise.
         val prepared = ExternalIntentHandler.prepare(url)
-        when (prepared) {
-            null -> return true
-            is ExternalIntentHandler.Prepared.Refused -> {
-                prepared.fallbackUrl?.let(navigator::load)
-                return true
-            }
-            is ExternalIntentHandler.Prepared.Ready -> Unit
-        }
+        if (prepared == null) return true
         val origin = SiteOrigin.of(state.currentUrl)
-        when (externalGate.decide(activeSites.get(state.currentUrl).externalApps, hasGesture, isMainFrame,
-            externalPrompt != null, SystemClock.elapsedRealtime())) {
+        val decision = externalGate.decide(
+            activeSites.get(state.currentUrl).externalApps, hasGesture, isMainFrame,
+            externalPrompt != null, SystemClock.elapsedRealtime(),
+        )
+        // A refused outer intent may still carry a web fallback. That fallback is a top-level
+        // navigation requested by the page, so it must obey the same gesture/frame/site gate as
+        // an external launch; otherwise a sandboxed ad iframe could replace the tab.
+        if (prepared is ExternalIntentHandler.Prepared.Refused) {
+            if (decision != ExternalNavigationGate.Decision.BLOCK && (isMainFrame || hasGesture)) {
+                prepared.fallbackUrl?.let(navigator::load)
+            }
+            return true
+        }
+        val ready = prepared as ExternalIntentHandler.Prepared.Ready
+        when (decision) {
             ExternalNavigationGate.Decision.OPEN -> launchExternalUrl(url)
             ExternalNavigationGate.Decision.ASK -> {
                 // PackageManager resolution is a binder call. Show the prompt immediately (the
@@ -3040,7 +3073,7 @@ class MainActivity : ComponentActivity(),
                 externalPrompt = prompt
                 lifecycleScope.launch {
                     val label = withContext(Dispatchers.IO) {
-                        ExternalTargets.labelOf(this@MainActivity, prepared.intent)
+                        ExternalTargets.labelOf(this@MainActivity, ready.intent)
                     }
                     if (externalPrompt === prompt) externalPrompt = prompt.copy(appLabel = label)
                 }

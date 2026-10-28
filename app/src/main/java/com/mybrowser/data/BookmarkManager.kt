@@ -114,6 +114,21 @@ class BookmarkManager(context: Context) {
         ).use { cursor -> if (cursor.moveToFirst()) cursor.toBookmark() else null }
     }
 
+    /** Rows selected by a multi-select delete, including rows outside the visible page. */
+    @Synchronized
+    fun findBookmarks(ids: Set<Long>): List<Bookmark> {
+        if (closed || ids.isEmpty()) return emptyList()
+        // SQLite has a bound-parameter ceiling; a multi-page selection can be much larger than
+        // one page, so query in bounded chunks rather than failing the undo snapshot.
+        return ids.chunked(500).flatMap { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            db.readableDatabase.query(
+                "bookmarks", COLUMNS, "id IN ($placeholders)", chunk.map(Long::toString).toTypedArray(),
+                null, null, null,
+            ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) } }
+        }
+    }
+
     /**
      * Puts back a row removed moments ago, keeping its folder, order and creation time when
      * that folder still exists. If the folder was deleted in the meantime the row returns to
@@ -138,6 +153,7 @@ class BookmarkManager(context: Context) {
     @Synchronized
     fun restoreSnapshot(folders: List<BookmarkFolder>, bookmarks: List<Bookmark>): Boolean {
         if (closed) return false
+        require(folders.size <= BookmarkFolders.MAX_FOLDERS) { "Too many folders" }
         return try {
             db.writableDatabase.transaction {
                 folders.forEach { folder ->
@@ -152,6 +168,10 @@ class BookmarkManager(context: Context) {
                     )
                 }
                 bookmarks.forEach { restoreBookmarkLocked(this, it) }
+                val count = rawQuery("SELECT COUNT(*) FROM bookmark_folders", null).use {
+                    if (it.moveToFirst()) it.getInt(0) else 0
+                }
+                require(count <= BookmarkFolders.MAX_FOLDERS) { "Too many folders" }
             }
             true
         } catch (error: RuntimeException) {

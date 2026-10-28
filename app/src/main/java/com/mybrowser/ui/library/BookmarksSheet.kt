@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,7 +15,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
-import com.mybrowser.ui.shell.LocalSnackbarHostState
 import com.mybrowser.data.Bookmark
 import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.BookmarkFolders
@@ -30,7 +28,6 @@ import com.mybrowser.ui.shell.LibrarySelectionBar
 import com.mybrowser.ui.shell.libraryItemSelection
 import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.BrowserAlertDialog
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,7 +36,9 @@ fun BookmarksSheet(
     onQueryChange: (String) -> Unit, onLoadMore: () -> Unit,
     onSelectBookmark: (String) -> Unit, onOpenNewTab: (String) -> Unit,
     onEditBookmark: (Bookmark) -> Unit, onCopy: (String) -> Unit,
-    onDeleteBookmark: (String) -> Unit, onClearAll: () -> Unit, onDismiss: () -> Unit,
+    onDeleteBookmark: (String) -> Unit,
+    onDeleteBookmarks: (Set<Long>) -> Unit,
+    onClearAll: () -> Unit, onDismiss: () -> Unit,
     onImport: () -> Unit, onExport: () -> Unit, transferBusy: Boolean,
     library: BookmarkLibrary,
 ) {
@@ -52,9 +51,6 @@ fun BookmarksSheet(
     var moving by remember { mutableStateOf(false) }
     var movingFolder by remember { mutableStateOf<BookmarkFolder?>(null) }
     var deleteSelected by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = LocalSnackbarHostState.current
     var deleteFolder by remember { mutableStateOf<BookmarkFolder?>(null) }
     val folders = library.folders
     // Search results span folders. Resolve every path once per folder list rather than walking
@@ -197,24 +193,8 @@ fun BookmarksSheet(
         confirmText = stringResource(R.string.cd_delete),
         onConfirm = {
             val ids = selected
-            val removed = bookmarks.filter { it.id in ids }
-            library.mutate { deleteBookmarks(ids) }
             selected = emptySet(); selecting = false; deleteSelected = false
-            val host = snackbarHostState ?: return@BrowserConfirmDialog
-            scope.launch {
-                val result = host.showSnackbar(
-                    message = context.getString(R.string.bookmarks_deleted, removed.size),
-                    actionLabel = context.getString(R.string.action_undo),
-                    duration = SnackbarDuration.Long,
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    library.mutate {
-                        removed.forEach { bookmark ->
-                            check(restoreBookmark(bookmark) != -1L) { "bookmark restore failed" }
-                        }
-                    }
-                }
-            }
+            onDeleteBookmarks(ids)
         },
         onDismiss = { deleteSelected = false },
     )

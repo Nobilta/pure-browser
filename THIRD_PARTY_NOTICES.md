@@ -25,7 +25,9 @@ Their SVG paths were converted to Android VectorDrawable resources and retain th
 
 Reader mode uses [Readability.js](https://github.com/mozilla/readability), copyright Arc90 Inc
 and Mozilla, under the [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
-The unmodified script is shipped as `app/src/main/assets/readability.js`; the presentation
+The unmodified script is shipped as `app/src/main/assets/readability.js`, pinned to upstream
+commit `ab4027a8b37669745016869a37a504727992b2ba` (SHA-256
+`e9330028c8a5a4aa7d75147be2605d520f7f213c7b28474947dc0e9c984e9bed`); the presentation
 script around it is original to this project.
 
 ## AndroidX

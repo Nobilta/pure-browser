@@ -80,7 +80,7 @@ fun BrowserListItem(
     val interaction = remember { MutableInteractionSource() }
     val shaped = modifier.clip(MaterialTheme.shapes.large)
     val interactive = when {
-        !enabled -> shaped.semantics {
+        !enabled -> shaped.semantics(mergeDescendants = true) {
             disabled()
             if (toggleState != null) {
                 this.role = Role.Switch

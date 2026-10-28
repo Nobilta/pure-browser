@@ -452,14 +452,14 @@ class DownloadHandler(context: Context) : Closeable {
                         source?.cancel()
                         synchronized(taskLock) {
                             metadata.computeIfPresent(id) { _, latest ->
-                                latest.copy(status = DownloadStatus.FAILED)
+                                latest.copy(status = DownloadStatus.FAILED, destinationUri = null)
                             }
                         }
                         cleanupTemporaryFiles(id)
-                        jobs.remove(id, publishing)
+                        // The surrounding finally owns jobs removal, persistence, snapshots and
+                        // the completion notification; doing them here as well duplicated all
+                        // four and could publish a stale snapshot.
                         releaseLock = true
-                        persistMetadata()
-                        publishSnapshots()
                         return@withLock
                     }
                 } catch (cancelled: CancellationException) {
@@ -516,25 +516,38 @@ class DownloadHandler(context: Context) : Closeable {
         // Record first, so a writer that is already past its success check still has a chance
         // to see the marker when it takes the lock. The lock paths below remove it again.
         pageFileFailures.putIfAbsent(id, reason)
-        val writerLock = transferLocks[id]
-        if (writerLock == null) {
-            failPageFileLocked(id, reason)
-            transferLocks.remove(id)
-            return
-        }
+        // computeIfAbsent, not a plain lookup: onPageFileFinished may be creating the same mutex
+        // concurrently, and a null here used to let both paths touch the task without a lock.
+        val writerLock = transferLocks.computeIfAbsent(id) { Mutex() }
         if (writerLock.tryLock()) {
             try {
                 if (closed) return
                 failPageFileLocked(id, reason)
-                transferLocks.remove(id, writerLock)
             } finally {
                 writerLock.unlock()
+                transferLocks.remove(id, writerLock)
             }
         } else {
-            // A writer still owns the lock, so this is not the thread allowed to delete its
-            // files: record the failure and let that writer's completion path publish it.
-            // Cleaning up here could delete sources in the middle of an in-flight publish.
-            pageFileFailures.putIfAbsent(id, reason)
+            // A writer still owns the lock. It will see the marker in its own locked path. If it
+            // has already passed that check, a short follow-up removes the record and fails the
+            // task instead of leaving a permanent marker.
+            transferScope.launch {
+                try {
+                    writerLock.withLock {
+                        val late = pageFileFailures.remove(id) ?: return@withLock
+                        if (!closed) {
+                            val latest = metadata[id]
+                            if (latest != null &&
+                                (latest.status.active || latest.status == DownloadStatus.SAVING)
+                            ) {
+                                failPageFileLocked(id, late)
+                            }
+                        }
+                    }
+                } finally {
+                    transferLocks.remove(id, writerLock)
+                }
+            }
         }
     }
 

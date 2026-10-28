@@ -12,10 +12,10 @@ import org.json.JSONTokener
 /**
  * In-page reader mode: Readability (Apache-2.0) plus our own presentation script.
  *
- * The article replaces the live document rather than opening a second one, so Back and the
- * address bar keep pointing at the article's own URL; exiting swaps the original body node
- * back, so listeners and form values survive. A navigation drops the saved state with the
- * document, which is why nothing is persisted.
+ * The article is appended to the live document rather than opening a second one, so Back and the
+ * address bar keep pointing at the article's own URL. The original body children are hidden,
+ * not detached, so listeners, form values and iframe documents survive; a navigation drops the
+ * saved state with the document, which is why nothing is persisted.
  */
 object ReaderMode {
 
@@ -31,16 +31,25 @@ object ReaderMode {
             onResult(Outcome.UNSUPPORTED)
             return
         }
-        // The full payload is ~85 KB of Readability; after the first injection the marker lets
-        // exit and re-entry send only the small controller. Loading the assets moved off the
-        // main thread for the first use, and both payloads are cached for later pages.
-        webView.evaluateJavascript("window.__pureReaderLoaded === true") { marker ->
-            if (marker?.trim() == "true") {
-                send(webView, darkTheme, controller(webView.context), onResult)
+        // The full payload is ~85 KB of Readability; once it has run, only the small controller
+        // is needed. The marker is set by our own payload, not by a page, and both the async
+        // load and the final evaluation re-check the document URL so a navigation cannot receive
+        // a controller without Readability.
+        webView.evaluateJavascript("window.__pureReaderReady === true") { marker ->
+            if (webView.url != url) {
+                onResult(Outcome.UNSUPPORTED)
+            } else if (marker?.trim() == "true") {
+                send(webView, url, darkTheme, controller(webView.context), onResult)
             } else {
                 io.launch {
                     val script = full(webView.context)
-                    webView.post { send(webView, darkTheme, script, onResult) }
+                    webView.post {
+                        if (webView.url == url) {
+                            send(webView, url, darkTheme, script, onResult)
+                        } else {
+                            onResult(Outcome.UNSUPPORTED)
+                        }
+                    }
                 }
             }
         }
@@ -48,15 +57,16 @@ object ReaderMode {
 
     private fun send(
         webView: WebView,
+        expectedUrl: String,
         darkTheme: Boolean,
         script: String,
         onResult: (Outcome) -> Unit,
     ) {
-        if (webView.url.isNullOrBlank()) {
+        if (webView.url != expectedUrl) {
             onResult(Outcome.UNSUPPORTED)
             return
         }
-        val prefix = "window.__pureReaderLoaded = true;\nwindow.__pureReaderDark = $darkTheme;\n"
+        val prefix = "window.__pureReaderDark = $darkTheme;\n"
         webView.evaluateJavascript(prefix + script) { raw ->
             onResult(
                 when (decodeString(raw)) {
@@ -76,7 +86,10 @@ object ReaderMode {
     private fun full(context: Context): String = fullPayload ?: run {
         val readability = context.assets.open("readability.js")
             .bufferedReader().use { it.readText() }
-        (readability + "\n" + controller(context)).also { fullPayload = it }
+        // The marker is set only after Readability has actually executed, so a controller-only
+        // injection is never sent to a document where Readability is missing.
+        (readability + "\nwindow.__pureReaderReady = true;\n" + controller(context))
+            .also { fullPayload = it }
     }
 
     private fun decodeString(raw: String?): String? = runCatching {

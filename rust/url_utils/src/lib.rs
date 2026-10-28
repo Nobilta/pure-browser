@@ -46,7 +46,7 @@ pub extern "system" fn Java_com_mybrowser_data_BookmarkHtml_nativeParse(
         .unwrap_or(std::ptr::null_mut())
 }
 
-const FORBIDDEN_HOST_CHARS: &[char] = &['\\', '<', '>', '"', '^', '`', '{', '}', '|'];
+const FORBIDDEN_HOST_CHARS: &[char] = &['\\', '<', '>', '"', '^', '`', '{', '}', '|', '[', ']'];
 
 pub(crate) fn is_valid_http_url(value: &str) -> bool {
     let Some((scheme, rest)) = value.split_once("://") else {
@@ -77,16 +77,15 @@ pub(crate) fn is_valid_http_url(value: &str) -> bool {
     if colon_count > 1 {
         return false;
     }
-    let (host, port) = if colon_count == 1 {
+    let host = if colon_count == 1 {
         let (host, port) = without_user.split_once(':').unwrap_or_default();
         if !valid_port(port) {
             return false;
         }
-        (host, true)
+        host
     } else {
-        (without_user, false)
+        without_user
     };
-    let _ = port;
     if host.is_empty()
         || host == "."
         || host == ".."
@@ -118,9 +117,11 @@ fn is_ipv6_literal(value: &str) -> bool {
             return false;
         }
     }
+    let mut ipv4_allowed = true;
     let groups: Vec<&str> = if let Some(index) = compressed {
         let left = &value[..index];
         let right = &value[index + 2..];
+        ipv4_allowed = right.contains('.');
         let mut groups = Vec::new();
         if !left.is_empty() {
             groups.extend(left.split(':'));
@@ -141,7 +142,7 @@ fn is_ipv6_literal(value: &str) -> bool {
             return false;
         }
         if index == groups.len() - 1 && group.contains('.') {
-            if !is_ipv4_literal(group) {
+            if !ipv4_allowed || !is_ipv4_literal(group) {
                 return false;
             }
             has_ipv4_tail = true;
@@ -185,5 +186,7 @@ mod tests {
         assert!(!is_valid_http_url("http://[::ffff:999.0.0.1]/"));
         assert!(!is_valid_http_url("https://bad|host/"));
         assert!(!is_valid_http_url("https://../"));
+        assert!(!is_valid_http_url("https://a[b]/"));
+        assert!(!is_valid_http_url("http://[1.2.3.4::]/"));
     }
 }
