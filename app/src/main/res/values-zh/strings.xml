@@ -43,6 +43,8 @@
     <string name="bookmarks_clear">清除全部书签</string>
     <string name="bookmark_added">已添加到书签</string>
     <string name="bookmark_removed">已从书签移除</string>
+    <string name="bookmark_restored">已恢复书签</string>
+    <string name="action_undo">撤销</string>
     <string name="bookmark_editor_title">添加书签</string>
     <string name="bookmark_edit_title">标题</string>
     <string name="bookmark_edit_url">网址</string>

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import com.mybrowser.R
+import com.mybrowser.ui.components.BrowserListItem
 import com.mybrowser.ui.shell.BrowserSheetHeader
 
 /** Shared rows and page layout used by settings categories and site settings. */
@@ -48,29 +49,19 @@ internal fun SettingsToggle(
     summary: String = "",
     enabled: Boolean = true,
 ) {
-    Row(
-        Modifier.fillMaxWidth()
-            .highlightSetting(title)
-            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-            // The row's own insets come from the modifier rather than the declaration, so a caller
-            // that supplies its own spacing replaces them instead of adding to them: the site
-            // settings sheet already indents its column and passes a bare height constraint.
-            .then(modifier),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (summary.isNotEmpty()) {
-                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked, onCheckedChange = null, enabled = enabled)
-    }
+    BrowserListItem(
+        title = title,
+        subtitle = summary,
+        enabled = enabled,
+        toggleState = checked,
+        onClick = { onChange(!checked) },
+        trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+        modifier = Modifier.highlightSetting(title).then(modifier),
+    )
 }
 
-/** The row insets [SettingsToggle] uses in a settings page, for callers that keep them. */
-internal val SettingsRowPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
+/** Insets for notes that sit outside a ListItem row. */
+internal val SettingsRowPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
 
 @Composable
 internal fun SettingsNote(text: String) {
@@ -84,7 +75,7 @@ internal fun SettingsGroup(title: String) {
         title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp),
+        modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
     )
 }
 
@@ -113,29 +104,16 @@ internal fun SettingsRadioItem(
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .highlightSetting(title)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            if (subtitle.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        trailing?.invoke()
-    }
+    BrowserListItem(
+        title = title,
+        subtitle = subtitle,
+        selected = selected,
+        role = Role.RadioButton,
+        onClick = onClick,
+        leading = { RadioButton(selected = selected, onClick = null) },
+        trailing = trailing,
+        modifier = Modifier.highlightSetting(title),
+    )
 }
 
 @Composable
@@ -145,35 +123,20 @@ internal fun SettingsItem(
     onClick: () -> Unit,
     iconRes: Int? = null,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .highlightSetting(title)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (iconRes != null) {
-            Icon(painterResource(iconRes), null, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(16.dp))
-        }
-        Column(Modifier.weight(1f)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        }
-        Spacer(Modifier.width(12.dp))
-        Icon(painterResource(R.drawable.ic_ui_chevron), null, modifier = Modifier.size(18.dp))
-    }
+    BrowserListItem(
+        title = title,
+        subtitle = subtitle,
+        iconRes = iconRes,
+        onClick = onClick,
+        trailing = {
+            Icon(
+                painterResource(R.drawable.ic_ui_chevron),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+        },
+        modifier = Modifier.highlightSetting(title),
+    )
 }
 
 internal val LocalSettingHighlight = staticCompositionLocalOf<String?> { null }

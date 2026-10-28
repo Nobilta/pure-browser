@@ -9,6 +9,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -80,16 +81,37 @@ fun MyBrowserTheme(
     // under a fling at its edge, and that stretch is the app's most frequently felt motion. A
     // surface that must not move with it opts out where it is scrolled, instead of every scroll
     // in the app being switched off at once.
-    CompositionLocalProvider(LocalIsDarkTheme provides dark) {
+    CompositionLocalProvider(
+        LocalExtendedColors provides if (dark) DarkExtendedColors else LightExtendedColors,
+    ) {
         MaterialTheme(colorScheme = colors, content = content)
     }
 }
 
+/**
+ * Status colours that sit outside the Material colour roles.
+ *
+ * Green/amber/red carry meaning here, so a wallpaper-derived palette cannot replace them. They
+ * are still theme values: tuned for each background and exposed through a CompositionLocal so a
+ * future contrast test has one source to check.
+ */
+@Immutable
+data class BrowserExtendedColors(val secure: Color, val warning: Color)
+
+private val LightExtendedColors = BrowserExtendedColors(
+    secure = Color(0xFF146C2E),
+    warning = Color(0xFF7A5900),
+)
+private val DarkExtendedColors = BrowserExtendedColors(
+    secure = Color(0xFF7DD88F),
+    warning = Color(0xFFF2C94C),
+)
+
 object BrowserColors {
     val secure: Color
-        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF6DD58C) else Color(0xFF188038)
+        @Composable get() = LocalExtendedColors.current.secure
     val warning: Color
-        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFE8C349) else Color(0xFF785900)
+        @Composable get() = LocalExtendedColors.current.warning
 }
 
-private val LocalIsDarkTheme = staticCompositionLocalOf { false }
+private val LocalExtendedColors = staticCompositionLocalOf { LightExtendedColors }

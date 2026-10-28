@@ -3,6 +3,21 @@
 按发布时间记录主要变化。旧条目描述当时的功能，当前使用方法见[功能介绍](FEATURES.md)；
 安装包和版本说明见 [GitHub Releases](https://github.com/Nobilta/pure-browser/releases)。
 
+## 0.17.0 - 2026-10-28
+
+界面按 Material 3 对齐，不改变信息架构：
+
+- **反馈改为 Snackbar**：应用内提示不再用系统 Toast，而是显示在底栏上方的 M3 Snackbar；
+  带操作的提示停留 10 秒，可左右滑走。删除书签后提供「撤销」，恢复到原文件夹与顺序。
+  设置、书签、下载等弹层有自己的窗口，弹层内的 Snackbar 显示在弹层底部；弹层关闭后
+  同一条 Snackbar 会接着显示在页面上，不丢失。
+- **底部面板加 M3 拖拽把手**：32×4dp 的可见把手出现在菜单、标签页、站点设置、下载等
+  非全屏面板顶部；拖拽、返回和 scrim 行为不变。
+- **菜单/设置行统一为 M3 ListItem**：单行 56dp、双行 72dp，24dp 前置图标，
+  `bodyLarge` 标题 + `bodyMedium` 副标题，尾部 Switch/chevron 对齐；替换原先三套自研行。
+- **安全状态色进主题**：绿/琥珀改为随明暗主题提供的 `BrowserExtendedColors`，
+  在 surface/container 上对比度 ≥ 4.5:1，动态取色下仍保持语义。
+
 ## 0.16.1 - 2026-10-27
 
 无界面变化，内部重构与一致性修复：
