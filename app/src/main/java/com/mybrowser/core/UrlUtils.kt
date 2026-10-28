@@ -321,7 +321,9 @@ object UrlUtils {
         allowUserInfo: Boolean = true,
         allowFragment: Boolean = true,
     ): Boolean {
-        val text = url.trim()
+        // Do not trim here: storing or downloading a value with leading/trailing whitespace is
+        // a caller bug, and silently accepting it made validators and the Rust parser disagree.
+        val text = url
         if (text.isEmpty() || text.length > maxLength) return false
         if (text.any { it.isWhitespace() || it.isISOControl() }) return false
         val scheme = schemeOf(text)
@@ -332,6 +334,7 @@ object UrlUtils {
         if (!allowUserInfo && authority.indexOf('@') >= 0) return false
         val parts = parseAuthority(authority) ?: return false
         if (parts.host.isEmpty()) return false
+        if (parts.host == "." || parts.host == ".." || parts.host.contains('%')) return false
         return parts.host.none { it in FORBIDDEN_HOST_CHARS }
     }
 

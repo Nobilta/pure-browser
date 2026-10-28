@@ -3017,6 +3017,17 @@ class MainActivity : ComponentActivity(),
 
     override fun onExternalNavigation(url: String, hasGesture: Boolean, isMainFrame: Boolean): Boolean {
         if (!UrlUtils.isExternalHandoff(url)) return true
+        // Validate the wrapped intent before asking the user: a file:/javascript: target or a
+        // malformed intent:// cannot launch anything, so a consent dialog would only be noise.
+        val prepared = ExternalIntentHandler.prepare(url)
+        when (prepared) {
+            null -> return true
+            is ExternalIntentHandler.Prepared.Refused -> {
+                prepared.fallbackUrl?.let(navigator::load)
+                return true
+            }
+            is ExternalIntentHandler.Prepared.Ready -> Unit
+        }
         val origin = SiteOrigin.of(state.currentUrl)
         when (externalGate.decide(activeSites.get(state.currentUrl).externalApps, hasGesture, isMainFrame,
             externalPrompt != null, SystemClock.elapsedRealtime())) {
@@ -3029,7 +3040,7 @@ class MainActivity : ComponentActivity(),
                 externalPrompt = prompt
                 lifecycleScope.launch {
                     val label = withContext(Dispatchers.IO) {
-                        ExternalTargets.labelOf(this@MainActivity, url)
+                        ExternalTargets.labelOf(this@MainActivity, prepared.intent)
                     }
                     if (externalPrompt === prompt) externalPrompt = prompt.copy(appLabel = label)
                 }

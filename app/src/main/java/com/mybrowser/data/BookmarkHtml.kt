@@ -40,7 +40,14 @@ object BookmarkHtml {
     fun encode(bookmarks: List<Bookmark>, folders: List<BookmarkFolder> = emptyList()): ByteArray {
         require(bookmarks.size <= MAX_BOOKMARKS)
         BookmarkFolders.validate(folders)
-        require(bookmarks.all { it.folderId == 0L || folders.any { folder -> folder.id == it.folderId } })
+        val folderIds = folders.mapTo(HashSet()) { it.id }
+        // A row can be orphaned by data written before undo learned to validate its folder.
+        // Export it at the root instead of refusing the whole file: losing the folder is
+        // recoverable, losing the export is not.
+        val normalized = bookmarks.map { bookmark ->
+            if (bookmark.folderId == 0L || bookmark.folderId in folderIds) bookmark
+            else bookmark.copy(folderId = 0, position = 0)
+        }
         val output = ByteArrayOutputStream()
         fun append(value: String) {
             val bytes = value.toByteArray(Charsets.UTF_8)
@@ -49,7 +56,7 @@ object BookmarkHtml {
         }
         append("<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n")
         val childFolders = folders.groupBy { it.parentId }
-        val childBookmarks = bookmarks.groupBy { it.folderId }
+        val childBookmarks = normalized.groupBy { it.folderId }
         fun appendFolder(id: Long) {
         childFolders[id].orEmpty().sortedWith(compareBy<BookmarkFolder> { it.position }.thenBy { it.id }).forEach { folder ->
             append("<DT><H3>${escape(folder.title)}</H3>\n<DL><p>\n")

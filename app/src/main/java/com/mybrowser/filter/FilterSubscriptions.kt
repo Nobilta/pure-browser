@@ -146,7 +146,9 @@ class FilterSubscriptions(
      * Payloads read while initialising, so the first rebuild does not read and hash every file
      * a second time. Cleared as soon as that rebuild finishes; later rebuilds read the disk.
      */
-    @Volatile private var initPayloads: Map<String, String>? = null
+    @Volatile private var initPayloads: Map<String, ValidatedPayload>? = null
+
+    private data class ValidatedPayload(val text: String, val rules: Int)
 
     private suspend fun initializeLocked() {
         if (initialized) return
@@ -178,7 +180,7 @@ class FilterSubscriptions(
             }
         }
         if (saved == null) migrateLegacy(loaded)
-        val startupPayloads = HashMap<String, String>(loaded.size)
+        val startupPayloads = HashMap<String, ValidatedPayload>(loaded.size)
         _subscriptions.value = loaded.map { savedList ->
             // One read per list: a saved snapshot is verified once, and the built-in fallback is
             // only touched when there is no usable snapshot. The result is kept for the first
@@ -192,7 +194,7 @@ class FilterSubscriptions(
                 error = appContext.getString(R.string.filter_missing_snapshot))
             else {
                 startupPayloads[list.id] = payload
-                list.copy(ruleCount = FilterListFormat.validate(payload), bytes = payload.toByteArray().size)
+                list.copy(ruleCount = payload.rules, bytes = payload.text.toByteArray().size)
             }
         }
         _userRules.value = readUserRules()
@@ -519,26 +521,30 @@ class FilterSubscriptions(
             updatedAt = if (list.file == filename && list.updatedAt != 0L) list.updatedAt else now, checkedAt = now, error = null)
     }
 
-    private fun readPayload(list: Subscription): String? {
+    private fun readPayload(list: Subscription): String? = readValidatedPayload(list)?.text
+
+    private fun readValidatedPayload(list: Subscription): ValidatedPayload? {
         initPayloads?.get(list.id)?.let { return it }
         readSavedPayload(list)?.let { return it }
         return readBuiltInPayload(list)
     }
 
-    private fun readBuiltInPayload(list: Subscription): String? {
+    private fun readBuiltInPayload(list: Subscription): ValidatedPayload? {
         val source = builtIns.find { it.id == list.id } ?: return null
         return runCatching {
-            appContext.assets.open(source.asset).use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
-                .also { FilterListFormat.validate(it) }
+            val text = appContext.assets.open(source.asset)
+                .use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
+            ValidatedPayload(text, FilterListFormat.validate(text))
         }.getOrNull()
     }
 
-    private fun readSavedPayload(list: Subscription): String? =
+    private fun readSavedPayload(list: Subscription): ValidatedPayload? =
         list.file?.takeIf(SNAPSHOT::matches)?.let { name ->
             runCatching {
-                File(directory, name).inputStream().use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
-                    .also { FilterListFormat.validate(it) }
-                    .takeIf { name == list.id + "-" + TextDownloader.sha256(it) + ".txt" }
+                val text = File(directory, name).inputStream()
+                    .use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
+                if (name != list.id + "-" + TextDownloader.sha256(text) + ".txt") return@runCatching null
+                ValidatedPayload(text, FilterListFormat.validate(text))
             }.getOrNull()
         }
 

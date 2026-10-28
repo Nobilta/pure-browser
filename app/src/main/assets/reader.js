@@ -15,6 +15,12 @@
     if (state.cssNode && state.cssNode.parentNode) {
       state.cssNode.parentNode.removeChild(state.cssNode);
     }
+    if (state.savedStyles) {
+      state.savedStyles.forEach(function (saved) {
+        if (saved.el && saved.el.sheet) saved.el.sheet.disabled = saved.disabled;
+        else if (saved.el) saved.el.disabled = saved.disabled;
+      });
+    }
     if (state.sheets && document.adoptedStyleSheets) {
       document.adoptedStyleSheets = state.sheets;
     }
@@ -65,6 +71,19 @@
     return escape(part);
   }).join(" · ");
 
+  // Build the article body before touching any document-level state. A Trusted Types policy can
+  // reject this innerHTML assignment; if it does, returning "empty" must leave the page exactly
+  // as it was, not half-switched with reader CSS applied.
+  var readerBody = document.createElement("body");
+  try {
+    readerBody.innerHTML =
+      '<main id="__pure_reader"><h1>' + escape(article.title || document.title) + "</h1>" +
+      (meta ? '<p class="reader-meta">' + meta + "</p>" : "") +
+      '<div class="reader-body">' + article.content + "</div></main>";
+  } catch (e) {
+    return "empty";
+  }
+
   var cssText =
     "html{background:" + bg + "!important;color-scheme:" + (dark ? "dark" : "light") + "!important}" +
     "body{margin:0!important;background:" + bg + "!important}" +
@@ -86,38 +105,56 @@
     "#__pure_reader .reader-body td,#__pure_reader .reader-body th{border:1px solid " + border + "!important;" +
     "padding:4px 8px!important}";
 
+  // Site styles are disabled, not removed: disabling keeps the nodes (and their load state) for
+  // the exit path, while removing their ability to override the article. Our own style is added
+  // after this snapshot.
+  var savedStyles = [];
+  Array.prototype.forEach.call(
+    document.querySelectorAll('head link[rel~="stylesheet"], head style'),
+    function (el) {
+      if (el.sheet) {
+        savedStyles.push({ el: el, disabled: el.sheet.disabled });
+        el.sheet.disabled = true;
+      } else if (typeof el.disabled === "boolean") {
+        savedStyles.push({ el: el, disabled: el.disabled });
+        el.disabled = true;
+      }
+    },
+  );
+  var restoreStyles = function () {
+    savedStyles.forEach(function (saved) {
+      if (saved.el && saved.el.sheet) saved.el.sheet.disabled = saved.disabled;
+      else if (saved.el) saved.el.disabled = saved.disabled;
+    });
+  };
+
   // A <style> element is an inline style and strict style-src policies block it. A
   // constructed stylesheet is not inline, so it keeps the reader's typography on those
   // sites; the <style> path stays for WebViews without constructable stylesheets.
   var cssNode = null;
-  if (savedSheets && typeof CSSStyleSheet === "function") {
-    try {
+  try {
+    if (savedSheets && typeof CSSStyleSheet === "function") {
       var sheet = new CSSStyleSheet();
       sheet.replaceSync(cssText);
-      document.adoptedStyleSheets = savedSheets.concat([sheet]);
-    } catch (e) {
+      // Replace, not append: page adopted sheets are site CSS and would style the article too.
+      document.adoptedStyleSheets = [sheet];
+    } else {
       cssNode = document.createElement("style");
       cssNode.id = "__pure_reader_css";
       cssNode.textContent = cssText;
       (document.head || document.documentElement).appendChild(cssNode);
     }
-  } else {
-    cssNode = document.createElement("style");
-    cssNode.id = "__pure_reader_css";
-    cssNode.textContent = cssText;
-    (document.head || document.documentElement).appendChild(cssNode);
+    document.documentElement.replaceChild(readerBody, savedBody);
+  } catch (e) {
+    if (cssNode && cssNode.parentNode) cssNode.parentNode.removeChild(cssNode);
+    if (savedSheets && document.adoptedStyleSheets) document.adoptedStyleSheets = savedSheets;
+    restoreStyles();
+    return "empty";
   }
-
-  var readerBody = document.createElement("body");
-  readerBody.innerHTML =
-    '<main id="__pure_reader"><h1>' + escape(article.title || document.title) + "</h1>" +
-    (meta ? '<p class="reader-meta">' + meta + "</p>" : "") +
-    '<div class="reader-body">' + article.content + "</div></main>";
-  document.documentElement.replaceChild(readerBody, savedBody);
   if (article.title) document.title = article.title;
   window.__pureReaderState = {
     active: true, body: savedBody, title: savedTitle, scroll: savedScroll,
-    sheets: savedSheets, cssNode: cssNode
+    sheets: savedSheets, cssNode: cssNode, savedStyles: savedStyles
   };
   window.scrollTo(0, 0);
   return "on";

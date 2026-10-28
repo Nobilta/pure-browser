@@ -48,6 +48,7 @@ internal fun SettingsToggle(
     modifier: Modifier = Modifier,
     summary: String = "",
     enabled: Boolean = true,
+    contentPadding: PaddingValues? = null,
 ) {
     BrowserListItem(
         title = title,
@@ -57,6 +58,7 @@ internal fun SettingsToggle(
         onClick = { onChange(!checked) },
         trailing = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
         modifier = Modifier.highlightSetting(title).then(modifier),
+        contentPadding = contentPadding,
     )
 }
 

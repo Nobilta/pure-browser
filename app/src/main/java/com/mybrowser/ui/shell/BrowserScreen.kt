@@ -154,6 +154,7 @@ fun BrowserScreen(
     // Revealed chrome is shown in full: the scroll-collapse flag must not eat it.
     val chromeShown = !isVideoFullscreen && (!isBrowserFullscreen || state.isChromeRevealed)
     val chromeForced = immersiveActive && state.isChromeRevealed
+    var bottomChromeHeightPx by remember { mutableStateOf(0) }
     LaunchedEffect(immersiveActive) { state.onImmersiveFullscreenChanged(immersiveActive) }
 
     // While immersive, back first leaves the revealed state (closing the find bar if it
@@ -513,7 +514,7 @@ fun BrowserScreen(
             enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Bottom),
             exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Bottom),
         ) {
-        Column {
+        Column(Modifier.onSizeChanged { bottomChromeHeightPx = it.height }) {
             // Both placements use one spec, each towards its own screen edge, so scrolling reads the
             // same whichever position the address bar is set to.
             if (bottomAddressBar) AnimatedVisibility(
@@ -608,21 +609,27 @@ fun BrowserScreen(
         }
     }
     if (snackbarHostState != null) {
+        val bottomChromeHeight = with(LocalDensity.current) { bottomChromeHeightPx.toDp() }
+        val fabVisible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused &&
+            !immersiveActive && elementPicker == null
+        val overlayLift = when {
+            elementPicker != null -> 64.dp
+            translationVisible -> 56.dp
+            fabVisible || (immersiveActive && !state.isChromeRevealed) -> 72.dp
+            else -> 0.dp
+        }
         SwipeDismissSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(
                     WindowInsets.safeDrawing.only(
-                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                        if (chromeShown) WindowInsetsSides.Horizontal
+                        else WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
                     ),
                 )
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .padding(
-                    bottom = if (!chromeShown) 0.dp
-                    else if (bottomAddressBar) 120.dp
-                    else 64.dp,
-                ),
+                .padding(bottom = if (chromeShown) bottomChromeHeight + overlayLift else overlayLift),
         )
     }
     }
