@@ -279,6 +279,11 @@ class UrlUtilsTest {
     fun `http url helper requires an authority`() {
         assertTrue(UrlUtils.isHttpUrl("https://example.com/path"))
         assertTrue(UrlUtils.isHttpUrl("http://localhost:8080"))
+        assertTrue(UrlUtils.isHttpUrl("http://[::ffff:192.0.2.1]/list.txt"))
+        assertTrue(UrlUtils.isHttpUrl("http://[2001:db8::192.0.2.1]/"))
+        assertTrue(UrlUtils.isHttpUrl("http://[::1]/"))
+        assertFalse(UrlUtils.isHttpUrl("http://[::ffff:999.0.0.1]/"))
+        assertFalse(UrlUtils.isHttpUrl("http://[1:2:3:4:5:6:7]/"))
         assertTrue(UrlUtils.isHttpUrl("HTTPS://EXAMPLE.COM/path"))
         assertFalse(UrlUtils.isHttpUrl("https://"))
         assertFalse(UrlUtils.isHttpUrl("https:example.com"))

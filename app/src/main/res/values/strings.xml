@@ -487,6 +487,8 @@
     <string name="site_user_agent_custom">Custom…</string>
     <string name="site_user_agent_dialog">Custom user agent</string>
     <string name="site_user_agent_hint">For example: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
+    <string name="site_user_agent_priority">A custom user agent also applies when desktop site is on.</string>
+    <string name="site_user_agent_invalid">A user agent cannot contain line breaks or control characters.</string>
     <string name="reader_mode">Reader mode</string>
     <string name="reader_entered">Reader mode on. Tap again to exit.</string>
     <string name="reader_exited">Reader mode off</string>
@@ -635,6 +637,9 @@
     <string name="bookmarks_select">Select bookmarks</string>
     <string name="bookmarks_root">All folders</string>
     <string name="bookmarks_selected">%1$d selected</string>
+    <string name="bookmarks_deleted">%1$d bookmarks deleted</string>
+    <string name="bookmarks_cleared">All bookmarks deleted</string>
+    <string name="bookmarks_restored">Bookmarks restored</string>
     <string name="bookmarks_move">Move</string>
     <string name="bookmarks_move_to">Move to folder</string>
     <string name="bookmarks_move_up">Move up</string>

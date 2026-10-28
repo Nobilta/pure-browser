@@ -1,17 +1,26 @@
 /*
  * Reader mode controller, paired with readability.js (Apache-2.0).
  *
- * Runs as a single evaluateJavascript payload after Readability is defined. It replaces the
- * document body with the extracted article and restores the exact previous markup on exit;
- * the saved string lives on the page, so navigating away discards it with the document.
+ * Runs as a single evaluateJavascript payload after Readability is defined. It swaps the
+ * original <body> node for an article body and swaps the node back on exit. Keeping the node
+ * instead of an innerHTML snapshot preserves listeners, input values and script-held
+ * references; only the presentation changes while reader mode is active.
+ *
+ * window.__pureReaderDark is set by ReaderMode before this payload, so the article follows the
+ * app's light/dark theme (including when the page CSS would otherwise force a white page).
  */
 (function () {
   var state = window.__pureReaderState;
   if (state && state.active) {
+    if (state.cssNode && state.cssNode.parentNode) {
+      state.cssNode.parentNode.removeChild(state.cssNode);
+    }
     if (state.sheets && document.adoptedStyleSheets) {
       document.adoptedStyleSheets = state.sheets;
     }
-    document.documentElement.innerHTML = state.html;
+    if (state.body && document.body !== state.body) {
+      document.documentElement.replaceChild(state.body, document.body);
+    }
     if (state.title) document.title = state.title;
     window.__pureReaderState = null;
     window.scrollTo(0, state.scroll || 0);
@@ -33,10 +42,18 @@
     return "empty";
   }
 
-  var savedHtml = document.documentElement.innerHTML;
+  var savedBody = document.body;
   var savedTitle = document.title;
   var savedScroll = window.scrollY || 0;
   var savedSheets = document.adoptedStyleSheets ? document.adoptedStyleSheets.slice() : null;
+  var dark = !!window.__pureReaderDark;
+  var bg = dark ? "#121212" : "#f6f6f4";
+  var fg = dark ? "#e6e3de" : "#1b1b1b";
+  var muted = dark ? "#a8a29a" : "#777777";
+  var link = dark ? "#8ab4f8" : "#0b6bcb";
+  var codeBg = dark ? "#1e1e1e" : "#ececea";
+  var quote = dark ? "#b9b3aa" : "#555555";
+  var border = dark ? "#444444" : "#cccccc";
   var escape = function (value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
@@ -49,48 +66,58 @@
   }).join(" · ");
 
   var cssText =
-    "html{background:#f6f6f4!important}body{margin:0!important;background:#f6f6f4!important}" +
-    "#__pure_reader{max-width:42em;margin:0 auto;padding:24px 18px 64px;color:#1b1b1b;" +
-    "font:18px/1.75 -apple-system,'Noto Serif SC','Songti SC',serif;overflow-wrap:break-word}" +
-    "#__pure_reader h1{font-size:1.6em;line-height:1.35;margin:0 0 8px}" +
-    "#__pure_reader .reader-meta{font-size:.78em;color:#777;margin:0 0 28px}" +
-    "#__pure_reader .reader-body img,#__pure_reader .reader-body video{max-width:100%;height:auto}" +
-    "#__pure_reader .reader-body figure{margin:0 0 24px}" +
-    "#__pure_reader .reader-body a{color:#0b6bcb}" +
-    "#__pure_reader .reader-body pre{white-space:pre-wrap;overflow-x:auto;background:#ececea;padding:10px;border-radius:6px}" +
-    "#__pure_reader .reader-body code{font-family:ui-monospace,monospace}" +
-    "#__pure_reader .reader-body blockquote{margin:0 0 20px;padding-left:14px;border-left:3px solid #ccc;color:#555}" +
-    "#__pure_reader .reader-body table{border-collapse:collapse;max-width:100%}" +
-    "#__pure_reader .reader-body td,#__pure_reader .reader-body th{border:1px solid #ccc;padding:4px 8px}";
+    "html{background:" + bg + "!important;color-scheme:" + (dark ? "dark" : "light") + "!important}" +
+    "body{margin:0!important;background:" + bg + "!important}" +
+    "#__pure_reader{max-width:42em!important;margin:0 auto!important;padding:24px 18px 64px!important;" +
+    "color:" + fg + "!important;font:18px/1.75 -apple-system,'Noto Serif SC','Songti SC',serif!important;" +
+    "overflow-wrap:break-word!important}" +
+    "#__pure_reader h1{font-size:1.6em!important;line-height:1.35!important;margin:0 0 8px!important;color:" + fg + "!important}" +
+    "#__pure_reader .reader-meta{font-size:.78em!important;color:" + muted + "!important;margin:0 0 28px!important}" +
+    "#__pure_reader .reader-body p{margin:0 0 1em!important}" +
+    "#__pure_reader .reader-body img,#__pure_reader .reader-body video{max-width:100%!important;height:auto!important}" +
+    "#__pure_reader .reader-body figure{margin:0 0 24px!important}" +
+    "#__pure_reader .reader-body a{color:" + link + "!important}" +
+    "#__pure_reader .reader-body pre{white-space:pre-wrap!important;overflow-x:auto!important;" +
+    "background:" + codeBg + "!important;color:" + fg + "!important;padding:10px!important;border-radius:6px!important}" +
+    "#__pure_reader .reader-body code{font-family:ui-monospace,monospace!important}" +
+    "#__pure_reader .reader-body blockquote{margin:0 0 20px!important;padding-left:14px!important;" +
+    "border-left:3px solid " + border + "!important;color:" + quote + "!important}" +
+    "#__pure_reader .reader-body table{border-collapse:collapse!important;max-width:100%!important}" +
+    "#__pure_reader .reader-body td,#__pure_reader .reader-body th{border:1px solid " + border + "!important;" +
+    "padding:4px 8px!important}";
 
   // A <style> element is an inline style and strict style-src policies block it. A
   // constructed stylesheet is not inline, so it keeps the reader's typography on those
   // sites; the <style> path stays for WebViews without constructable stylesheets.
+  var cssNode = null;
   if (savedSheets && typeof CSSStyleSheet === "function") {
     try {
       var sheet = new CSSStyleSheet();
       sheet.replaceSync(cssText);
       document.adoptedStyleSheets = savedSheets.concat([sheet]);
     } catch (e) {
-      var css = document.createElement("style");
-      css.id = "__pure_reader_css";
-      css.textContent = cssText;
-      document.head.appendChild(css);
+      cssNode = document.createElement("style");
+      cssNode.id = "__pure_reader_css";
+      cssNode.textContent = cssText;
+      (document.head || document.documentElement).appendChild(cssNode);
     }
   } else {
-    var css = document.createElement("style");
-    css.id = "__pure_reader_css";
-    css.textContent = cssText;
-    document.head.appendChild(css);
+    cssNode = document.createElement("style");
+    cssNode.id = "__pure_reader_css";
+    cssNode.textContent = cssText;
+    (document.head || document.documentElement).appendChild(cssNode);
   }
 
-  document.body.innerHTML =
+  var readerBody = document.createElement("body");
+  readerBody.innerHTML =
     '<main id="__pure_reader"><h1>' + escape(article.title || document.title) + "</h1>" +
     (meta ? '<p class="reader-meta">' + meta + "</p>" : "") +
     '<div class="reader-body">' + article.content + "</div></main>";
+  document.documentElement.replaceChild(readerBody, savedBody);
   if (article.title) document.title = article.title;
   window.__pureReaderState = {
-    active: true, html: savedHtml, title: savedTitle, scroll: savedScroll, sheets: savedSheets
+    active: true, body: savedBody, title: savedTitle, scroll: savedScroll,
+    sheets: savedSheets, cssNode: cssNode
   };
   window.scrollTo(0, 0);
   return "on";
