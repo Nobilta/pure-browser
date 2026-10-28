@@ -17,6 +17,18 @@ import org.json.JSONTokener
  * not detached, so listeners, form values and iframe documents survive; a navigation drops the
  * saved state with the document, which is why nothing is persisted.
  */
+internal class ReaderDocumentGeneration {
+    @Volatile private var value = 0L
+
+    fun onPageStarted() {
+        value++
+    }
+
+    fun capture(): Long = value
+
+    fun isCurrent(captured: Long): Boolean = captured == value
+}
+
 object ReaderMode {
 
     enum class Outcome { ENTERED, EXITED, UNSUPPORTED }
@@ -25,27 +37,38 @@ object ReaderMode {
     @Volatile private var controllerPayload: String? = null
     @Volatile private var fullPayload: String? = null
 
+    /**
+     * URL comparison cannot tell a reload apart from the same address; a pending reader request
+     * from the old document must not run on the new one.
+     */
+    private val generation = ReaderDocumentGeneration()
+
+    fun onPageStarted() {
+        generation.onPageStarted()
+    }
+
     fun toggle(webView: WebView, darkTheme: Boolean, onResult: (Outcome) -> Unit) {
         val url = webView.url
         if (url.isNullOrBlank() || !UrlUtils.isHttpUrl(url)) {
             onResult(Outcome.UNSUPPORTED)
             return
         }
+        val capturedGeneration = generation.capture()
         // The full payload is ~85 KB of Readability; once it has run, only the small controller
         // is needed. The marker is set by our own payload, not by a page, and both the async
         // load and the final evaluation re-check the document URL so a navigation cannot receive
         // a controller without Readability.
         webView.evaluateJavascript("window.__pureReaderReady === true") { marker ->
-            if (webView.url != url) {
+            if (!isCurrent(webView, url, capturedGeneration)) {
                 onResult(Outcome.UNSUPPORTED)
             } else if (marker?.trim() == "true") {
-                send(webView, url, darkTheme, controller(webView.context), onResult)
+                send(webView, url, capturedGeneration, darkTheme, controller(webView.context), onResult)
             } else {
                 io.launch {
                     val script = full(webView.context)
                     webView.post {
-                        if (webView.url == url) {
-                            send(webView, url, darkTheme, script, onResult)
+                        if (isCurrent(webView, url, capturedGeneration)) {
+                            send(webView, url, capturedGeneration, darkTheme, script, onResult)
                         } else {
                             onResult(Outcome.UNSUPPORTED)
                         }
@@ -58,11 +81,12 @@ object ReaderMode {
     private fun send(
         webView: WebView,
         expectedUrl: String,
+        generation: Long,
         darkTheme: Boolean,
         script: String,
         onResult: (Outcome) -> Unit,
     ) {
-        if (webView.url != expectedUrl) {
+        if (!isCurrent(webView, expectedUrl, generation)) {
             onResult(Outcome.UNSUPPORTED)
             return
         }
@@ -77,6 +101,9 @@ object ReaderMode {
             )
         }
     }
+
+    private fun isCurrent(webView: WebView, url: String, capturedGeneration: Long): Boolean =
+        generation.isCurrent(capturedGeneration) && webView.url == url
 
     private fun controller(context: Context): String = controllerPayload ?: context.assets.open("reader.js")
         .bufferedReader().use { it.readText() }

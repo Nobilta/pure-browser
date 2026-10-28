@@ -2857,6 +2857,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPageStarted(url: String) {
+        ReaderMode.onPageStarted()
         translationJob?.cancel()
         translationScrollJob?.cancel()
         translationGeneration++

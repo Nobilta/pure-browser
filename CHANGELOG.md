@@ -3,6 +3,12 @@
 按发布时间记录主要变化。旧条目描述当时的功能，当前使用方法见[功能介绍](FEATURES.md)；
 安装包和版本说明见 [GitHub Releases](https://github.com/Nobilta/pure-browser/releases)。
 
+## 0.17.4 - 2026-10-28
+
+- **阅读模式刷新竞态**：新增主框架文档代次。`onPageStarted` 每次加载（包括同 URL 刷新）
+  递增代次；请求在异步读取后、最终注入前都校验代次和 URL，旧文档的请求不会把脚本注入
+  刷新后的新文档。补 `ReaderDocumentGeneration` 单测。
+
 ## 0.17.3 - 2026-10-28
 
 第三轮评审修复：
