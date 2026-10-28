@@ -331,8 +331,14 @@ class PageFileDownloadTest {
         first.close()
         // A page file can never be resumed, so a restart must not keep its partial data. Startup
         // cleanup runs on its own coroutine, so the assertion waits for it rather than racing it.
-        DownloadHandler(context).close()
-        withTimeout(5_000) { while (directory.exists()) delay(20) }
+        val second = DownloadHandler(context)
+        try {
+            // Give the new handler's startup cleanup a chance to run before closing it; closing
+            // immediately would cancel the cleanup job and make this assertion a race.
+            withTimeout(10_000) { while (directory.exists()) delay(20) }
+        } finally {
+            second.close()
+        }
         assertFalse("partial bytes of a page file must not survive a restart", directory.exists())
     }
 
