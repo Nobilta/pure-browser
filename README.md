@@ -7,33 +7,40 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%2010%2B%20%C2%B7%20arm64--v8a-3ddc84)](#安装)
 
-Pure 浏览器是一款开源的 Android 浏览器，基于系统 WebView，支持广告过滤、用户脚本、多标签浏览和视频播放。
-界面采用 Material 3，支持深色模式与固定品牌配色，无需 Google 服务。
+Pure 浏览器是一款开源的 Android 浏览器，基于系统内置的 WebView，界面采用 Material Design 3 规范设计。
 
 **[下载最新版](https://github.com/Nobilta/pure-browser/releases/latest)** · [查看截图](#截图) · [反馈问题](https://github.com/Nobilta/pure-browser/issues)
 
 支持 Android 10 及以上的 ARM64 设备（64 位 Android 系统）。
 
+## 核心功能
+
+- **增强型视频播放器**：支持倍速、亮度与音量手势、画中画、后台播放、DLNA 投屏。
+- **网页翻译**：支持全文双语对照翻译，选中翻译；内置免登录服务，也可配置自定义翻译API。
+- **本地纯文本**：支持打开常见文本文件（`text/plain`、YAML、JSON、XML、Markdown、CSV 等）。
+- **开发者模式**：支持开发者模式，读取网页证书、源码，执行命令等。
+- **广告过滤与用户脚本**：内置过滤规则，可添加订阅、安装用户脚本。
+- **标签与书签**：标签分组与搜索、页内查找、书签导入导出。
+- **阅读与打印**：一键重排正文进入阅读模式；支持通过系统打印界面打印网页或另存为 PDF。
+- **下载管理**：支持暂停续传、自选目录。
+- **沉浸全屏**：隐藏系统栏和工具栏，网页铺满屏幕。
+- **离线扫码**：支持使用相机或图片识别二维码，无需联网。
+- **个性化**：自定义首页、地址栏位置、主题和三种界面语言；可按站点设置浏览器标识；设置可导出到文件并在其他设备导入。
+- **隐私管理**：内置无痕浏览、按网站管理权限、清理浏览数据。
+
 ## 截图
 
-| 浏览 | 菜单 | 标签 | 设置 | 无痕 |
-|---|---|---|---|---|
-| <img src="docs/screenshots/browsing.png" width="155" alt="浏览网页"> | <img src="docs/screenshots/menu.png" width="155" alt="浏览器菜单"> | <img src="docs/screenshots/tabs.png" width="155" alt="标签面板"> | <img src="docs/screenshots/settings.png" width="155" alt="设置"> | <img src="docs/screenshots/incognito.png" width="155" alt="无痕模式"> |
+浏览、菜单、标签与双语翻译：
 
-## 主要功能
+| 浏览 | 菜单 | 标签 | 双语翻译 |
+|---|---|---|---|
+| <img src="docs/screenshots/zh/browsing.png" width="155" alt="浏览网页"> | <img src="docs/screenshots/zh/menu.png" width="155" alt="浏览器菜单"> | <img src="docs/screenshots/zh/tabs.png" width="155" alt="标签面板"> | <img src="docs/screenshots/zh/translation.png" width="155" alt="双语对照翻译"> |
 
-- **广告过滤与用户脚本**：内置过滤规则，可添加订阅、安装用户脚本。
-- **网页翻译**：选中文本即可翻译；内置免登录服务，也可自带 Azure、DeepL 或 LibreTranslate 配置翻译整页。动态正文会继续翻译，编辑区与禁止翻译的内容会被排除。
-- **标签与书签**：标签分组与搜索、页内查找、书签导入导出；导出结果完整显示数量及遗漏原因。
-- **阅读与打印**：一键重排正文进入阅读模式；通过系统打印界面打印网页或另存为 PDF。
-- **本地纯文本**：从文件管理器或分享面板打开常见文本文件（`text/plain`、YAML、JSON、XML、Markdown、CSV 等），只读显示；支持 UTF-8、UTF-16 和 GB18030，不超过 5 MiB 的文件完整显示，超过上限拒绝打开。
-- **视频播放**：全屏倍速、亮度与音量手势、画中画、后台播放、DLNA 投屏。
-- **下载管理**：下载前确认信息，支持暂停续传、自选目录和批量删除，重复请求自动合并。
-- **沉浸全屏**：隐藏系统栏和工具栏，网页铺满屏幕；浮动按钮随时呼出浏览器操作。
-- **加载与恢复**：显示加载进度，失败后可在内置报错页重试。
-- **离线扫码**：用相机或图片识别二维码，无需联网。
-- **个性化**：自定义首页、地址栏位置、主题和三种界面语言；可按站点设置浏览器标识；设置可导出到文件并在其他设备导入。
-- **隐私管理**：无痕浏览、按网站管理权限、清理浏览数据；无痕数据清理完成后才恢复页面访问。
+视频增强播放、本地文本、油猴脚本与开发者工具：
+
+| 视频增强播放 | 本地纯文本 | 油猴脚本 | 开发者工具 |
+|---|---|---|---|
+| <img src="docs/screenshots/zh/video.png" width="300" alt="全屏视频增强播放"> | <img src="docs/screenshots/zh/text.png" width="155" alt="读取本地纯文本"> | <img src="docs/screenshots/zh/userscripts.png" width="155" alt="油猴脚本管理"> | <img src="docs/screenshots/zh/debug.png" width="155" alt="开发者工具控制台"> |
 
 详细功能、网站兼容性和无痕模式的限制见[功能说明](FEATURES.md)。
 

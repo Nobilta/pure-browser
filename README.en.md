@@ -7,36 +7,42 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%2010%2B%20%C2%B7%20arm64--v8a-3ddc84)](#install)
 
-Pure Browser is an open-source Android browser built on the system WebView, with ad blocking, userscripts,
-tabs and video playback. Its Material 3 interface supports dark mode and a fixed brand palette. No Google services required.
+Pure Browser is an open-source Android browser built on the system WebView, with an interface designed to the Material Design 3 specification.
 
 **[Download the latest version](https://github.com/Nobilta/pure-browser/releases/latest)** · [Screenshots](#screenshots) · [Report an issue](https://github.com/Nobilta/pure-browser/issues)
 
 Requires Android 10 or later on an ARM64 device running 64-bit Android.
 
+## Core features
+
+- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
+- **Page translation**: full-page bilingual translation and selected-text translation; includes a built-in no-login service and supports custom translation APIs.
+- **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
+- **Developer mode**: reads page certificates and source code, executes commands and more.
+- **Ad blocking and userscripts**: built-in filter rules, custom subscriptions and userscript installation.
+- **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export.
+- **Reader mode and printing**: one-tap reflow of the body into reader mode; print pages or save them as PDF from the system print sheet.
+- **Downloads**: pause and resume downloads and choose custom folders.
+- **Immersive fullscreen**: hides the system bars and toolbar so the page fills the screen.
+- **Offline QR scanning**: scan QR codes with the camera or an image, without an internet connection.
+- **Personalisation**: customise the home page, address bar position, theme and three interface languages; set a per-site browser identity; settings can be exported to a file and imported on another device.
+- **Privacy controls**: built-in incognito browsing, per-site permissions and browsing data cleanup.
+
 ## Screenshots
 
-| Browsing | Menu | Tabs | Settings | Incognito |
-|---|---|---|---|---|
-| <img src="docs/screenshots/browsing.png" width="155" alt="Browsing a page"> | <img src="docs/screenshots/menu.png" width="155" alt="Browser menu"> | <img src="docs/screenshots/tabs.png" width="155" alt="Tab panel"> | <img src="docs/screenshots/settings.png" width="155" alt="Settings"> | <img src="docs/screenshots/incognito.png" width="155" alt="Incognito mode"> |
+Browsing, menu, tabs and bilingual translation:
 
-## Features
+| Browsing | Menu | Tabs | Bilingual translation |
+|---|---|---|---|
+| <img src="docs/screenshots/en/browsing.png" width="155" alt="Browsing a page"> | <img src="docs/screenshots/en/menu.png" width="155" alt="Browser menu"> | <img src="docs/screenshots/en/tabs.png" width="155" alt="Tab panel"> | <img src="docs/screenshots/en/translation.png" width="155" alt="Bilingual page translation"> |
 
-- **Ad blocking and userscripts**: built-in filter lists, custom subscriptions and userscript installation.
-- **Page translation**: translate selected text or whole pages with built-in services or your own Azure, DeepL or LibreTranslate configuration. Dynamic content continues translating; editable regions and content marked against translation are excluded.
-- **Tabs and bookmarks**: tab groups and search, find in page, and bookmark import and export with a complete summary of exported and omitted entries.
-- **Reader mode and printing**: reformat an article for reading, then print the page or save it as PDF from the system print sheet.
-- **Local plain text**: open common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar) from a file manager or share sheet in a read-only view; UTF-8, UTF-16 and GB18030 are supported, and files up to 5 MiB are shown in full; larger files are refused.
-- **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
-- **Downloads**: every download is confirmed first, then pause, resume, configurable folders and bulk delete; repeat requests are merged.
-- **Immersive fullscreen**: hide the system bars and toolbar so the page fills the screen, with a floating button for browser actions.
-- **Loading and recovery**: loading progress, with a built-in recovery page for failed loads.
-- **Offline QR scanning**: scan with the camera or read a code from an image, without an internet connection.
-- **Personalisation**: customise the home page, address bar position, theme and three interface languages; set a per-site browser identity; settings can be exported to a file and imported on another device.
-- **Privacy controls**: incognito browsing, per-site permissions and browsing data cleanup; page navigation waits for private data cleanup to finish.
+Enhanced video, local text, userscripts and developer tools:
+
+| Enhanced video | Local text | User scripts | Developer tools |
+|---|---|---|---|
+| <img src="docs/screenshots/en/video.png" width="300" alt="Enhanced fullscreen video"> | <img src="docs/screenshots/en/text.png" width="155" alt="Reading a local text file"> | <img src="docs/screenshots/en/userscripts.png" width="155" alt="User scripts manager"> | <img src="docs/screenshots/en/debug.png" width="155" alt="Developer tools console"> |
 
 See the [feature guide](FEATURES.md) for details, website compatibility and incognito limitations.
-The linked development and reference guides are currently in Chinese.
 
 ## Install
 
