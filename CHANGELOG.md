@@ -3,7 +3,7 @@
 按发布时间记录主要变化。旧条目描述当时的功能，当前使用方法见[功能介绍](FEATURES.md)；
 安装包和版本说明见 [GitHub Releases](https://github.com/Nobilta/pure-browser/releases)。
 
-## 0.17.5.1 - 2026-11-01
+## 0.18 - 2026-11-02
 
 本次更新让界面更统一、提示更可靠，并新增本地文本查看。
 

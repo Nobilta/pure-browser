@@ -1,6 +1,6 @@
-## 0.17.5.1 验证范围
+## 0.18 验证范围
 
-被测产物：`PureBrowser-v0.17.5.1-release.apk`（versionCode 66），本地签名 Release。
+被测产物：`PureBrowser-v0.18-release.apk`（versionCode 67），本地签名 Release。
 
 本版包含固定蓝色主题、菜单和提示样式更新、本地文本查看器、书签导出与过滤校验修正。
 文本文件不超过 5 MiB 时完整读取，超过上限拒绝打开；HTML 构建在后台线程执行。
