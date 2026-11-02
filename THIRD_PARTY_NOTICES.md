@@ -8,18 +8,25 @@ Dependency versions are recorded in [app/gradle.lockfile](app/gradle.lockfile) a
 ## Material Icons
 
 The `ic_lock`, `ic_lock_open`, `ic_copy`, `ic_share`, `ic_edit`, `ic_add`,
-`ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_pip`, `ic_translate`, `ic_ui_reader`
-and `ic_ui_print` drawables are adapted from
+`ic_open_in_new`, `ic_more`, `ic_tabs`, `ic_file`, `ic_pip` and `ic_translate` drawables are
+adapted from
 [Google Material Icons](https://github.com/google/material-design-icons), under the
 [Apache License 2.0](third_party/apache-2.0-LICENSE.txt).
 Their SVG paths were converted to Android VectorDrawable resources.
 
+## Material Symbols
+
+The `ic_ui_*` drawables used by the menu and settings, except `ic_ui_incognito`, are adapted
+from [Google Material Symbols](https://github.com/google/material-design-icons) (Rounded,
+24dp, outlined unless a filled state is named), under the
+[Apache License 2.0](third_party/apache-2.0-LICENSE.txt). Their 960-unit SVG paths were
+converted to Android VectorDrawable resources.
+
 ## Lucide Icons
 
-The `ic_ui_*` drawables used by the redesigned menu and settings are adapted from
-[Lucide](https://lucide.dev/), under the [ISC License](third_party/lucide-ISC.txt).
-Their SVG paths were converted to Android VectorDrawable resources and retain the
-24dp grid, 2dp round stroke, and outline style.
+The `ic_ui_incognito` drawable is adapted from [Lucide](https://lucide.dev/), under the
+[ISC License](third_party/lucide-ISC.txt). Its SVG path was converted to an Android
+VectorDrawable resource and retains the 24dp grid, 2dp round stroke, and outline style.
 
 ## Mozilla Readability
 

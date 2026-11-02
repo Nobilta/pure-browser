@@ -78,7 +78,7 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_clear">Clear</string>
     <string name="ui_incognito_browsing">Incognito browsing</string>
-    <string name="ui_incognito_persistent_summary">Stays on after you exit. The next launch opens a fresh incognito session; private tabs, cookies and temporary grants are never restored.</string>
+    <string name="ui_incognito_persistent_summary">Stays on after exit; the next launch starts a fresh session.</string>
     <string name="incognito_preference_save_failed">Could not save the incognito setting. The mode was not changed.</string>
     <string name="incognito_badge">Incognito</string>
     <string name="incognito_on">Incognito mode enabled</string>
@@ -268,6 +268,7 @@
     <string name="ui_connections_2ad3d3">%1$s · Connections: %2$d</string>
     <string name="ui_fullscreen_gestures_hold_for">Fullscreen gestures · Hold for %1$s</string>
     <string name="ui_use_webpage_controls">Use webpage controls</string>
+    <string name="settings_version_line">Version %1$s</string>
     <string name="ui_version_information">Version information</string>
     <string name="ui_startup">Startup</string>
     <string name="ui_restore_pages_on_startup">Restore pages on startup</string>
@@ -279,14 +280,12 @@
     <string name="ui_set_as_default">Set as default</string>
     <string name="ui_not_set_as_default">Not set as default</string>
     <string name="ui_app_theme">App theme</string>
-    <string name="ui_light_and_dark_themes_support_the_system_font">Light and dark themes support the system font size. Compatible devices use wallpaper colors. Webpage colors depend on the website and WebView.</string>
     <string name="ui_content_filtering">Content filtering</string>
     <string name="ui_ad_filtering">Ad filtering</string>
     <string name="ui_block_requests_matching_built_in_and_custom_filter">Block requests matching built-in and custom filter rules</string>
     <string name="ui_custom_ad_filter_rules">Custom ad filter rules</string>
     <string name="ui_add_and_manage_filter_lists">Add and manage filter lists</string>
     <string name="ui_confirm_before_clearing_cache_cookies_and_history">Confirm before clearing cache, cookies, and history</string>
-    <string name="ui_open_incognito_mode_from_the_browser_menu_supported">Open incognito mode from the browser menu or the privacy settings. Supported WebView versions isolate sign-in data. Older versions clear data on exit and may also sign you out of regular tabs. Bookmarks and downloaded files are kept.</string>
     <string name="ui_fullscreen_experience">Fullscreen experience</string>
     <string name="ui_enhanced_video_controls">Enhanced playback by default</string>
     <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">Try enhanced controls only in fullscreen. Override this default in Website settings.</string>
@@ -304,9 +303,7 @@
     <string name="ui_remember_playback_speed">Remember playback speed</string>
     <string name="ui_use_the_selected_speed_for_future_videos_temporary">Use the selected speed for future videos. Temporary boosts are not saved.</string>
     <string name="ui_default_playback_speed">Default playback speed</string>
-    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">Videos keep their original webpage controls outside fullscreen.</string>
     <string name="ui_pure_browser">Pure Browser</string>
-    <string name="ui_version_android_10_or_later_64_bit_arm">Version %1$s\nAndroid 10 or later · 64-bit ARM devices</string>
     <string name="ui_appearance">Appearance</string>
     <string name="settings_privacy_incognito_off">Incognito browsing off</string>
     <string name="settings_privacy_incognito_on">Incognito browsing on</string>
@@ -421,7 +418,7 @@
     <string name="filter_update_failed">Update failed. The previous rules are still in use.</string>
     <string name="filter_operation_failed">Could not save or download this list. Check the URL, connection, duplicate subscriptions and storage space.</string>
     <string name="filter_loaded_counts">Network rules: %1$d · Element hiding rules: %2$d</string>
-    <string name="filter_reload_hint">Reload the page after changing filters. Some advanced rule syntax is not supported.</string>
+    <string name="filter_reload_hint">Some advanced rule syntax is not supported.</string>
     <string name="filter_update_all">Update enabled lists</string>
     <string name="filter_update">Update</string>
     <string name="filter_auto_update">Automatic rule updates</string>
@@ -453,7 +450,7 @@
     <string name="script_not_here">Not for this page</string>
     <string name="script_status_no_page">Open a web page to see which scripts apply.</string>
     <string name="script_status_incognito">Scripts run here; their saved data is kept for this session only</string>
-    <string name="script_summary">Supports common user script APIs. Reload pages after changes. Scripts run in incognito mode too; their saved data is kept for that session only.</string>
+    <string name="script_summary">Supports common userscript APIs; reload after changes; private-session data lasts only for that session.</string>
     <string name="script_old_webview">This WebView runs only DOM scripts after page load. GM storage and precise start timing require a newer Android System WebView.</string>
     <string name="script_operation_failed">Could not import or save the script. Check its metadata, URL, dependencies, connection and storage (script limit: 1 MiB).</string>
     <string name="script_saved_read_failed">Saved scripts could not be read. The original file has been preserved.</string>
@@ -533,6 +530,8 @@
     <string name="bookmarks_import_preview">Web bookmarks to import: %1$d. Invalid or duplicate entries skipped: %2$d. Existing bookmarks will be kept.</string>
     <string name="bookmarks_imported">Bookmarks imported: %1$d; duplicates or invalid entries skipped: %2$d</string>
     <string name="bookmarks_exported">Bookmarks exported: %1$d</string>
+    <string name="bookmarks_exported_partial">Exported %1$d bookmarks; %2$d omitted at the size limit.</string>
+    <string name="bookmarks_export_unsupported">Skipped %1$d non-web bookmarks.</string>
     <string name="bookmarks_transfer_failed">Unable to read or write the bookmarks file. Use UTF-8 HTML, up to 8 MiB and 5,000 bookmarks.</string>
     <string name="cast_status_unavailable">The device has not reported playback status</string>
     <string name="cast_remote_playing">Device is playing</string>
@@ -616,14 +615,14 @@
     <string name="download_blocked_limit">Only one confirmation is shown at a time</string>
     <string name="download_blocked_request">Download</string>
     <string name="download_unmetered">Download on unmetered networks only</string>
-    <string name="download_budget_summary">Applies to new tasks. Up to 3 transfers and 8 connections in total, 4 connections per host. Temporary network errors retry twice.</string>
+    <string name="download_budget_summary">Concurrency and retry limits for new tasks.</string>
     <string name="new_tab_shortcut">New tab</string>
     <string name="site_web_darkening">Allow automatic webpage darkening</string>
     <string name="site_desktop_viewport">Desktop viewport width</string>
     <string name="site_viewport_original">Website default</string>
     <string name="bottom_address_bar">Address bar at bottom</string>
     <string name="browser_fullscreen">Browser fullscreen</string>
-    <string name="browser_fullscreen_summary">Hide the system bars, address bar and toolbar for an immersive page; a floating button keeps browser actions reachable</string>
+    <string name="browser_fullscreen_summary">Hides browser chrome; a floating button keeps actions reachable.</string>
     <string name="browser_fullscreen_actions">Browser actions</string>
     <string name="browser_fullscreen_continue">Continue fullscreen</string>
     <string name="browser_fullscreen_exit">Exit fullscreen</string>
@@ -670,7 +669,7 @@
     <string name="filter_resume_site">Resume filtering for this site</string>
     <string name="filter_explain_failed">Unable to analyze this request. Reload the filter lists and try again.</string>
     <string name="system_login">Passwords and passkeys</string>
-    <string name="system_login_summary">Use Android autofill and credential providers. Private pages disable autofill and browser passkey access.</string>
+    <string name="system_login_summary">Uses Android autofill; disabled on private pages.</string>
     <string name="autofill_enabled">System autofill: a provider is enabled. Availability also depends on the website and WebView.</string>
     <string name="autofill_disabled">System autofill: choose a password/autofill provider in Android settings.</string>
     <string name="webauthn_supported">This WebView supports browser WebAuthn. Regular pages can request passkeys.</string>
@@ -682,7 +681,7 @@
     <string name="automatic_pip">Fullscreen video in picture in picture</string>
     <string name="automatic_pip_summary">Press Home while a regular fullscreen video is playing. You can also use the fullscreen picture-in-picture button.</string>
     <string name="background_playback">Allow background media</string>
-    <string name="background_playback_summary">Off by default. When enabled, the current regular page can keep playing with system media controls. Switching tabs, headphones disconnecting or losing audio focus pauses playback. Private pages always pause when hidden.</string>
+    <string name="background_playback_summary">Regular pages can keep playing in the background; private pages cannot.</string>
     <string name="media_notification_channel">Web media playback</string>
     <string name="script_resources">Resources (downloaded on installation; at most 8 files, 256 KiB each):\n%1$s</string>
     <string name="download_file_unavailable">File missing or folder access lost. Download it again.</string>
@@ -690,7 +689,7 @@
     <string name="download_progress_unknown">Downloaded %1$s · Connections: %2$d · Total size unknown</string>
     <string name="download_complete_notification">Download complete · Tap to view</string>
     <string name="site_enhanced_playback">Enhanced fullscreen playback</string>
-    <string name="site_enhanced_playback_summary">Take over only in fullscreen on this website. Turn off to keep website controls; reset to use the browser default.</string>
+    <string name="site_enhanced_playback_summary">Applies only in fullscreen on this site.</string>
 
     <!-- Developer tools and QR scanner -->
     <string name="dev_network_all">All</string>
@@ -752,7 +751,7 @@
     <string name="update_allow_source">Allow installation</string>
     <string name="update_install">Install</string>
     <string name="update_auto_check">Check for updates on startup</string>
-    <string name="update_auto_check_summary">Checks GitHub releases in the background at launch. You are only prompted when a newer version exists.</string>
+    <string name="update_auto_check_summary">Checks GitHub at launch; only newer versions prompt.</string>
     <string name="update_prompt_body">A newer version is available. It is downloaded and verified, then the system installer opens.</string>
     <string name="update_now">Update</string>
     <string name="update_permission_needed_auto">Allow installs from this source in system settings. Installation continues automatically when you return.</string>
@@ -870,4 +869,12 @@
     <string name="settings_group_privacy_content_media">Privacy, content and media</string>
     <string name="settings_group_other">Other</string>
     <string name="settings_sites_and_data">Sites and data</string>
+    <string name="plain_text_viewer">Text</string>
+    <string name="plain_text_copy">Copy</string>
+    <string name="plain_text_copied">Copied</string>
+    <string name="plain_text_copy_failed">Text is too large to copy.</string>
+    <string name="plain_text_renderer_gone">The text renderer stopped. Reload to continue.</string>
+    <string name="plain_text_open_failed">Could not open this text file.</string>
+    <string name="plain_text_not_text">This file does not look like plain text.</string>
+    <string name="plain_text_too_large">This file exceeds the 5 MiB limit and cannot be opened.</string>
 </resources>

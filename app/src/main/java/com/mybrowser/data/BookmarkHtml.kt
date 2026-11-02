@@ -75,6 +75,27 @@ object BookmarkHtml {
         return output.toByteArray()
     }
 
+    /**
+     * Encode as many rows as fit in [MAX_BYTES], retaining folder order.
+     *
+     * The export is built before SAF creates the destination, so a too-large file must be
+     * reduced here rather than throwing after the user picked a path. Dropping a quarter at a
+     * time keeps the number of encode passes logarithmic.
+     */
+    fun encodeCapped(bookmarks: List<Bookmark>, folders: List<BookmarkFolder> = emptyList()): CappedExport {
+        var candidates = if (bookmarks.size > MAX_BOOKMARKS) bookmarks.take(MAX_BOOKMARKS) else bookmarks
+        while (true) {
+            try {
+                return CappedExport(encode(candidates, folders), candidates.size)
+            } catch (error: IllegalArgumentException) {
+                if (error.message != "Bookmark export is too large" || candidates.isEmpty()) throw error
+                candidates = candidates.subList(0, candidates.size - maxOf(1, candidates.size / 4))
+            }
+        }
+    }
+
+    data class CappedExport(val bytes: ByteArray, val included: Int)
+
     private fun escape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;")
         .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
 

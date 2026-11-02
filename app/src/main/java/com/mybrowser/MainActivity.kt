@@ -4,6 +4,7 @@ import com.mybrowser.R
 import com.mybrowser.site.*
 import com.mybrowser.data.BookmarkDocuments
 import com.mybrowser.ui.library.BookmarkImportDialog
+import com.mybrowser.ui.library.BookmarkExportDialog
 import kotlin.coroutines.resume
 import com.mybrowser.ui.settings.SiteSettingsSheet
 import com.mybrowser.ui.settings.ManagedSitesSheet
@@ -22,6 +23,7 @@ import android.net.Uri
 import android.net.http.SslError
 import android.util.Log
 import android.os.Bundle
+import android.os.Looper
 import android.os.SystemClock
 import android.view.ActionMode
 import android.view.Menu
@@ -61,7 +63,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.SideEffect
@@ -80,10 +81,14 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import kotlinx.coroutines.currentCoroutineContext
@@ -108,6 +113,8 @@ import com.mybrowser.core.NavigationTarget
 import com.mybrowser.core.PageFailureKind
 import com.mybrowser.ui.shell.ExternalAppDialog
 import com.mybrowser.ui.shell.BackHistoryDialog
+import com.mybrowser.ui.shell.FeedbackMessage
+import com.mybrowser.ui.shell.FeedbackQueue
 import com.mybrowser.core.NetworkLogStore
 import com.mybrowser.core.NavigationReadiness
 import com.mybrowser.ui.shell.PageNavigator
@@ -155,6 +162,8 @@ import com.mybrowser.home.HomepageMode
 import com.mybrowser.security.CertificateDetails
 import com.mybrowser.security.SecurityChecker
 import com.mybrowser.tabs.TabManager
+import com.mybrowser.text.PlainTextActivity
+import com.mybrowser.text.PlainTextMimeTypes
 import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.HistoryManager
 import com.mybrowser.download.DownloadHandler
@@ -246,7 +255,9 @@ class MainActivity : ComponentActivity(),
     private lateinit var downloadFileOpener: com.mybrowser.download.DownloadFileOpener
     /** Download presentation: results become strings here, and a page starts transfers here. */
     private val downloadPresenter by lazy {
-        com.mybrowser.download.DownloadPresenter(this, downloadHandler, downloadFileOpener)
+        com.mybrowser.download.DownloadPresenter(this, downloadHandler, downloadFileOpener) { message ->
+            toast(message)
+        }
     }
     /** Confirmation gate for every download request; survives rotation with the session. */
     private val downloadRequests get() = sessionState.downloadRequests
@@ -412,6 +423,9 @@ class MainActivity : ComponentActivity(),
     private var webViewOrNull: WebView? by mutableStateOf(null)
     /** In-app feedback; ships to BrowserScreen so the host sits above the toolbar. */
     private val snackbarHostState = SnackbarHostState()
+
+    private val feedbackQueue = FeedbackQueue()
+    private var feedbackDraining = false
     private var clearHistoryOnNextFinish = false
     private var readyWebViewTabId: String? = null
     private var viewOwnerId: String? = null
@@ -597,6 +611,7 @@ class MainActivity : ComponentActivity(),
     private lateinit var settingsImportLauncher: ActivityResultLauncher<Array<String>>
 
     /** Parsed backup + preview while the user decides whether to apply an import. */
+    private lateinit var settingsExportFeedback: com.mybrowser.backup.SettingsExportFeedback
     private var importCandidate by mutableStateOf<Pair<com.mybrowser.backup.SettingsBackup, com.mybrowser.backup.ImportPreview>?>(
         null
     )
@@ -605,6 +620,14 @@ class MainActivity : ComponentActivity(),
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        settingsExportFeedback = com.mybrowser.backup.SettingsExportFeedback(this)
+        // onResume() is still STARTED while it runs on some APIs. The lifecycle event is the
+        // only safe point to deliver an undo that arrived while the window was paused.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                startFeedbackIfResumed()
+            }
+        }
         registerActivityLaunchers()
 
         // Edge-to-edge is enforced at targetSdk 35+; opting out is deprecated, so we
@@ -1428,6 +1451,42 @@ class MainActivity : ComponentActivity(),
                 bookmarkDocuments.preview?.let {
                     BookmarkImportDialog(it, bookmarkDocuments.busy, bookmarkDocuments::confirmImport, bookmarkDocuments::dismissPreview)
                 }
+                bookmarkDocuments.exportResult?.let {
+                    BookmarkExportDialog(it, bookmarkDocuments::dismissExportResult)
+                }
+                // Restored sheet windows must be created before the result dialog, or they cover it.
+                settingsExportFeedback.result?.let { result ->
+                    val truncated = result.omittedBookmarks > 0 || result.omittedHistory > 0
+                    val skipped = result.skippedGroups.map(::settingsGroupName)
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { settingsExportFeedback.dismiss() },
+                        title = { Text(getString(R.string.settings_exported)) },
+                        text = {
+                            Column(
+                                androidx.compose.ui.Modifier.verticalScroll(rememberScrollState()),
+                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                            ) {
+                                if (truncated) {
+                                    Text(getString(
+                                        R.string.settings_export_truncated,
+                                        result.omittedBookmarks, result.omittedHistory,
+                                    ))
+                                }
+                                if (skipped.isNotEmpty()) {
+                                    Text(getString(
+                                        R.string.settings_export_skipped_groups,
+                                        skipped.joinToString("、"),
+                                    ))
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { settingsExportFeedback.dismiss() }) {
+                                Text(getString(R.string.ui_ok))
+                            }
+                        },
+                    )
+                }
                 websitePermissions.prompt?.let { WebsitePermissionDialog(it, websitePermissions::respond) }
             }
         }
@@ -1527,7 +1586,8 @@ class MainActivity : ComponentActivity(),
 
         downloadFileOpener = com.mybrowser.download.DownloadFileOpener(this, { downloadHandler }, ::toast)
         bookmarkDocuments = BookmarkDocuments(this, lifecycleScope, { bookmarkManager },
-            onChanged = { loadBookmarks(); refreshBookmarkStatus(state.currentUrl) }, message = ::toast)
+            onChanged = { loadBookmarks(); refreshBookmarkStatus(state.currentUrl) },
+            message = { important, text -> toast(text, important) })
         defaultBrowserLauncher = registerForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
         ) {
@@ -2929,7 +2989,13 @@ class MainActivity : ComponentActivity(),
     override fun onPageCommitVisible(url: String) = state.onPageCommitVisible(url)
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
-        if (url != webView.url || url != state.currentUrl) return
+        // The WebView's own URL is the authority. `state.currentUrl` can lag a server redirect
+        // until doUpdateVisitedHistory, and the old check then dropped this completion entirely:
+        // isLoading stayed true, the tab never became ready, and the next tab switch discarded
+        // the live page so returning to it reloaded. Callbacks from a view that is no longer
+        // current are already filtered by BrowserWebViewClient; this comparison only rejects a
+        // finish for a URL the view itself has already left.
+        if (url != webView.url) return
         readyWebViewTabId = tabManager.currentTab?.id?.takeIf { state.pageFailure == null }
         workerDocument = documentFor(url)
         val resetHistory = clearHistoryOnNextFinish
@@ -3442,6 +3508,41 @@ class MainActivity : ComponentActivity(),
             openSheet(Sheet.DOWNLOADS)
             return
         }
+        // A shared text file has a stream, not EXTRA_TEXT. Send it to the local reader; the
+        // browser itself keeps WebView's file/content access off.
+        if (intent.action == Intent.ACTION_SEND) {
+            @Suppress("DEPRECATION")
+            val stream = intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+            val type = intent.type ?: stream?.let {
+                try { contentResolver.getType(it) } catch (_: SecurityException) { null }
+            }
+            if (stream != null && PlainTextMimeTypes.accepts(type)) {
+                val forward = Intent(this, PlainTextActivity::class.java).setData(stream)
+                // A forwarded URI grant is carried through ClipData on current Android;
+                // addFlags alone lets ActivityManager reject the grant.
+                forward.clipData = ClipData.newRawUri(null, stream)
+                // Re-grant only when the sender granted it; adding the flag for a URI this
+                // app cannot grant makes ActivityManager throw SecurityException.
+                if (intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
+                    forward.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                try {
+                    startActivity(forward)
+                } catch (_: SecurityException) {
+                    // Some providers grant the first activity but refuse to re-grant the
+                    // forwarded URI. Start the reader anyway; it can still read the stream
+                    // under the original grant, and shows its own error if it cannot.
+                    forward.flags = forward.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION.inv()
+                    forward.clipData = null
+                    try {
+                        startActivity(forward)
+                    } catch (_: SecurityException) {
+                        toast(getString(R.string.plain_text_open_failed))
+                    }
+                }
+                return
+            }
+        }
         val url = intentNavigationText(intent)
         when {
             !url.isNullOrBlank() -> {
@@ -3897,19 +3998,9 @@ class MainActivity : ComponentActivity(),
                 toast(getString(R.string.settings_export_failed))
                 return@launch
             }
-            // Never claim a complete file when the size budget cut the library short.
-            val truncated = export.omittedBookmarks > 0 || export.omittedHistory > 0
-            val skipped = export.skippedGroups.map(::settingsGroupName)
-            val truncatedMessage = if (truncated) {
-                "\n" + getString(
-                    R.string.settings_export_truncated,
-                    export.omittedBookmarks, export.omittedHistory,
-                )
-            } else ""
-            val skippedMessage = if (skipped.isNotEmpty()) {
-                "\n" + getString(R.string.settings_export_skipped_groups, skipped.joinToString("、"))
-            } else ""
-            toast(getString(R.string.settings_exported) + truncatedMessage + skippedMessage)
+            // A backup result is not transient: a two-line snackbar can ellipsize the
+            // omitted-group or truncation warning. Show the whole result in a dialog.
+            settingsExportFeedback.show(export)
         }
     }
 
@@ -4017,36 +4108,83 @@ class MainActivity : ComponentActivity(),
 
     /**
      * Transient feedback. Material 3 has no toast: an in-app message is a snackbar, which can
-     * carry an action and reaches TalkBack. Before the UI is resumed (or after it is gone) there
-     * is no host to show it, so the platform toast remains the fallback.
+     * carry an action and reaches TalkBack. Before the UI is resumed an ordinary message uses
+     * the platform toast, while actions and important results wait for RESUMED: a toast
+     * cannot carry the button, and silently dropping an undo is worse than showing it late.
      */
-    private fun toast(message: String) = snackbar(message)
+    private fun toast(message: String, important: Boolean = false) =
+        snackbar(message, important = important)
 
     private fun snackbar(
         message: String,
         actionLabel: String? = null,
+        important: Boolean = false,
         onAction: (() -> Unit)? = null,
     ) {
         if (isFinishing || isDestroyed) return
-        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread { snackbar(message, actionLabel, important, onAction) }
             return
         }
-        lifecycleScope.launch {
-            val current = snackbarHostState.currentSnackbarData
-            // A burst of identical confirmations (downloads, permission callbacks) should not
-            // queue one snackbar per event; a new action-bearing message still replaces it.
-            if (current != null && current.visuals.message == message && actionLabel == null) {
-                return@launch
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            if (actionLabel == null && !important) {
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            } else {
+                // Actions and important results wait for the RESUMED lifecycle observer;
+                // platform toasts cannot preserve an undo button or a complete result.
+                feedbackQueue.add(FeedbackMessage(message, actionLabel, onAction, important), null, null)
             }
-            current?.dismiss()
-            val result = snackbarHostState.showSnackbar(
-                message = message,
-                actionLabel = actionLabel,
-                withDismissAction = false,
-                duration = if (actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
-            )
-            if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+            return
+        }
+        val current = snackbarHostState.currentSnackbarData
+        val accepted = feedbackQueue.add(
+            FeedbackMessage(message, actionLabel, onAction, important),
+            current?.visuals?.message,
+            current?.visuals?.actionLabel,
+        )
+        if (!accepted) return
+        startFeedbackIfResumed()
+    }
+
+    /**
+     * Starts the queue only while the window can host a snackbar. A paused Activity leaves
+     * queued action messages intact; the RESUMED lifecycle observer calls this again.
+     */
+    private fun startFeedbackIfResumed() {
+        if (feedbackQueue.isEmpty()) return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        val current = snackbarHostState.currentSnackbarData
+        if (current != null && current.visuals.actionLabel == null && feedbackQueue.hasAction()) {
+            // An undo is time-sensitive and may replace an ordinary status. Check importance
+            // explicitly and re-queue the result before dismissal, so it reappears afterwards.
+            (current.visuals as? FeedbackMessage)
+                ?.takeIf { it.important }
+                ?.let(feedbackQueue::restoreInterrupted)
+            current.dismiss()
+        }
+        if (feedbackDraining) return
+        feedbackDraining = true
+        lifecycleScope.launch { drainFeedback() }
+    }
+
+    private suspend fun drainFeedback() {
+        try {
+            while (true) {
+                // Never consume a queued undo while the window cannot show it. Any message
+                // already on screen keeps its own timeout; the rest wait for onResume.
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) break
+                val next = feedbackQueue.removeFirst() ?: break
+                val result = snackbarHostState.showSnackbar(next)
+                if (result == SnackbarResult.ActionPerformed) {
+                    runCatching { next.onAction?.invoke() }
+                        .onFailure { Log.w(TAG, "Snackbar action failed", it) }
+                }
+            }
+        } finally {
+            feedbackDraining = false
+            // Every caller and this loop run on the main thread, so a message added while the
+            // loop was unwinding would otherwise sit here until the next one arrives.
+            startFeedbackIfResumed()
         }
     }
 
@@ -4959,6 +5097,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private companion object {
+        const val TAG = "PureBrowser"
         /** The scheme a page uses to hand its own memory out as a download. */
         const val BLOB_SCHEME = "blob:"
         const val ABOUT_BLANK = "about:blank"

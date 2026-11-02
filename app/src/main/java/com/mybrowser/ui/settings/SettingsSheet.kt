@@ -160,7 +160,9 @@ fun SettingsSheet(
     Surface(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
         .testTag(if (selected == null) "settings_root" else "settings_detail")) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(browserSheetInsets())) {
-            val twoPane = maxWidth >= 720.dp && selected != null
+            // Material 3's expanded window class; below it the list owns the width and a
+            // category is a pushed page.
+            val twoPane = maxWidth >= 840.dp && selected != null
             Row(Modifier.fillMaxSize()) {
                 if (twoPane || selected == null) {
                     Box(if (twoPane) Modifier.width(260.dp) else Modifier.fillMaxSize()) {
@@ -311,7 +313,6 @@ fun SettingsSheet(
                                                 onChange = { onPreferencesChange(preferences.copy(swipeTabs = it)) },
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_app_theme), textResources.getString(preferences.theme.labelRes), { openPicker("theme") }, R.drawable.ic_ui_palette)
-                                            SettingsNote(textResources.getString(R.string.ui_light_and_dark_themes_support_the_system_font))
                                         }
                                         SettingsCategory.PRIVACY -> {
                                             SettingsToggle(
@@ -322,7 +323,6 @@ fun SettingsSheet(
                                             )
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_ui_lock)
-                                            SettingsNote(textResources.getString(R.string.ui_open_incognito_mode_from_the_browser_menu_supported))
                                             SettingsGroup(textResources.getString(R.string.settings_sites_and_data))
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_ui_tools)
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_ui_delete)
@@ -400,13 +400,12 @@ fun SettingsSheet(
                                                 onChange = { updateVideo(video.copy(rememberSpeed = it)) },
                                             )
                                             SettingsItem(textResources.getString(R.string.ui_default_playback_speed), PlaybackSpeed.label(video.preferredSpeed), { openPicker("speed") }, R.drawable.ic_ui_media)
-                                            SettingsNote(textResources.getString(R.string.ui_videos_keep_playing_through_the_webpage_preserving_sign))
                                         }
                                         SettingsCategory.ABOUT -> {
                                             val context = LocalContext.current
                                             val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
                                             Text(textResources.getString(R.string.ui_pure_browser), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
-                                            SettingsNote(textResources.getString(R.string.ui_version_android_10_or_later_64_bit_arm, version))
+                                            SettingsNote(textResources.getString(R.string.settings_version_line, version))
                                             SettingsItem(textResources.getString(R.string.update_check),
                                                 "GitHub · Nobilta/pure-browser", { showUpdate = true }, R.drawable.ic_ui_download)
                                             SettingsToggle(
