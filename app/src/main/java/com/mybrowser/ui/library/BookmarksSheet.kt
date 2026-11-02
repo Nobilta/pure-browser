@@ -3,6 +3,7 @@ package com.mybrowser.ui.library
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -228,4 +229,30 @@ fun BookmarkImportDialog(data: com.mybrowser.data.BookmarkImport, busy: Boolean,
         } },
         confirmButton = { TextButton(onClick = onConfirm, enabled = !busy) { Text(stringResource(R.string.bookmarks_import)) } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.action_cancel)) } })
+}
+
+@Composable
+fun BookmarkExportDialog(result: com.mybrowser.data.BookmarkExportResult, onDismiss: () -> Unit) {
+    BrowserAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.bookmarks_exported, result.count)) },
+        text = if (result.unsupported > 0 || result.omitted > 0) {
+            {
+                Column(
+                    Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (result.unsupported > 0) {
+                        Text(stringResource(R.string.bookmarks_export_unsupported, result.unsupported))
+                    }
+                    if (result.omitted > 0) {
+                        Text(stringResource(R.string.bookmarks_exported_partial, result.count, result.omitted))
+                    }
+                }
+            }
+        } else null,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_ok)) }
+        },
+    )
 }

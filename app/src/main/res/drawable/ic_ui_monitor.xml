@@ -1,27 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols Rounded: desktop_windows (default), Apache License 2.0. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#000000"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M4,3 H20 A2,2 0 0 1 22,5 V15 A2,2 0 0 1 20,17 H4 A2,2 0 0 1 2,15 V5 A2,2 0 0 1 4,3 Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#000000"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M8,21 L16,21" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#000000"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,17 L12,21" />
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M400-200v-80H160q-33 0-56.5-23.5T80-360v-400q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v400q0 33-23.5 56.5T800-280H560v80h40q17 0 28.5 11.5T640-160q0 17-11.5 28.5T600-120H360q-17 0-28.5-11.5T320-160q0-17 11.5-28.5T360-200h40ZM160-360h640v-400H160v400Zm0 0v-400 400Z" />
+    </group>
 </vector>

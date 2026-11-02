@@ -24,6 +24,17 @@ object FilterListFormat {
             HTML_PREFIX.containsMatchIn(text.take(65_536))) {
             throw IOException("Not an Adblock filter list")
         }
+        if (text.count { it == '\n' } >= MAX_LINES) throw IOException("Too many filter lines")
+        // Let the Rust parser decide what a rule is; the Kotlin copy below is the JVM-test
+        // fallback and would otherwise be a second, drifting grammar.
+        if (NativeFilter.isAvailable) {
+            val stats = NativeFilter.listStats(text)
+            if (stats < 0) throw IOException("No filter rules")
+            val network = (stats ushr 32).toInt()
+            val cosmetic = (stats and 0xFFFF_FFFFL).toInt()
+            if (network + cosmetic == 0) throw IOException("No filter rules")
+            return network + cosmetic
+        }
         var count = 0
         var lines = 0
         text.lineSequence().forEach { raw ->
@@ -34,6 +45,9 @@ object FilterListFormat {
                 // an anchor, or a cosmetic marker is a rule. What it deliberately does not do is
                 // demand one of those characters from the *anchored* text — `||ads^` is a host
                 // pattern, and a test for a separator on the stripped body misses it.
+                // `#?#` is not understood by either native cosmetic loader; counting it
+                // would let an unsupported subscription replace a working snapshot.
+                if (line.contains("#?#")) return@forEach
                 if (line.contains("##") || line.contains("#@#")) {
                     count++
                     return@forEach

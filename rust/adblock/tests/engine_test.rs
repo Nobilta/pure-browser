@@ -548,3 +548,55 @@ fn fallback_bucket_is_capped_and_reported() {
     assert!(e.should_block("https://example.com/x1y2z3.js", DOC, ResourceType::Script));
     assert!(!e.should_block("https://example.com/plain.js", DOC, ResourceType::Script));
 }
+
+#[test]
+fn list_stats_counts_network_and_cosmetic_rules() {
+    assert_eq!(
+        adblock::engine::list_stats("! comment\n||ads.example^\n##.ad-banner\n"),
+        Some((1, 1))
+    );
+    assert_eq!(
+        adblock::engine::list_stats("! only a comment\n[Adblock Plus 2.0]\n"),
+        None
+    );
+    assert_eq!(
+        adblock::engine::list_stats("Service Unavailable\nAccess denied\nNot Found\n"),
+        None,
+    );
+    assert_eq!(adblock::engine::list_stats("Forbidden\n"), None);
+    assert_eq!(adblock::engine::list_stats("ads\n"), None);
+    assert_eq!(
+        adblock::engine::list_stats("ads.example.com\n"),
+        Some((1, 0))
+    );
+    assert_eq!(adblock::engine::list_stats("||adserver^\n"), Some((1, 0)));
+    assert_eq!(
+        adblock::engine::list_stats(&format!("||ads^{}\n", "a".repeat(16 * 1024))),
+        None,
+    );
+    assert_eq!(adblock::engine::list_stats("##.ad-banner\n"), Some((0, 1)));
+    assert_eq!(
+        adblock::engine::list_stats("example.com#?#div:-abp-has(.ad)\n"),
+        None,
+    );
+}
+
+#[test]
+fn list_stats_accepts_supported_options_on_keyword_and_wildcard_rules() {
+    for (rule, resource) in [
+        ("ads$script,domain=example.com", ResourceType::Script),
+        ("*$image,domain=example.com", ResourceType::Image),
+        ("ads$script", ResourceType::Script),
+    ] {
+        assert_eq!(adblock::engine::list_stats(rule), Some((1, 0)), "{rule}");
+        let mut engine = Engine::new();
+        engine.add_list(rule);
+        assert!(engine.should_block("https://cdn.test/ads.js", "https://example.com/", resource));
+    }
+    assert_eq!(
+        adblock::engine::list_stats("@@*$document,domain=example.com"),
+        Some((1, 0))
+    );
+    assert_eq!(adblock::engine::list_stats("ads$unknown-option"), None);
+    assert_eq!(adblock::engine::list_stats("Service Unavailable"), None);
+}

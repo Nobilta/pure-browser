@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import androidx.core.database.sqlite.transaction
+import com.mybrowser.core.UrlUtils
 
 /**
  * Repository for bookmarks.
@@ -317,16 +318,56 @@ class BookmarkManager(context: Context) {
         }
     }
 
+    /**
+     * Web bookmarks for the HTML export, up to the export cap.
+     *
+     * Filtering happens while paging: taking the first 5,000 rows and filtering afterwards
+     * could let 5,000 non-web rows hide every valid bookmark behind them.
+     */
     @Synchronized
     fun bookmarksForExport(): List<Bookmark> {
         check(!closed)
-        val entries = db.readableDatabase.query("bookmarks", COLUMNS, null, null, null, null,
-            "folder_id, position, id", (BookmarkHtml.MAX_BOOKMARKS + 1).toString()).use { cursor ->
+        val result = ArrayList<Bookmark>(BookmarkHtml.MAX_BOOKMARKS)
+        var offset = 0
+        while (result.size < BookmarkHtml.MAX_BOOKMARKS) {
+            val page = exportPage(offset)
+            if (page.isEmpty()) break
+            for (bookmark in page) {
+                if (result.size >= BookmarkHtml.MAX_BOOKMARKS) break
+                if (UrlUtils.isHttpUrl(bookmark.url)) result += bookmark
+            }
+            offset += page.size
+        }
+        return result
+    }
+
+    /** Web bookmarks in the library, without materializing the whole library. */
+    @Synchronized
+    fun countExportableBookmarks(): Int {
+        check(!closed)
+        var count = 0
+        var offset = 0
+        while (true) {
+            val page = db.readableDatabase.query(
+                "bookmarks", arrayOf("url"), null, null, null, null,
+                "folder_id, position, id", "$EXPORT_PAGE_SIZE OFFSET $offset",
+            ).use { cursor ->
+                buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+            }
+            if (page.isEmpty()) break
+            count += page.count { UrlUtils.isHttpUrl(it) }
+            offset += page.size
+        }
+        return count
+    }
+
+    private fun exportPage(offset: Int): List<Bookmark> =
+        db.readableDatabase.query(
+            "bookmarks", COLUMNS, null, null, null, null,
+            "folder_id, position, id", "$EXPORT_PAGE_SIZE OFFSET $offset",
+        ).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) }
         }
-        check(entries.size <= BookmarkHtml.MAX_BOOKMARKS) { "Too many bookmarks to export" }
-        return entries
-    }
 
     /**
      * Rows for a backup file, capped instead of refused: a library larger than the
@@ -468,7 +509,7 @@ class BookmarkManager(context: Context) {
             val next = index + direction
             if (next in ids.indices) {
                 java.util.Collections.swap(ids, index, next)
-                ids.forEachIndexed { i, row -> execSQL("UPDATE $table SET position = ? WHERE id = ?", arrayOf(i, row)) }
+                ids.forEachIndexed { i, row -> execSQL("UPDATE $table SET position = ? WHERE id = ?", arrayOf<Any>(i, row)) }
             }
         }
     }
@@ -526,5 +567,6 @@ class BookmarkManager(context: Context) {
         const val TAG = "BookmarkManager"
         val COLUMNS = arrayOf("id", "title", "url", "favicon_url", "created_at", "folder_id", "position")
         const val DEFAULT_SEARCH_LIMIT = 50
+        const val EXPORT_PAGE_SIZE = 1_024
     }
 }

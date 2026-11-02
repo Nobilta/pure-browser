@@ -4,8 +4,9 @@
 //! convenient API for Rust callers and keeps load statistics cumulative when several lists
 //! are added.
 
+use crate::cosmetic::CosmeticMatcher;
 use crate::matcher::Matcher;
-use crate::rule::{ResourceType, SkipReason};
+use crate::rule::{Anchor, ResourceType, Rule, RuleOptions, SkipReason};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct LoadStats {
@@ -70,4 +71,37 @@ impl Engine {
     pub fn parse_line(line: &str) -> Result<crate::rule::Rule, SkipReason> {
         crate::rule::Rule::parse(line)
     }
+}
+
+/// Counts what the real loaders accept, using a temporary matcher and cosmetic matcher.
+/// This keeps validation aligned with `MATCHER::load` (16 KiB line cap, capacity refusals,
+/// cosmetic selector validation) instead of counting parser successes that never load.
+pub fn list_stats(content: &str) -> Option<(usize, usize)> {
+    // Feed the actual loaders, but drop prose that the parser can represent as an
+    // unanchored wildcard (`Forbidden`, `Service Unavailable`) and would otherwise count.
+    let filtered: String = content
+        .lines()
+        .filter(|line| match Rule::parse(line) {
+            Ok(rule) => is_usable_network(&rule),
+            Err(_) => true,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut network = Matcher::new();
+    let loaded = network.load(&filtered);
+    let mut cosmetic = CosmeticMatcher::new();
+    cosmetic.load(&filtered);
+    let network_count = loaded.blocking_rules + loaded.exceptions;
+    let cosmetic_count = cosmetic.rule_count();
+    (network_count + cosmetic_count > 0).then_some((network_count, cosmetic_count))
+}
+
+fn is_usable_network(rule: &Rule) -> bool {
+    !rule.pattern.chars().any(char::is_whitespace)
+        && (rule.options != RuleOptions::default()
+            || (rule.pattern.chars().any(char::is_alphanumeric)
+                && (rule.anchor != Anchor::None
+                    || rule.anchor_end
+                    || rule.pattern.contains('.')
+                    || rule.pattern.contains('/'))))
 }

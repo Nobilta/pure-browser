@@ -8,7 +8,7 @@
 [![Platform](https://img.shields.io/badge/platform-Android%2010%2B%20%C2%B7%20arm64--v8a-3ddc84)](#install)
 
 Pure Browser is an open-source Android browser built on the system WebView, with ad blocking, userscripts,
-tabs and video playback. Its Material 3 interface supports dark mode and dynamic colour. No Google services required.
+tabs and video playback. Its Material 3 interface supports dark mode and a fixed brand palette. No Google services required.
 
 **[Download the latest version](https://github.com/Nobilta/pure-browser/releases/latest)** · [Screenshots](#screenshots) · [Report an issue](https://github.com/Nobilta/pure-browser/issues)
 
@@ -24,8 +24,9 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 
 - **Ad blocking and userscripts**: built-in filter lists, custom subscriptions and userscript installation.
 - **Page translation**: translate selected text or whole pages with built-in services or your own Azure, DeepL or LibreTranslate configuration. Dynamic content continues translating; editable regions and content marked against translation are excluded.
-- **Tabs and bookmarks**: tab groups and search, find in page, and bookmark import and export.
+- **Tabs and bookmarks**: tab groups and search, find in page, and bookmark import and export with a complete summary of exported and omitted entries.
 - **Reader mode and printing**: reformat an article for reading, then print the page or save it as PDF from the system print sheet.
+- **Local plain text**: open common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar) from a file manager or share sheet in a read-only view; UTF-8, UTF-16 and GB18030 are supported, and files up to 5 MiB are shown in full; larger files are refused.
 - **Video playback**: fullscreen speed controls, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
 - **Downloads**: every download is confirmed first, then pause, resume, configurable folders and bulk delete; repeat requests are merged.
 - **Immersive fullscreen**: hide the system bars and toolbar so the page fills the screen, with a floating button for browser actions.

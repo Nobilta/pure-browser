@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Orbit P launcher mark: deep teal to sea green. -->
+<!-- Orbit P launcher mark: the app's fixed blue palette, deep to primary. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="45"
-        android:startColor="#062834"
-        android:centerColor="#0A4A58"
-        android:endColor="#15918A"
+        android:startColor="#071A2B"
+        android:centerColor="#17395C"
+        android:endColor="#365F91"
         android:type="linear" />
 </shape>

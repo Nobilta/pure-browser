@@ -33,6 +33,17 @@ class BookmarkTransferTest {
         } finally { manager.close() }
     }
 
+    @Test fun exportFiltersNonWebRowsBeforeApplyingTheCap() {
+        val manager = BookmarkManager(RuntimeEnvironment.getApplication())
+        try {
+            manager.addBookmark("Bad", "javascript:alert(1)")
+            manager.addBookmark("Good", "https://good.example")
+            assertEquals(listOf("https://good.example"), manager.bookmarksForExport().map { it.url })
+            assertEquals(1, manager.countExportableBookmarks())
+            assertEquals(2, manager.countBookmarks())
+        } finally { manager.close() }
+    }
+
     @Test fun invalidBatchRollsBackEarlierRows() {
         val manager = BookmarkManager(RuntimeEnvironment.getApplication())
         try {

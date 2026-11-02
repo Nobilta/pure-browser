@@ -87,10 +87,7 @@ fun MenuSheet(
     val textResources = localizedResources()
     val scrollState = rememberScrollState()
 
-    BrowserBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-    ) {
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.testTag("browser_menu")) {
             MenuSiteHeader(
                 title = siteTitle.ifBlank { stringResource(R.string.menu_title) },
@@ -240,10 +237,7 @@ fun MoreToolsSheet(
     onPrintPage: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
-    BrowserBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-    ) {
+    BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.testTag("browser_menu")) {
             BrowserSheetHeader(
                 title = stringResource(R.string.menu_more_tools),
@@ -420,9 +414,9 @@ private fun MenuSectionLabel(text: String) {
 @Composable
 private fun MenuCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(content = content)
     }
@@ -430,10 +424,7 @@ private fun MenuCard(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun MenuDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 56.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
-    )
+    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
 }
 
 @Composable
@@ -474,8 +465,8 @@ private fun QuickMenuAction(
     ) {
         Surface(
             shape = CircleShape,
-            color = if (enabled) MaterialTheme.colorScheme.surfaceContainer
-            else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
+            color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
             modifier = Modifier.size(40.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {

@@ -1,7 +1,5 @@
 package com.mybrowser.ui.settings
 
-import android.widget.Toast
-
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,7 +27,6 @@ import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.shell.userItemMotion
-import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: FilterController, onDismiss: () -> Unit) {
@@ -48,7 +45,6 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     var deleting by remember { mutableStateOf<FilterSubscriptions.Subscription?>(null) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = LocalSnackbarHostState.current
-    val context = LocalContext.current
     val dateFormat = remember(res.configuration.locales.toLanguageTags()) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, res.configuration.locales[0])
     }
@@ -127,9 +123,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                             scope.launch {
                                 if (!controller.removeUserRule(rule)) {
                                     val message = res.getString(R.string.filter_user_rule_failed)
-                                    val host = snackbarHostState
-                                    if (host != null) scope.launch { host.showSnackbar(message) }
-                                    else Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    snackbarHostState?.showSnackbar(message)
                                 }
                             }
                         }) {
