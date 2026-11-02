@@ -78,7 +78,7 @@
     <string name="action_cancel">取消</string>
     <string name="action_clear">清除</string>
     <string name="ui_incognito_browsing">無痕瀏覽</string>
-    <string name="ui_incognito_persistent_summary">退出後保持開啟，下次啟動使用新的無痕工作階段；無痕分頁、Cookie 和臨時授權不會被保留。</string>
+    <string name="ui_incognito_persistent_summary">退出後保持開啟；下次啟動為新工作階段。</string>
     <string name="incognito_preference_save_failed">無法儲存無痕模式設定，模式未改變。</string>
     <string name="incognito_badge">無痕</string>
     <string name="incognito_on">已進入無痕模式</string>
@@ -268,6 +268,7 @@
     <string name="ui_connections_2ad3d3">%1$s · %2$d 線程</string>
     <string name="ui_fullscreen_gestures_hold_for">全屏手勢 · 長按 %1$s</string>
     <string name="ui_use_webpage_controls">使用網頁控件</string>
+    <string name="settings_version_line">版本 %1$s</string>
     <string name="ui_version_information">版本資訊</string>
     <string name="ui_startup">啓動</string>
     <string name="ui_restore_pages_on_startup">啓動時恢復上次網頁</string>
@@ -279,14 +280,12 @@
     <string name="ui_set_as_default">已設為默認</string>
     <string name="ui_not_set_as_default">尚未設為默認</string>
     <string name="ui_app_theme">應用主題</string>
-    <string name="ui_light_and_dark_themes_support_the_system_font">淺色與深色均支持系統字體大小。支持動態配色的設備會使用壁紙配色。網頁本身的顏色由網站和 WebView 決定。</string>
     <string name="ui_content_filtering">內容過濾</string>
     <string name="ui_ad_filtering">廣告過濾</string>
     <string name="ui_block_requests_matching_built_in_and_custom_filter">攔截內置規則和自定義列表匹配的請求</string>
     <string name="ui_custom_ad_filter_rules">自定義廣告過濾規則</string>
     <string name="ui_add_and_manage_filter_lists">添加和管理過濾列表</string>
     <string name="ui_confirm_before_clearing_cache_cookies_and_history">選擇後確認清除緩存、Cookie 和歷史記錄</string>
-    <string name="ui_open_incognito_mode_from_the_browser_menu_supported">無痕入口在瀏覽菜單和隱私設定中。支持獨立存儲的 WebView 會隔離登錄數據；舊 WebView 使用退出清除模式，可能同時清除普通模式的登錄狀態。書簽與下載文件會保留。</string>
     <string name="ui_fullscreen_experience">全屏體驗</string>
     <string name="ui_enhanced_video_controls">預設啟用增強播放</string>
     <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">僅在全螢幕時嘗試接管，可在網站設定中單獨開啟或關閉</string>
@@ -304,9 +303,7 @@
     <string name="ui_remember_playback_speed">記住播放速度</string>
     <string name="ui_use_the_selected_speed_for_future_videos_temporary">將選擇的速度用於之後播放的視頻；臨時倍速不保存</string>
     <string name="ui_default_playback_speed">默認播放速度</string>
-    <string name="ui_videos_keep_playing_through_the_webpage_preserving_sign">非全螢幕影片一律使用網頁原有控制項。</string>
     <string name="ui_pure_browser">Pure 瀏覽器</string>
-    <string name="ui_version_android_10_or_later_64_bit_arm">版本 %1$s\n支持 Android 10 及以上 · 64 位 ARM 設備</string>
     <string name="ui_appearance">外觀</string>
     <string name="settings_privacy_incognito_off">無痕瀏覽未開啟</string>
     <string name="settings_privacy_incognito_on">無痕瀏覽已開啟</string>
@@ -420,7 +417,7 @@
     <string name="filter_update_failed">更新失敗，繼續使用之前的規則。</string>
     <string name="filter_operation_failed">無法下載或儲存規則，請檢查網址、網路、重複訂閱和儲存空間。</string>
     <string name="filter_loaded_counts">已載入：%1$d 條網路規則 · %2$d 條元素隱藏規則</string>
-    <string name="filter_reload_hint">修改後重新整理網頁生效。部分進階規則語法暫不支援。</string>
+    <string name="filter_reload_hint">部分進階規則語法暫不支援。</string>
     <string name="filter_update_all">更新已啟用規則</string>
     <string name="filter_update">更新</string>
     <string name="filter_auto_update">自動更新規則</string>
@@ -452,7 +449,7 @@
     <string name="script_not_here">不適用於本頁</string>
     <string name="script_status_no_page">開啟網頁後可看到哪些指令碼適用。</string>
     <string name="script_status_incognito">指令碼在此正常執行，儲存的資料只在本次工作階段內有效</string>
-    <string name="script_summary">支援常用使用者指令碼 API，修改後請重新整理網頁。無痕模式下指令碼同樣執行，但指令碼儲存的資料只在本次無痕工作階段內有效。</string>
+    <string name="script_summary">支援常用使用者指令碼 API；修改後重新整理；無痕資料僅本次工作階段有效。</string>
     <string name="script_old_webview">此 WebView 僅在網頁載入後執行 DOM 腳本。GM 儲存和精確的開始時機需要更新 Android System WebView。</string>
     <string name="script_operation_failed">無法匯入或儲存腳本，請檢查中繼資料、網址、相依項目、網路和儲存空間（腳本上限 1 MiB）。</string>
     <string name="script_saved_read_failed">無法讀取已儲存的腳本，原始檔案已保留。</string>
@@ -532,6 +529,8 @@
     <string name="bookmarks_import_preview">匯入 %1$d 個網頁書籤？已略過 %2$d 個無效或重複項目。現有書籤會保留。</string>
     <string name="bookmarks_imported">已匯入 %1$d 個書籤，略過 %2$d 個重複或無效項目</string>
     <string name="bookmarks_exported">已匯出 %1$d 個書籤</string>
+    <string name="bookmarks_exported_partial">已匯出 %1$d 個書籤；%2$d 個因上限省略。</string>
+    <string name="bookmarks_export_unsupported">已略過 %1$d 個非網頁書籤。</string>
     <string name="bookmarks_transfer_failed">無法讀寫書籤檔案。請使用 UTF-8 HTML，檔案不超過 8 MiB、書籤不超過 5,000 個。</string>
     <string name="cast_status_unavailable">裝置暫未回報播放狀態</string>
     <string name="cast_remote_playing">裝置正在播放</string>
@@ -614,14 +613,14 @@
     <string name="download_blocked_limit">同一時間只顯示一個確認框</string>
     <string name="download_blocked_request">下載</string>
     <string name="download_unmetered">僅在不計流量的網路下載</string>
-    <string name="download_budget_summary">對新工作生效。全域最多 3 個工作、8 條連線，每主機最多 4 條連線；暫時網路錯誤最多重試兩次。</string>
+    <string name="download_budget_summary">並行與重試上限，僅對新工作生效。</string>
     <string name="new_tab_shortcut">新增分頁</string>
     <string name="site_web_darkening">允許網頁自動深色</string>
     <string name="site_desktop_viewport">桌面檢視區寬度</string>
     <string name="site_viewport_original">網站原始設定</string>
     <string name="bottom_address_bar">網址列置於底部</string>
     <string name="browser_fullscreen">瀏覽器全屏</string>
-    <string name="browser_fullscreen_summary">隱藏系統列、網址列和工具列，網頁沉浸顯示；保留浮動按鈕呼出瀏覽器操作</string>
+    <string name="browser_fullscreen_summary">隱藏瀏覽器介面，保留浮動按鈕</string>
     <string name="browser_fullscreen_actions">瀏覽器操作</string>
     <string name="browser_fullscreen_continue">繼續全屏</string>
     <string name="browser_fullscreen_exit">退出全屏</string>
@@ -668,7 +667,7 @@
     <string name="filter_resume_site">恢復此網站過濾</string>
     <string name="filter_explain_failed">無法分析此請求，請重新載入過濾清單後重試。</string>
     <string name="system_login">密碼與通行金鑰</string>
-    <string name="system_login_summary">使用 Android 自動填入與憑證提供者。無痕網頁停用自動填入與瀏覽器通行金鑰存取。</string>
+    <string name="system_login_summary">使用 Android 自動填入；無痕網頁停用。</string>
     <string name="autofill_enabled">系統自動填入：已啟用提供者，實際可用性也取決於網站與 WebView。</string>
     <string name="autofill_disabled">系統自動填入：請在 Android 設定中選擇密碼或自動填入提供者。</string>
     <string name="webauthn_supported">此 WebView 支援瀏覽器 WebAuthn，一般網頁可以請求通行金鑰。</string>
@@ -680,7 +679,7 @@
     <string name="automatic_pip">全螢幕影片自動子母畫面</string>
     <string name="automatic_pip_summary">一般全螢幕影片播放時按主畫面鍵進入子母畫面，也可點選全螢幕子母畫面按鈕。</string>
     <string name="background_playback">允許背景播放</string>
-    <string name="background_playback_summary">預設關閉。啟用後，目前的一般網頁可在背景繼續播放，並顯示系統媒體控制。切換分頁、拔出耳機或失去音訊焦點時暫停；無痕網頁離開前景時一律暫停。</string>
+    <string name="background_playback_summary">一般網頁可在背景播放；無痕網頁不會。</string>
     <string name="media_notification_channel">網頁媒體播放</string>
     <string name="script_resources">資源（安裝時下載，最多 8 個檔案，每個 256 KiB）：\n%1$s</string>
     <string name="download_file_unavailable">檔案不存在或資料夾授權失效，請重新下載。</string>
@@ -688,7 +687,7 @@
     <string name="download_progress_unknown">已下載 %1$s · %2$d 個連線 · 總大小未知</string>
     <string name="download_complete_notification">下載完成 · 點按查看</string>
     <string name="site_enhanced_playback">增強全螢幕播放</string>
-    <string name="site_enhanced_playback_summary">僅在此網站全螢幕播放時嘗試接管。關閉後使用網頁控制項，重設網站設定後跟隨瀏覽器預設值。</string>
+    <string name="site_enhanced_playback_summary">僅本站全螢幕播放時生效。</string>
 
     <!-- Developer tools and QR scanner -->
     <string name="dev_network_all">全部</string>
@@ -750,7 +749,7 @@
     <string name="update_allow_source">允許安裝</string>
     <string name="update_install">安裝</string>
     <string name="update_auto_check">啟動時自動檢查更新</string>
-    <string name="update_auto_check_summary">啟動時在背景下檢查 GitHub Releases，只有發現新版本才會提示。</string>
+    <string name="update_auto_check_summary">啟動時檢查 GitHub 更新，僅提示新版本。</string>
     <string name="update_prompt_body">發現新版本。下載並校驗後會開啟系統安裝程式完成安裝。</string>
     <string name="update_now">更新</string>
     <string name="update_permission_needed_auto">請在系統設定中允許此來源安裝，返回後會自動繼續安裝。</string>
@@ -868,4 +867,12 @@
     <string name="settings_group_privacy_content_media">隱私、內容與媒體</string>
     <string name="settings_group_other">其他</string>
     <string name="settings_sites_and_data">網站與資料</string>
+    <string name="plain_text_viewer">文字</string>
+    <string name="plain_text_copy">複製</string>
+    <string name="plain_text_copied">已複製</string>
+    <string name="plain_text_copy_failed">文字過大，無法複製。</string>
+    <string name="plain_text_renderer_gone">文字渲染程序已停止，請重新載入。</string>
+    <string name="plain_text_open_failed">無法開啟這個文字檔案。</string>
+    <string name="plain_text_not_text">這個檔案看起來不是純文字。</string>
+    <string name="plain_text_too_large">檔案超過 5 MiB，無法開啟。</string>
 </resources>

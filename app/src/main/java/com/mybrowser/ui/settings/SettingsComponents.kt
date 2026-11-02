@@ -67,7 +67,7 @@ internal fun SettingsGroup(title: String) {
     Text(
         title,
         style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
     )
 }

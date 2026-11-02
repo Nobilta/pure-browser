@@ -53,14 +53,15 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
     /**
      * Whether [requestUrl] should be blocked for a page at [documentUrl].
      *
-     * Returns false for a closed engine or a Java/JNI call failure. Native aborts cannot be
-     * caught by Kotlin; bounded inputs and native regression/sanitizer checks cover that boundary.
+     * Returns false for a closed engine. Native aborts cannot be caught by Kotlin; bounded
+     * inputs and native regression/sanitizer checks cover that boundary.
      */
     fun shouldBlock(requestUrl: String, documentUrl: String, type: ResourceType): Boolean {
         if (handle == 0L || requestUrl.length > 8192 || documentUrl.length > 8192) return false
-        return runCatching {
-            nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
-        }.getOrDefault(false)
+        // Subresource hot path: a page calls this hundreds of times. The library is loaded in
+        // the companion and the handle is checked above; a Result allocation per request would
+        // only buy a swallowed OutOfMemoryError.
+        return nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
     }
 
     fun explainList(text: String, requestUrl: String, documentUrl: String, type: ResourceType): Pair<String?, String?> {
@@ -100,9 +101,17 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
             return NativeFilter(handle)
         }
 
+        /**
+         * Counts network/cosmetic rules with the same parser the engine uses, packed as
+         * `network << 32 | cosmetic`; -1 when the list has no rules or the library is absent.
+         * FilterListFormat falls back to its Kotlin scanner only on JVM tests.
+         */
+        fun listStats(text: String): Long = if (isAvailable) nativeListStats(text) else -1L
+
         @JvmStatic private external fun nativeNew(): Long
         @JvmStatic private external fun nativeFree(handle: Long)
         @JvmStatic private external fun nativeAddList(handle: Long, text: String): Int
+        @JvmStatic private external fun nativeListStats(text: String): Long
         @JvmStatic private external fun nativeShouldBlock(
             handle: Long,
             requestUrl: String,

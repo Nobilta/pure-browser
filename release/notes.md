@@ -1,31 +1,17 @@
-## 0.17.5 验证范围
+## 0.17.5.1 验证范围
 
-被测产物：`PureBrowser-v0.17.5-release.apk`（versionCode 65），本地签名 Release。
-SHA-256：`1a27f32d83a78e9f308602a1b488f42ff4f20be2f4df25da12ef5da09c956b69`。
+被测产物：`PureBrowser-v0.17.5.1-release.apk`（versionCode 66），本地签名 Release。
 
-设备：`emulator-5554`，Android 17 / API 37、arm64-v8a，WebView 145.0.7632.218。
+本版包含固定蓝色主题、菜单和提示样式更新、本地文本查看器、书签导出与过滤校验修正。
+文本文件不超过 5 MiB 时完整读取，超过上限拒绝打开；HTML 构建在后台线程执行。
+设置与书签导出结果支持完整查看和 Activity 重建后的恢复。
 
-0.17.5 是自 0.15.0 以来的稳定版汇总，正文按纯文本写，避免应用内更新提示直接显示
-Markdown 标记。主要包含：
+自动检查通过：726 项 JVM、69 项 Rust、119 项 Node、14 项发布工具测试；三种语言的 864 条字符串一致。
+Rust fmt/clippy、Android lint、Release 构建与签名校验通过；lint 无错误，保留 55 条已有警告和 3 条提示。
 
-- 阅读模式、打印 / 另存 PDF、站点级 UA、秘塔 AI 搜索；
-- Material 3 Snackbar、拖拽把手、统一 ListItem、语义状态色；
-- 任意 scheme 外部应用跳转与目标应用名、外跳 fallback gate、URL 校验；
-- 批量删除/清空全部撤销、页面文件失败收尾、过滤列表只校验一次；
-- 阅读模式 iframe 树保留、Trusted Types 清理、刷新代次、无障碍与 Snackbar 细节。
+设备回归使用 Pixel 7 ARM64 模拟器（Android 14 / API 34，WebView 113.0.5672.136），安装产物与交付 APK 校验和一致：
+- MediaStore 文本打开覆盖中文、emoji、空文件、恰好 5 MiB 和超出 1 字节；上限内可显示和滚动，超限显示拒绝提示。
+- 设置导出同时显示 6,008 条书签遗漏及搜索、过滤、站点三组读取失败；切换系统主题触发 Activity 重建后，摘要保留且弹窗位于设置面板上方。
+- 2160×960 横屏、两倍字号下，警告正文可滚到最后一组，标题与确认按钮保持可用。
 
-验证：
-
-- 683 个 JVM 单测全部通过；`lintDebug` 通过；`assembleRelease` 与签名校验通过。
-- 既有 API 37 回归：阅读模式输入 `hello` / `clicked 1` 进出后保留并变为 `clicked 2`；
-  iframe token 前后相同；Trusted Types 页面保持原白底；站点设置 20dp 对齐；
-  Snackbar 可滑走；同 URL 刷新的阅读模式代次单测通过。
-- 更新说明纯文本已人工检查，不含粗体、列表符号、反引号或链接等 Markdown 标记；
-  `release/prepare.py` 生成的 `releaseNotes` 与应用更新面板一致。
-
-未覆盖：
-
-- 外跳 fallback gate、页面文件失败/完成并发窗口没有专门并发 UI/压力测试；
-- 批量删除/清空全部撤销的 UI 流程未逐项截图；
-- 平板/折叠屏 P1 自适应未实现；Play 的 QUERY_ALL_PACKAGES 申报未验证；
-- 已发布：https://github.com/Nobilta/pure-browser/releases/tag/v0.17.5（tag v0.17.5，latest）。
+本轮设备回归聚焦文本边界与设置导出结果，未逐项验证其余界面改动。真机、API 29–33、新版 WebView、平板/折叠屏与跨应用 ACTION_SEND 授权尚未验证。

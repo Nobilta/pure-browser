@@ -1,18 +1,14 @@
 package com.mybrowser.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import com.mybrowser.data.ThemeMode
 
 private val LightColors = lightColorScheme(
@@ -53,7 +49,13 @@ private val DarkColors = darkColorScheme(
 )
 
 /**
- * Wallpaper colours on Android 12+, with stable palettes on Android 10–11.
+ * The app's own palette, on every Android version.
+ *
+ * The colours do not follow the wallpaper: a browser chrome that changed hue with the system
+ * theme made the same screen look like a different product on every device, and it left the
+ * launcher mark (now a blue orbit) next to a wallpaper-derived accent. The light and dark schemes
+ * below are the only two the app draws; the theme setting chooses between them, or follows the
+ * system's own light/dark switch.
  *
  * Motion is not installed here: Material 3 1.4.0 keeps `MotionScheme` internal, so the app's own
  * motion tokens are declared in `BrowserMotion` using the library's own easing, duration and spring
@@ -71,12 +73,7 @@ fun MyBrowserTheme(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val context = LocalContext.current
-    val colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-    } else {
-        if (dark) DarkColors else LightColors
-    }
+    val colors = if (dark) DarkColors else LightColors
     // The platform scroll effect is deliberately left in place: on Android 12+ a list stretches
     // under a fling at its edge, and that stretch is the app's most frequently felt motion. A
     // surface that must not move with it opts out where it is scrolled, instead of every scroll
@@ -91,7 +88,7 @@ fun MyBrowserTheme(
 /**
  * Status colours that sit outside the Material colour roles.
  *
- * Green/amber/red carry meaning here, so a wallpaper-derived palette cannot replace them. They
+ * Green/amber/red carry meaning here, so the brand palette cannot replace them. They
  * are still theme values: tuned for each background and exposed through a CompositionLocal so a
  * future contrast test has one source to check.
  */

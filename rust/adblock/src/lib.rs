@@ -85,6 +85,29 @@ pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeAddList(
     engine.network.rule_count().min(jint::MAX as usize) as jint
 }
 
+/// Count the network and cosmetic rules a filter list would contribute, using temporary
+/// matchers. Validation uses this so the Kotlin side does not keep a second copy of the
+/// EasyList line grammar. Packed as `network << 32 | cosmetic`; -1 means no usable rules.
+#[no_mangle]
+pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeListStats(
+    mut env: JNIEnv,
+    _class: JClass,
+    text: JString,
+) -> jlong {
+    let text: String = match env.get_string(&text) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    if text.len() > MAX_LIST_BYTES {
+        return -1;
+    }
+    let Some((network, cosmetic)) = engine::list_stats(&text) else {
+        return -1;
+    };
+    (((network as u64).min(u32::MAX as u64)) << 32 | (cosmetic as u64).min(u32::MAX as u64))
+        as jlong
+}
+
 /// True if this request should be blocked.
 #[no_mangle]
 pub extern "system" fn Java_com_mybrowser_filter_NativeFilter_nativeShouldBlock(

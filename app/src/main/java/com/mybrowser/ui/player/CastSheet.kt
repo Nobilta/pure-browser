@@ -274,8 +274,7 @@ private fun MediaRow(
             Text(
                 // Host only. The full URL of a video stream is routinely 300+ characters of
                 // signed query string and tells the user nothing.
-                text = runCatching { candidate.url.toUri().host }
-                    .getOrNull().orEmpty(),
+                text = candidate.url.toUri().host.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -53,7 +53,7 @@ class Dialogs {
     private fun answer(request: Request, accepted: Boolean, text: String = "", password: String = "") {
         if (active !== request) return
         active = null
-        runCatching { request.result(accepted, text, password) }
+        request.result(accepted, text, password)
     }
 
     fun dismiss() { active?.let { answer(it, false) } }
