@@ -218,6 +218,7 @@ data class DomNode(
     val textTruncated: Boolean,
     val textLength: Int,
     val childCount: Int,
+    val formattingWhitespace: Boolean = false,
 ) {
     val displayName: String
         get() = when (kind) {

@@ -90,27 +90,21 @@ internal fun JsonRowView(row: JsonRow, onToggle: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth()
-            .clickable(enabled = row.expandable) { onToggle(row.path) }
             .padding(start = (row.depth.coerceAtMost(30) * 12).dp, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (row.expandable) {
-            Text(if (row.expanded) "▾" else "▸", Modifier.width(16.dp),
+            Text(if (row.expanded) "▾" else "▸", Modifier.width(40.dp).clickable { onToggle(row.path) }.padding(vertical = 10.dp),
                 color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         } else {
-            Text(" ", Modifier.width(16.dp))
+            Text(" ", Modifier.width(40.dp))
         }
-        if (row.label.isNotEmpty()) {
-            Text("${row.label}: ", color = colors.tertiary, fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall)
-        }
-        if (row.expandable) {
-            Text(row.summary, color = colors.onSurfaceVariant, fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall)
-        } else {
-            Text(row.value, color = colors.onSurface, fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall)
-        }
+        SelectableText(
+            (if (row.label.isNotEmpty()) "${row.label}: " else "") +
+                if (row.summary.isNotEmpty()) row.summary else row.value,
+            Modifier.weight(1f), color = colors.onSurface, fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

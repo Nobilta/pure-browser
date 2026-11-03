@@ -1,13 +1,17 @@
 package com.mybrowser.ui.devtools
 
-import android.content.res.Configuration
 import android.content.res.Resources
 import android.webkit.WebView
+import android.view.ViewParent
+import android.view.WindowManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,8 +26,6 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -36,7 +38,8 @@ import com.mybrowser.core.NetworkRequestLog
 import com.mybrowser.devtools.CaptureNotice
 import com.mybrowser.devtools.DevToolsController
 import com.mybrowser.devtools.EnhancedCaptureState
-import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserFullscreenSheet
+import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.BrowserSheetHeader
@@ -75,13 +78,12 @@ internal fun DeveloperTools(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var command by rememberSaveable { mutableStateOf("") }
     var showPageInfo by rememberSaveable { mutableStateOf(false) }
+    var showHelp by rememberSaveable { mutableStateOf(false) }
     val identity = remember(webView, pageUrl, capture.documentId) { Any() }
     val currentIdentity by rememberUpdatedState(identity)
     var evaluations by remember(identity) { mutableStateOf<List<ConsoleLine>>(emptyList()) }
     val scope = rememberCoroutineScope()
     val tabStates = rememberSaveableStateHolder()
-    val compactInput = selectedTab == 0 && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-        WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val domState = remember(session) { session?.let { DomTreeState(it) } }
     val sourceState = remember(session) { session?.let { SourceViewerState(it) } }
     DisposableEffect(selectedTab, session) {
@@ -116,13 +118,33 @@ internal fun DeveloperTools(
             if (it.enable()) onReloadPage()
         }
     }
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
+    BrowserFullscreenSheet(onDismissRequest = onDismiss) {
+        // Compose handles IME insets. Platform auto-pan would additionally move the whole
+        // window when the landscape console hides its toolbar as the keyboard opens.
+        val dialogView = LocalView.current
+        DisposableEffect(dialogView) {
+            val window = generateSequence(dialogView as? ViewParent ?: dialogView.parent) { it.parent }
+                .filterIsInstance<DialogWindowProvider>().firstOrNull()?.window
+            val previousMode = window?.attributes?.softInputMode
+            val resize = Runnable { window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE) }
+            resize.run()
+            dialogView.post(resize)
+            onDispose {
+                dialogView.removeCallbacks(resize)
+                if (previousMode != null) window.setSoftInputMode(previousMode)
+            }
+        }
+        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(browserSheetInsets()).imePadding()) {
+        // Measure inside the dialog after its insets have been consumed. Activity IME
+        // visibility can lag behind this window during rotation or keyboard animation.
+        val compactInput = selectedTab == 0 && maxHeight < 260.dp
         Column(Modifier.fillMaxSize()) {
             if (!compactInput) {
                 BrowserSheetHeader(
                     resources.getString(R.string.menu_developer_tools),
                     onDismiss = onDismiss,
                     actions = {
+                        TextButton(onClick = { showHelp = true }) { Text(resources.getString(R.string.dev_help)) }
                         BrowserIconAction(R.drawable.ic_ui_info, resources.getString(R.string.dev_page_info)) {
                             showPageInfo = true
                         }
@@ -159,13 +181,10 @@ internal fun DeveloperTools(
                             onClear = { session?.clearNetwork() },
                             onExplain = onExplainFilter,
                             session = session,
-                            capture = capture,
-                            onEnableCapture = enableCapture,
                         )
                         2 -> ElementsTab(
                             session = session,
                             capture = capture,
-                            onEnableCapture = enableCapture,
                             domState = domState,
                             sourceState = sourceState,
                         )
@@ -177,6 +196,15 @@ internal fun DeveloperTools(
                 }
             }
         }
+        }
+    }
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            title = { Text(resources.getString(R.string.dev_help)) },
+            text = { Text(resources.getString(R.string.dev_help_text), Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { showHelp = false }) { Text(resources.getString(R.string.dev_help_close)) } },
+        )
     }
     if (showPageInfo) {
         PageInfoDialog(
@@ -204,7 +232,7 @@ private fun EnhancedCaptureBar(
                         capture.installing -> resources.getString(R.string.dev_enhanced_installing)
                         enabled && capture.ready -> resources.getString(R.string.dev_enhanced_ready)
                         enabled -> resources.getString(R.string.dev_enhanced_document_pending)
-                        capture.stopped -> resources.getString(R.string.dev_enhanced_off)
+                        capture.stopped -> resources.getString(R.string.dev_enhanced_stopped)
                         else -> resources.getString(R.string.dev_enhanced_off)
                     },
                     Modifier.weight(1f),
@@ -226,12 +254,9 @@ private fun EnhancedCaptureBar(
                 capture.notice == CaptureNotice.SCRIPT_MISSING -> resources.getString(R.string.dev_enhanced_script_missing)
                 capture.notice == CaptureNotice.INSTALL_FAILED -> resources.getString(
                     R.string.dev_enhanced_install_failed, capture.errorDetail.orEmpty())
-                capture.stopped -> resources.getString(R.string.dev_enhanced_stopped_hint)
-                capture.enabled && capture.ready -> resources.getString(R.string.dev_enhanced_enabled_hint)
-                capture.enabled -> resources.getString(R.string.dev_enhanced_document_pending)
-                else -> resources.getString(R.string.dev_enhanced_off_hint)
+                else -> null
             }
-            Text(
+            if (notice != null) Text(
                 notice,
                 Modifier.padding(top = 2.dp),
                 style = MaterialTheme.typography.labelSmall,

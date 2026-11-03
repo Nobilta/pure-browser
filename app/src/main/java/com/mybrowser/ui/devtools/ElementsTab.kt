@@ -43,7 +43,6 @@ import com.mybrowser.devtools.PageResult
 import com.mybrowser.devtools.SourceInfo
 import com.mybrowser.devtools.SourcePage
 import com.mybrowser.ui.shell.BrowserIconAction
-import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.theme.BrowserColors
 import kotlinx.coroutines.CancellationException
@@ -52,6 +51,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
+
+internal fun domTextPreview(text: String): String = buildString {
+    text.forEach { character ->
+        append(when (character) {
+            '\n' -> "\\n"
+            '\r' -> "\\r"
+            '\t' -> "\\t"
+            '\u000c' -> "\\f"
+            '\\' -> "\\\\"
+            else -> character.toString()
+        })
+    }
+    if (text.isNotEmpty() && text.all { it == ' ' }) {
+        clear()
+        repeat(text.length) { append('·') }
+    }
+}
 
 internal enum class DomNotice { NONE, UNAVAILABLE, STALE, FAILED, EMPTY }
 
@@ -79,7 +95,18 @@ internal class DomTreeState(private val session: DevToolsSession) {
         private set
     var selectedName by mutableStateOf("")
         private set
+    var showWhitespace by mutableStateOf(false)
+        private set
     val rows = mutableStateListOf<DomRow>()
+
+    fun setWhitespaceVisible(visible: Boolean) {
+        showWhitespace = visible
+        rebuild()
+        if (rows.none { it.node?.id == selectedId }) {
+            selectedId = null
+            selectedName = ""
+        }
+    }
 
     private val children = mutableStateMapOf<String, List<DomNode>>()
     private val totals = mutableStateMapOf<String, Int>()
@@ -182,6 +209,10 @@ internal class DomTreeState(private val session: DevToolsSession) {
             expanded[parent.id] = true
             if (!ensureChildLoaded(parent.id, childIndex)) return null
         }
+        // Searching an explicitly requested whitespace node must still reveal it.
+        if (children.values.any { nodes -> nodes.any { it.id == result.id && it.formattingWhitespace } }) {
+            showWhitespace = true
+        }
         selectedId = result.id
         selectedName = result.name
         rebuild()
@@ -245,6 +276,7 @@ internal class DomTreeState(private val session: DevToolsSession) {
         val rootNode = root ?: return
         val ancestors = HashSet<String>()
         fun add(node: DomNode, depth: Int) {
+            if (!showWhitespace && node.formattingWhitespace) return
             if (depth > MAX_DOM_DEPTH || rows.size >= MAX_DOM_ROWS) return
             // A malformed page-side mapping must not recurse forever or repeat an ancestor.
             if (node.id.isBlank() || !ancestors.add(node.id)) return
@@ -395,7 +427,6 @@ internal class SourceViewerState(private val session: DevToolsSession) {
 internal fun ElementsTab(
     session: DevToolsSession?,
     capture: EnhancedCaptureState,
-    onEnableCapture: () -> Unit,
     domState: DomTreeState?,
     sourceState: SourceViewerState?,
 ) {
@@ -408,30 +439,7 @@ internal fun ElementsTab(
         return
     }
     if (!available) {
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(resources.getString(R.string.dev_elements_guide_title),
-                style = MaterialTheme.typography.titleMedium)
-            Text(
-                resources.getString(R.string.dev_elements_guide),
-                Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Button(
-                onClick = onEnableCapture,
-                modifier = Modifier.padding(top = 16.dp),
-                enabled = capture.supported,
-            ) { Text(resources.getString(R.string.dev_enhanced_enable)) }
-            if (!capture.supported) Text(
-                resources.getString(R.string.dev_enhanced_limited),
-                Modifier.padding(top = 12.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
+        EmptyState(resources.getString(R.string.dev_elements_guide))
         return
     }
     if (!capture.ready && capture.enabled) {
@@ -502,14 +510,13 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
     }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.padding(horizontal = 16.dp)) {
-            LibrarySearchField(query, stringResource(R.string.dev_dom_search)) { query = it }
+            DevToolsSearchField(query, stringResource(R.string.dev_dom_search)) { query = it }
         }
-        Text(
-            stringResource(R.string.dev_dom_refresh_note) + " " + stringResource(R.string.dev_dom_boundary_note),
-            Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = state.showWhitespace, onCheckedChange = state::setWhitespaceVisible)
+            Text(stringResource(R.string.dev_dom_show_whitespace), style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.clickable { state.setWhitespaceVisible(!state.showWhitespace) })
+        }
         if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
         results?.let { found ->
             if (found.results.isEmpty()) Text(
@@ -636,7 +643,7 @@ private fun DomNodeRow(row: DomRow, state: DomTreeState, palette: List<androidx.
                 }
             }
             DomNodeKind.TEXT -> Text(
-                "\"${node.text}\"${if (node.textTruncated) "…" else ""}",
+                "\"${domTextPreview(node.text)}\"${if (node.textTruncated) "…" else ""}",
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
                 color = BrowserColors.secure,
@@ -672,12 +679,6 @@ private fun SourceView(
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Text(
-            stringResource(R.string.dev_source_note),
-            Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         val page = state.page
         val document = state.document
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -27,7 +27,6 @@ import com.mybrowser.devtools.PageResult
 import com.mybrowser.devtools.StorageEntry
 import com.mybrowser.devtools.StorageSnapshot
 import com.mybrowser.ui.shell.BrowserIconAction
-import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.localizedResources
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -142,12 +141,8 @@ internal fun StorageTab(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             ) }
         }
-        Text(
-            when (tab) {
-                COOKIE_TAB -> stringResource(R.string.dev_storage_cookie_scope)
-                SESSION_TAB -> stringResource(R.string.dev_storage_session_note)
-                else -> stringResource(R.string.dev_storage_refresh_note)
-            },
+        if (tab == COOKIE_TAB) Text(
+            stringResource(R.string.dev_storage_cookie_scope),
             Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -159,7 +154,7 @@ internal fun StorageTab(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Box(Modifier.padding(horizontal = 16.dp)) {
-            LibrarySearchField(query, stringResource(R.string.dev_storage_search)) { query = it }
+            DevToolsSearchField(query, stringResource(R.string.dev_storage_search)) { query = it }
         }
         when {
             loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -359,7 +354,7 @@ private fun CookieDetail(cookie: CookieRow, onBack: () -> Unit) {
             BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onBack)
             Text(cookie.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            TextButton(onClick = { copyText(context, value) }) { Text(stringResource(R.string.dev_copy)) }
+            TextButton(onClick = { copyText(context, value) }) { Text(stringResource(R.string.dev_storage_copy_all)) }
         }
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
             DetailRow(stringResource(R.string.dev_storage_name), cookie.name)
@@ -426,7 +421,10 @@ private fun StorageEntryDetail(
                     else stringResource(R.string.dev_storage_json_format))
             }
         }
-        if (origin.isNotBlank()) Text(stringResource(R.string.dev_storage_origin, origin),
+        Box(Modifier.padding(horizontal = 16.dp)) {
+            DetailRow(stringResource(R.string.dev_storage_name), entry.name)
+        }
+        if (origin.isNotBlank()) SelectableText(stringResource(R.string.dev_storage_origin, origin),
             Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (loading) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -444,12 +442,7 @@ private fun StorageEntryDetail(
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Text(
-                    json.orEmpty(),
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                PagedSelectableText(json.orEmpty(), Modifier.fillMaxSize().padding(8.dp))
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (offset < total) TextButton(onClick = {

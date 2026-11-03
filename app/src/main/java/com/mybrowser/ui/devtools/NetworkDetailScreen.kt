@@ -79,18 +79,14 @@ internal fun NetworkDetailScreen(
         val responseJson = isJson(detail.responseBody)
         var requestFormatted by rememberSaveable(detail.id) { mutableStateOf(true) }
         var responseFormatted by rememberSaveable(detail.id) { mutableStateOf(true) }
-        val requestRender = rememberBodyRender(detail.requestBody, requestFormatted && requestJson)
-        val responseRender = rememberBodyRender(detail.responseBody, responseFormatted && responseJson)
         val requestExpanded = rememberExpanded(detail.requestBody.text)
         val responseExpanded = rememberExpanded(detail.responseBody.text)
         val requestRows = rememberJsonRows(detail.requestBody.text, requestExpanded)
         val responseRows = rememberJsonRows(detail.responseBody.text, responseExpanded)
-        val palette = rememberSourcePalette()
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 SectionCard(
                     title = stringResource(R.string.dev_network_overview),
-                    actions = { CopyButton(detail.url, stringResource(R.string.dev_network_copy_url)) },
                 ) {
                     DetailRow(stringResource(R.string.dev_network_full_url), detail.url)
                     DetailRow(
@@ -114,18 +110,12 @@ internal fun NetworkDetailScreen(
                     if (!detail.completed && detail.source == NetworkSource.PAGE_SCRIPT) {
                         LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
                     }
-                    Text(
-                        stringResource(R.string.dev_network_not_merged),
-                        Modifier.padding(top = 6.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+
                 }
             }
             item {
                 SectionCard(
                     title = stringResource(R.string.dev_network_request),
-                    actions = { CopyButton(detail.url, stringResource(R.string.dev_network_copy_url)) },
                 ) {
                     Text(stringResource(R.string.dev_network_query), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -135,7 +125,6 @@ internal fun NetworkDetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         query.forEach { parameter -> QueryRow(parameter) }
-                        CopyButton(query.joinToString("\n") { it.raw })
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(stringResource(R.string.dev_network_request_headers),
@@ -148,7 +137,7 @@ internal fun NetworkDetailScreen(
                                 resources.getString(detail.requestHeadersReason.labelOrNull ?: R.string.dev_body_not_collected)
                             detail.source == NetworkSource.PAGE_SCRIPT ->
                                 stringResource(R.string.dev_network_headers_page_note)
-                            else -> stringResource(R.string.dev_network_headers_webview_note)
+                            else -> null
                         },
                     )
                 }
@@ -162,8 +151,8 @@ internal fun NetworkDetailScreen(
                     onToggleFormat = { requestFormatted = !requestFormatted },
                 )
             }
-            bodyRows(detail.requestBody, requestJson && requestFormatted, requestRender, requestRows,
-                requestExpanded, "request", palette)
+            bodyRows(detail.requestBody, requestJson && requestFormatted, requestRows,
+                requestExpanded, "request")
             item {
                 SectionCard(
                     title = stringResource(R.string.dev_network_response),
@@ -178,7 +167,7 @@ internal fun NetworkDetailScreen(
                                 resources.getString(detail.responseHeadersReason.labelOrNull ?: R.string.dev_body_not_collected)
                             detail.source == NetworkSource.PAGE_SCRIPT ->
                                 stringResource(R.string.dev_network_headers_page_note)
-                            else -> stringResource(R.string.dev_network_headers_webview_note)
+                            else -> null
                         },
                     )
                 }
@@ -192,11 +181,11 @@ internal fun NetworkDetailScreen(
                     onToggleFormat = { responseFormatted = !responseFormatted },
                 )
             }
-            bodyRows(detail.responseBody, responseJson && responseFormatted, responseRender, responseRows,
-                responseExpanded, "response", palette)
+            bodyRows(detail.responseBody, responseJson && responseFormatted, responseRows,
+                responseExpanded, "response")
             item {
                 SectionCard(title = stringResource(R.string.dev_network_filter)) {
-                    Text(detail.url, style = MaterialTheme.typography.bodySmall,
+                    SelectableText(detail.url, style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace)
                     if (detail.blocked) Text(
                         stringResource(R.string.ui_blocked),
@@ -217,28 +206,19 @@ internal fun NetworkDetailScreen(
 @Composable
 private fun QueryRow(parameter: QueryParameter) {
     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Text(parameter.name, Modifier.width(140.dp), style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.tertiary,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                when {
-                    parameter.value == null -> stringResource(R.string.dev_query_no_equals)
-                    parameter.value.isEmpty() -> stringResource(R.string.dev_query_empty_value)
-                    else -> parameter.value
-                },
-                Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace, maxLines = 3, overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (parameter.encodedDiffers) Text(
+        SelectableText(buildString {
+            append(parameter.name).append(": ")
+            append(when {
+                parameter.value == null -> stringResource(R.string.dev_query_no_equals)
+                parameter.value.isEmpty() -> stringResource(R.string.dev_query_empty_value)
+                else -> parameter.value
+            })
+        }, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+        if (parameter.encodedDiffers) SelectableText(
             stringResource(R.string.dev_query_encoded, parameter.raw),
-            Modifier.padding(start = 140.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontFamily = FontFamily.Monospace,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -254,10 +234,10 @@ private fun BodyHeader(
     SectionCard(
         title = title,
         actions = {
-            if (body.text.isNotEmpty()) CopyButton(body.text)
             if (showFormat) JsonToggle(formatted, onToggleFormat)
         },
     ) {
+        if (body.text.isNotEmpty()) CopyButton(body.text, stringResource(R.string.dev_copy_captured))
         BodyStateLine(body)
         val context = LocalResources.current
         if (body.contentType.isNotBlank() || body.bytes > 0) {
@@ -279,31 +259,6 @@ private fun BodyHeader(
         }
     }
 }
-
-private sealed interface BodyRender {
-    data class Json(val rows: List<JsonRow>) : BodyRender
-    data class Code(val blocks: List<SourceBlock>) : BodyRender
-    data class Plain(val rows: List<String>) : BodyRender
-    data object Empty : BodyRender
-}
-
-@Composable
-private fun rememberBodyRender(body: BodyPreview, formattedJson: Boolean): BodyRender {
-    val state = produceState<BodyRender>(BodyRender.Empty, body.text, formattedJson, body.contentType) {
-        value = withContext(Dispatchers.Default) {
-            if (body.text.isEmpty()) BodyRender.Empty
-            else if (formattedJson && body.text.trimStart().let { it.startsWith("{") || it.startsWith("[") }) {
-                val rows = jsonRows(body.text, setOf("$"))
-                if (rows != null) BodyRender.Json(rows) else plain(body.text)
-            } else if (highlightable(body.contentType)) {
-                BodyRender.Code(SourceHighlighter.parseChunk(body.text, maxBlocks = 4096).blocks)
-            } else plain(body.text)
-        }
-    }
-    return state.value
-}
-
-private fun plain(text: String): BodyRender = BodyRender.Plain(plainTextBlocks(text))
 
 private fun highlightable(contentType: String): Boolean {
     val type = contentType.substringBefore(';').trim().lowercase()
@@ -337,35 +292,19 @@ private fun rememberJsonRows(text: String, expanded: Map<String, Boolean>): List
 private fun LazyListScope.bodyRows(
     body: BodyPreview,
     formattedJson: Boolean,
-    render: BodyRender,
     jsonRows: List<JsonRow>,
     expanded: MutableMap<String, Boolean>,
     keyPrefix: String,
-    palette: List<androidx.compose.ui.graphics.Color>,
 ) {
     if (body.text.isEmpty()) return
-    if (formattedJson && render is BodyRender.Json) {
+    if (formattedJson && jsonRows.isNotEmpty()) {
         items(jsonRows, key = { "$keyPrefix-json-${it.path}" }) { row ->
-            JsonRowView(row) { path ->
-                expanded[path] = !(expanded[path] ?: false)
-                // Recompute visible rows through the map's snapshot state.
-            }
+            JsonRowView(row) { path -> expanded[path] = !(expanded[path] ?: false) }
         }
-        return
-    }
-    when (render) {
-        is BodyRender.Code -> items(render.blocks.size, key = { index -> "$keyPrefix-code-$index" }) { index ->
-            SourceBlockRow(render.blocks[index], palette)
-        }
-        is BodyRender.Plain -> items(render.rows.size, key = { index -> "$keyPrefix-plain-$index" }) { index ->
-            Text(
-                render.rows[index],
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        else -> Unit
+    } else item(key = "$keyPrefix-text") {
+        PagedSelectableText(body.text,
+            Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            highlight = highlightable(body.contentType))
     }
 }
 

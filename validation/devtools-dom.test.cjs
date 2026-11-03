@@ -157,3 +157,69 @@ test('source snapshots have a new id after reset so an export can reject a mixed
   assert.ok(second.sourceId !== first.sourceId);
   dom.window.close();
 });
+
+function whitespaceFixture(html, check) {
+  const dom = new JSDOM(html, {url: 'http://127.0.0.1:8875/dom', runScripts: 'outside-only'});
+  const { window } = dom;
+  window.__bridge = {postMessage() {}};
+  window.eval(fs.readFileSync(path.join(__dirname, '../app/src/main/assets/devtools-capture.js'), 'utf8')
+    .replace('__BRIDGE__', '__bridge').replace('__TOKEN__', 'token').replace('__NAMESPACE__', '__whitespace'));
+  const api = window.__whitespace;
+  function children(selector, offset = 0) {
+    const hit = JSON.parse(api.domSearch(selector, 50)).results.find(n =>
+      n.path && n.id && n.match === 'selector') || JSON.parse(api.domSearch(selector, 50)).results[0];
+    assert.ok(hit, 'Missing search result for ' + selector);
+    return JSON.parse(api.domChildren(hit.id, offset, 100));
+  }
+  try { check(window, api, children); } finally { window.close(); }
+}
+
+test('formatting whitespace is metadata; inline, preformatted and nonbreaking spaces remain visible', () => {
+  whitespaceFixture(`<html><body>
+    <div id="blocks">\n  <div>A</div>\n\t<div>B</div>\n</div>
+    <div id="inline"><span>A</span>\n <span>B</span></div>
+    <span id="inline-parent">\n <b>B</b>\n</span>
+    <pre id="pre">A<b>B</b>\n\t</pre><textarea id="textarea"> \n\t </textarea>
+    <div id="css" style="white-space:pre-wrap"> \n\t </div>
+    <div id="preline" style="white-space:pre-line"> \n </div>
+    <div id="breaking" style="white-space:break-spaces">   </div>
+    <div id="nbsp">&nbsp;</div><div id="long"></div>
+  </body></html>`, (window, api, children) => {
+    assert.ok(children('#blocks').nodes.filter(n => n.kind === 'text').every(n => n.formattingWhitespace));
+    for (const selector of ['#inline', '#inline-parent', '#pre', '#textarea', '#css', '#preline', '#breaking', '#nbsp']) {
+      const texts = children(selector).nodes.filter(n => n.kind === 'text');
+      assert.ok(texts.length > 0, selector);
+      assert.ok(texts.every(n => !n.formattingWhitespace), selector + ' meaningful whitespace was hidden');
+    }
+    window.document.querySelector('#long').textContent = ' '.repeat(3000) + 'actual content';
+    const long = children('#long').nodes[0];
+    assert.ok(long.textTruncated);
+    assert.equal(long.text.trim(), '');
+    assert.equal(long.formattingWhitespace, false, 'full nodeValue must determine classification');
+  });
+});
+
+test('whitespace filtering leaves raw page offsets, node ids and search paths intact', () => {
+  whitespaceFixture('<html><body><div id="paged"></div></body></html>', (window, api, children) => {
+    const parent = window.document.querySelector('#paged');
+    for (let i = 0; i < 160; i++) {
+      parent.appendChild(window.document.createTextNode('\n  '));
+      const node = window.document.createElement('div');
+      node.id = 'child-' + i;
+      parent.appendChild(node);
+    }
+    const loaded = [];
+    for (let start = 0; start < 320; start += 100) {
+      const page = children('#paged', start);
+      assert.equal(page.start, start);
+      assert.equal(page.total, 320);
+      loaded.push(...page.nodes);
+    }
+    assert.equal(loaded.length, 320);
+    assert.equal(loaded.filter(n => !n.formattingWhitespace).length, 160);
+    const target = JSON.parse(api.domSearch('#child-120', 50)).results[0];
+    assert.equal(target.path.at(-1).index, 241);
+    assert.equal(target.id, loaded[241].id);
+    assert.ok(JSON.parse(api.domHtml(target.id)).html.includes('child-120'));
+  });
+});

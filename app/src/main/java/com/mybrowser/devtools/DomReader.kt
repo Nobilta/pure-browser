@@ -124,6 +124,7 @@ internal class DomReader(private val session: DevToolsSession) {
             textTruncated = json.optBoolean("textTruncated"),
             textLength = json.optInt("textLength", 0),
             childCount = json.optInt("childCount", 0),
+            formattingWhitespace = kind == DomNodeKind.TEXT && json.optBoolean("formattingWhitespace"),
         )
     }
 
