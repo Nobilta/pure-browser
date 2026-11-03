@@ -55,6 +55,9 @@ import java.util.Date
 
 internal enum class DomNotice { NONE, UNAVAILABLE, STALE, FAILED, EMPTY }
 
+/** Deep nodes share a capped gutter so their text stays inside the phone viewport. */
+private fun domIndent(depth: Int) = (depth.coerceIn(0, 16) * 10).dp
+
 internal data class DomRow(
     val node: DomNode?,
     val depth: Int,
@@ -573,7 +576,7 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
                 if (row.moreParent != null) {
                     TextButton(
                         onClick = { scope.launch { state.loadMore(row.moreParent) } },
-                        modifier = Modifier.padding(start = ((row.depth * 10) + 12).dp),
+                        modifier = Modifier.padding(start = domIndent(row.depth) + 12.dp),
                     ) { Text(stringResource(R.string.dev_dom_more_children) + " (${row.loaded}/${row.total})") }
                 } else {
                     DomNodeRow(row, state, palette) {
@@ -594,7 +597,7 @@ private fun DomNodeRow(row: DomRow, state: DomTreeState, palette: List<androidx.
         Modifier.fillMaxWidth()
             .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHighest else androidx.compose.ui.graphics.Color.Transparent)
             .clickable { onSelect(node) }
-            .padding(start = (row.depth * 10).dp, top = 2.dp, bottom = 2.dp, end = 8.dp),
+            .padding(start = domIndent(row.depth), top = 2.dp, bottom = 2.dp, end = 8.dp),
         verticalAlignment = Alignment.Top,
     ) {
         if (node.childCount > 0) {

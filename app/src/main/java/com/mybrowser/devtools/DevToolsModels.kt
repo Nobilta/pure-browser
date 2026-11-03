@@ -105,6 +105,24 @@ data class BodyPreview(
     val isEmpty: Boolean get() = text.isEmpty() && state !in setOf(BodyState.COLLECTING, BodyState.TRUNCATED)
 }
 
+/**
+ * Applies a page-side end event, but never resurrects a body whose native copy was evicted.
+ * The event may arrive after the detail store has dropped the body to reclaim memory.
+ */
+internal fun BodyPreview.afterBodyEnd(
+    state: BodyState,
+    bytes: Long,
+    chars: Int,
+    reason: BodyReason,
+): BodyPreview {
+    if (this.state == BodyState.EVICTED) return this
+    val keepText = state !in setOf(
+        BodyState.EMPTY, BodyState.UNAVAILABLE, BodyState.FAILED,
+        BodyState.NOT_COLLECTED, BodyState.EVICTED,
+    )
+    return copy(state = state, text = if (keepText) text else "", bytes = bytes, chars = chars, reason = reason)
+}
+
 data class HeaderEntry(val name: String, val value: String)
 
 /** A query parameter keeps both its decoded view and the exact encoded segment. */

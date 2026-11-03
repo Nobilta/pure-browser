@@ -497,6 +497,7 @@ internal class DevToolsSession(
         val reason = BodyReason.of(json.optString("reason"))
         val binary = json.optBoolean("binary")
         details.update(id) { detail ->
+            if (bodyOf(detail, phase).state == BodyState.EVICTED) return@update detail
             val body = BodyPreview(
                 state = state,
                 text = if (state == BodyState.COLLECTING) bodyOf(detail, phase).text else "",
@@ -539,14 +540,7 @@ internal class DevToolsSession(
         val reason = BodyReason.of(json.optString("reason"))
         details.update(id) { detail ->
             val body = bodyOf(detail, phase)
-            detail.withBody(phase, body.copy(
-                state = state,
-                text = if (state in setOf(BodyState.EMPTY, BodyState.UNAVAILABLE, BodyState.FAILED,
-                    BodyState.NOT_COLLECTED, BodyState.EVICTED)) "" else body.text,
-                bytes = bytes,
-                chars = chars,
-                reason = reason,
-            ))
+            detail.withBody(phase, body.afterBodyEnd(state, bytes, chars, reason))
         }
     }
 

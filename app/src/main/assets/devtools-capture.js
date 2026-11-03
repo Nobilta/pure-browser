@@ -99,22 +99,59 @@
     try { return !!object && key in Object(object); } catch (e) { return false; }
   }
   function snapshotHeaders(value) {
-    if (value == null) return [];
+    var result = { headers: [], unknown: false };
+    if (value == null) return result;
     try {
-      if (typeof Headers !== 'undefined' && value instanceof Headers) return headerList(value);
-      if (Array.isArray(value)) return headerList(new Headers(value));
-      if (typeof value === 'object') {
-        var out = [], keys = Object.keys(value);
-        for (var i = 0; i < keys.length && out.length < MAX_HEADERS; i++) {
-          var item = dataProperty(value, keys[i]);
-          if (item !== undefined) {
-            out.push([String(keys[i]).slice(0, 256), String(item).slice(0, MAX_HEADER_VALUE)]);
-          }
-        }
-        return out;
+      if (typeof Headers !== 'undefined' && value instanceof Headers) {
+        result.headers = headerList(value);
+        return result;
       }
-    } catch (e) { }
-    return [];
+      if (Array.isArray(value)) {
+        // The request already consumed these pairs. Never run new Headers() or String()
+        // here: a stateful toString() would be evaluated a second time and the log would
+        // disagree with what was sent.
+        for (var p = 0; p < value.length && result.headers.length < MAX_HEADERS; p++) {
+          var pair = value[p];
+          if (!Array.isArray(pair) || pair.length < 2 ||
+              typeof pair[0] !== 'string' || typeof pair[1] !== 'string') {
+            result.unknown = true;
+            continue;
+          }
+          result.headers.push([pair[0].slice(0, 256), pair[1].slice(0, MAX_HEADER_VALUE)]);
+        }
+        return result;
+      }
+      if (typeof value === 'object') {
+        var iteratorDescriptor = null;
+        try {
+          iteratorDescriptor = Object.getOwnPropertyDescriptor(value, Symbol.iterator);
+          if (!iteratorDescriptor) {
+            var prototype = Object.getPrototypeOf(value);
+            if (prototype) iteratorDescriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.iterator);
+          }
+        } catch (e) { }
+        if (iteratorDescriptor) {
+          // A one-shot iterable was already consumed by fetch. Do not consume it again.
+          result.unknown = true;
+          return result;
+        }
+        var keys = Object.keys(value);
+        for (var i = 0; i < keys.length && result.headers.length < MAX_HEADERS; i++) {
+          var descriptor = propertyDescriptor(value, keys[i]);
+          if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value') ||
+              typeof descriptor.value !== 'string') {
+            result.unknown = true;
+            continue;
+          }
+          result.headers.push([keys[i].slice(0, 256), descriptor.value.slice(0, MAX_HEADER_VALUE)]);
+        }
+        return result;
+      }
+      result.unknown = true;
+    } catch (e) {
+      result.unknown = true;
+    }
+    return result;
   }
   function headerValue(headers, name) {
     try {
@@ -308,7 +345,11 @@
     var headersDescriptor = propertyDescriptor(init, 'headers');
     if (headersDescriptor && Object.prototype.hasOwnProperty.call(headersDescriptor, 'value')) {
       var headerValue = headersDescriptor.value;
-      if (headerValue !== undefined && headerValue !== null) info.headers = snapshotHeaders(headerValue);
+      if (headerValue !== undefined && headerValue !== null) {
+        var snapshot = snapshotHeaders(headerValue);
+        info.headers = snapshot.headers;
+        if (snapshot.unknown) info.headersUnknown = true;
+      }
     } else if (headersDescriptor || hasProperty(init, 'headers')) {
       info.headersUnknown = true;
     }
@@ -798,9 +839,9 @@
       while (nodes.size > MAX_NODES) {
         var first = nodes.keys().next();
         if (first.done || first.value === id) break;
-        var old = nodes.get(first.value);
         nodes.delete(first.value);
-        if (old) nodeIds.delete(old);
+        // Keep the WeakMap identity even after the strong reference is evicted; the node
+        // itself may still be alive and must keep the same id across later reads.
       }
     }
     function assignNode(node, path) {
