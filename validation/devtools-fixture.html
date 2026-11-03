@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevTools Fixture</title>
+<style>
+  body { font: 17px/1.5 sans-serif; margin: 0; padding: 20px; }
+  h1 { font-size: 24px; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin: 8px 0; }
+</style>
+<h1 id="heading">DevTools Fixture</h1>
+<nav>
+  <a id="second-page" href="?page=second">Second page</a>
+  <button id="spa-route">SPA route</button>
+</nav>
+<div class="card" id="alpha" data-kind="alpha">
+  <p>Alpha <strong id="nested">nested</strong> text</p>
+  <!-- a comment that must appear in the DOM tree -->
+  <ul id="items"><li>one</li><li>two</li><li>three</li></ul>
+</div>
+<div class="card" id="beta" data-kind="beta">Beta text node</div>
+<div id="shadow-host"></div>
+<iframe id="cross-frame" src="http://127.0.0.1:8876/api/frame" width="200" height="80"></iframe>
+<p id="status">running</p>
+<script>
+  (function () {
+    if (new URL(location.href).searchParams.get('long')) {
+      var main = document.createElement('main');
+      for (var i = 0; i < 1500; i++) {
+        var p = document.createElement('p');
+        p.textContent = 'Long source line ' + i + ' — the text source must page through every line.';
+        main.appendChild(p);
+      }
+      document.body.appendChild(main);
+    }
+    var host = document.getElementById('shadow-host');
+    var closed = host.attachShadow({ mode: 'closed' });
+    closed.innerHTML = '<b>closed shadow content</b>';
+    // Storage is seeded here; reads happen from the panel, not by this page.
+    try {
+      localStorage.setItem('plain', 'local value');
+      localStorage.setItem('json', JSON.stringify({a: 1, nested: {b: [1, 2, 3]}, text: 'hello'}));
+      localStorage.setItem('long', 'L'.repeat(100000));
+      sessionStorage.setItem('session-plain', 'session value');
+      sessionStorage.setItem('session-json', JSON.stringify({tab: 'one'}));
+    } catch (e) {}
+    function mark(text) { document.getElementById('status').textContent = text; }
+    fetch('/api/echo?x=1&x=2&empty=&sp=a%20b', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Test': 'fixture'},
+      body: JSON.stringify({hello: 'world', n: 42})
+    }).then(function (r) { return r.json(); }).then(function (v) { mark('fetch-json-ok'); }).catch(function () { mark('fetch-failed'); });
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/echo?via=xhr&x=1&x=2');
+    xhr.setRequestHeader('X-Xhr', 'yes');
+    xhr.onload = function () { mark('xhr-ok'); };
+    xhr.send();
+    fetch('/api/html').then(function (r) { return r.text(); }).catch(function () {});
+    fetch('/api/big').then(function (r) { return r.text(); }).catch(function () {});
+    fetch('/api/stream').catch(function () {});
+    fetch('http://127.0.0.1:8876/api/cross', {mode: 'no-cors'}).catch(function () {});
+    setTimeout(function () { fetch('/api/echo?delayed=1').catch(function () {}); }, 3000);
+  })();
+</script>

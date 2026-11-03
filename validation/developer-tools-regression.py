@@ -78,6 +78,13 @@ def back():
     time.sleep(.5)
 
 
+def open_devtools():
+    """The row lives inside the menu's More tools page, not the top-level sheet."""
+    ux.menu_item('More tools')
+    ux.tap('Developer tools')
+    time.sleep(.5)
+
+
 def orient(rotation):
     # Settings writes and the display's rotation observer do not complete together.
     # Confirm the actual locked display before UIAutomation connects or opens the IME.
@@ -100,8 +107,8 @@ try:
     ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
     ux.launch('http://127.0.0.1:8875/browser-ux.html')
     ux.expect('Pure UX First Page')
-    ux.menu_item('Developer tools')
-    for label in ('Console', 'Network', 'Source', 'Info'):
+    open_devtools()
+    for label in ('Console', 'Network', 'Elements', 'Storage'):
         ux.expect(label)
     enter('6*7')
     back()
@@ -114,21 +121,29 @@ try:
     ux.tap('Run')
     wait_text('6*7\n42')
     record('console draft survives tab changes and JavaScript execution returns 42')
-    ux.tap('Source')
-    wait_text('Pure UX First Page')
-    snapshot('source')
-    ux.tap('Info')
-    wait_text('Pure UX First Page')
+    ux.tap('Elements')
+    wait_text('Enhanced capture is off')
+    snapshot('elements-guide')
+    ux.tap('Storage')
+    wait_text('Cookies')
+    ux.tap('Local Storage')
+    wait_text('Local Storage')
+    snapshot('storage')
+    ux.tap('Page information')
+    wait_text('User agent')
+    ux.tap('Confirm')
     ux.tap('Console')
     wait_text('6*7\n42')
-    record('source and page information load; console results survive tab changes')
+    record('elements guide, storage and page information load; console results survive tab changes')
     enter("setTimeout(()=>console.log('pure-audit-hidden'),4000)")
     back()
     ux.tap('Run')
     ux.tap('Close')
-    ux.expect_menu()
+    back()
+    back()
+    ux.expect('Menu')
     time.sleep(4.1)
-    ux.menu_item('Developer tools')
+    open_devtools()
     wait_text('pure-audit-hidden')
     snapshot('reopened-console')
     record('console messages recorded with diagnostics closed appear after reopening')
@@ -155,7 +170,7 @@ try:
     ux.expect('Pure UX external Page')
     snapshot('external-view')
     record('an external VIEW URL closes diagnostics and immediately reveals its destination')
-    ux.menu_item('Developer tools')
+    open_devtools()
     ux.expect('Developer tools')
     ux.adb('shell', 'am', 'start', '-W', '-n', ux.PACKAGE + '/com.mybrowser.MainActivity',
            '-a', 'android.intent.action.SEND', '-t', 'text/plain', '--es', 'android.intent.extra.TEXT',

@@ -29,7 +29,7 @@ internal enum class NetworkOutcome(val label: Int) {
     fun matches(entry: NetworkRequestLog): Boolean = when (this) {
         ALL -> true
         BLOCKED -> entry.blocked
-        FAILED -> !entry.blocked && (entry.errorCode != null || (entry.statusCode ?: 0) >= 400)
+        FAILED -> !entry.blocked && (entry.failed || entry.errorCode != null || (entry.statusCode ?: 0) >= 400)
     }
 }
 

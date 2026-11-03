@@ -69,6 +69,24 @@ adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser
 [CI](https://github.com/Nobilta/pure-browser/actions/workflows/ci.yml)执行快速检查、lint、clippy 和未签名 Release 构建；
 设备回归在本地运行。签名与发布流程见[发布指南](RELEASING.md)。
 
+## 开发者工具回归
+
+`developer-tools-regression.py` 覆盖控制台、网络轻量日志、元素引导、存储和页面信息，
+并沿用原来的横竖屏、隐藏后重开和外部 VIEW 用例。增强采集另有本地夹具：
+
+```bash
+python3 validation/devtools_server.py            # 8875 / 8876，含 Fetch、XHR、HTML、大正文、SSE、opaque 和 Cookie
+adb reverse tcp:8875 tcp:8875
+adb reverse tcp:8876 tcp:8876
+```
+
+打开 `http://127.0.0.1:8875/devtools-fixture.html`，在开发者工具网络页签执行
+「开启增强采集并刷新」，然后核对：初始化 Fetch／XHR 出现在列表中并标注「页面脚本」；
+请求与响应正文、Query 重复键、请求头／响应头可查看和复制；大于 256 KiB 的正文显示截断原因；
+SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子节点分页、文本源码分页与导出；
+存储页 Cookies／Local Storage／Session Storage 无需增强即可读取。再核对「停止增强采集」后
+新请求不再产生页面脚本记录、已有记录仍可查看，关闭面板后延迟请求仍会被采集。
+
 ## 模拟器回归
 
 JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
