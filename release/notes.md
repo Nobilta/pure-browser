@@ -6,7 +6,7 @@
 增强采集默认关闭，工具栏一次完成“安装 document-start 脚本并刷新”；网络详情区分 WebView 原生
 记录和页面脚本记录，元素页提供分页 DOM 树与当前 DOM 文本源码，存储页无需增强即可读取。
 
-自动检查通过：732 项 JVM、69 项 Rust、119 项 Node、14 项发布工具测试；三种语言的 1028 条字符串一致。
+自动检查通过：734 项 JVM、69 项 Rust、119 项 Node、14 项发布工具测试；三种语言的 1028 条字符串一致。
 Rust fmt/clippy、Android lint、Release 构建与签名校验通过；lint 无错误，保留 79 条警告和 3 条提示。
 
 设备回归使用 Pixel 7 ARM64 模拟器（Android 14 / API 34，WebView 113.0.5672.136）：
@@ -16,6 +16,9 @@ Rust fmt/clippy、Android lint、Release 构建与签名校验通过；lint 无�
 - 关闭面板后延迟请求仍被采集；「停止增强采集」后新请求不再产生页面脚本记录，原记录、DOM 和源码仍可查看；普通刷新和同标签导航继续采集并建立新文档。
 - Cookies 读取到 HttpOnly、Domain、Path、Secure 和 SameSite 等接口实际返回属性；Local/Session Storage 在未开启增强时仍可搜索、刷新、查看长值和复制，Session Storage 显示为标签页数据。
 - 页面信息从工具栏入口读取标题、URL、协议、主机、UA、语言、Cookie 开关和屏幕尺寸。
+- Fetch 行为回归：带 getter 的 method 实际仍为 POST；一次性 headers 迭代器的请求头仍送达；URL 对象输入的地址和 Query 正确；停止采集后 iframe 不再产生页面脚本记录。
+- 响应正文预算：300000 字节中文正文只保留 262144 字节预览（87381 字符），显示截断原因；源码刷新后原 DOM 节点仍可展开；大小写 ID/class 搜索可命中。
+- 请求详情和存储详情的系统返回先回到列表；页面完成后才开始的原生请求显示未知状态/耗时。
 
 本轮设备回归未覆盖 API 29–33、真机、新版 WebView、平板／折叠屏和跨应用分享；SSE、opaque 响应与
 被淘汰正文的详情界面只按消息路径核对，未逐项截图确认。

@@ -19,9 +19,11 @@
   <ul id="items"><li>one</li><li>two</li><li>three</li></ul>
 </div>
 <div class="card" id="beta" data-kind="beta">Beta text node</div>
+<div id="MixedCase" class="CamelClass">Mixed case element</div>
 <div id="shadow-host"></div>
 <iframe id="cross-frame" src="http://127.0.0.1:8876/api/frame" width="200" height="80"></iframe>
 <p id="status">running</p>
+<pre id="case-results"></pre>
 <script>
   (function () {
     if (new URL(location.href).searchParams.get('long')) {
@@ -45,6 +47,38 @@
       sessionStorage.setItem('session-json', JSON.stringify({tab: 'one'}));
     } catch (e) {}
     function mark(text) { document.getElementById('status').textContent = text; }
+    function caseResult(text) {
+      var node = document.getElementById('case-results');
+      node.textContent += text + '\n';
+    }
+    var getterOnce = true;
+    fetch('/api/echo?case=getter-method', {
+      get method() { var value = getterOnce ? 'POST' : 'GET'; getterOnce = false; return value; },
+      headers: {'Content-Type': 'application/json'},
+      body: '{"getter":true}'
+    }).then(function (r) { return r.json(); }).then(function (v) {
+      caseResult('getter-method:' + v.method);
+    }).catch(function (e) { caseResult('getter-method:error'); });
+    var headerIteratorDone = false;
+    var onceHeaders = {};
+    onceHeaders[Symbol.iterator] = function () {
+      return { next: function () {
+        if (headerIteratorDone) return { done: true };
+        headerIteratorDone = true;
+        return { done: false, value: ['X-Once', 'yes'] };
+      } };
+    };
+    fetch('/api/echo?case=headers-iter', {headers: onceHeaders})
+      .then(function (r) { return r.json(); })
+      .then(function (v) { caseResult('headers-iter:' + ((v.headers && v.headers['x-once']) || 'missing')); })
+      .catch(function () { caseResult('headers-iter:error'); });
+    fetch(new URL('/api/echo?case=url-object&a=1&a=2', location.href))
+      .then(function (r) { return r.json(); })
+      .then(function (v) { caseResult('url-object:' + v.query); })
+      .catch(function () { caseResult('url-object:error'); });
+    fetch('/api/cjk').then(function (r) { return r.text(); })
+      .then(function (v) { caseResult('cjk:' + v.length); })
+      .catch(function () { caseResult('cjk:error'); });
     fetch('/api/echo?x=1&x=2&empty=&sp=a%20b', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-Test': 'fixture'},

@@ -41,12 +41,19 @@ class Handler(BaseHTTPRequestHandler):
             ])
             return
         if self.path.startswith("/api/frame"):
-            self._send(200, "<!doctype html><p id='frame-text'>cross origin frame</p>", "text/html; charset=utf-8")
+            body = ("<!doctype html><p id='frame-text'>cross origin frame</p><script>"
+                    "setTimeout(function(){fetch('/api/echo?case=iframe-after-stop')"
+                    ".catch(function(){});},4000);</script>")
+            self._send(200, body, "text/html; charset=utf-8")
             return
         if self.path.startswith("/api/echo"):
             payload = {"ok": True, "query": self.path.split("?", 1)[1] if "?" in self.path else "",
-                       "method": "GET"}
+                       "method": "GET",
+                       "headers": {k.lower(): v for k, v in self.headers.items()}}
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+            return
+        if self.path.startswith("/api/cjk"):
+            self._send(200, "中" * 100000, "text/plain; charset=utf-8")
             return
         if self.path.startswith("/api/html"):
             body = "<!doctype html><h1>Captured HTML</h1><script>document.title='BAD'</script>"
@@ -79,6 +86,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/echo"):
             self._send(200, json.dumps({"ok": True, "method": "POST",
                                         "body": body.decode("utf-8", "replace"),
+                                        "headers": {k.lower(): v for k, v in self.headers.items()},
                                         "query": self.path.split("?", 1)[1] if "?" in self.path else ""}),
                        "application/json; charset=utf-8")
             return

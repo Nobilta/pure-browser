@@ -346,7 +346,9 @@ internal class SourceViewerState(private val session: DevToolsSession) {
     fun canGoBack(): Boolean = history.isNotEmpty()
 
     suspend fun refresh() {
-        session.dom.reset()
+        // Source refresh must not clear the page-side node registry: an expanded DOM tree
+        // on screen would otherwise keep ids that no longer exist.
+        session.source.resetCache()
         session.source.invalidate()
         reset()
         load(first = true)
@@ -447,7 +449,10 @@ internal fun ElementsTab(
             FilterChip(view == 1, { view = 1 }, label = { Text(resources.getString(R.string.dev_elements_source)) })
             Spacer(Modifier.weight(1f))
             if (view == 0) BrowserIconAction(R.drawable.ic_reload, resources.getString(R.string.dev_dom_refresh)) {
-                scope.launch { domState.refresh() }
+                scope.launch {
+                    domState.refresh()
+                    sourceState.reset()
+                }
             } else BrowserIconAction(R.drawable.ic_reload, resources.getString(R.string.dev_dom_refresh)) {
                 scope.launch { sourceState.refresh() }
             }

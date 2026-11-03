@@ -76,6 +76,40 @@
   function absolute(url) {
     try { return new URL(String(url), location.href).href; } catch (e) { return String(url); }
   }
+  function isURLObject(value) {
+    try { return typeof URL !== 'undefined' && value instanceof URL; } catch (e) { return false; }
+  }
+  function isRequestObject(value) {
+    try { return typeof Request !== 'undefined' && value instanceof Request; } catch (e) { return false; }
+  }
+  // Only own data properties are inspected. Calling a getter to "observe" a request could
+  // consume a one-shot value before fetch does, changing the request itself.
+  function dataProperty(object, key) {
+    try {
+      if (!object) return undefined;
+      var descriptor = Object.getOwnPropertyDescriptor(object, key);
+      return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        ? descriptor.value : undefined;
+    } catch (e) { return undefined; }
+  }
+  function snapshotHeaders(value) {
+    if (value == null) return [];
+    try {
+      if (typeof Headers !== 'undefined' && value instanceof Headers) return headerList(value);
+      if (Array.isArray(value)) return headerList(new Headers(value));
+      if (typeof value === 'object') {
+        var out = [], keys = Object.keys(value);
+        for (var i = 0; i < keys.length && out.length < MAX_HEADERS; i++) {
+          var item = dataProperty(value, keys[i]);
+          if (item !== undefined) {
+            out.push([String(keys[i]).slice(0, 256), String(item).slice(0, MAX_HEADER_VALUE)]);
+          }
+        }
+        return out;
+      }
+    } catch (e) { }
+    return [];
+  }
   function headerValue(headers, name) {
     try {
       if (!headers) return '';
@@ -128,13 +162,27 @@
   function clampText(value) {
     var text = String(value == null ? '' : value);
     var truncated = false;
-    if (text.length > MAX_CHARS) { text = text.slice(0, MAX_CHARS); truncated = true; }
+    if (text.length > MAX_CHARS) {
+      text = text.slice(0, MAX_CHARS);
+      // Do not leave half a surrogate pair at the preview boundary.
+      if (text.length && text.charCodeAt(text.length - 1) >= 0xD800 &&
+          text.charCodeAt(text.length - 1) <= 0xDBFF) text = text.slice(0, -1);
+      truncated = true;
+    }
     var bytes = encodedBytes(text);
     if (bytes > MAX_BYTES) {
-      var cut = Math.floor(text.length * MAX_BYTES / bytes);
-      text = text.slice(0, Math.max(0, cut - 1));
-      bytes = encodedBytes(text);
       truncated = true;
+      if (typeof TextEncoder === 'function' && typeof TextDecoder === 'function') {
+        var encoded = new TextEncoder().encode(text).subarray(0, MAX_BYTES);
+        text = new TextDecoder('utf-8').decode(encoded);
+        if (text.length && text.charCodeAt(text.length - 1) === 0xFFFD) text = text.slice(0, -1);
+        bytes = encodedBytes(text);
+      } else {
+        var cut = Math.floor(text.length * MAX_BYTES / bytes);
+        while (cut > 0 && encodedBytes(text.slice(0, cut)) > MAX_BYTES) cut--;
+        text = text.slice(0, Math.max(0, cut));
+        bytes = encodedBytes(text);
+      }
     }
     return { text: text, bytes: bytes, truncated: truncated };
   }
@@ -217,42 +265,63 @@
   // ---- Fetch ---------------------------------------------------------------
   var originalFetch = null;
   var wrappedFetch = null;
+
+  function fetchRequestInfo(input, init) {
+    var info = { method: 'GET', url: '', headers: [], body: null };
+    var requestInput = isRequestObject(input);
+    if (requestInput) {
+      info.method = String(input.method || 'GET').toUpperCase();
+      info.url = absolute(input.url || '');
+      info.headers = headerList(input.headers);
+      info.body = { state: 'NOT_COLLECTED', reason: 'request_stream' };
+    } else if (typeof input === 'string') {
+      info.url = absolute(input);
+    } else if (isURLObject(input)) {
+      info.url = absolute(input.href);
+    } else if (input && typeof input.url === 'string') {
+      info.url = absolute(input.url);
+    }
+    var initMethod = dataProperty(init, 'method');
+    if (initMethod != null) info.method = String(initMethod).toUpperCase();
+    var initHeaders = dataProperty(init, 'headers');
+    if (initHeaders !== undefined && initHeaders !== null) info.headers = snapshotHeaders(initHeaders);
+    var initBody = dataProperty(init, 'body');
+    if (initBody !== undefined && initBody !== null) info.body = bodyFromValue(initBody);
+    else if (!info.body) info.body = { state: 'EMPTY', reason: 'no_body', bytes: 0 };
+    return info;
+  }
+
   if (typeof W.fetch === 'function') {
     originalFetch = W.fetch;
     wrappedFetch = function () {
+      // The actual request must be the first operation. Inspecting init here and then
+      // calling fetch again would read getters twice and consume one-shot header iterators.
       if (stopped) return originalFetch.apply(this, arguments);
-      var input = arguments[0], init = arguments[1];
-      var id = 'f' + (++seq).toString(36) + now().toString(36);
-      var method = String((init && init.method) || (input && input.method) ||
-        (typeof input === 'string' ? 'GET' : 'GET')).toUpperCase();
-      var url;
-      try { url = absolute(typeof input === 'string' ? input : (input && input.url) || ''); }
-      catch (e) { url = String(input); }
-      var headers = [];
-      try {
-        headers = headerList(new Headers((init && init.headers) || (input && input.headers) || undefined));
-      } catch (e) { headers = []; }
-      var requestBody = null;
-      if (init && Object.prototype.hasOwnProperty.call(init, 'body') && init.body != null) {
-        requestBody = bodyFromValue(init.body);
-      } else if (typeof Request !== 'undefined' && input instanceof Request) {
-        requestBody = { state: 'NOT_COLLECTED', reason: 'request_stream' };
-      }
       var started = now();
-      send({ type: 'net-start', id: id, kind: 'fetch', method: method, url: url, startMs: Date.now() });
-      send({ type: 'net-request', id: id, headers: headers });
-      if (requestBody) emitBody(id, 'request', requestBody);
-      else emitBody(id, 'request', { state: 'EMPTY', reason: 'no_body', bytes: 0 });
-      var promise;
+      var id = 'f' + (++seq).toString(36) + started.toString(36);
+      var input = arguments[0], init = arguments[1];
+      var promise = null, thrown = null;
       try { promise = originalFetch.apply(this, arguments); }
-      catch (error) {
-        send({ type: 'net-end', id: id, outcome: 'failed', durationMs: Math.max(0, now() - started),
-          reason: 'network', error: String((error && error.message) || error).slice(0, 512) });
-        throw error;
+      catch (error) { thrown = error; }
+      var info;
+      try { info = fetchRequestInfo(input, init); }
+      catch (e) {
+        info = { method: 'GET', url: '', headers: [],
+          body: { state: 'FAILED', reason: 'read_error', bytes: 0 } };
       }
+      send({ type: 'net-start', id: id, kind: 'fetch', method: info.method,
+        url: info.url, startMs: Date.now() });
+      send({ type: 'net-request', id: id, headers: info.headers });
+      emitBody(id, 'request', info.body || { state: 'EMPTY', reason: 'no_body', bytes: 0 });
+      if (thrown) {
+        send({ type: 'net-end', id: id, outcome: 'failed', durationMs: Math.max(0, now() - started),
+          reason: 'network', error: String((thrown && thrown.message) || thrown).slice(0, 512) });
+        throw thrown;
+      }
+      if (!promise || typeof promise.then !== 'function') return promise;
       return promise.then(function (response) {
         if (!stopped) {
-          try { observeResponse(id, response, started, method); }
+          try { observeResponse(id, response, started, info.method); }
           catch (e) {
             send({ type: 'net-end', id: id, outcome: 'failed', durationMs: Math.max(0, now() - started),
               reason: 'read_error', error: String((e && e.message) || e).slice(0, 512) });
@@ -348,13 +417,21 @@
           return;
         }
         var value = result.value;
-        total += (value && value.byteLength) || 0;
+        if (!value || !value.byteLength) { pump(); return; }
+        var remaining = MAX_BYTES - total;
+        // A reader result can be larger than the remaining preview. Feed only the bytes
+        // that fit into TextDecoder; a partial multi-byte tail is held by the stream
+        // decoder and never becomes a replacement character.
+        var slice = value.byteLength > remaining ? value.subarray(0, Math.max(0, remaining)) : value;
+        var over = value.byteLength > remaining;
+        total += slice.byteLength;
         var text = '';
         try {
-          text = decoder ? decoder.decode(value, { stream: true }) : String.fromCharCode.apply(null, value);
+          text = decoder ? decoder.decode(slice, { stream: true })
+            : String.fromCharCode.apply(null, slice);
         } catch (e) { text = ''; }
         if (!append(text)) return;
-        if (total >= MAX_BYTES || sentChars >= MAX_CHARS) {
+        if (over || total >= MAX_BYTES || sentChars >= MAX_CHARS) {
           end('TRUNCATED', 'size_limit');
           return;
         }
@@ -629,6 +706,7 @@
       __pureDevTools: true,
       doc: doc,
       reset: resetDom,
+      resetSource: function () { sourceCache = null; },
       sourceInfo: function () {
         var state = ensureSource();
         return stringify({ totalChars: state.text.length, totalLines: state.starts.length,
@@ -722,10 +800,16 @@
           if (node.nodeType === 1) {
             var tag = String(node.tagName || '').toLowerCase();
             var matched = false;
-            if (byId != null) matched = String(node.id || '') === byId;
-            else if (byClass != null) matched = node.classList && node.classList.contains(byClass);
-            else matched = tag === tagNeedle || String(node.id || '') === tagNeedle ||
-              (node.classList && node.classList.contains(tagNeedle));
+            var idValue = String(node.id || '').toLowerCase();
+            var hasClass = function (wanted) {
+              if (!node.classList) return false;
+              return Array.prototype.some.call(node.classList, function (name) {
+                return String(name).toLowerCase() === wanted;
+              });
+            };
+            if (byId != null) matched = idValue === byId;
+            else if (byClass != null) matched = hasClass(byClass);
+            else matched = tag === tagNeedle || idValue === tagNeedle || hasClass(tagNeedle);
             if (matched) add(node, 'tag');
             var children = node.childNodes;
             for (var i = children.length - 1; i >= 0; i--) stack.push(children[i]);
@@ -755,9 +839,28 @@
     W.addEventListener('load', announce, { once: true });
   } catch (e) { }
 
+  function broadcastStop() {
+    try {
+      var frames = W.frames;
+      for (var i = 0; i < frames.length; i++) {
+        try { frames[i].postMessage({ __pureDevToolsStop: token }, '*'); } catch (e) { }
+      }
+    } catch (e) { }
+  }
+  var stopMessage = function (event) {
+    try {
+      if (event && event.data && event.data.__pureDevToolsStop === token) stop();
+    } catch (e) { }
+  };
+  try { W.addEventListener('message', stopMessage); } catch (e) { }
+
   function stop() {
     if (stopped) return;
+    // The script runs in every frame. The native stop only evaluates in the main frame,
+    // so walk the frame tree with postMessage; cross-origin frames can receive it too.
+    broadcastStop();
     stopped = true;
+    try { W.removeEventListener('message', stopMessage); } catch (e) { }
     if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
     queue = [];
     queueChars = 0;

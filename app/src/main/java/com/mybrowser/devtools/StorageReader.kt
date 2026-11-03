@@ -3,6 +3,7 @@ package com.mybrowser.devtools
 import android.annotation.SuppressLint
 import android.webkit.CookieManager
 import androidx.webkit.CookieManagerCompat
+import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,36 +22,47 @@ internal class StorageReader(private val session: DevToolsSession) {
     enum class Kind(val js: String) { LOCAL("localStorage"), SESSION("sessionStorage") }
 
     @SuppressLint("RequiresFeature")
-    suspend fun cookies(url: String): PageResult<CookieResult> = withContext(Dispatchers.IO) {
+    suspend fun cookies(url: String): PageResult<CookieResult> {
         val boundedUrl = url.take(DevToolsBudgets.URL_CHARS)
         if (!boundedUrl.startsWith("http://") && !boundedUrl.startsWith("https://")) {
-            return@withContext PageResult.Failed(null)
+            return PageResult.Failed(null)
         }
-        val manager = runCatching { CookieManager.getInstance() }.getOrNull()
-            ?: return@withContext PageResult.Failed(null)
-        val rich = runCatching {
-            WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO)
-        }.getOrDefault(false)
-        if (rich) {
-            val info = runCatching { CookieManagerCompat.getCookieInfo(manager, boundedUrl) }
-                .getOrNull()
-            if (info != null) {
-                return@withContext PageResult.Ok(
-                    CookieResult(
-                        cookies = info.mapNotNull(::parseCookieInfoLine).sortedBy { it.name.lowercase() },
-                        richAttributes = true,
+        // Resolve the manager on the WebView's thread, but do the cookie IPC off it.
+        val manager = withContext(Dispatchers.Main.immediate) {
+            // CookieManager.getInstance() is the default profile. A profile-isolated incognito
+            // WebView has its own manager; reading the default one would show normal cookies
+            // and miss the private page's cookies.
+            runCatching {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    WebViewCompat.getProfile(session.view)?.cookieManager
+                } else null
+            }.getOrNull() ?: runCatching { CookieManager.getInstance() }.getOrNull()
+        } ?: return PageResult.Failed(null)
+        return withContext(Dispatchers.IO) {
+            val rich = runCatching {
+                WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO)
+            }.getOrDefault(false)
+            if (rich) {
+                val info = runCatching { CookieManagerCompat.getCookieInfo(manager, boundedUrl) }
+                    .getOrNull()
+                if (info != null) {
+                    return@withContext PageResult.Ok(
+                        CookieResult(
+                            cookies = info.mapNotNull(::parseCookieInfoLine).sortedBy { it.name.lowercase() },
+                            richAttributes = true,
+                        )
                     )
-                )
+                }
             }
-        }
-        // Fallback: CookieManager still returns HttpOnly names and values, but no attributes.
-        val header = runCatching { manager.getCookie(boundedUrl) }.getOrNull().orEmpty()
-        PageResult.Ok(
-            CookieResult(
-                cookies = parseCookieHeader(header).sortedBy { it.name.lowercase() },
-                richAttributes = false,
+            // Fallback: CookieManager still returns HttpOnly names and values, but no attributes.
+            val header = runCatching { manager.getCookie(boundedUrl) }.getOrNull().orEmpty()
+            PageResult.Ok(
+                CookieResult(
+                    cookies = parseCookieHeader(header).sortedBy { it.name.lowercase() },
+                    richAttributes = false,
+                )
             )
-        )
+        }
     }
 
     suspend fun list(kind: Kind): PageResult<StorageSnapshot> {

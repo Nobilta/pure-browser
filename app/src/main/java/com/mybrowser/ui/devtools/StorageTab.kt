@@ -1,5 +1,6 @@
 package com.mybrowser.ui.devtools
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -89,6 +90,12 @@ internal fun StorageTab(
             }
         } finally {
             loading = false
+        }
+    }
+    if (selectedCookie != null || selectedEntry != null) {
+        BackHandler {
+            selectedCookie = null
+            selectedEntry = null
         }
     }
     val selected = selectedCookie ?: selectedEntry

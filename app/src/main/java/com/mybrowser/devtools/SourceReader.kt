@@ -49,6 +49,14 @@ internal class SourceReader(private val session: DevToolsSession) {
         }
     }
 
+    /** Drops only the page-side source string; DOM node ids stay valid. */
+    suspend fun resetCache(): Boolean {
+        val namespace = session.namespace() ?: return false
+        val expected = session.documentId
+        val raw = session.evaluateInDocument(DevToolsJs.call(namespace, "a.resetSource();return true;"))
+        return raw != null && session.isCurrentDocument(expected)
+    }
+
     suspend fun page(offset: Int): PageResult<SourcePage> {
         val namespace = session.namespace() ?: return PageResult.Unavailable
         val expected = session.documentId
