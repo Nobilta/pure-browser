@@ -1040,4 +1040,5 @@
     <string name="dev_storage_reading_failed">无法读取这个值。</string>
     <string name="dev_enhanced_off">增强采集已关闭</string>
     <string name="dev_network_boundary">页面脚本采集无法覆盖图片、样式、导航、Worker、Service Worker、WebSocket 等流量；跨域响应和受限头可能不可读。</string>
+    <string name="dev_reason_accessor">请求参数由 getter 提供，未读取</string>
 </resources>

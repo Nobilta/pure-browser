@@ -53,6 +53,7 @@ enum class BodyReason(val label: Int) {
     ABORTED(R.string.dev_reason_aborted),
     TIMED_OUT(R.string.dev_reason_timed_out),
     HEADER_UNAVAILABLE(R.string.dev_reason_header_unavailable),
+    ACCESSOR(R.string.dev_reason_accessor),
     NONE(0);
 
     val labelOrNull: Int? get() = label.takeIf { it != 0 }
@@ -75,6 +76,7 @@ enum class BodyReason(val label: Int) {
             "aborted" -> ABORTED
             "timed_out" -> TIMED_OUT
             "header_unavailable" -> HEADER_UNAVAILABLE
+            "accessor" -> ACCESSOR
             else -> NONE
         }
 
@@ -126,6 +128,7 @@ data class NetworkRequestDetail(
     val documentId: Long,
     val source: NetworkSource,
     val captureId: String = "",
+    val methodKnown: Boolean = true,
     val method: String = "GET",
     val url: String = "",
     val resourceType: Int = 0,
@@ -261,6 +264,7 @@ data class StorageSnapshot(
     val entries: List<StorageEntry>,
     val total: Int,
     val truncated: Boolean,
+    val nextOffset: Int? = null,
 )
 
 data class StorageValue(
