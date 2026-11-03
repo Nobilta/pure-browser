@@ -14,13 +14,7 @@ import org.json.JSONObject
  * stays reachable; only the page on screen is held by the UI.
  */
 internal class SourceReader(private val session: DevToolsSession) {
-    @Volatile private var metadata: SourceInfo? = null
-    @Volatile private var metadataDocument: Long = -1L
-
-    fun invalidate() {
-        metadata = null
-        metadataDocument = -1L
-    }
+    fun invalidate() = Unit
 
     suspend fun info(): PageResult<SourceInfo> {
         val namespace = session.namespace() ?: return PageResult.Unavailable
@@ -42,9 +36,8 @@ internal class SourceReader(private val session: DevToolsSession) {
                 totalLines = json.optInt("totalLines", 0).coerceAtLeast(0),
                 url = json.optString("url").take(DevToolsBudgets.URL_CHARS),
                 title = json.optString("title").take(512),
+                sourceId = json.optInt("sourceId", 0),
             )
-            metadata = info
-            metadataDocument = expected
             PageResult.Ok(info)
         }
     }
@@ -88,6 +81,7 @@ internal class SourceReader(private val session: DevToolsSession) {
                 totalLines = json.optInt("totalLines", 0),
                 nextOffset = if (json.isNull("next")) null else json.optInt("next"),
                 continued = json.optBoolean("continued"),
+                sourceId = json.optInt("sourceId", 0),
             )
             if (page.end <= page.offset && page.totalChars > page.offset) {
                 PageResult.Failed(null)
@@ -97,11 +91,16 @@ internal class SourceReader(private val session: DevToolsSession) {
 
     /** Streams every page to the caller; used by export so the whole document is never held. */
     suspend fun forEachPage(onPage: suspend (SourcePage) -> Unit): Boolean {
+        val expectedDocument = session.documentId
+        val startInfo = (info() as? PageResult.Ok)?.value ?: return false
+        val expectedSource = startInfo.sourceId
         var offset = 0
         while (true) {
             currentCoroutineContext().ensureActive()
+            if (session.documentId != expectedDocument) return false
             val result = page(offset)
             val page = (result as? PageResult.Ok)?.value ?: return false
+            if (expectedSource > 0 && page.sourceId != expectedSource) return false
             onPage(page)
             val next = page.nextOffset ?: return true
             if (next <= offset) return false
