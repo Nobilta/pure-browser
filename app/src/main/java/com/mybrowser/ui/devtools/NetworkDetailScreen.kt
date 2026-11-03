@@ -1,5 +1,6 @@
 package com.mybrowser.ui.devtools
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -41,6 +42,7 @@ internal fun NetworkDetailScreen(
     onExplain: (NetworkRequestLog) -> Unit,
 ) {
     val resources = localizedResources()
+    BackHandler { onBack() }
     val revision by session.details.revision.collectAsState()
     val detail = remember(revision, requestId) { session.details.get(requestId) }
     val entry = remember(revision, requestId) {

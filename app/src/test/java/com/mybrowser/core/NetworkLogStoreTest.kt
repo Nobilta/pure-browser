@@ -1,6 +1,8 @@
 package com.mybrowser.core
 
 import android.app.Application
+import android.net.Uri
+import android.webkit.WebResourceRequest
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +24,45 @@ class NetworkLogStoreTest {
         assertTrue(main.completed)
         assertTrue(main.settled)
         assertFalse(main.blocked)
+    }
+
+    @Test fun nativeRequestStartedAfterPageFinishIsSettledAsUnknown() {
+        val store = NetworkLogStore()
+        store.beginPage("https://example.com/")
+        store.markPageFinished("https://example.com/", pageLoadMs = 10)
+        val request = object : WebResourceRequest {
+            override fun getUrl(): Uri = Uri.parse("https://example.com/late.png")
+            override fun isForMainFrame(): Boolean = false
+            override fun isRedirect(): Boolean = false
+            override fun hasGesture(): Boolean = false
+            override fun getMethod(): String = "GET"
+            override fun getRequestHeaders(): MutableMap<String, String> = mutableMapOf()
+        }
+        val id = store.recordRequest(request, "https://example.com/", ResourceType.IMAGE)
+        val late = store.snapshot().single { it.id == id }
+        assertTrue(late.settled)
+        assertTrue(late.durationMs == null)
+        assertFalse(late.completed)
+        assertNull(late.statusCode)
+    }
+
+    @Test fun clearingTheLogDoesNotTurnALateRequestBackIntoInProgress() {
+        val store = NetworkLogStore()
+        store.beginPage("https://example.com/")
+        store.markPageFinished("https://example.com/", pageLoadMs = 10)
+        store.clear()
+        val request = object : WebResourceRequest {
+            override fun getUrl(): Uri = Uri.parse("https://example.com/late-after-clear.png")
+            override fun isForMainFrame(): Boolean = false
+            override fun isRedirect(): Boolean = false
+            override fun hasGesture(): Boolean = false
+            override fun getMethod(): String = "GET"
+            override fun getRequestHeaders(): MutableMap<String, String> = mutableMapOf()
+        }
+        val id = store.recordRequest(request, "https://example.com/", ResourceType.IMAGE)
+        val late = store.snapshot().single { it.id == id }
+        assertTrue(late.settled)
+        assertNull(late.durationMs)
     }
 
     @Test fun ringEvictionReportsTheRecordWhoseBodyMustBeReleased() {

@@ -82,6 +82,8 @@ class NetworkLogStore(
     private var syntheticMainFrameId: Long? = null
     private var timelineUrl = ""
     private var pageStartedAtElapsedMs = 0L
+    /** A request that starts after onPageFinished has no later finish callback to settle it. */
+    @Volatile private var pageFinished = false
     val entries = buffer.entries
     fun setVisible(value: Boolean) = buffer.setVisible(value)
     fun snapshot(): List<NetworkRequestLog> = buffer.snapshot()
@@ -103,6 +105,7 @@ class NetworkLogStore(
             syntheticMainFrameId = null
             timelineUrl = normalized
             pageStartedAtElapsedMs = SystemClock.elapsedRealtime()
+            pageFinished = false
             if (!intercepted) ring.clear()
             // Do not erase speculative resources just because the main-thread callback
             // arrived later. A redirect may add a final document URL to the same timeline.
@@ -126,7 +129,8 @@ class NetworkLogStore(
             awaitingPageStart = false
             syntheticMainFrameId = null
             timelineUrl = ""
-            pageStartedAtElapsedMs = 0L
+            // Clearing the log is not a navigation: a delayed request on a finished
+            // document must still settle as unknown instead of going back to "in progress".
             buffer.clear()
         }
     }
@@ -140,6 +144,7 @@ class NetworkLogStore(
 
         return buffer.edit { ring ->
             if (request.isForMainFrame) {
+                pageFinished = false
                 val existingIndex = ring.indexOfLast {
                     it.id == syntheticMainFrameId && it.url == url
                 }
@@ -165,6 +170,9 @@ class NetworkLogStore(
                 startedAtElapsedMs = now,
                 documentUrl = timelineUrl.ifEmpty { documentUrl.take(DevToolsBudgets.URL_CHARS) },
                 resourceType = type.ordinal,
+                // Successful native subresources have no completion callback. If the page
+                // already finished, there is no future event that could settle this one.
+                settled = pageFinished && !request.isForMainFrame,
             )
             evict(ring.add(entry))
             entry.id
@@ -294,6 +302,7 @@ class NetworkLogStore(
     fun markPageFinished(url: String, pageLoadMs: Long? = null) {
         val boundedUrl = url.trim().take(DevToolsBudgets.URL_CHARS)
         val finishedAt = SystemClock.elapsedRealtime()
+        pageFinished = true
         buffer.edit { ring ->
             if (timelineUrl == boundedUrl) {
                 syntheticMainFrameId = null
@@ -316,6 +325,7 @@ class NetworkLogStore(
     }
 
     fun markMainFrameError(url: String, errorCode: Int, description: String?) {
+        pageFinished = true
         updateLatestByUrl(url, mainFrameOnly = true) { entry ->
             entry.copy(
                 errorCode = errorCode,
