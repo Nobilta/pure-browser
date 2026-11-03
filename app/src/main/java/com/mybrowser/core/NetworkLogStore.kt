@@ -4,6 +4,7 @@ import com.mybrowser.R
 import android.content.res.Resources
 import android.os.SystemClock
 import android.webkit.WebResourceRequest
+import com.mybrowser.devtools.DevToolsBudgets
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -12,16 +13,23 @@ import java.util.concurrent.atomic.AtomicLong
  * WebView does not expose successful response callbacks from
  * [WebViewClient.shouldInterceptRequest] without taking ownership of the response body.
  * Recording at request time and completing entries when an HTTP/load error arrives keeps
- * the browser's normal streaming path intact. Successful subresources therefore have an
- * unknown status/size until Chromium reports more information; that is preferable to
- * buffering every image and script just to make a diagnostics panel look complete.
+ * the browser's normal streaming path intact. A request with no completion callback is
+ * reported as an unknown status; it is never assumed to be 200 and never left "in progress"
+ * after the document has finished.
+ *
+ * Enhanced capture adds page-script records alongside these WebView records. They carry
+ * separate ids and source flags: no two records are merged by URL, because the native
+ * callback and the page wrapper have no shared request id.
  */
 data class NetworkRequestLog(
     val id: Long,
     val method: String,
     val url: String,
     val statusCode: Int? = null,
+    val statusText: String? = null,
     val blocked: Boolean = false,
+    val failed: Boolean = false,
+    val cancelled: Boolean = false,
     val errorCode: Int? = null,
     val errorDescription: String? = null,
     val isForMainFrame: Boolean = false,
@@ -30,21 +38,41 @@ data class NetworkRequestLog(
     val sizeBytes: Long? = null,
     val documentUrl: String = "",
     val resourceType: Int = ResourceType.OTHER.ordinal,
+    /** True for records created from the document-start fetch/XHR wrapper. */
+    val pageScript: Boolean = false,
+    /** The page-side request id, stable across net-start/net-response/net-end messages. */
+    val captureId: String = "",
+    /** A response/error callback arrived, or the document finished. */
+    val completed: Boolean = false,
+    /** No further callback is expected for this record. Unknown status is final. */
+    val settled: Boolean = false,
+    val pageLoadMs: Long? = null,
 ) {
     fun statusText(resources: Resources): String = when {
-            blocked -> resources.getString(R.string.ui_blocked)
-            statusCode != null -> statusCode.toString()
-            errorCode != null -> resources.getString(R.string.ui_error, errorCode)
-            else -> "—"
+        blocked -> resources.getString(R.string.ui_blocked)
+        statusCode != null -> buildString {
+            append(statusCode)
+            statusText?.takeIf { it.isNotBlank() }?.let { append(' ').append(it) }
         }
+        errorCode != null -> resources.getString(R.string.ui_error, errorCode)
+        cancelled -> resources.getString(R.string.dev_network_cancelled)
+        failed -> resources.getString(R.string.dev_network_failed)
+        else -> resources.getString(R.string.dev_network_status_unknown)
+    }
 
     fun sizeText(resources: Resources): String = sizeBytes?.let(::formatBytes) ?: resources.getString(R.string.ui_unknown_size)
 
-    fun durationText(resources: Resources): String = durationMs?.let { "$it ms" } ?: resources.getString(R.string.ui_in_progress)
+    fun durationText(resources: Resources): String = durationMs?.let { "$it ms" } ?: run {
+        if (settled || completed) resources.getString(R.string.dev_duration_unknown)
+        else resources.getString(R.string.ui_in_progress)
+    }
 }
 
 /** Thread-safe, bounded state used by WebView worker callbacks and Compose. */
-class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
+class NetworkLogStore(
+    maxEntries: Int = DevToolsBudgets.NETWORK_ENTRIES_PER_DOCUMENT,
+    private val onEvicted: (NetworkRequestLog) -> Unit = {},
+) {
 
     private val nextId = AtomicLong(1L)
     private val buffer = BufferedLog<NetworkRequestLog>(maxEntries)
@@ -53,6 +81,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     private var awaitingPageStart = false
     private var syntheticMainFrameId: Long? = null
     private var timelineUrl = ""
+    private var pageStartedAtElapsedMs = 0L
     val entries = buffer.entries
     fun setVisible(value: Boolean) = buffer.setVisible(value)
     fun snapshot(): List<NetworkRequestLog> = buffer.snapshot()
@@ -63,7 +92,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
 
     /** Confirms an intercepted navigation, or starts one with no request callback yet. */
     fun beginPage(url: String) {
-        val normalized = url.trim().take(MAX_URL_LENGTH)
+        val normalized = url.trim().take(DevToolsBudgets.URL_CHARS)
         if (normalized.isEmpty()) {
             clear()
             return
@@ -73,6 +102,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
             awaitingPageStart = false
             syntheticMainFrameId = null
             timelineUrl = normalized
+            pageStartedAtElapsedMs = SystemClock.elapsedRealtime()
             if (!intercepted) ring.clear()
             // Do not erase speculative resources just because the main-thread callback
             // arrived later. A redirect may add a final document URL to the same timeline.
@@ -86,7 +116,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
                 resourceType = ResourceType.DOCUMENT.ordinal,
                 startedAtElapsedMs = SystemClock.elapsedRealtime(),
             )
-            ring.add(entry)
+            evict(ring.add(entry))
             syntheticMainFrameId = entry.id
         }
     }
@@ -96,6 +126,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
             awaitingPageStart = false
             syntheticMainFrameId = null
             timelineUrl = ""
+            pageStartedAtElapsedMs = 0L
             buffer.clear()
         }
     }
@@ -103,7 +134,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
     /** Records a request before the filter gets a chance to return a replacement response. */
     fun recordRequest(request: WebResourceRequest, documentUrl: String = "",
         type: ResourceType = classifyResourceType(request)): Long {
-        val url = request.url.toString().trim().take(MAX_URL_LENGTH)
+        val url = request.url.toString().trim().take(DevToolsBudgets.URL_CHARS)
         val method = request.method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
         val now = SystemClock.elapsedRealtime()
 
@@ -123,6 +154,7 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
                 ring.clear()
                 awaitingPageStart = true
                 timelineUrl = url
+                pageStartedAtElapsedMs = now
             }
 
             val entry = NetworkRequestLog(
@@ -131,19 +163,90 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
                 url = url,
                 isForMainFrame = request.isForMainFrame,
                 startedAtElapsedMs = now,
-                documentUrl = timelineUrl.ifEmpty { documentUrl.take(MAX_URL_LENGTH) },
+                documentUrl = timelineUrl.ifEmpty { documentUrl.take(DevToolsBudgets.URL_CHARS) },
                 resourceType = type.ordinal,
             )
-            ring.add(entry)
+            evict(ring.add(entry))
             entry.id
+        }
+    }
+
+    /** Creates a record for a page-script request; the capture id keeps later events together. */
+    fun recordPageScript(
+        captureId: String,
+        method: String,
+        url: String,
+        resourceType: ResourceType,
+        isForMainFrame: Boolean,
+        documentUrl: String,
+    ): Long = buffer.edit { ring ->
+        val entry = NetworkRequestLog(
+            id = nextId.getAndIncrement(),
+            method = method.take(MAX_METHOD_LENGTH).ifBlank { "GET" },
+            url = url.take(DevToolsBudgets.URL_CHARS),
+            isForMainFrame = isForMainFrame,
+            startedAtElapsedMs = SystemClock.elapsedRealtime(),
+            documentUrl = documentUrl.take(DevToolsBudgets.URL_CHARS),
+            resourceType = resourceType.ordinal,
+            pageScript = true,
+            captureId = captureId,
+        )
+        evict(ring.add(entry))
+        entry.id
+    }
+
+    fun updatePageScript(captureId: String, transform: (NetworkRequestLog) -> NetworkRequestLog) {
+        buffer.edit { ring ->
+            val index = ring.indexOfLast { it.pageScript && it.captureId == captureId }
+            if (index < 0) return@edit
+            ring[index] = transform(ring[index])
+        }
+    }
+
+    /** Finds the newest WebView record matching a request, for attaching response details. */
+    fun latestIdFor(url: String, method: String): Long? = buffer.edit { ring ->
+        val boundedUrl = url.trim().take(DevToolsBudgets.URL_CHARS)
+        val boundedMethod = method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
+        val unfinished = ring.indexOfLast {
+            !it.pageScript && it.url == boundedUrl && it.method == boundedMethod &&
+                it.statusCode == null && !it.blocked && it.errorCode == null && !it.settled
+        }
+        val index = if (unfinished >= 0) unfinished else ring.indexOfLast {
+            !it.pageScript && it.url == boundedUrl && it.method == boundedMethod
+        }
+        if (index >= 0) ring[index].id else null
+    }
+
+    /** Stops page-script records from reading as "in progress" when capture is disabled. */
+    fun settlePageScripts() {
+        buffer.edit { ring ->
+            val now = SystemClock.elapsedRealtime()
+            for (index in 0 until ring.size) {
+                val entry = ring[index]
+                if (!entry.pageScript || entry.settled) continue
+                ring[index] = entry.copy(
+                    completed = true,
+                    settled = true,
+                    durationMs = (now - entry.startedAtElapsedMs).coerceAtLeast(0L),
+                )
+            }
+        }
+    }
+
+    fun updateById(id: Long, transform: (NetworkRequestLog) -> NetworkRequestLog) {
+        buffer.edit { ring ->
+            val index = ring.indexOfLast { it.id == id }
+            if (index < 0) return@edit
+            ring[index] = transform(ring[index])
         }
     }
 
     fun markBlocked(id: Long) {
         updateById(id) { entry ->
             entry.copy(
-                statusCode = 200,
                 blocked = true,
+                completed = true,
+                settled = true,
                 durationMs = elapsedSince(entry),
             )
         }
@@ -158,8 +261,12 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         updateLatest(request) { entry ->
             entry.copy(
                 statusCode = statusCode.takeIf { it > 0 },
+                statusText = reasonPhrase?.trim()?.take(MAX_STATUS_TEXT_LENGTH)
+                    ?.takeIf { it.isNotEmpty() },
                 errorDescription = reasonPhrase?.trim()?.take(MAX_ERROR_LENGTH)
                     ?.takeIf { it.isNotEmpty() },
+                completed = true,
+                settled = true,
                 durationMs = elapsedSince(entry),
                 sizeBytes = responseHeaders.contentLengthOrNull() ?: entry.sizeBytes,
             )
@@ -170,19 +277,41 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         updateLatest(request) { entry ->
             entry.copy(
                 errorCode = errorCode,
+                failed = true,
                 errorDescription = description?.trim()?.take(MAX_ERROR_LENGTH)
                     ?.takeIf { it.isNotEmpty() },
+                completed = true,
+                settled = true,
                 durationMs = elapsedSince(entry),
             )
         }
     }
 
-    fun markMainFrameFinished(url: String) {
-        updateLatestByUrl(url, mainFrameOnly = true) { entry ->
-            entry.copy(
-                statusCode = entry.statusCode ?: 200,
-                durationMs = elapsedSince(entry),
-            )
+    /**
+     * The document finished. A main-frame entry gets the page-load duration, which is not a
+     * request duration; every WebView record without a callback becomes finally unknown.
+     */
+    fun markPageFinished(url: String, pageLoadMs: Long? = null) {
+        val boundedUrl = url.trim().take(DevToolsBudgets.URL_CHARS)
+        val finishedAt = SystemClock.elapsedRealtime()
+        buffer.edit { ring ->
+            if (timelineUrl == boundedUrl) {
+                syntheticMainFrameId = null
+                awaitingPageStart = false
+            }
+            for (index in 0 until ring.size) {
+                val entry = ring[index]
+                if (entry.pageScript) continue
+                if (entry.settled) continue
+                ring[index] = if (entry.isForMainFrame && entry.url == boundedUrl) {
+                    val load = pageLoadMs ?: (finishedAt - pageStartedAtElapsedMs).coerceAtLeast(0L)
+                    // Page load and request duration are different measurements. This record has
+                    // no request completion callback, so only the page load duration is known.
+                    entry.copy(completed = true, settled = true, pageLoadMs = load)
+                } else {
+                    entry.copy(settled = true)
+                }
+            }
         }
     }
 
@@ -190,33 +319,32 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         updateLatestByUrl(url, mainFrameOnly = true) { entry ->
             entry.copy(
                 errorCode = errorCode,
+                failed = true,
                 errorDescription = description?.trim()?.take(MAX_ERROR_LENGTH)
                     ?.takeIf { it.isNotEmpty() },
+                completed = true,
+                settled = true,
                 durationMs = elapsedSince(entry),
             )
         }
     }
 
-    private fun updateById(id: Long, transform: (NetworkRequestLog) -> NetworkRequestLog) {
-        return buffer.edit { ring ->
-            val index = ring.indexOfLast { it.id == id }
-            if (index < 0) return@edit
-            ring[index] = transform(ring[index])
-        }
+    private fun evict(evicted: NetworkRequestLog?) {
+        evicted?.let(onEvicted)
     }
 
     private fun updateLatest(
         request: WebResourceRequest,
         transform: (NetworkRequestLog) -> NetworkRequestLog,
     ) {
-        val url = request.url.toString().trim().take(MAX_URL_LENGTH)
+        val url = request.url.toString().trim().take(DevToolsBudgets.URL_CHARS)
         val method = request.method.ifBlank { "GET" }.uppercase().take(MAX_METHOD_LENGTH)
         return buffer.edit { ring ->
             val index = ring.indexOfLast {
-                it.url == url && it.method == method &&
+                it.url == url && it.method == method && !it.pageScript &&
                     it.statusCode == null && !it.blocked && it.errorCode == null
             }.takeIf { it >= 0 } ?: ring.indexOfLast {
-                it.url == url && it.method == method
+                it.url == url && it.method == method && !it.pageScript
             }
             if (index < 0) return@edit
             ring[index] = transform(ring[index])
@@ -228,14 +356,14 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         mainFrameOnly: Boolean,
         transform: (NetworkRequestLog) -> NetworkRequestLog,
     ) {
-        val boundedUrl = url.trim().take(MAX_URL_LENGTH)
+        val boundedUrl = url.trim().take(DevToolsBudgets.URL_CHARS)
         return buffer.edit { ring ->
             if (mainFrameOnly && timelineUrl == boundedUrl) {
                 syntheticMainFrameId = null
                 awaitingPageStart = false
             }
             val index = ring.indexOfLast {
-                it.url == boundedUrl && (!mainFrameOnly || it.isForMainFrame) &&
+                it.url == boundedUrl && (!mainFrameOnly || it.isForMainFrame) && !it.pageScript &&
                     it.statusCode == null && !it.blocked && it.errorCode == null
             }
             if (index < 0) return@edit
@@ -255,9 +383,8 @@ class NetworkLogStore(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
             ?.takeIf { it >= 0L }
 
     private companion object {
-        const val DEFAULT_MAX_ENTRIES = 200
-        const val MAX_URL_LENGTH = 8_192
         const val MAX_METHOD_LENGTH = 16
         const val MAX_ERROR_LENGTH = 512
+        const val MAX_STATUS_TEXT_LENGTH = 128
     }
 }

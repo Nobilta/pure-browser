@@ -64,6 +64,39 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 同标签跨文档历史由 WebView 管理，`WebViewConfig.applyBackForwardCache` 按能力探测启用普通页缓存、
 无痕关闭；开关可用不代表文档一定保留，测试应核对文档身份和表单状态，不能只检查 URL 或滚动位置。
 
+## 开发者工具
+
+开发者工具按 WebView（即标签页）持有一个 `devtools/DevToolsSession`，`DevToolsController`
+在 `configure(view)` 时挂载、在 `removeMediaPlaybackTracker` 或实例销毁时关闭。会话默认关闭，
+增强状态只存在内存中；新 WebView 不会继承其他标签页或上次启动的采集数据。
+`NetworkLogStore`、`NetworkDetailStore`、`DomReader`、`SourceReader` 和 `StorageReader` 都由会话持有，
+因此切换标签页看到的是该标签页自己的记录，关闭面板只取消可见性和批量发布，不停止采集。
+
+增强采集在工具栏动作里一次完成“安装脚本 + 刷新”：页面脚本通过
+`WebViewCompat.addDocumentStartJavaScript` 注入 `assets/devtools-capture.js`，消息走
+`addWebMessageListener`，不使用代理、不替换正常请求路径、也不开启远程调试。脚本用独立 ID 包装
+Fetch／XMLHttpRequest，给请求体和响应体读取设置字节、字符、时间和取消预算；请求体只读取页面已经
+提供的值，响应体读取 `Response.clone()` 或 XHR 的 `responseText`，不重新发送请求，也不消耗页面要用的流。
+SSE、无限流、blob／文件上传和 opaque 响应只记录类型、大小和不可读原因。
+
+文档生命周期不能只依赖 URL。文档代次由自增 `documentId` 表达：文档内脚本在 document-start 时
+携带本次会话随机 token 和文档实例 ID，原生只接受通过 token、来源 scheme、消息大小和文档实例注册的
+消息。当前 WebView 的 document-start 可能早于 `WebViewClient.onPageStarted` 执行，因此 init 先到时会
+建立新文档并记录 `expectingPageStartAfterInit`，随后的 onPageStarted 只确认而不再清空刚采集的数据；
+如果 onPageStarted 先到，下一次 init 会再建立文档（此时旧数据已为空，不会混入新记录）。每次完整导航
+都会清空网络、详情、DOM 和源码缓存；同文档的 `pushState` 不建立新文档。关闭或停止增强采集会移除
+document-start 注册、消息监听，并在当前文档执行停止函数；包装函数只有在仍由本工具持有时才恢复，
+避免覆盖页面后续安装的包装器。停止后包装器不再产生记录，已采集的网络、DOM 和源码仍可查看。
+`SourceReader` 的源码页和 DOM 子节点都以分页方式请求，节点 ID 只在所属文档的页面脚本闭包内有效。
+
+网络列表同时保留 WebView 原生回调和页面脚本记录。两条路径没有共享请求 ID，不能用 URL 可靠合并，
+所以各自保留标识并在界面标注来源；原生成功响应没有回调时状态显示未知，页面加载耗时和请求耗时分开。
+请求／响应正文、头、Query 参数都在详情中展示并可复制；HTML 只作为文本着色，不进入 WebView。
+所有预算集中在 `devtools/DevToolsBudgets`：每文档 500 条记录、单条正文 256 KiB、每标签页正文缓存
+8 MiB、桥消息 64 KiB、DOM 子节点每批 100 个；正文被淘汰时释放文本并显示原因。存储读取不依赖增强模式，
+Cookies 先走 `CookieManagerCompat.getCookieInfo()`，Local／Session Storage 直接在当前页面上下文执行
+只读脚本，Session Storage 明确是标签页浏览器数据而不是服务器 Session。
+
 ## 菜单与窗口
 
 `FullscreenPreferenceState` 在会话中保留立即退出的回退状态，跨 Activity 重建或恢复不会被旧磁盘值覆盖；

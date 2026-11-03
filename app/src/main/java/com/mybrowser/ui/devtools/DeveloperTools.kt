@@ -29,84 +29,68 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import com.mybrowser.R
 import com.mybrowser.core.ConsoleLogEntry
 import com.mybrowser.core.ConsoleLogLevel
 import com.mybrowser.core.NetworkRequestLog
+import com.mybrowser.devtools.CaptureNotice
+import com.mybrowser.devtools.DevToolsController
+import com.mybrowser.devtools.EnhancedCaptureState
+import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserMotion
+import com.mybrowser.ui.shell.BrowserSheetHeader
+import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.theme.BrowserColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import org.json.JSONTokener
 import kotlin.coroutines.resume
-import com.mybrowser.ui.shell.BrowserBottomSheet
-import com.mybrowser.ui.shell.BrowserSheetHeader
-import com.mybrowser.ui.shell.localizedResources
 
-/** Logs and source are bounded; only the selected tab does work or publishes snapshots. */
+private val EMPTY_CAPTURE: StateFlow<EnhancedCaptureState> = MutableStateFlow(EnhancedCaptureState())
+private val EMPTY_NETWORK: StateFlow<List<NetworkRequestLog>> = MutableStateFlow(emptyList())
+
+/** Console, network, elements and storage for the current tab. */
 @Composable
-fun DeveloperTools(
+internal fun DeveloperTools(
     webView: WebView?,
+    devTools: DevToolsController,
+    consoleEntries: List<ConsoleLogEntry>,
+    onClearConsole: () -> Unit,
+    onReloadPage: () -> Unit,
+    pageUrl: String?,
+    onConsoleVisibility: (Boolean) -> Unit,
+    onExplainFilter: (NetworkRequestLog) -> Unit,
     onDismiss: () -> Unit,
-    networkEntries: List<NetworkRequestLog> = emptyList(),
-    consoleEntries: List<ConsoleLogEntry> = emptyList(),
-    onClearNetwork: () -> Unit = {},
-    onClearConsole: () -> Unit = {},
-    pageUrl: String? = null,
-    pageGeneration: Long = 0L,
-    isCurrentDocument: (Long) -> Boolean = { true },
-    onLogVisibility: (network: Boolean, console: Boolean) -> Unit = { _, _ -> },
-    onExplainFilter: (NetworkRequestLog) -> Unit = {},
 ) {
     val resources = localizedResources()
+    val session = remember(webView, devTools) { devTools.sessionFor(webView) }
+    val capture by (session?.state ?: EMPTY_CAPTURE).collectAsState()
+    val networkEntries by (session?.network?.entries ?: EMPTY_NETWORK).collectAsState()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var command by rememberSaveable { mutableStateOf("") }
-    val identity = remember(webView, pageUrl, pageGeneration) { Any() }
+    var showPageInfo by rememberSaveable { mutableStateOf(false) }
+    val identity = remember(webView, pageUrl, capture.documentId) { Any() }
     val currentIdentity by rememberUpdatedState(identity)
-    val currentDocument by rememberUpdatedState(isCurrentDocument)
     var evaluations by remember(identity) { mutableStateOf<List<ConsoleLine>>(emptyList()) }
-    var document by remember(identity) { mutableStateOf<SourceDocument?>(null) }
-    var sourceError by remember(identity) { mutableStateOf<String?>(null) }
-    var sourceLoading by remember(identity) { mutableStateOf(false) }
-    var sourceRevision by remember(identity) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val tabStates = rememberSaveableStateHolder()
     val compactInput = selectedTab == 0 && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
         WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val visibility by rememberUpdatedState(onLogVisibility)
-    DisposableEffect(selectedTab) {
-        visibility(selectedTab == 1, selectedTab == 0)
-        onDispose { visibility(false, false) }
-    }
-    LaunchedEffect(identity, selectedTab, sourceRevision) {
-        if (selectedTab != 2 || document != null) return@LaunchedEffect
-        sourceLoading = true
-        sourceError = null
-        try {
-            // The parameter is nullable on purpose: the panel stays up while the renderer is being
-            // replaced. Report that the same way a failed read is reported rather than throwing.
-            val view = webView
-            if (view == null) {
-                sourceError = resources.getString(R.string.ui_unable_to_read_page_source)
-                return@LaunchedEffect
-            }
-            // Let the selected tab and loading state paint before asking the renderer.
-            withFrameNanos { }
-            val raw = view.awaitJavascript("(document.documentElement ? document.documentElement.outerHTML : '').slice(0, ${SourceHighlighter.MAX_SOURCE_CHARS + 1})")
-            val parsed = withContext(Dispatchers.Default) {
-                SourceHighlighter.parse(decodeJavascriptString(raw)) { ensureActive() }
-            }
-            if (currentDocument(pageGeneration)) document = parsed
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) {
-            sourceError = resources.getString(R.string.ui_unable_to_read_page_source_e0f027, error.message.orEmpty())
-        } finally { sourceLoading = false }
+    val domState = remember(session) { session?.let { DomTreeState(it) } }
+    val sourceState = remember(session) { session?.let { SourceViewerState(it) } }
+    DisposableEffect(selectedTab, session) {
+        session?.setNetworkVisible(selectedTab == 1)
+        onConsoleVisibility(selectedTab == 0)
+        onDispose {
+            session?.setNetworkVisible(false)
+            onConsoleVisibility(false)
+        }
     }
     val execute: () -> Unit = {
         val expression = command.trim()
@@ -121,27 +105,44 @@ fun DeveloperTools(
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { resources.getString(R.string.ui_execution_failed, expression, error.message.orEmpty()) }
-                if (currentIdentity === owner && currentDocument(pageGeneration)) {
+                if (currentIdentity === owner) {
                     evaluations = (evaluations + ConsoleLine((evaluations.lastOrNull()?.id ?: 0L) + 1, result)).takeLast(100)
                 }
             }
         }
     }
+    val enableCapture: () -> Unit = {
+        session?.let {
+            if (it.enable()) onReloadPage()
+        }
+    }
     BrowserBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxSize()) {
             if (!compactInput) {
-                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools), onDismiss = onDismiss)
+                BrowserSheetHeader(
+                    resources.getString(R.string.menu_developer_tools),
+                    onDismiss = onDismiss,
+                    actions = {
+                        BrowserIconAction(R.drawable.ic_ui_info, resources.getString(R.string.dev_page_info)) {
+                            showPageInfo = true
+                        }
+                    },
+                )
+                EnhancedCaptureBar(
+                    capture = capture,
+                    onEnable = enableCapture,
+                    onStop = { session?.disable() },
+                )
                 PrimaryTabRow(selectedTabIndex = selectedTab, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    listOf(R.string.ui_console, R.string.ui_network, R.string.ui_source, R.string.ui_info).forEachIndexed { index, label ->
-                        Tab(selected = selectedTab == index, onClick = { selectedTab = index }, modifier = Modifier.heightIn(min = 48.dp),
-                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            text = { Text(resources.getString(label), maxLines = 1, overflow = TextOverflow.Ellipsis) })
-                    }
+                    listOf(R.string.ui_console, R.string.ui_network, R.string.dev_tab_elements, R.string.dev_tab_storage)
+                        .forEachIndexed { index, label ->
+                            Tab(selected = selectedTab == index, onClick = { selectedTab = index },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = { Text(resources.getString(label), maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                        }
                 }
             }
-            // The tab row's indicator already slides between tabs; the content was swapping on a
-            // single frame underneath it, which makes the moving indicator look disconnected from
-            // what it is pointing at.
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
@@ -153,12 +154,90 @@ fun DeveloperTools(
                     when (tab) {
                         0 -> ConsoleTab(consoleEntries, evaluations, command, { command = it.take(MAX_COMMAND_CHARS) }, execute,
                             webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput)
-                        1 -> NetworkLogTab(networkEntries, onClearNetwork, onExplainFilter)
-                        2 -> SourceCodeTab(document, sourceLoading, sourceError) { document = null; sourceRevision++ }
-                        3 -> InfoTab(webView, pageUrl, pageGeneration, currentDocument)
+                        1 -> NetworkLogTab(
+                            entries = networkEntries,
+                            onClear = { session?.network?.clear() },
+                            onExplain = onExplainFilter,
+                            session = session,
+                            capture = capture,
+                            onEnableCapture = enableCapture,
+                        )
+                        2 -> ElementsTab(
+                            session = session,
+                            capture = capture,
+                            onEnableCapture = enableCapture,
+                            domState = domState,
+                            sourceState = sourceState,
+                        )
+                        3 -> StorageTab(
+                            session = session,
+                            pageUrl = pageUrl,
+                        )
                     }
                 }
             }
+        }
+    }
+    if (showPageInfo) {
+        PageInfoDialog(
+            webView = webView,
+            pageUrl = pageUrl,
+            documentId = capture.documentId,
+            onDismiss = { showPageInfo = false },
+        )
+    }
+}
+
+@Composable
+private fun EnhancedCaptureBar(
+    capture: EnhancedCaptureState,
+    onEnable: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val resources = localizedResources()
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val enabled = capture.enabled
+                Text(
+                    when {
+                        capture.installing -> resources.getString(R.string.dev_enhanced_installing)
+                        enabled && capture.ready -> resources.getString(R.string.dev_enhanced_ready)
+                        enabled -> resources.getString(R.string.dev_enhanced_document_pending)
+                        capture.stopped -> resources.getString(R.string.dev_enhanced_off)
+                        else -> resources.getString(R.string.dev_enhanced_off)
+                    },
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (enabled) BrowserColors.secure else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (enabled) {
+                    TextButton(onClick = onStop) { Text(resources.getString(R.string.dev_enhanced_stop)) }
+                } else {
+                    Button(
+                        onClick = onEnable,
+                        enabled = capture.supported && !capture.installing,
+                    ) { Text(resources.getString(R.string.dev_enhanced_enable), maxLines = 1) }
+                }
+            }
+            val notice = when {
+                !capture.supported -> resources.getString(R.string.dev_enhanced_limited)
+                capture.notice == CaptureNotice.HTTP_ONLY -> resources.getString(R.string.dev_enhanced_http_only)
+                capture.notice == CaptureNotice.SCRIPT_MISSING -> resources.getString(R.string.dev_enhanced_script_missing)
+                capture.notice == CaptureNotice.INSTALL_FAILED -> resources.getString(
+                    R.string.dev_enhanced_install_failed, capture.errorDetail.orEmpty())
+                capture.stopped -> resources.getString(R.string.dev_enhanced_stopped_hint)
+                capture.enabled && capture.ready -> resources.getString(R.string.dev_enhanced_enabled_hint)
+                capture.enabled -> resources.getString(R.string.dev_enhanced_document_pending)
+                else -> resources.getString(R.string.dev_enhanced_off_hint)
+            }
+            Text(
+                notice,
+                Modifier.padding(top = 2.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (!capture.supported || capture.notice == CaptureNotice.INSTALL_FAILED)
+                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -210,15 +289,17 @@ private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<Console
 }
 
 @Composable
-internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkRequestLog) -> Unit) {
+internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkRequestLog) -> Unit, onOpen: () -> Unit) {
     val textResources = localizedResources()
     val statusColor = when {
         request.blocked -> BrowserColors.warning
         request.statusCode != null && request.statusCode in 200..399 -> BrowserColors.secure
-        request.statusCode != null || request.errorCode != null -> MaterialTheme.colorScheme.error
+        request.statusCode != null || request.errorCode != null || request.failed -> MaterialTheme.colorScheme.error
+        request.cancelled -> BrowserColors.warning
         else -> MaterialTheme.colorScheme.primary
     }
     Card(
+        onClick = onOpen,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
@@ -233,7 +314,11 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = request.method + " · " + textResources.getString(com.mybrowser.core.NetworkCategory.of(request).label),
+                    text = request.method + " · " + textResources.getString(com.mybrowser.core.NetworkCategory.of(request).label) +
+                        " · " + textResources.getString(
+                            if (request.pageScript) R.string.dev_enhanced_source_page_script
+                            else R.string.dev_enhanced_source_webview
+                        ),
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -264,7 +349,12 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(text = request.durationText(textResources), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = request.durationText(textResources) +
+                        (request.pageLoadMs?.let { " · ${textResources.getString(R.string.dev_network_page_load)} $it ms" } ?: ""),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (!request.isForMainFrame) TextButton(onClick = { onExplain(request) }) {
                 Text(textResources.getString(R.string.filter_explain))
@@ -278,55 +368,6 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 3.dp),
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoTab(webView: WebView?, pageUrl: String?, generation: Long, isCurrent: (Long) -> Boolean) {
-    val resources = localizedResources()
-    var pageInfo by remember(webView, pageUrl, generation) { mutableStateOf<List<Pair<String, String>>?>(null) }
-    LaunchedEffect(webView, pageUrl, generation) {
-        val view = webView ?: return@LaunchedEffect
-        // WebView properties are read on Main; JSON decoding and URI work use Default.
-        val fallbackTitle = view.title.orEmpty()
-        val fallbackAgent = view.settings.userAgentString.orEmpty()
-        try {
-            val raw = view.awaitJavascript("""
-                JSON.stringify({title: document.title || '', url: location.href || '',
-                    userAgent: navigator.userAgent || '', cookiesEnabled: navigator.cookieEnabled,
-                    screenWidth: screen.width, screenHeight: screen.height, language: navigator.language || ''})
-            """.trimIndent())
-            val info = withContext(Dispatchers.Default) {
-                val json = runCatching { JSONObject(decodeJavascriptString(raw)) }.getOrNull()
-                val url = json?.optString("url").orEmpty().ifBlank { pageUrl.orEmpty() }
-                val uri = runCatching { url.toUri() }.getOrNull()
-                listOf(
-                    resources.getString(R.string.ui_page_title) to json?.optString("title").orEmpty().ifBlank { fallbackTitle },
-                    "URL" to url,
-                    resources.getString(R.string.ui_protocol) to uri?.scheme.orEmpty().uppercase(),
-                    resources.getString(R.string.ui_host) to uri?.host.orEmpty(),
-                    "User Agent" to json?.optString("userAgent").orEmpty().ifBlank { fallbackAgent },
-                    resources.getString(R.string.ui_language) to json?.optString("language").orEmpty(),
-                    "Cookie" to resources.getString(if (json?.optBoolean("cookiesEnabled", true) != false) R.string.ui_enabled else R.string.ui_disabled),
-                    resources.getString(R.string.ui_screen) to "${json?.optInt("screenWidth", 0)} × ${json?.optInt("screenHeight", 0)}",
-                )
-            }
-            if (isCurrent(generation)) pageInfo = info
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) {
-            if (isCurrent(generation)) pageInfo = listOf(resources.getString(R.string.ui_page_title) to fallbackTitle, "URL" to pageUrl.orEmpty())
-        }
-    }
-    if (pageInfo == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(resources.getString(R.string.ui_reading_page_information))
-    } else LazyColumn(contentPadding = PaddingValues(16.dp)) {
-        items(pageInfo.orEmpty(), key = { it.first }) { (label, value) ->
-            Column(Modifier.padding(vertical = 8.dp)) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(value.ifBlank { "—" }, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
-                HorizontalDivider(Modifier.padding(top = 8.dp))
             }
         }
     }

@@ -17,6 +17,8 @@ import com.mybrowser.core.NetworkCategory
 import com.mybrowser.core.NetworkLogQuery
 import com.mybrowser.core.NetworkOutcome
 import com.mybrowser.core.NetworkRequestLog
+import com.mybrowser.devtools.DevToolsSession
+import com.mybrowser.devtools.EnhancedCaptureState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -24,11 +26,19 @@ import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.localizedResources
 
 @Composable
-internal fun NetworkLogTab(entries: List<NetworkRequestLog>, onClear: () -> Unit, onExplain: (NetworkRequestLog) -> Unit) {
+internal fun NetworkLogTab(
+    entries: List<NetworkRequestLog>,
+    onClear: () -> Unit,
+    onExplain: (NetworkRequestLog) -> Unit,
+    session: DevToolsSession?,
+    capture: EnhancedCaptureState,
+    onEnableCapture: () -> Unit,
+) {
     val resources = localizedResources()
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf(NetworkCategory.ALL) }
     var outcome by rememberSaveable { mutableStateOf(NetworkOutcome.ALL) }
+    var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
     var appliedQuery by remember { mutableStateOf(query) }
     var statusMenu by remember { mutableStateOf(false) }
     var filtered by remember { mutableStateOf<List<NetworkRequestLog>>(emptyList()) }
@@ -57,9 +67,47 @@ internal fun NetworkLogTab(entries: List<NetworkRequestLog>, onClear: () -> Unit
         if (previousFilter != null && previousFilter != filter) listState.scrollToItem(0)
         previousFilter = filter
     }
+    val open = selectedId
+    if (open != null && session != null) {
+        NetworkDetailScreen(
+            session = session,
+            requestId = open,
+            onBack = { selectedId = null },
+            onExplain = onExplain,
+        )
+        return
+    }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
             LibrarySearchField(query, stringResource(R.string.dev_network_search)) { query = it }
+        }
+        if (!capture.enabled) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(if (capture.stopped) R.string.dev_enhanced_stopped_hint
+                        else R.string.dev_network_capture_note),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onEnableCapture, enabled = capture.supported) {
+                    Text(stringResource(R.string.dev_enhanced_enable))
+                }
+            }
+        } else if (!capture.ready) {
+            Text(
+                stringResource(R.string.dev_enhanced_document_pending),
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Text(
+                stringResource(R.string.dev_network_boundary),
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(NetworkCategory.entries, key = { it.name }) { item ->
@@ -77,7 +125,9 @@ internal fun NetworkLogTab(entries: List<NetworkRequestLog>, onClear: () -> Unit
             }
             Text(stringResource(R.string.dev_network_count, filtered.size, entries.size), Modifier.weight(1f),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = onClear, enabled = entries.isNotEmpty()) { Text(stringResource(R.string.ui_clear)) }
+            TextButton(onClick = { selectedId = null; onClear() }, enabled = entries.isNotEmpty()) {
+                Text(stringResource(R.string.ui_clear))
+            }
         }
         if (filtered.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(stringResource(if (entries.isEmpty()) R.string.ui_no_requests_yet_open_or_refresh_a_page else R.string.library_no_results),
@@ -85,7 +135,7 @@ internal fun NetworkLogTab(entries: List<NetworkRequestLog>, onClear: () -> Unit
         } else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState,
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp)) {
             items(filtered, key = { it.id }, contentType = { "request" }) { request ->
-                NetworkRequestItem(request, onExplain)
+                NetworkRequestItem(request, onExplain) { selectedId = request.id }
             }
         }
     }
