@@ -60,7 +60,7 @@ internal class DomReader(private val session: DevToolsSession) {
             val results = ArrayList<DomSearchResult>(array.length())
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
-                val id = item.optString("id").take(128)
+                val id = item.optString("id")
                 if (id.isBlank()) continue
                 results += DomSearchResult(
                     id = id,
@@ -116,7 +116,7 @@ internal class DomReader(private val session: DevToolsSession) {
             }
         }
         return DomNode(
-            id = json.optString("id").take(128),
+            id = json.optString("id"),
             kind = kind,
             name = json.optString("name").take(256),
             attributes = attributes,
@@ -132,7 +132,7 @@ internal class DomReader(private val session: DevToolsSession) {
         val result = ArrayList<DomPathEntry>(array.length())
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
-            val id = item.optString("id").take(128)
+            val id = item.optString("id")
             if (id.isNotBlank()) result += DomPathEntry(id, item.optInt("index", 0))
         }
         return result

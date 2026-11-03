@@ -454,9 +454,14 @@ internal class DevToolsSession(
     private fun onPageScriptRequest(json: JSONObject, captureId: String) {
         val id = captureToLog[captureId] ?: return
         val headers = headers(json.optJSONArray("headers"))
+        val unavailable = json.optBoolean("headersUnavailable")
         details.update(id) {
-            it.copy(requestHeaders = headers, requestHeadersCollected = true,
-                requestHeadersReason = if (headers.isEmpty()) BodyReason.HEADER_UNAVAILABLE else BodyReason.NONE)
+            it.copy(
+                requestHeaders = headers,
+                requestHeadersCollected = !unavailable,
+                requestHeadersReason = if (unavailable || headers.isEmpty()) BodyReason.HEADER_UNAVAILABLE
+                else BodyReason.NONE,
+            )
         }
     }
 
