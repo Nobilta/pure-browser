@@ -39,16 +39,18 @@ class BrowserWebViewClient(
         fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {}
         fun onPageError(url: String, code: Int, description: String)
 
-        /** A non-main-frame HTTP response with an error status (for developer tools). */
+        /** A response with an error status (for developer tools), for that exact WebView. */
         fun onNetworkHttpError(
+            view: WebView,
             request: WebResourceRequest,
             statusCode: Int,
             reasonPhrase: String?,
             responseHeaders: Map<String, String>?,
         ) {}
 
-        /** A resource-level transport failure (for developer tools). */
+        /** A resource-level transport failure (for developer tools), for that exact WebView. */
         fun onNetworkResourceError(
+            view: WebView,
             request: WebResourceRequest,
             code: Int,
             description: String,
@@ -83,7 +85,7 @@ class BrowserWebViewClient(
         fun onRenderProcessGone(webView: WebView, crashed: Boolean)
 
         /** Hook for the filter engine (step 5). Null means "don't block". */
-        fun onInterceptRequest(request: WebResourceRequest): WebResourceResponse?
+        fun onInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse?
     }
 
     override fun shouldOverrideUrlLoading(
@@ -118,7 +120,7 @@ class BrowserWebViewClient(
         if (!listener.isCurrentWebView(view)) return null
         // Called on a background thread, once per subresource. Anything expensive here
         // is multiplied by 50-200 per page load and blocks that request until it returns.
-        return listener.onInterceptRequest(request)
+        return listener.onInterceptRequest(view, request)
     }
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
@@ -148,6 +150,7 @@ class BrowserWebViewClient(
     ) {
         if (!listener.isCurrentWebView(view)) return
         listener.onNetworkResourceError(
+            view,
             request,
             error.errorCode,
             error.description?.toString().orEmpty(),
@@ -169,6 +172,7 @@ class BrowserWebViewClient(
     ) {
         if (!listener.isCurrentWebView(view)) return
         listener.onNetworkHttpError(
+            view,
             request,
             errorResponse.statusCode,
             errorResponse.reasonPhrase,

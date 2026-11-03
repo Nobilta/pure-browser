@@ -115,7 +115,6 @@ import com.mybrowser.ui.shell.ExternalAppDialog
 import com.mybrowser.ui.shell.BackHistoryDialog
 import com.mybrowser.ui.shell.FeedbackMessage
 import com.mybrowser.ui.shell.FeedbackQueue
-import com.mybrowser.core.NetworkLogStore
 import com.mybrowser.core.NavigationReadiness
 import com.mybrowser.ui.shell.PageNavigator
 import com.mybrowser.ui.shell.PageNavigator.Companion.intentNavigationText
@@ -380,8 +379,9 @@ class MainActivity : ComponentActivity(),
     private val mediaTrackers = MediaTrackerRegistry()
     private var mediaProbeJob: Job? = null
     private var hasVideo by mutableStateOf(false)
-    private val networkLogs = NetworkLogStore()
     private val consoleLogs = ConsoleLogStore()
+    /** One enhanced-capture session per live WebView; never persisted across starts. */
+    private lateinit var devTools: com.mybrowser.devtools.DevToolsController
     private val cast: CastController get() = (application as App).castController
 
     private val sheetNavigation = BrowserSheetNavigation()
@@ -639,6 +639,7 @@ class MainActivity : ComponentActivity(),
         sessionState = androidx.lifecycle.ViewModelProvider(this)[com.mybrowser.tabs.BrowserSessionState::class.java]
         app.prepareWebEngine()
         pool = WebViewPool(this)
+        devTools = com.mybrowser.devtools.DevToolsController()
         filter = app.filterController
         customFilter = app.filterSubscriptions
         userScripts = app.userScripts
@@ -865,7 +866,7 @@ class MainActivity : ComponentActivity(),
                 androidx.compose.runtime.DisposableEffect(activeSheet) {
                     cast.setVisible(activeSheet == Sheet.CAST)
                     onDispose {
-                        networkLogs.setVisible(false)
+                        devTools.sessionFor(webViewOrNull)?.setNetworkVisible(false)
                         consoleLogs.setVisible(false)
                         if (activeSheet == Sheet.CAST) { cast.setVisible(false); cast.cancel() }
                     }
@@ -1336,23 +1337,17 @@ class MainActivity : ComponentActivity(),
                             onDismiss = { dismissSheet(entry) },
                         )
                         Sheet.DEVELOPER_TOOLS -> {
-                            // Hidden tools keep their bounded history without invalidating browser UI.
-                            val networkEntries by networkLogs.entries.collectAsState()
+                            // The panel only controls publishing; capture keeps running when it closes.
                             val consoleEntries by consoleLogs.entries.collectAsState()
                             com.mybrowser.ui.devtools.DeveloperTools(
-                                webView = webView,
-                                networkEntries = networkEntries,
+                                webView = webViewOrNull,
+                                devTools = devTools,
                                 consoleEntries = consoleEntries,
-                                onClearNetwork = networkLogs::clear,
                                 onClearConsole = consoleLogs::clear,
+                                onReloadPage = { navigator.reload() },
                                 onExplainFilter = { filterExplanation = it },
                                 pageUrl = state.currentUrl,
-                                pageGeneration = permissionEpoch,
-                                isCurrentDocument = { it == permissionEpoch },
-                                onLogVisibility = { network, console ->
-                                    networkLogs.setVisible(network)
-                                    consoleLogs.setVisible(console)
-                                },
+                                onConsoleVisibility = { consoleLogs.setVisible(it) },
                                 onDismiss = { dismissSheet(entry) }
                             )
                         }
@@ -1712,6 +1707,8 @@ class MainActivity : ComponentActivity(),
         scriptRuntimes.remove(view)?.close()
         scriptRuntimes[view] = UserScriptRuntime(view, userScripts, lifecycleScope,
             isPrivate = { privacy.isIncognito }, isCurrent = { webViewOrNull === view }).also { it.install() }
+        // Attach last: the session only registers its bridge when the user enables capture.
+        devTools.attach(view)
     }
 
     /** Installs one media probe per pooled WebView and replaces stale Activity callbacks. */
@@ -1750,6 +1747,7 @@ class MainActivity : ComponentActivity(),
 
     private fun removeMediaPlaybackTracker(view: WebView) {
         popupPages.idOf { it.view === view }?.let { popupPages.remove(it)?.alive = false }
+        if (::devTools.isInitialized) devTools.detach(view)
         scriptRuntimes.remove(view)?.close()
         if (webViewOrNull === view) {
             systemMedia.detach(this)
@@ -2959,7 +2957,7 @@ class MainActivity : ComponentActivity(),
         // left otherwise is a bar over a page that no longer has anything selected.
         stopElementPicker()
         state.onPageStarted(url)
-        networkLogs.beginPage(url)
+        devTools.sessionFor(webViewOrNull)?.onDocumentStarted(url)
         consoleLogs.clear()
         mediaProbeJob?.cancel()
         webViewOrNull?.let { mediaTrackers.trackerOf(it)?.reset() }
@@ -3005,7 +3003,7 @@ class MainActivity : ComponentActivity(),
         }
         state.onPageFinished(url, !resetHistory && canGoBack, !resetHistory && canGoForward)
         state.onTitleChanged(webView.title)
-        networkLogs.markMainFrameFinished(url)
+        devTools.sessionFor(webViewOrNull)?.onPageFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView, activeSites.get(url).desktopWidth)
         // Update current tab URL and title
         tabManager.currentTab?.let { tab ->
@@ -3073,7 +3071,7 @@ class MainActivity : ComponentActivity(),
     override fun onPageError(url: String, code: Int, description: String) {
         if (url != state.currentUrl) return
         state.onPageError()
-        networkLogs.markMainFrameError(url, code, description)
+        devTools.sessionFor(webViewOrNull)?.onPageError(url, code, description)
         // ERROR_UNKNOWN with an empty description is what a cancelled navigation looks
         // like; a toast for it would fire on every fast tap.
         if (description.isNotEmpty()) state.pageFailure = PageFailure(url, PageFailureKind.NETWORK, "$code: $description")
@@ -3248,15 +3246,16 @@ class MainActivity : ComponentActivity(),
      * built for that: the filter is an immutable index behind a read lock, and the store
      * takes a snapshot-state write that Compose is happy to receive off-thread.
      */
-    override fun onInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+    override fun onInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val mediaGeneration = media.pageGeneration
         val document = workerDocument
         val resourceType = classifyResourceType(request)
-        val requestId = networkLogs.recordRequest(request, document.url, resourceType)
+        val session = devTools.sessionFor(view)
+        val requestId = session?.recordNativeRequest(request, document.url, resourceType)
         val documentUrl = document.url
 
         if (filter.shouldBlock(request, documentUrl, document.filtering, resourceType)) {
-            networkLogs.markBlocked(requestId)
+            requestId?.let { session?.markNativeBlocked(it) }
             return BLOCKED_RESPONSE
         }
 
@@ -3265,20 +3264,22 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onNetworkHttpError(
+        view: WebView,
         request: WebResourceRequest,
         statusCode: Int,
         reasonPhrase: String?,
         responseHeaders: Map<String, String>?,
     ) {
-        networkLogs.markHttpError(request, statusCode, reasonPhrase, responseHeaders)
+        devTools.sessionFor(view)?.recordNativeHttpError(request, statusCode, reasonPhrase, responseHeaders)
     }
 
     override fun onNetworkResourceError(
+        view: WebView,
         request: WebResourceRequest,
         code: Int,
         description: String,
     ) {
-        networkLogs.markResourceError(request, code, description)
+        devTools.sessionFor(view)?.recordNativeResourceError(request, code, description)
     }
 
     // --- BrowserChromeClient.Listener ---
@@ -3943,6 +3944,7 @@ class MainActivity : ComponentActivity(),
         dismissPageContext()
         mediaProbeJob?.cancel()
         mediaProbeJob = null
+        if (::devTools.isInitialized) devTools.close()
         leaveFullscreen()
         if (::fileChooser.isInitialized) fileChooser.close()
         cancelWebsitePermissions()

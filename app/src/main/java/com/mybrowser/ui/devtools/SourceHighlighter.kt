@@ -22,16 +22,32 @@ internal object SourceHighlighter {
 
     @JvmStatic private external fun nativeSpans(input: CharArray, blockEnds: IntArray): IntArray?
 
-    fun parse(input: String, checkCancelled: () -> Unit = {}): SourceDocument {
+    fun parse(input: String, checkCancelled: () -> Unit = {}): SourceDocument =
+        parseChunk(input, startLine = 1, maxBlocks = MAX_BLOCKS, maxChars = MAX_SOURCE_CHARS,
+            checkCancelled = checkCancelled)
+
+    /**
+     * Parses one page of source without imposing a document-wide character or block cap.
+     *
+     * A page that exceeds [maxBlocks] reports [SourceDocument.characters] shorter than its
+     * input, so the caller can request the remainder instead of permanently discarding it.
+     */
+    fun parseChunk(
+        input: String,
+        startLine: Int = 1,
+        maxBlocks: Int = MAX_BLOCKS,
+        maxChars: Int = Int.MAX_VALUE,
+        checkCancelled: () -> Unit = {},
+    ): SourceDocument {
         val blockStarts = ArrayList<Int>()
         val blocks = ArrayList<SourceBlock>()
         val spans = ArrayList<ArrayList<SourceSpan>>()
-        var limit = minOf(input.length, MAX_SOURCE_CHARS)
+        var limit = minOf(input.length, maxChars)
         if (limit < input.length && limit > 0 && input[limit - 1].isHighSurrogate() && input[limit].isLowSurrogate()) limit--
         var position = 0
-        var line = 1
+        var line = maxOf(1, startLine)
         var continuation = false
-        while (position < limit && blocks.size < MAX_BLOCKS) {
+        while (position < limit && blocks.size < maxBlocks) {
             checkCancelled()
             val start = position
             val firstLine = line

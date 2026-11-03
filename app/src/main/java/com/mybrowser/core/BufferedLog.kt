@@ -14,9 +14,18 @@ internal class LogRing<T>(private val capacity: Int) {
     @Suppress("UNCHECKED_CAST")
     operator fun get(index: Int): T = values[(start + index) % capacity] as T
     operator fun set(index: Int, value: T) { values[(start + index) % capacity] = value }
-    fun add(value: T) {
-        if (size == capacity) { values[start] = value; start = (start + 1) % capacity }
-        else { values[(start + size) % capacity] = value; size++ }
+    /** Adds one value and returns the entry it displaced, or null while the ring grows. */
+    @Suppress("UNCHECKED_CAST")
+    fun add(value: T): T? {
+        if (size == capacity) {
+            val evicted = values[start] as T
+            values[start] = value
+            start = (start + 1) % capacity
+            return evicted
+        }
+        values[(start + size) % capacity] = value
+        size++
+        return null
     }
     fun clear() { values.fill(null); start = 0; size = 0 }
     fun indexOfLast(predicate: (T) -> Boolean): Int {
