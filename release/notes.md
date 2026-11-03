@@ -1,6 +1,6 @@
-## 0.18.2 验证范围
+## 0.19 验证范围
 
-被测产物：`PureBrowser-v0.18.2-release.apk`（versionCode 70），本地签名 Release，可覆盖安装 0.18.1。
+被测产物：`PureBrowser-v0.19-release.apk`（versionCode 71），本地签名 Release，可覆盖安装 0.18.2 测试包。
 
 自动检查通过：742 项 JVM、69 项 Rust、127 项 Node、14 项发布工具测试；三种语言的 1007 条字符串一致。
 Rust fmt/clippy、Android lint、Release 构建和签名校验通过；lint 无错误，保留 79 条警告和 3 条提示。
@@ -12,3 +12,7 @@ Rust fmt/clippy、Android lint、Release 构建和签名校验通过；lint 无�
 请求 URL、头、原文正文和 JSON 文字，以及存储值长按均能显示系统选择／复制菜单；存储选中文字已复制粘贴核对。
 
 未覆盖 API 29–33、真机、新版 WebView、平板／折叠屏；真机兼容性留待安装测试。
+
+0.19 重新安装到该模拟器后，复跑 `validation/developer-tools-regression.py`：控制台横屏键盘三次循环、
+返回应用保持面板、外部 VIEW／分享链接关闭面板并打开目标页均通过；APK SHA-256
+`5c3cc32228a18d5916e648095f05c00e55f3204dfa4325bca5700a2651f6a8da`。
