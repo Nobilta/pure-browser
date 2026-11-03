@@ -18,6 +18,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
+/** Length-prefixed path segment: keys containing "/" cannot collide with nested keys. */
+internal fun jsonPathSegment(key: String): String = "${key.length}:$key"
+
+internal fun jsonChildPath(parent: String, key: String): String = "$parent/${jsonPathSegment(key)}"
+
 internal data class JsonRow(
     val path: String,
     val depth: Int,
@@ -41,14 +46,14 @@ internal fun jsonRows(text: String, expanded: Set<String>): List<JsonRow>? {
                 rows += JsonRow(path, depth, label, "", expandable = keys.isNotEmpty(),
                     expanded = path in expanded, summary = "{${keys.size}}")
                 if (path in expanded) keys.take(500).forEach { key ->
-                    walk(node.opt(key), key, depth + 1, "$path/$key")
+                    walk(node.opt(key), key, depth + 1, jsonChildPath(path, key))
                 }
             }
             is JSONArray -> {
                 rows += JsonRow(path, depth, label, "", expandable = node.length() > 0,
                     expanded = path in expanded, summary = "[${node.length()}]")
                 if (path in expanded) for (index in 0 until minOf(node.length(), 500)) {
-                    walk(node.opt(index), index.toString(), depth + 1, "$path/$index")
+                    walk(node.opt(index), index.toString(), depth + 1, jsonChildPath(path, index.toString()))
                 }
             }
             else -> {
@@ -70,11 +75,11 @@ internal fun jsonInitialExpanded(text: String): Set<String> {
     return when (val value = runCatching { JSONTokener(text).nextValue() }.getOrNull()) {
         is JSONObject -> buildSet {
             add("$")
-            value.keys().asSequence().take(100).forEach { add("$/$it") }
+            value.keys().asSequence().take(100).forEach { add(jsonChildPath("$", it)) }
         }
         is JSONArray -> buildSet {
             add("$")
-            for (index in 0 until minOf(value.length(), 100)) add("$/$index")
+            for (index in 0 until minOf(value.length(), 100)) add(jsonChildPath("$", index.toString()))
         }
         else -> setOf("$")
     }

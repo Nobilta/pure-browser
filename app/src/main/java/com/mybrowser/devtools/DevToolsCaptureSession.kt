@@ -418,7 +418,8 @@ internal class DevToolsSession(
 
     private fun onPageScriptStart(json: JSONObject, captureId: String) {
         if (captureId.isBlank()) return
-        val method = json.optString("method", "GET").uppercase().take(16)
+        val methodKnown = json.optBoolean("methodKnown", true)
+        val method = if (methodKnown) json.optString("method", "GET").uppercase().take(16) else ""
         val url = json.optString("url").take(DevToolsBudgets.URL_CHARS)
         if (url.isBlank()) return
         val id = network.recordPageScript(
@@ -428,6 +429,7 @@ internal class DevToolsSession(
             resourceType = ResourceType.XML_HTTP_REQUEST,
             isForMainFrame = false,
             documentUrl = documentUrl,
+            methodKnown = methodKnown,
         )
         captureToLog[captureId] = id
         while (captureToLog.size > DevToolsBudgets.NETWORK_ENTRIES_PER_DOCUMENT * 2) {
@@ -440,6 +442,7 @@ internal class DevToolsSession(
                 documentId = documentId,
                 source = NetworkSource.PAGE_SCRIPT,
                 captureId = captureId,
+                methodKnown = methodKnown,
                 method = method,
                 url = url,
                 resourceType = ResourceType.XML_HTTP_REQUEST.ordinal,

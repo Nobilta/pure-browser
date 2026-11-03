@@ -41,6 +41,9 @@
     // Storage is seeded here; reads happen from the panel, not by this page.
     try {
       localStorage.setItem('plain', 'local value');
+      for (var storageIndex = 1; storageIndex <= 603; storageIndex++) {
+        localStorage.setItem('item' + storageIndex, 'value-' + storageIndex);
+      }
       localStorage.setItem('json', JSON.stringify({a: 1, nested: {b: [1, 2, 3]}, text: 'hello'}));
       localStorage.setItem('long', 'L'.repeat(100000));
       sessionStorage.setItem('session-plain', 'session value');
@@ -76,6 +79,39 @@
       .then(function (r) { return r.json(); })
       .then(function (v) { caseResult('url-object:' + v.query); })
       .catch(function () { caseResult('url-object:error'); });
+
+    var reused = new XMLHttpRequest();
+    reused.open('GET', '/api/echo?case=reuse-1');
+    reused.onload = function () {
+      var first = reused.status;
+      reused.open('GET', '/api/echo?case=reuse-2');
+      reused.onload = function () { caseResult('reuse:' + first + ',' + reused.status); };
+      reused.send();
+    };
+    reused.send();
+
+    var getterBodyOnce = true;
+    fetch('/api/echo?case=getter-body', {
+      method: 'POST',
+      get body() { var value = getterBodyOnce ? '{"getterBody":1}' : '{}'; getterBodyOnce = false; return value; }
+    }).then(function (r) { return r.json(); }).then(function (v) {
+      caseResult('getter-body:' + v.method + ':' + v.body);
+    }).catch(function () { caseResult('getter-body:error'); });
+    fetch('/api/collision').then(function (r) { return r.json(); }).then(function (v) {
+      caseResult('collision:' + v['a/b']);
+    });
+
+    var postXhr = new XMLHttpRequest();
+    postXhr.open('POST', '/api/echo?case=xhr-post');
+    postXhr.setRequestHeader('Content-Type', 'application/json');
+    postXhr.onload = function () {
+      try {
+        var reply = JSON.parse(postXhr.responseText);
+        caseResult('xhr-post:' + reply.method + ':' + reply.body);
+      } catch (e) { caseResult('xhr-post:parse:' + postXhr.status); }
+    };
+    postXhr.onerror = function () { caseResult('xhr-post:error:' + postXhr.status); };
+    postXhr.send('{"xhrPost":true}');
     fetch('/api/cjk').then(function (r) { return r.text(); })
       .then(function (v) { caseResult('cjk:' + v.length); })
       .catch(function () { caseResult('cjk:error'); });
