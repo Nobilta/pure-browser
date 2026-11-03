@@ -11,7 +11,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,7 +39,6 @@ import com.mybrowser.devtools.DevToolsController
 import com.mybrowser.devtools.EnhancedCaptureState
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.browserSheetInsets
-import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
@@ -77,8 +75,6 @@ internal fun DeveloperTools(
     val networkEntries by (session?.network?.entries ?: EMPTY_NETWORK).collectAsState()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var command by rememberSaveable { mutableStateOf("") }
-    var showPageInfo by rememberSaveable { mutableStateOf(false) }
-    var showHelp by rememberSaveable { mutableStateOf(false) }
     val identity = remember(webView, pageUrl, capture.documentId) { Any() }
     val currentIdentity by rememberUpdatedState(identity)
     var evaluations by remember(identity) { mutableStateOf<List<ConsoleLine>>(emptyList()) }
@@ -140,16 +136,7 @@ internal fun DeveloperTools(
         val compactInput = selectedTab == 0 && maxHeight < 260.dp
         Column(Modifier.fillMaxSize()) {
             if (!compactInput) {
-                BrowserSheetHeader(
-                    resources.getString(R.string.menu_developer_tools),
-                    onDismiss = onDismiss,
-                    actions = {
-                        TextButton(onClick = { showHelp = true }) { Text(resources.getString(R.string.dev_help)) }
-                        BrowserIconAction(R.drawable.ic_ui_info, resources.getString(R.string.dev_page_info)) {
-                            showPageInfo = true
-                        }
-                    },
-                )
+                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools))
                 EnhancedCaptureBar(
                     capture = capture,
                     onEnable = enableCapture,
@@ -198,22 +185,7 @@ internal fun DeveloperTools(
         }
         }
     }
-    if (showHelp) {
-        AlertDialog(
-            onDismissRequest = { showHelp = false },
-            title = { Text(resources.getString(R.string.dev_help)) },
-            text = { Text(resources.getString(R.string.dev_help_text), Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { showHelp = false }) { Text(resources.getString(R.string.dev_help_close)) } },
-        )
-    }
-    if (showPageInfo) {
-        PageInfoDialog(
-            webView = webView,
-            pageUrl = pageUrl,
-            documentId = capture.documentId,
-            onDismiss = { showPageInfo = false },
-        )
-    }
+
 }
 
 @Composable
