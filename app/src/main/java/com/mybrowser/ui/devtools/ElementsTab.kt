@@ -240,18 +240,29 @@ internal class DomTreeState(private val session: DevToolsSession) {
     private fun rebuild() {
         rows.clear()
         val rootNode = root ?: return
+        val ancestors = HashSet<String>()
         fun add(node: DomNode, depth: Int) {
+            if (depth > MAX_DOM_DEPTH || rows.size >= MAX_DOM_ROWS) return
+            // A malformed page-side mapping must not recurse forever or repeat an ancestor.
+            if (node.id.isBlank() || !ancestors.add(node.id)) return
             val isExpanded = expanded[node.id] == true && node.childCount > 0
             val loaded = children[node.id] ?: emptyList()
             val total = totals[node.id] ?: node.childCount
             rows += DomRow(node, depth, isExpanded, loaded = loaded.size, total = total)
-            if (!isExpanded) return
-            loaded.forEach { child -> add(child, depth + 1) }
-            if (loaded.size < total) {
-                rows += DomRow(null, depth + 1, moreParent = node.id, loaded = loaded.size, total = total)
+            if (isExpanded) {
+                loaded.forEach { child -> add(child, depth + 1) }
+                if (loaded.size < total) {
+                    rows += DomRow(null, depth + 1, moreParent = node.id, loaded = loaded.size, total = total)
+                }
             }
+            ancestors.remove(node.id)
         }
         add(rootNode, 0)
+    }
+
+    private companion object {
+        const val MAX_DOM_DEPTH = 512
+        const val MAX_DOM_ROWS = 100_000
     }
 }
 

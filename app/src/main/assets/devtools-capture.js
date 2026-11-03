@@ -273,7 +273,8 @@
   var wrappedFetch = null;
 
   function fetchRequestInfo(input, init) {
-    var info = { method: 'GET', methodKnown: true, url: '', headers: [], body: null };
+    var info = { method: 'GET', methodKnown: true, url: '', headers: [],
+      headersUnknown: false, body: null };
     var requestInput = isRequestObject(input);
     if (requestInput) {
       info.method = String(input.method || 'GET').toUpperCase();
@@ -308,6 +309,8 @@
     if (headersDescriptor && Object.prototype.hasOwnProperty.call(headersDescriptor, 'value')) {
       var headerValue = headersDescriptor.value;
       if (headerValue !== undefined && headerValue !== null) info.headers = snapshotHeaders(headerValue);
+    } else if (headersDescriptor || hasProperty(init, 'headers')) {
+      info.headersUnknown = true;
     }
     var bodyDescriptor = propertyDescriptor(init, 'body');
     if (bodyDescriptor) {
@@ -343,11 +346,12 @@
       try { info = fetchRequestInfo(input, init); }
       catch (e) {
         info = { method: '', methodKnown: false, url: '', headers: [],
-          body: { state: 'FAILED', reason: 'read_error', bytes: 0 } };
+          headersUnknown: true, body: { state: 'FAILED', reason: 'read_error', bytes: 0 } };
       }
       send({ type: 'net-start', id: id, kind: 'fetch', method: info.method,
         methodKnown: info.methodKnown, url: info.url, startMs: Date.now() });
-      send({ type: 'net-request', id: id, headers: info.headers });
+      send({ type: 'net-request', id: id, headers: info.headers,
+        headersUnavailable: info.headersUnknown });
       emitBody(id, 'request', info.body || { state: 'EMPTY', reason: 'no_body', bytes: 0 });
       if (thrown) {
         send({ type: 'net-end', id: id, outcome: 'failed', durationMs: Math.max(0, now() - started),
@@ -518,6 +522,7 @@
       methodKnown: methodKnown,
       url: url,
       headers: [],
+      headersUnknown: false,
       aborted: false,
       started: 0,
       id: '',
@@ -592,8 +597,16 @@
       } finally {
         try {
           var record = xhrRecords.get(this);
-          if (record && record.headers.length < MAX_HEADERS) {
-            record.headers.push([String(name).slice(0, 256), String(value).slice(0, MAX_HEADER_VALUE)]);
+          if (record) {
+            // Never coerce these arguments again. A stateful toString() would then be
+            // evaluated twice and the log could disagree with the actual request.
+            if (typeof name === 'string' && typeof value === 'string') {
+              if (record.headers.length < MAX_HEADERS) {
+                record.headers.push([name.slice(0, 256), value.slice(0, MAX_HEADER_VALUE)]);
+              }
+            } else {
+              record.headersUnknown = true;
+            }
           }
         } catch (e) { }
       }
@@ -623,7 +636,8 @@
       record.done = false;
       send({ type: 'net-start', id: id, kind: 'xhr', method: record.method,
         methodKnown: record.methodKnown, url: record.url, startMs: Date.now() });
-      send({ type: 'net-request', id: id, headers: record.headers });
+      send({ type: 'net-request', id: id, headers: record.headers,
+        headersUnavailable: record.headersUnknown });
       emitBody(id, 'request', bodyFromValue(body));
       try {
         var result = originalSend.apply(this, arguments);
@@ -731,7 +745,9 @@
     var sourceCache = null;
     var nodeIds = new WeakMap();
     var nodes = new Map();
-    var signatures = new Map();
+    var records = new Map();
+    var nextNode = 1;
+    var ID_PROP = '__pureDevTools_' + token;
     var MAX_NODES = 20000;
     var MAX_ATTR_VALUE = 4096;
     var MAX_TEXT_PREVIEW = 2048;
@@ -742,19 +758,43 @@
     function resetDom() {
       nodeIds = new WeakMap();
       nodes = new Map();
-      signatures = new Map();
+      records = new Map();
+      nextNode = 1;
       sourceCache = null;
     }
-    function nodeSignature(node) {
-      return node.nodeType + ':' + String(node.tagName || '') + ':' +
-        String(node.nodeValue == null ? '' : node.nodeValue).slice(0, 32);
+    function pathIndices(node) {
+      var indices = [];
+      var current = node;
+      while (current && current !== D.documentElement) {
+        var parent = current.parentNode;
+        if (!parent) return null;
+        indices.unshift(Array.prototype.indexOf.call(parent.childNodes, current));
+        current = parent;
+      }
+      return current === D.documentElement ? indices : null;
     }
-    // Path ids stay resolvable after the bounded node map evicts a reference. A signature
-    // prevents an old id from silently pointing at a different node after DOM mutation.
-    function rememberNode(node, id) {
+    // Stable identity for the lifetime of one document. The token lives on the node itself,
+    // so after an eviction a path that now points at a different node (even the same tag/id)
+    // is rejected instead of silently reading the replacement.
+    function nodeToken(node) {
+      var value = null;
+      try { value = node[ID_PROP]; } catch (e) { }
+      if (!value) {
+        value = 't' + Math.random().toString(36).slice(2) + now().toString(36);
+        try {
+          Object.defineProperty(node, ID_PROP, {
+            value: value, configurable: true, enumerable: false,
+          });
+        } catch (e) {
+          try { node[ID_PROP] = value; } catch (e2) { value = null; }
+        }
+      }
+      return value;
+    }
+    function rememberNode(node, id, path) {
       nodeIds.set(node, id);
       nodes.set(id, node);
-      signatures.set(id, nodeSignature(node));
+      records.set(id, { path: (path || []).slice(), token: nodeToken(node) });
       while (nodes.size > MAX_NODES) {
         var first = nodes.keys().next();
         if (first.done || first.value === id) break;
@@ -762,50 +802,38 @@
         nodes.delete(first.value);
         if (old) nodeIds.delete(old);
       }
-      while (signatures.size > MAX_NODES * 2) {
-        var oldest = signatures.keys().next();
-        if (oldest.done) break;
-        signatures.delete(oldest.value);
-      }
     }
-    function nodeId(node) {
-      var id = nodeIds.get(node);
-      if (id) return id;
-      var indices = [];
-      var current = node;
-      while (current && current !== D.documentElement) {
-        var parent = current.parentNode;
-        if (!parent) return 'n-invalid';
-        indices.unshift(Array.prototype.indexOf.call(parent.childNodes, current));
-        current = parent;
-      }
-      if (current !== D.documentElement) return 'n-invalid';
-      id = indices.length ? 'n.' + indices.join('.') : 'n';
-      rememberNode(node, id);
+    function assignNode(node, path) {
+      var id = 'n' + (nextNode++);
+      rememberNode(node, id, path);
       return id;
     }
-    function resolvePath(id) {
-      if (id === 'n') return D.documentElement;
-      if (!/^n(\.[0-9]+)+$/.test(id)) return null;
-      var parts = id.slice(2).split('.');
+    function nodeId(node, knownPath) {
+      var id = nodeIds.get(node);
+      if (id) return id;
+      var path = knownPath || pathIndices(node);
+      if (!path) return 'n-invalid';
+      return assignNode(node, path);
+    }
+    function resolveRecord(record) {
       var current = D.documentElement;
-      for (var i = 0; i < parts.length; i++) {
+      for (var i = 0; i < record.path.length; i++) {
         if (!current) return null;
-        current = current.childNodes[Number(parts[i])];
+        current = current.childNodes[record.path[i]];
       }
       return current || null;
     }
     function nodeOf(id) {
+      var record = records.get(id);
+      if (!record) return null;
       var node = nodes.get(id);
-      if (node && node.isConnected) return node;
+      if (node && node.isConnected && node[ID_PROP] === record.token) return node;
       if (node) nodes.delete(id);
-      node = resolvePath(id);
+      node = resolveRecord(record);
       if (!node || !node.isConnected) return null;
-      var expected = signatures.get(id);
-      if (expected && expected !== nodeSignature(node)) return null;
+      if (node[ID_PROP] !== record.token) return null;
       nodes.set(id, node);
       nodeIds.set(node, id);
-      signatures.set(id, nodeSignature(node));
       return node;
     }
     function kindOf(node) {
@@ -820,10 +848,9 @@
       if (text.length > MAX_TEXT_PREVIEW) return { text: text.slice(0, MAX_TEXT_PREVIEW), truncated: true };
       return { text: text, truncated: false };
     }
-    function describe(node, knownId) {
+    function describe(node, knownPath) {
       var kind = kindOf(node);
-      var id = knownId || nodeId(node);
-      if (knownId) rememberNode(node, id);
+      var id = nodeIds.get(node) || (knownPath ? assignNode(node, knownPath) : nodeId(node));
       var out = { id: id, kind: kind, name: '', childCount: 0, attributes: [] };
       if (kind === 'element') {
         out.name = String(node.tagName || '').toLowerCase();
@@ -920,10 +947,12 @@
         start = Math.max(0, Math.floor(Number(start) || 0));
         count = Math.max(1, Math.min(100, Math.floor(Number(count) || 100)));
         var total = parent.childNodes.length;
-        var parentPath = nodeId(parent);
+        var parentRecord = records.get(nodeId(parent));
+        var basePath = parentRecord ? parentRecord.path : pathIndices(parent);
+        if (!basePath) return stringify({ invalid: true });
         var out = [];
         for (var i = start; i < total && out.length < count; i++) {
-          out.push(describe(parent.childNodes[i], parentPath + '.' + i));
+          out.push(describe(parent.childNodes[i], basePath.concat(i)));
         }
         return stringify({ nodes: out, start: start, total: total });
       },
