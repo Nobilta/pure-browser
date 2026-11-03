@@ -72,7 +72,9 @@ adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser
 ## 开发者工具回归
 
 `developer-tools-regression.py` 覆盖控制台、网络轻量日志、元素引导、存储和页面信息，
-并沿用原来的横竖屏、隐藏后重开和外部 VIEW 用例。增强采集另有本地夹具：
+并沿用原来的横竖屏、隐藏后重开和外部 VIEW 用例。此脚本使用静态页面服务，可通过 `--port 8877`
+连接另开的 `python3 -m http.server 8877 --bind 127.0.0.1 --directory validation`，
+与增强采集服务并行运行，避免带查询参数的静态页面被错误地返回 404。增强采集另有本地夹具：
 
 ```bash
 python3 validation/devtools_server.py            # 8875 / 8876，含 Fetch、XHR、HTML、大正文、SSE、opaque 和 Cookie
@@ -81,11 +83,17 @@ adb reverse tcp:8876 tcp:8876
 ```
 
 打开 `http://127.0.0.1:8875/devtools-fixture.html`，在开发者工具网络页签执行
-「开启增强采集并刷新」，然后核对：初始化 Fetch／XHR 出现在列表中并标注「页面脚本」；
+「开启并刷新」，然后核对：初始化 Fetch／XHR 出现在列表中并标注「页面脚本」；
 请求与响应正文、Query 重复键、请求头／响应头可查看和复制；大于 256 KiB 的正文显示截断原因；
-SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子节点分页、文本源码分页与导出；
-存储页 Cookies／Local Storage／Session Storage 无需增强即可读取。再核对「停止增强采集」后
+SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子节点分页、DOM 源码分页与导出；
+存储页 Cookies／Local Storage／Session Storage 无需增强即可读取。再核对「停止」后
 新请求不再产生页面脚本记录、已有记录仍可查看，关闭面板后延迟请求仍会被采集。
+
+交互回归同时检查列表顶部反复滑动仍留在全屏工具页、搜索框聚焦前后不换行、详情返回列表、
+重复三次横屏键盘开合与系统栏避让，以及请求／存储文字长按后的系统复制菜单。DOM 空白节点显示开关
+应保留展开位置，空白筛选后加载更多和搜索定位仍使用原始节点索引；原文分段可跨行选择，
+整段复制仍需保留真实截断状态。Node 与 JVM 用例覆盖空白上下文、长空白前缀、原始分页
+和 Unicode 文本分段的完整性。
 
 ## 模拟器回归
 

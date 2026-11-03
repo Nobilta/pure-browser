@@ -18,7 +18,7 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting.
 - **Page translation**: full-page bilingual translation and selected-text translation; includes a built-in no-login service and supports custom translation APIs.
 - **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
-- **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; enhanced capture is enabled per tab by installing its script before reloading the page.
+- **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with selectable detail text and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.
 - **Ad blocking and userscripts**: built-in filter rules, custom subscriptions and userscript installation.
 - **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export.
 - **Reader mode and printing**: one-tap reflow of the body into reader mode; print pages or save them as PDF from the system print sheet.

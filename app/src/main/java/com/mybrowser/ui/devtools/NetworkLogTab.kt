@@ -22,7 +22,6 @@ import com.mybrowser.devtools.EnhancedCaptureState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.localizedResources
 
 @Composable
@@ -31,8 +30,6 @@ internal fun NetworkLogTab(
     onClear: () -> Unit,
     onExplain: (NetworkRequestLog) -> Unit,
     session: DevToolsSession?,
-    capture: EnhancedCaptureState,
-    onEnableCapture: () -> Unit,
 ) {
     val resources = localizedResources()
     var query by rememberSaveable { mutableStateOf("") }
@@ -79,35 +76,7 @@ internal fun NetworkLogTab(
     }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-            LibrarySearchField(query, stringResource(R.string.dev_network_search)) { query = it }
-        }
-        if (!capture.enabled) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    stringResource(if (capture.stopped) R.string.dev_enhanced_stopped_hint
-                        else R.string.dev_network_capture_note),
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = onEnableCapture, enabled = capture.supported) {
-                    Text(stringResource(R.string.dev_enhanced_enable))
-                }
-            }
-        } else if (!capture.ready) {
-            Text(
-                stringResource(R.string.dev_enhanced_document_pending),
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            Text(
-                stringResource(R.string.dev_network_boundary),
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            DevToolsSearchField(query, stringResource(R.string.dev_network_search)) { query = it }
         }
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(NetworkCategory.entries, key = { it.name }) { item ->

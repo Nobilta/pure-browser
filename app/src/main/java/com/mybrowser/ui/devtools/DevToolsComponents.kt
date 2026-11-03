@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -87,7 +88,7 @@ internal fun DetailRow(label: String, value: String, copyable: Boolean = false) 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.width(104.dp), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value.ifBlank { "—" }, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+            SelectableText(value.ifBlank { "—" }, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace)
         }
         if (copyable) CopyButton(value)
@@ -140,19 +141,12 @@ internal fun HeaderList(headers: List<com.mybrowser.devtools.HeaderEntry>, note:
         return
     }
     Column(Modifier.fillMaxWidth()) {
-        headers.forEach { header ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                Text(header.name, Modifier.width(132.dp), style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.tertiary)
-                Text(header.value, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace)
-            }
-        }
+        SelectableText(headerText(headers), fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.labelSmall)
         note?.let {
             Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        CopyButton(headerText(headers))
     }
 }
 
@@ -194,13 +188,14 @@ internal fun SourceBlockRow(block: SourceBlock, palette: List<Color>, showLine: 
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
         )
-        Text(
-            annotatedBlock(block, palette),
-            Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-        )
+        SelectionContainer(Modifier.weight(1f)) {
+            Text(
+                annotatedBlock(block, palette),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
