@@ -314,7 +314,9 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = request.method + " · " + textResources.getString(com.mybrowser.core.NetworkCategory.of(request).label) +
+                    text = (if (request.methodKnown && request.method.isNotBlank()) request.method
+                        else textResources.getString(R.string.dev_storage_unknown)) +
+                        " · " + textResources.getString(com.mybrowser.core.NetworkCategory.of(request).label) +
                         " · " + textResources.getString(
                             if (request.pageScript) R.string.dev_enhanced_source_page_script
                             else R.string.dev_enhanced_source_webview

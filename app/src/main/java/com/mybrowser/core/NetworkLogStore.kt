@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong
 data class NetworkRequestLog(
     val id: Long,
     val method: String,
+    val methodKnown: Boolean = true,
     val url: String,
     val statusCode: Int? = null,
     val statusText: String? = null,
@@ -187,10 +188,13 @@ class NetworkLogStore(
         resourceType: ResourceType,
         isForMainFrame: Boolean,
         documentUrl: String,
+        methodKnown: Boolean = true,
     ): Long = buffer.edit { ring ->
         val entry = NetworkRequestLog(
             id = nextId.getAndIncrement(),
-            method = method.take(MAX_METHOD_LENGTH).ifBlank { "GET" },
+            method = if (methodKnown) method.take(MAX_METHOD_LENGTH).ifBlank { "GET" }
+            else "",
+            methodKnown = methodKnown,
             url = url.take(DevToolsBudgets.URL_CHARS),
             isForMainFrame = isForMainFrame,
             startedAtElapsedMs = SystemClock.elapsedRealtime(),

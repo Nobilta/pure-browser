@@ -1039,4 +1039,5 @@
     <string name="dev_storage_reading_failed">無法讀取這個值。</string>
     <string name="dev_enhanced_off">增強擷取已關閉</string>
     <string name="dev_network_boundary">頁面指令碼擷取無法涵蓋圖片、樣式、導覽、Worker、Service Worker、WebSocket 等流量；跨來源回應與受限標頭可能無法讀取。</string>
+    <string name="dev_reason_accessor">要求參數由 getter 提供，未讀取</string>
 </resources>

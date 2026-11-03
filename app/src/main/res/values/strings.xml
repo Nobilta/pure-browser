@@ -1041,4 +1041,5 @@
     <string name="dev_storage_reading_failed">Could not read this value.</string>
     <string name="dev_enhanced_off">Enhanced capture is off</string>
     <string name="dev_network_boundary">Page-script capture cannot see images, styles, navigations, Workers, Service Workers or WebSockets. Cross-origin bodies and restricted headers may be unreadable.</string>
+    <string name="dev_reason_accessor">Request parameters were supplied through accessors and were not read</string>
 </resources>

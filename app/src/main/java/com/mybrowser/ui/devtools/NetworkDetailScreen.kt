@@ -93,7 +93,10 @@ internal fun NetworkDetailScreen(
                     actions = { CopyButton(detail.url, stringResource(R.string.dev_network_copy_url)) },
                 ) {
                     DetailRow(stringResource(R.string.dev_network_full_url), detail.url)
-                    DetailRow(stringResource(R.string.dev_network_method), detail.method)
+                    DetailRow(
+                        stringResource(R.string.dev_network_method),
+                        if (detail.methodKnown) detail.method else stringResource(R.string.dev_storage_unknown),
+                    )
                     DetailRow(stringResource(R.string.dev_network_type),
                         resources.getString(NetworkCategory.of(entry ?: nativeEntry(detail)).label))
                     DetailRow(stringResource(R.string.dev_network_status), status)
@@ -393,6 +396,7 @@ private fun nativeEntry(detail: NetworkRequestDetail): NetworkRequestLog =
     NetworkRequestLog(
         id = detail.id,
         method = detail.method,
+        methodKnown = detail.methodKnown,
         url = detail.url,
         resourceType = detail.resourceType,
         statusCode = detail.statusCode,

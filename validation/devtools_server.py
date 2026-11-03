@@ -52,6 +52,9 @@ class Handler(BaseHTTPRequestHandler):
                        "headers": {k.lower(): v for k, v in self.headers.items()}}
             self._send(200, json.dumps(payload), "application/json; charset=utf-8")
             return
+        if self.path.startswith("/api/collision"):
+            self._send(200, json.dumps({"a": {"b": 1}, "a/b": 2}), "application/json; charset=utf-8")
+            return
         if self.path.startswith("/api/cjk"):
             self._send(200, "中" * 100000, "text/plain; charset=utf-8")
             return

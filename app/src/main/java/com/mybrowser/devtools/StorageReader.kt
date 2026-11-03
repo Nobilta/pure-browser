@@ -65,9 +65,9 @@ internal class StorageReader(private val session: DevToolsSession) {
         }
     }
 
-    suspend fun list(kind: Kind): PageResult<StorageSnapshot> {
+    suspend fun list(kind: Kind, offset: Int = 0, query: String = ""): PageResult<StorageSnapshot> {
         val expected = session.documentId
-        val script = listScript(kind)
+        val script = listScript(kind, offset, query)
         val raw = session.evaluateInDocument(script) ?: return PageResult.Unavailable
         if (!session.isCurrentDocument(expected)) return PageResult.Unavailable
         val payload = DevToolsJs.decode(raw) ?: return PageResult.Unavailable
@@ -95,6 +95,8 @@ internal class StorageReader(private val session: DevToolsSession) {
                     entries = entries,
                     total = json.optInt("total", entries.size).coerceAtLeast(entries.size),
                     truncated = json.optBoolean("truncated"),
+                    nextOffset = if (json.isNull("nextOffset")) null
+                    else json.optInt("nextOffset", -1).takeIf { it >= 0 },
                 )
             )
         }
@@ -127,21 +129,50 @@ internal class StorageReader(private val session: DevToolsSession) {
         }
     }
 
-    private fun listScript(kind: Kind): String = """
+    private fun listScript(kind: Kind, offset: Int, query: String): String = """
         (function(){try{
         var s=window.${kind.js};var out=[];var total=s.length;var totalChars=0;
         var limit=${DevToolsBudgets.STORAGE_ITEMS};
         var perValue=${DevToolsBudgets.STORAGE_VALUE_PREVIEW_CHARS};
         var budget=${DevToolsBudgets.STORAGE_TOTAL_PREVIEW_CHARS};
-        for(var i=0;i<total&&out.length<limit;i++){
-          var k=s.key(i);var v=s.getItem(k);if(v===null)v='';
-          var chars=v.length;var preview=chars>perValue?v.slice(0,perValue):v;
-          totalChars+=preview.length;
-          if(totalChars>budget)break;
-          out.push([k,preview,chars]);
+        var needle=${JSONObject.quote(query.lowercase().take(200))};
+        var start=Math.max(0,Math.min(total,$offset));
+        var nextOffset=null;var truncated=false;var matched=0;
+        if(needle){
+          var scanBudget=4*1024*1024;var scanned=0;
+          for(var i=0;i<total;i++){
+            var k2=s.key(i);var v2=s.getItem(k2);if(v2===null)v2='';
+            var keyHit=String(k2).toLowerCase().indexOf(needle)>=0;
+            var valueHit=false;
+            if(!keyHit){
+              if(v2.length>1048576){truncated=true;continue;}
+              scanned+=v2.length;
+              if(scanned>scanBudget){truncated=true;break;}
+              valueHit=v2.toLowerCase().indexOf(needle)>=0;
+            }
+            if(!keyHit&&!valueHit)continue;
+            matched++;
+            if(out.length>=limit){truncated=true;continue;}
+            var chars2=v2.length;var preview2=chars2>perValue?v2.slice(0,perValue):v2;
+            if(totalChars+preview2.length>budget){truncated=true;continue;}
+            totalChars+=preview2.length;
+            out.push([k2,preview2,chars2]);
+          }
+          total=matched;
+        }else{
+          for(var j=start;j<total&&out.length<limit;j++){
+            var k=s.key(j);var v=s.getItem(k);if(v===null)v='';
+            var chars=v.length;var preview=chars>perValue?v.slice(0,perValue):v;
+            if(totalChars+preview.length>budget){truncated=true;break;}
+            totalChars+=preview.length;
+            out.push([k,preview,chars]);
+            nextOffset=j+1;
+          }
+          if(nextOffset!==null&&nextOffset>=total)nextOffset=null;
+          truncated=truncated||nextOffset!==null;
         }
         return JSON.stringify({ok:true,origin:location.origin,entries:out,total:total,
-          truncated:out.length<total||totalChars>budget});
+          truncated:truncated,nextOffset:nextOffset});
         }catch(e){return JSON.stringify({ok:false,error:String((e&&e.name)||e)+
           (e&&e.message?': '+e.message:'')});}})()
     """.trimIndent()

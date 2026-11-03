@@ -30,6 +30,7 @@ import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.localizedResources
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -48,7 +49,10 @@ internal fun StorageTab(
     val resources = localizedResources()
     var tab by rememberSaveable { mutableIntStateOf(COOKIE_TAB) }
     var query by rememberSaveable { mutableStateOf("") }
+    var appliedQuery by rememberSaveable { mutableStateOf("") }
     var refresh by rememberSaveable { mutableIntStateOf(0) }
+    var loadingMore by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var cookies by remember { mutableStateOf<CookieResult?>(null) }
@@ -56,7 +60,13 @@ internal fun StorageTab(
     var selectedCookie by remember { mutableStateOf<CookieRow?>(null) }
     var selectedEntry by remember { mutableStateOf<StorageEntry?>(null) }
     val listState = rememberLazyListState()
-    LaunchedEffect(tab, refresh, session?.documentId, pageUrl) {
+    LaunchedEffect(query, tab) {
+        if (tab == COOKIE_TAB) appliedQuery = "" else {
+            delay(250)
+            appliedQuery = query
+        }
+    }
+    LaunchedEffect(tab, refresh, session?.documentId, pageUrl, appliedQuery) {
         if (session == null) {
             error = resources.getString(R.string.dev_storage_error, "WebView")
             return@LaunchedEffect
@@ -80,7 +90,7 @@ internal fun StorageTab(
                 else -> {
                     val storageKind = if (tab == LOCAL_TAB) com.mybrowser.devtools.StorageReader.Kind.LOCAL
                         else com.mybrowser.devtools.StorageReader.Kind.SESSION
-                    when (val result = session.storage.list(storageKind)) {
+                    when (val result = session.storage.list(storageKind, query = appliedQuery)) {
                         is PageResult.Ok -> snapshot = result.value
                         is PageResult.Failed -> error = result.message ?: resources.getString(R.string.dev_storage_access_denied)
                         PageResult.Invalid, PageResult.Unavailable ->
@@ -113,11 +123,14 @@ internal fun StorageTab(
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(tab == COOKIE_TAB, { tab = COOKIE_TAB; query = "" }, label = { Text(stringResource(R.string.dev_storage_cookies)) })
+            FilterChip(tab == COOKIE_TAB, { tab = COOKIE_TAB; query = ""; appliedQuery = "" },
+                label = { Text(stringResource(R.string.dev_storage_cookies)) })
             Spacer(Modifier.width(8.dp))
-            FilterChip(tab == LOCAL_TAB, { tab = LOCAL_TAB; query = "" }, label = { Text(stringResource(R.string.dev_storage_local)) })
+            FilterChip(tab == LOCAL_TAB, { tab = LOCAL_TAB; query = ""; appliedQuery = "" },
+                label = { Text(stringResource(R.string.dev_storage_local)) })
             Spacer(Modifier.width(8.dp))
-            FilterChip(tab == SESSION_TAB, { tab = SESSION_TAB; query = "" }, label = { Text(stringResource(R.string.dev_storage_session)) })
+            FilterChip(tab == SESSION_TAB, { tab = SESSION_TAB; query = ""; appliedQuery = "" },
+                label = { Text(stringResource(R.string.dev_storage_session)) })
             Spacer(Modifier.weight(1f))
             BrowserIconAction(R.drawable.ic_reload, stringResource(R.string.dev_storage_refresh)) { refresh++ }
         }
@@ -160,7 +173,50 @@ internal fun StorageTab(
             )
             else -> when (tab) {
                 COOKIE_TAB -> CookieList(cookies, query, listState) { selectedCookie = it }
-                else -> StorageList(snapshot, query, listState) { selectedEntry = it }
+                else -> StorageList(
+                    snapshot = snapshot,
+                    listState = listState,
+                    loadingMore = loadingMore,
+                    onLoadMore = {
+                        val current = snapshot
+                        val next = current?.nextOffset
+                        val active = session
+                        if (current != null && next != null && active != null && !loadingMore) {
+                            loadingMore = true
+                            val storageKind = if (tab == LOCAL_TAB)
+                                com.mybrowser.devtools.StorageReader.Kind.LOCAL
+                            else com.mybrowser.devtools.StorageReader.Kind.SESSION
+                            val expectedTab = tab
+                            val expectedDocument = active.documentId
+                            val expectedQuery = appliedQuery
+                            scope.launch {
+                                try {
+                                    when (val result = active.storage.list(storageKind, next, expectedQuery)) {
+                                        is PageResult.Ok -> if (tab == expectedTab &&
+                                            active.documentId == expectedDocument &&
+                                            appliedQuery == expectedQuery
+                                        ) {
+                                            snapshot = current.copy(
+                                                origin = result.value.origin,
+                                                entries = current.entries + result.value.entries,
+                                                total = result.value.total,
+                                                truncated = result.value.truncated,
+                                                nextOffset = result.value.nextOffset,
+                                            )
+                                        }
+                                        is PageResult.Failed -> error = result.message
+                                            ?: resources.getString(R.string.dev_storage_access_denied)
+                                        PageResult.Invalid, PageResult.Unavailable ->
+                                            error = resources.getString(R.string.dev_storage_access_denied)
+                                    }
+                                } finally {
+                                    loadingMore = false
+                                }
+                            }
+                        }
+                    },
+                    onOpen = { selectedEntry = it },
+                )
             }
         }
     }
@@ -225,14 +281,13 @@ private fun CookieList(
 @Composable
 private fun StorageList(
     snapshot: StorageSnapshot?,
-    query: String,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    loadingMore: Boolean,
+    onLoadMore: () -> Unit,
     onOpen: (StorageEntry) -> Unit,
 ) {
-    val filtered = snapshot?.entries.orEmpty().filter {
-        query.isBlank() || it.name.contains(query, true) || it.value.contains(query, true)
-    }
-    if (filtered.isEmpty()) {
+    val entries = snapshot?.entries.orEmpty()
+    if (entries.isEmpty()) {
         Text(stringResource(R.string.dev_storage_empty),
             Modifier.fillMaxWidth().padding(24.dp), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -240,15 +295,15 @@ private fun StorageList(
     }
     Column(Modifier.fillMaxSize()) {
         Text(
-            stringResource(R.string.dev_storage_total, filtered.size) +
-                if (snapshot?.truncated == true) " · " + stringResource(R.string.dev_storage_truncated, filtered.size) else "",
+            stringResource(R.string.dev_storage_total, snapshot?.total ?: entries.size) +
+                if (snapshot?.truncated == true) " · " + stringResource(R.string.dev_storage_truncated, entries.size) else "",
             Modifier.padding(horizontal = 16.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         LazyColumn(Modifier.fillMaxSize(), state = listState,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-            items(filtered, key = { it.name }) { entry ->
+            items(entries, key = { it.name }) { entry ->
                 Card(
                     Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onOpen(entry) },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -263,6 +318,16 @@ private fun StorageList(
                         Text(entry.value.take(300).ifBlank { stringResource(R.string.dev_storage_empty) },
                             Modifier.padding(top = 2.dp), maxLines = 2, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+            if (snapshot?.nextOffset != null) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                        if (loadingMore) CircularProgressIndicator(Modifier.size(22.dp))
+                        else TextButton(onClick = onLoadMore) {
+                            Text(stringResource(R.string.dev_storage_value_load_more))
+                        }
                     }
                 }
             }

@@ -84,13 +84,19 @@
   }
   // Only own data properties are inspected. Calling a getter to "observe" a request could
   // consume a one-shot value before fetch does, changing the request itself.
-  function dataProperty(object, key) {
+  function propertyDescriptor(object, key) {
     try {
-      if (!object) return undefined;
-      var descriptor = Object.getOwnPropertyDescriptor(object, key);
-      return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
-        ? descriptor.value : undefined;
-    } catch (e) { return undefined; }
+      if (!object) return null;
+      return Object.getOwnPropertyDescriptor(object, key);
+    } catch (e) { return null; }
+  }
+  function dataProperty(object, key) {
+    var descriptor = propertyDescriptor(object, key);
+    return descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      ? descriptor.value : undefined;
+  }
+  function hasProperty(object, key) {
+    try { return !!object && key in Object(object); } catch (e) { return false; }
   }
   function snapshotHeaders(value) {
     if (value == null) return [];
@@ -267,7 +273,7 @@
   var wrappedFetch = null;
 
   function fetchRequestInfo(input, init) {
-    var info = { method: 'GET', url: '', headers: [], body: null };
+    var info = { method: 'GET', methodKnown: true, url: '', headers: [], body: null };
     var requestInput = isRequestObject(input);
     if (requestInput) {
       info.method = String(input.method || 'GET').toUpperCase();
@@ -281,13 +287,43 @@
     } else if (input && typeof input.url === 'string') {
       info.url = absolute(input.url);
     }
-    var initMethod = dataProperty(init, 'method');
-    if (initMethod != null) info.method = String(initMethod).toUpperCase();
-    var initHeaders = dataProperty(init, 'headers');
-    if (initHeaders !== undefined && initHeaders !== null) info.headers = snapshotHeaders(initHeaders);
-    var initBody = dataProperty(init, 'body');
-    if (initBody !== undefined && initBody !== null) info.body = bodyFromValue(initBody);
-    else if (!info.body) info.body = { state: 'EMPTY', reason: 'no_body', bytes: 0 };
+    var methodDescriptor = propertyDescriptor(init, 'method');
+    if (methodDescriptor) {
+      if (Object.prototype.hasOwnProperty.call(methodDescriptor, 'value')) {
+        var rawMethod = methodDescriptor.value;
+        if (typeof rawMethod === 'string') info.method = rawMethod.toUpperCase();
+        else if (rawMethod == null) info.method = 'GET';
+        else { info.method = ''; info.methodKnown = false; }
+      } else {
+        // The getter was deliberately not invoked before fetch. Its value may differ now,
+        // so never claim the default GET.
+        info.method = '';
+        info.methodKnown = false;
+      }
+    } else if (hasProperty(init, 'method')) {
+      info.method = '';
+      info.methodKnown = false;
+    }
+    var headersDescriptor = propertyDescriptor(init, 'headers');
+    if (headersDescriptor && Object.prototype.hasOwnProperty.call(headersDescriptor, 'value')) {
+      var headerValue = headersDescriptor.value;
+      if (headerValue !== undefined && headerValue !== null) info.headers = snapshotHeaders(headerValue);
+    }
+    var bodyDescriptor = propertyDescriptor(init, 'body');
+    if (bodyDescriptor) {
+      if (Object.prototype.hasOwnProperty.call(bodyDescriptor, 'value')) {
+        var bodyValue = bodyDescriptor.value;
+        info.body = bodyValue == null
+          ? { state: 'EMPTY', reason: 'no_body', bytes: 0 }
+          : bodyFromValue(bodyValue);
+      } else {
+        info.body = { state: 'NOT_COLLECTED', reason: 'accessor' };
+      }
+    } else if (hasProperty(init, 'body')) {
+      info.body = { state: 'NOT_COLLECTED', reason: 'accessor' };
+    } else if (!info.body) {
+      info.body = { state: 'EMPTY', reason: 'no_body', bytes: 0 };
+    }
     return info;
   }
 
@@ -306,11 +342,11 @@
       var info;
       try { info = fetchRequestInfo(input, init); }
       catch (e) {
-        info = { method: 'GET', url: '', headers: [],
+        info = { method: '', methodKnown: false, url: '', headers: [],
           body: { state: 'FAILED', reason: 'read_error', bytes: 0 } };
       }
       send({ type: 'net-start', id: id, kind: 'fetch', method: info.method,
-        url: info.url, startMs: Date.now() });
+        methodKnown: info.methodKnown, url: info.url, startMs: Date.now() });
       send({ type: 'net-request', id: id, headers: info.headers });
       emitBody(id, 'request', info.body || { state: 'EMPTY', reason: 'no_body', bytes: 0 });
       if (thrown) {
@@ -341,11 +377,14 @@
     try { W.fetch = wrappedFetch; } catch (e) { wrappedFetch = null; }
   }
 
-  function finishResponse(id, started, outcome, totalBytes, state, reason) {
-    send({ type: 'net-end', id: id, outcome: outcome, durationMs: Math.max(0, now() - started),
-      sizeBytes: totalBytes || 0, reason: reason || '' });
+  function finishResponse(id, durationMs, outcome, sizeBytes, state, reason) {
+    // sizeBytes is the response size (Content-Length or a complete read), never the
+    // truncated preview size. -1 means the actual size could not be determined.
+    send({ type: 'net-end', id: id, outcome: outcome, durationMs: durationMs,
+      sizeBytes: sizeBytes, reason: reason || '' });
   }
   function observeResponse(id, response, started, method) {
+    var responseDuration = Math.max(0, now() - started);
     var headers = headerList(response.headers);
     var ct = contentTypeOf(response.headers);
     var length = parseInt(headerValue(response.headers, 'content-length'), 10);
@@ -356,38 +395,38 @@
       headers: headers, contentType: ct, contentLength: length });
     if (response.type === 'opaque' || response.type === 'opaqueredirect') {
       emitBody(id, 'response', { state: 'UNAVAILABLE', reason: 'opaque', binary: true, bytes: length });
-      finishResponse(id, started, 'completed', length, 'UNAVAILABLE', 'opaque');
+      finishResponse(id, responseDuration, 'completed', length > 0 ? length : -1, 'UNAVAILABLE', 'opaque');
       return;
     }
     if (method === 'HEAD' || response.status === 204 || response.status === 304 || !response.body) {
       var emptyState = (length > 0) ? 'NOT_COLLECTED' : 'EMPTY';
       emitBody(id, 'response', { state: emptyState, bytes: length, reason: length > 0 ? 'capability' : 'no_body' });
-      finishResponse(id, started, 'completed', length, emptyState, '');
+      finishResponse(id, responseDuration, 'completed', length, emptyState, '');
       return;
     }
     if (ct === 'text/event-stream') {
       emitBody(id, 'response', { state: 'UNAVAILABLE', reason: 'stream', bytes: length });
-      finishResponse(id, started, 'completed', length, 'UNAVAILABLE', 'stream');
+      finishResponse(id, responseDuration, 'completed', length > 0 ? length : -1, 'UNAVAILABLE', 'stream');
       return;
     }
     if (!isTextual(ct)) {
       emitBody(id, 'response', { state: 'UNAVAILABLE', reason: 'binary', binary: true,
         bytes: length, contentType: ct });
-      finishResponse(id, started, 'completed', length, 'UNAVAILABLE', 'binary');
+      finishResponse(id, responseDuration, 'completed', length, 'UNAVAILABLE', 'binary');
       return;
     }
     var clone;
     try { clone = response.clone(); }
     catch (e) {
       emitBody(id, 'response', { state: 'FAILED', reason: 'capability', bytes: length, contentType: ct });
-      finishResponse(id, started, 'completed', length, 'FAILED', 'capability');
+      finishResponse(id, responseDuration, 'completed', length > 0 ? length : -1, 'FAILED', 'capability');
       return;
     }
     var reader;
     try { reader = clone.body.getReader(); }
     catch (e) {
       emitBody(id, 'response', { state: 'FAILED', reason: 'read_error', bytes: length, contentType: ct });
-      finishResponse(id, started, 'completed', length, 'FAILED', 'read_error');
+      finishResponse(id, responseDuration, 'completed', length > 0 ? length : -1, 'FAILED', 'read_error');
       return;
     }
     beginBody(id, 'response', 'COLLECTING', { bytes: 0, contentType: ct });
@@ -400,7 +439,9 @@
       delete reads[id];
       cancelQuietly(reader);
       endBody(id, 'response', state, total, sentChars, reason);
-      finishResponse(id, started, 'completed', total, state, reason);
+      var responseSize = length > 0 ? length
+        : (state === 'COLLECTED' || state === 'EMPTY' ? total : -1);
+      finishResponse(id, responseDuration, 'completed', responseSize, state, reason);
     }
     reads[id] = function () { end('TRUNCATED', 'aborted'); };
     try {
@@ -470,58 +511,136 @@
   var originalSetHeader = XHR && XHR.prototype.setRequestHeader;
   var originalAbort = XHR && XHR.prototype.abort;
   var wrappedOpen = null, wrappedSend = null, wrappedSetHeader = null, wrappedAbort = null;
+
+  function newXhrRecord(method, methodKnown, url) {
+    return {
+      method: methodKnown ? method.toUpperCase() : '',
+      methodKnown: methodKnown,
+      url: url,
+      headers: [],
+      aborted: false,
+      started: 0,
+      id: '',
+      done: false,
+      listener: null,
+    };
+  }
+
+  // Must be called before the XHR is re-opened. Reading status/responseText after the page
+  // has reused the object would read the next request (or an empty state), which is how a
+  // successful request was previously recorded as failed.
+  function finalizeXhr(record, xhr) {
+    if (!record || record.done || !record.started) return;
+    record.done = true;
+    if (record.listener) {
+      try { xhr.removeEventListener('loadend', record.listener); } catch (e) { }
+      record.listener = null;
+    }
+    if (stopped) return;
+    try { finishXhr(xhr, record); } catch (e) {
+      send({ type: 'net-end', id: record.id, outcome: 'failed',
+        durationMs: Math.max(0, now() - record.started), reason: 'read_error',
+        error: String((e && e.message) || e).slice(0, 512) });
+    }
+  }
+
+  function attachXhrListener(record, xhr) {
+    if (record.done || stopped) return;
+    if (xhr.readyState === 4) { finalizeXhr(record, xhr); return; }
+    var listener = function () {
+      // A loadend from the request that was replaced while this listener was being
+      // attached must not settle the new request; only accept a completed state.
+      if (xhr.readyState < 4) return;
+      finalizeXhr(record, xhr);
+    };
+    record.listener = listener;
+    try { xhr.addEventListener('loadend', listener); } catch (e) { }
+  }
+
+  function scheduleXhrListener(record, xhr) {
+    setTimeout(function () { attachXhrListener(record, xhr); }, 0);
+  }
+
   if (XHR && typeof originalOpen === 'function' && typeof originalSend === 'function') {
     wrappedOpen = function (method, url) {
+      var xhr = this;
+      var previous = null;
+      try { previous = xhrRecords.get(xhr); } catch (e) { }
+      // The page may call open() from the previous request's onload. Snapshot that request
+      // now, while the object still holds its status and body.
+      if (previous) finalizeXhr(previous, xhr);
+      var result;
       try {
-        xhrRecords.set(this, {
-          method: String(method || 'GET').toUpperCase(), url: absolute(url),
-          headers: [], aborted: false, started: 0, id: '',
-        });
-      } catch (e) { }
-      return originalOpen.apply(this, arguments);
+        // Do not coerce method/url here: open() must be the first and only conversion of
+        // one-shot arguments, or the actual request could change from POST to GET.
+        result = originalOpen.apply(this, arguments);
+      } finally {
+        try {
+          var methodKnown = typeof method === 'string';
+          var captureUrl = typeof url === 'string' ? absolute(url)
+            : (isURLObject(url) ? absolute(url.href) : '');
+          xhrRecords.set(xhr, newXhrRecord(methodKnown ? method : '', methodKnown, captureUrl));
+        } catch (e) { }
+      }
+      return result;
     };
     wrappedSetHeader = function (name, value) {
+      var result;
       try {
-        var record = xhrRecords.get(this);
-        if (record && record.headers.length < MAX_HEADERS) {
-          record.headers.push([String(name).slice(0, 256), String(value).slice(0, MAX_HEADER_VALUE)]);
-        }
-      } catch (e) { }
-      return originalSetHeader.apply(this, arguments);
+        // Let the real method perform its one conversion first, then record a copy.
+        result = originalSetHeader.apply(this, arguments);
+      } finally {
+        try {
+          var record = xhrRecords.get(this);
+          if (record && record.headers.length < MAX_HEADERS) {
+            record.headers.push([String(name).slice(0, 256), String(value).slice(0, MAX_HEADER_VALUE)]);
+          }
+        } catch (e) { }
+      }
+      return result;
     };
     wrappedAbort = function () {
+      var record = null;
       try {
-        var record = xhrRecords.get(this);
+        record = xhrRecords.get(this);
         if (record) record.aborted = true;
       } catch (e) { }
-      return originalAbort.apply(this, arguments);
+      var result = originalAbort.apply(this, arguments);
+      if (record && record.started) finalizeXhr(record, this);
+      return result;
     };
     wrappedSend = function (body) {
       if (stopped) return originalSend.apply(this, arguments);
+      var xhr = this;
       var record;
       try { record = xhrRecords.get(this); } catch (e) { record = null; }
-      if (!record) {
-        record = { method: 'GET', url: absolute(''), headers: [], aborted: false, started: 0, id: '' };
-      }
+      if (!record) record = newXhrRecord('', false, '');
+      if (record.started && !record.done) finalizeXhr(record, xhr);
       var started = now();
       var id = 'x' + (++seq).toString(36) + started.toString(36);
       record.id = id;
       record.started = started;
-      send({ type: 'net-start', id: id, kind: 'xhr', method: record.method, url: record.url, startMs: Date.now() });
+      record.done = false;
+      send({ type: 'net-start', id: id, kind: 'xhr', method: record.method,
+        methodKnown: record.methodKnown, url: record.url, startMs: Date.now() });
       send({ type: 'net-request', id: id, headers: record.headers });
       emitBody(id, 'request', bodyFromValue(body));
-      var xhr = this;
-      var onLoadEnd = function () {
-        try { xhr.removeEventListener('loadend', onLoadEnd); } catch (e) { }
-        if (stopped) return;
-        try { finishXhr(id, xhr, record, started); } catch (e) {
-          send({ type: 'net-end', id: id, outcome: 'failed', durationMs: Math.max(0, now() - started),
-            reason: 'read_error', error: String((e && e.message) || e).slice(0, 512) });
-        }
-      };
-      try { this.addEventListener('loadend', onLoadEnd); } catch (e) { }
-      try { return originalSend.apply(this, arguments); }
+      try {
+        var result = originalSend.apply(this, arguments);
+        // A synchronous XHR is already complete. For an async one, defer attaching the
+        // loadend listener: when this send happens inside the previous request's onload,
+        // that request's loadend is still queued and would otherwise be mistaken for this
+        // request's completion.
+        if (xhr.readyState === 4) finalizeXhr(record, xhr);
+        else scheduleXhrListener(record, xhr);
+        return result;
+      }
       catch (error) {
+        record.done = true;
+        if (record.listener) {
+          try { xhr.removeEventListener('loadend', record.listener); } catch (e) { }
+          record.listener = null;
+        }
         send({ type: 'net-end', id: id, outcome: 'failed', durationMs: Math.max(0, now() - started),
           reason: 'network', error: String((error && error.message) || error).slice(0, 512) });
         throw error;
@@ -535,7 +654,7 @@
     } catch (e) { }
   }
 
-  function finishXhr(id, xhr, record, started) {
+  function finishXhr(xhr, record) {
     var status = 0, statusText = '', responseUrl = '';
     try { status = xhr.status || 0; } catch (e) { }
     try { statusText = String(xhr.statusText || ''); } catch (e) { }
@@ -544,7 +663,9 @@
     try { headers = parseRawHeaders(xhr.getAllResponseHeaders()); } catch (e) { }
     var ct = '';
     try {
-      headers.forEach(function (pair) { if (!ct && pair[0].toLowerCase() === 'content-type') ct = pair[1].split(';')[0].trim().toLowerCase(); });
+      headers.forEach(function (pair) {
+        if (!ct && pair[0].toLowerCase() === 'content-type') ct = pair[1].split(';')[0].trim().toLowerCase();
+      });
     } catch (e) { }
     var length = 0;
     try {
@@ -555,15 +676,15 @@
         }
       });
     } catch (e) { }
-    send({ type: 'net-response', id: id, status: status, statusText: statusText.slice(0, 256),
+    send({ type: 'net-response', id: record.id, status: status, statusText: statusText.slice(0, 256),
       responseUrl: responseUrl, responseType: String(xhr.responseType || ''), headers: headers,
       contentType: ct, contentLength: length });
-    var duration = Math.max(0, now() - started);
+    var duration = Math.max(0, now() - record.started);
     if (status === 0) {
       var cancelled = record.aborted;
-      emitBody(id, 'response', { state: cancelled ? 'NOT_COLLECTED' : 'FAILED',
+      emitBody(record.id, 'response', { state: cancelled ? 'NOT_COLLECTED' : 'FAILED',
         reason: cancelled ? 'aborted' : 'network' });
-      send({ type: 'net-end', id: id, outcome: cancelled ? 'cancelled' : 'failed',
+      send({ type: 'net-end', id: record.id, outcome: cancelled ? 'cancelled' : 'failed',
         durationMs: duration, reason: cancelled ? 'aborted' : 'network' });
       return;
     }
@@ -595,9 +716,13 @@
     } catch (e) {
       body = { state: 'FAILED', reason: 'read_error' };
     }
-    emitBody(id, 'response', body || { state: 'EMPTY', reason: 'no_body' });
-    send({ type: 'net-end', id: id, outcome: 'completed', durationMs: duration,
-      sizeBytes: body && body.bytes || bytes, reason: (body && body.reason) || '' });
+    emitBody(record.id, 'response', body || { state: 'EMPTY', reason: 'no_body' });
+    var reportedSize = -1;
+    if (length > 0) reportedSize = length;
+    else if (rt === 'arraybuffer' || rt === 'blob') reportedSize = bytes;
+    else if (body && (body.state === 'COLLECTED' || body.state === 'EMPTY')) reportedSize = body.bytes || 0;
+    send({ type: 'net-end', id: record.id, outcome: 'completed', durationMs: duration,
+      sizeBytes: reportedSize, reason: (body && body.reason) || '' });
   }
 
   // ---- DOM / source accessor (main frame only) -----------------------------
@@ -606,7 +731,7 @@
     var sourceCache = null;
     var nodeIds = new WeakMap();
     var nodes = new Map();
-    var nextNode = 1;
+    var signatures = new Map();
     var MAX_NODES = 20000;
     var MAX_ATTR_VALUE = 4096;
     var MAX_TEXT_PREVIEW = 2048;
@@ -617,27 +742,70 @@
     function resetDom() {
       nodeIds = new WeakMap();
       nodes = new Map();
-      nextNode = 1;
+      signatures = new Map();
       sourceCache = null;
     }
-    function nodeId(node) {
-      var id = nodeIds.get(node);
-      if (id) return id;
-      id = 'n' + (nextNode++);
+    function nodeSignature(node) {
+      return node.nodeType + ':' + String(node.tagName || '') + ':' +
+        String(node.nodeValue == null ? '' : node.nodeValue).slice(0, 32);
+    }
+    // Path ids stay resolvable after the bounded node map evicts a reference. A signature
+    // prevents an old id from silently pointing at a different node after DOM mutation.
+    function rememberNode(node, id) {
       nodeIds.set(node, id);
       nodes.set(id, node);
+      signatures.set(id, nodeSignature(node));
       while (nodes.size > MAX_NODES) {
         var first = nodes.keys().next();
         if (first.done || first.value === id) break;
         var old = nodes.get(first.value);
         nodes.delete(first.value);
-        if (old && old.nodeType === 1) nodeIds.delete(old);
+        if (old) nodeIds.delete(old);
       }
+      while (signatures.size > MAX_NODES * 2) {
+        var oldest = signatures.keys().next();
+        if (oldest.done) break;
+        signatures.delete(oldest.value);
+      }
+    }
+    function nodeId(node) {
+      var id = nodeIds.get(node);
+      if (id) return id;
+      var indices = [];
+      var current = node;
+      while (current && current !== D.documentElement) {
+        var parent = current.parentNode;
+        if (!parent) return 'n-invalid';
+        indices.unshift(Array.prototype.indexOf.call(parent.childNodes, current));
+        current = parent;
+      }
+      if (current !== D.documentElement) return 'n-invalid';
+      id = indices.length ? 'n.' + indices.join('.') : 'n';
+      rememberNode(node, id);
       return id;
+    }
+    function resolvePath(id) {
+      if (id === 'n') return D.documentElement;
+      if (!/^n(\.[0-9]+)+$/.test(id)) return null;
+      var parts = id.slice(2).split('.');
+      var current = D.documentElement;
+      for (var i = 0; i < parts.length; i++) {
+        if (!current) return null;
+        current = current.childNodes[Number(parts[i])];
+      }
+      return current || null;
     }
     function nodeOf(id) {
       var node = nodes.get(id);
+      if (node && node.isConnected) return node;
+      if (node) nodes.delete(id);
+      node = resolvePath(id);
       if (!node || !node.isConnected) return null;
+      var expected = signatures.get(id);
+      if (expected && expected !== nodeSignature(node)) return null;
+      nodes.set(id, node);
+      nodeIds.set(node, id);
+      signatures.set(id, nodeSignature(node));
       return node;
     }
     function kindOf(node) {
@@ -652,9 +820,11 @@
       if (text.length > MAX_TEXT_PREVIEW) return { text: text.slice(0, MAX_TEXT_PREVIEW), truncated: true };
       return { text: text, truncated: false };
     }
-    function describe(node) {
+    function describe(node, knownId) {
       var kind = kindOf(node);
-      var out = { id: nodeId(node), kind: kind, name: '', childCount: 0, attributes: [] };
+      var id = knownId || nodeId(node);
+      if (knownId) rememberNode(node, id);
+      var out = { id: id, kind: kind, name: '', childCount: 0, attributes: [] };
       if (kind === 'element') {
         out.name = String(node.tagName || '').toLowerCase();
         out.childCount = node.childNodes.length;
@@ -750,9 +920,10 @@
         start = Math.max(0, Math.floor(Number(start) || 0));
         count = Math.max(1, Math.min(100, Math.floor(Number(count) || 100)));
         var total = parent.childNodes.length;
+        var parentPath = nodeId(parent);
         var out = [];
         for (var i = start; i < total && out.length < count; i++) {
-          out.push(describe(parent.childNodes[i]));
+          out.push(describe(parent.childNodes[i], parentPath + '.' + i));
         }
         return stringify({ nodes: out, start: start, total: total });
       },
