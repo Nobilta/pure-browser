@@ -97,6 +97,7 @@ internal class StorageReader(private val session: DevToolsSession) {
                     truncated = json.optBoolean("truncated"),
                     nextOffset = if (json.isNull("nextOffset")) null
                     else json.optInt("nextOffset", -1).takeIf { it >= 0 },
+                    keysToken = json.optString("keysToken").take(64),
                 )
             )
         }
@@ -136,6 +137,10 @@ internal class StorageReader(private val session: DevToolsSession) {
         var perValue=${DevToolsBudgets.STORAGE_VALUE_PREVIEW_CHARS};
         var budget=${DevToolsBudgets.STORAGE_TOTAL_PREVIEW_CHARS};
         var needle=${JSONObject.quote(query.lowercase().take(200))};
+        function keyStamp(){var h=2166136261;for(var n=0;n<total;n++){var key=String(s.key(n));
+          for(var c=0;c<key.length;c++){h^=key.charCodeAt(c);h=Math.imul(h,16777619);}h^=31;h=Math.imul(h,16777619);}
+          return (h>>>0).toString(36)+':'+total;}
+        var keysToken=keyStamp();
         var start=Math.max(0,Math.min(total,$offset));
         var nextOffset=null;var truncated=false;var matched=0;
         if(needle){
@@ -172,7 +177,7 @@ internal class StorageReader(private val session: DevToolsSession) {
           truncated=truncated||nextOffset!==null;
         }
         return JSON.stringify({ok:true,origin:location.origin,entries:out,total:total,
-          truncated:truncated,nextOffset:nextOffset});
+          truncated:truncated,nextOffset:nextOffset,keysToken:keysToken});
         }catch(e){return JSON.stringify({ok:false,error:String((e&&e.name)||e)+
           (e&&e.message?': '+e.message:'')});}})()
     """.trimIndent()

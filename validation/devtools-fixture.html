@@ -21,6 +21,7 @@
 <div class="card" id="beta" data-kind="beta">Beta text node</div>
 <div id="MixedCase" class="CamelClass">Mixed case element</div>
 <div id="shadow-host"></div>
+<div id="deep-root" style="display:none"></div>
 <iframe id="cross-frame" src="http://127.0.0.1:8876/api/frame" width="200" height="80"></iframe>
 <p id="status">running</p>
 <pre id="case-results"></pre>
@@ -34,6 +35,13 @@
         main.appendChild(p);
       }
       document.body.appendChild(main);
+    }
+    var deepParent = document.getElementById('deep-root');
+    for (var deepIndex = 0; deepIndex < 70; deepIndex++) {
+      var deepNode = document.createElement('div');
+      deepNode.id = 'depth-' + deepIndex;
+      deepParent.appendChild(deepNode);
+      deepParent = deepNode;
     }
     var host = document.getElementById('shadow-host');
     var closed = host.attachShadow({ mode: 'closed' });

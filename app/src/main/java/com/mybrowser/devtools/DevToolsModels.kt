@@ -265,6 +265,8 @@ data class StorageSnapshot(
     val total: Int,
     val truncated: Boolean,
     val nextOffset: Int? = null,
+    /** Key-set fingerprint at the time this page was read; detects inserts/removals. */
+    val keysToken: String = "",
 )
 
 data class StorageValue(

@@ -46,6 +46,6 @@ test('XHR wrapper passes original open/setRequestHeader arguments before observi
   xhr.setRequestHeader('X-Order', header);
   assert.strictEqual(xhr.headerValue, header, 'setRequestHeader received a converted value');
   assert.strictEqual(xhr.headerCallsAtOriginal, 0, 'header was converted before the real setRequestHeader');
-  assert.ok(header.calls >= 1, 'capture does not observe the header after the real call');
+  assert.strictEqual(header.calls, 0, 'capture coerced or re-evaluated the header value');
   dom.window.close();
 });

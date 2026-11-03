@@ -196,13 +196,27 @@ internal fun StorageTab(
                                             active.documentId == expectedDocument &&
                                             appliedQuery == expectedQuery
                                         ) {
-                                            snapshot = current.copy(
-                                                origin = result.value.origin,
-                                                entries = current.entries + result.value.entries,
-                                                total = result.value.total,
-                                                truncated = result.value.truncated,
-                                                nextOffset = result.value.nextOffset,
-                                            )
+                                            val page = result.value
+                                            if (page.keysToken != current.keysToken) {
+                                                // Keys changed between pages: appending by offset would
+                                                // duplicate existing entries and skip shifted ones.
+                                                when (val refreshed = active.storage.list(storageKind, 0, expectedQuery)) {
+                                                    is PageResult.Ok -> snapshot = refreshed.value
+                                                    is PageResult.Failed -> error = refreshed.message
+                                                        ?: resources.getString(R.string.dev_storage_access_denied)
+                                                    PageResult.Invalid, PageResult.Unavailable ->
+                                                        error = resources.getString(R.string.dev_storage_access_denied)
+                                                }
+                                            } else {
+                                                snapshot = current.copy(
+                                                    origin = page.origin,
+                                                    entries = current.entries + page.entries,
+                                                    total = page.total,
+                                                    truncated = page.truncated,
+                                                    nextOffset = page.nextOffset,
+                                                    keysToken = page.keysToken,
+                                                )
+                                            }
                                         }
                                         is PageResult.Failed -> error = result.message
                                             ?: resources.getString(R.string.dev_storage_access_denied)
