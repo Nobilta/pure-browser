@@ -920,6 +920,43 @@
       if (text.length > MAX_TEXT_PREVIEW) return { text: text.slice(0, MAX_TEXT_PREVIEW), truncated: true };
       return { text: text, truncated: false };
     }
+    // Classify the complete nodeValue, never its truncated preview. This is display metadata;
+    // domChildren still returns every child so raw child indices and pagination stay stable.
+    function formattingWhitespace(node) {
+      var text = String(node.nodeValue || '');
+      if (/[^\t\n\r\f ]/.test(text)) return false;
+      if (!text) return true;
+      var parent = node.parentElement;
+      if (!parent) return true;
+      try {
+        var style = W.getComputedStyle(parent);
+        var whitespace = style.whiteSpace;
+        // Retain whitespace in pre-line too: its line breaks affect layout.
+        if (whitespace && whitespace !== 'normal' && whitespace !== 'nowrap') return false;
+        if (style.whiteSpaceCollapse && style.whiteSpaceCollapse !== 'collapse') return false;
+        for (var ancestor = parent; ancestor; ancestor = ancestor.parentElement) {
+          if (/^(PRE|TEXTAREA)$/.test(ancestor.tagName)) return false;
+        }
+        // Inline containers can join text outside their own subtree.
+        if (!style.display || /^(inline|contents)/.test(style.display)) return false;
+        function inlineNeighbour(current, direction) {
+          var steps = 0;
+          while (current && steps++ < 128) {
+            if (current.nodeType === 3 && /[^\t\n\r\f ]/.test(current.nodeValue || '')) return true;
+            if (current.nodeType === 1) {
+              if (current.tagName === 'BR') return false;
+              var display = W.getComputedStyle(current).display;
+              if (display !== 'none') return !display || /^(inline|contents)/.test(display);
+            }
+            current = current[direction];
+          }
+          // Prefer keeping a node if an unusually long sibling run prevents classification.
+          return !!current;
+        }
+        return !(inlineNeighbour(node.previousSibling, 'previousSibling') &&
+          inlineNeighbour(node.nextSibling, 'nextSibling'));
+      } catch (_) { return false; }
+    }
     function describe(node, knownPath) {
       var kind = kindOf(node);
       var knownId = nodeIds.get(node);
@@ -939,6 +976,7 @@
         out.text = preview.text;
         out.textTruncated = preview.truncated;
         out.textLength = node.nodeValue == null ? 0 : String(node.nodeValue).length;
+        if (kind === 'text') out.formattingWhitespace = formattingWhitespace(node);
       } else if (kind === 'doctype') {
         out.name = String(node.name || 'html').toLowerCase();
       }

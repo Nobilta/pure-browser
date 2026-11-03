@@ -15,6 +15,7 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--serial', required=True)
+parser.add_argument('--port', type=int, default=8875, help='Local static fixture server port')
 args = parser.parse_args()
 assert args.serial.startswith('emulator-'), 'Use a local test emulator'
 ux.ADB = ['adb', '-s', args.serial]
@@ -81,8 +82,14 @@ def back():
 def open_devtools():
     """The row lives inside the menu's More tools page, not the top-level sheet."""
     ux.menu_item('More tools')
-    ux.tap('Developer tools')
-    time.sleep(.5)
+    for _ in range(8):
+        root, _ = ux.nodes(await_labels=['Developer tools'], timeout_ms=500)
+        if ux.match(root, 'Developer tools') is not None:
+            ux.tap('Developer tools')
+            time.sleep(.5)
+            return
+        ux.swipe(root, downward=False)
+    raise AssertionError('Developer tools row missing from More tools')
 
 
 def orient(rotation):
@@ -103,9 +110,9 @@ def orient(rotation):
 
 try:
     orient('0')
-    ux.adb('reverse', 'tcp:8875', 'tcp:8875')
+    ux.adb('reverse', f'tcp:{args.port}', f'tcp:{args.port}')
     ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
-    ux.launch('http://127.0.0.1:8875/browser-ux.html')
+    ux.launch(f'http://127.0.0.1:{args.port}/browser-ux.html')
     ux.expect('Pure UX First Page')
     open_devtools()
     for label in ('Console', 'Network', 'Elements', 'Storage'):
@@ -122,13 +129,29 @@ try:
     wait_text('6*7\n42')
     record('console draft survives tab changes and JavaScript execution returns 42')
     ux.tap('Elements')
-    wait_text('Enhanced capture is off')
+    ux.expect('Enable capture above to view DOM and source.')
     snapshot('elements-guide')
     ux.tap('Storage')
     wait_text('Cookies')
     ux.tap('Local Storage')
     wait_text('Local Storage')
-    snapshot('storage')
+    width, height = snapshot('storage')
+    for _ in range(3):
+        ux.adb('shell', 'input', 'swipe', str(width // 2), str(height // 2),
+               str(width // 2), str(height * 9 // 10), '180')
+        ux.expect('Developer tools')
+        ux.expect('Local Storage')
+    record('scrolling toward the top repeatedly does not dismiss fullscreen developer tools')
+    root, _ = ux.nodes()
+    field = next(n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText')
+    before = ux.bounds(field)
+    ux.tap_node(field)
+    time.sleep(.4)
+    root, _ = ux.nodes()
+    focused = next(n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText')
+    assert ux.bounds(focused) == before, 'Search field moved or resized after focus'
+    back()
+    record('search keeps the same bounds before and after focus')
     ux.tap('Page information')
     wait_text('User agent')
     ux.tap('Confirm')
@@ -147,16 +170,19 @@ try:
     wait_text('pure-audit-hidden')
     snapshot('reopened-console')
     record('console messages recorded with diagnostics closed appear after reopening')
-    orient('1')
-    enter('10+10')
-    width, height = snapshot('landscape-keyboard')
-    assert width > height, 'Rotation did not take effect'
-    ux.tap('Run')
-    wait_text('10+10\n20')
-    record('landscape keyboard leaves Run accessible and shows the latest result')
-    back()
-    ux.expect('Developer tools')
-    ux.expect('Network')
+    for cycle in range(3):
+        orient('1')
+        enter('10+10')
+        width, height = snapshot('landscape-keyboard-' + str(cycle))
+        assert width > height, 'Rotation did not take effect'
+        ux.tap('Run')
+        wait_text('10+10\n20')
+        back()
+        ux.expect('Developer tools')
+        ux.expect('Network')
+        if cycle < 2:
+            orient('0')
+    record('three landscape keyboard cycles keep Run accessible and show the latest result')
     snapshot('landscape-toolbar')
     record('dismissing the landscape keyboard restores the diagnostics toolbar')
     ux.adb('shell', 'input', 'keyevent', '3')
@@ -164,7 +190,7 @@ try:
     ux.expect('Developer tools')
     wait_text('10+10\n20')
     record('returning to the app without a URL preserves the open diagnostics panel')
-    ux.launch('http://127.0.0.1:8875/browser-ux.html?page=external')
+    ux.launch(f'http://127.0.0.1:{args.port}/browser-ux.html?page=external')
     ux.expect('Developer tools', present=False)
     ux.expect('Menu')
     ux.expect('Pure UX external Page')
@@ -174,7 +200,7 @@ try:
     ux.expect('Developer tools')
     ux.adb('shell', 'am', 'start', '-W', '-n', ux.PACKAGE + '/com.mybrowser.MainActivity',
            '-a', 'android.intent.action.SEND', '-t', 'text/plain', '--es', 'android.intent.extra.TEXT',
-           'http://127.0.0.1:8875/browser-ux.html?page=shared')
+           f'http://127.0.0.1:{args.port}/browser-ux.html?page=shared')
     ux.expect('Developer tools', present=False)
     ux.expect('Menu')
     ux.expect('Pure UX shared Page')
