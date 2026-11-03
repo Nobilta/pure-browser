@@ -57,6 +57,14 @@ test('DOM pagination survives eviction of the parent and child ids', () => {
   assert.strictEqual(early.id, stableFirstId, 'evicted live node was assigned a new id');
   assert.ok(!JSON.parse(api.domHtml(early.id)).invalid, 'early child id became invalid');
   assert.ok(!JSON.parse(api.domHtml(tail.nodes[99].id)).invalid, 'tail child id became invalid');
+
+  const inserted = window.document.createElement('span');
+  big.insertBefore(inserted, big.firstChild);
+  const shifted = children(bigNode.id, 0).nodes;
+  assert.ok(shifted.some(node => node.id === stableFirstId));
+  assert.ok(!JSON.parse(api.domHtml(stableFirstId)).invalid,
+    'moved node id was not re-associated with its new path');
+  assert.ok(!JSON.parse(api.domChildren(stableFirstId, 0, 100)).invalid);
   dom.window.close();
 });
 
@@ -125,5 +133,27 @@ test('deep DOM nodes get short unique ids instead of truncated paths', () => {
     node = JSON.parse(api.domChildren(node.id, 0, 100)).nodes[0];
   }
   assert.strictEqual(seen.size, 70);
+  dom.window.close();
+});
+
+test('source snapshots have a new id after reset so an export can reject a mixed document', () => {
+  const dom = new JSDOM('<!doctype html><html><body><p>first</p></body></html>', {
+    url: 'http://127.0.0.1:8875/source', runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  window.__bridge = { postMessage: () => {} };
+  const ns = '__pureSourceTest';
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/assets/devtools-capture.js'), 'utf8')
+    .replace('__BRIDGE__', '__bridge').replace('__TOKEN__', 'token').replace('__NAMESPACE__', ns);
+  window.eval(source);
+  const api = window[ns];
+  const first = JSON.parse(api.sourceInfo());
+  const firstPage = JSON.parse(api.sourcePage('0', '65536', '1000'));
+  assert.strictEqual(firstPage.sourceId, first.sourceId);
+  window.document.body.innerHTML = '<p>second</p>';
+  api.resetSource();
+  const second = JSON.parse(api.sourceInfo());
+  assert.ok(second.sourceId > first.sourceId, 'source snapshot id did not advance');
+  assert.ok(second.sourceId !== first.sourceId);
   dom.window.close();
 });

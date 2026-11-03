@@ -235,7 +235,13 @@ data class DomSearchResult(val id: String, val name: String, val preview: String
     val path: List<DomPathEntry>)
 data class DomSearchResults(val results: List<DomSearchResult>, val truncated: Boolean)
 
-data class SourceInfo(val totalChars: Int, val totalLines: Int, val url: String, val title: String)
+data class SourceInfo(
+    val totalChars: Int,
+    val totalLines: Int,
+    val url: String,
+    val title: String,
+    val sourceId: Int = 0,
+)
 
 data class SourcePage(
     val offset: Int,
@@ -247,6 +253,7 @@ data class SourcePage(
     val totalLines: Int,
     val nextOffset: Int?,
     val continued: Boolean,
+    val sourceId: Int = 0,
 )
 
 /** Cookie attributes are nullable: the API may not expose them, and "absent" is not "false". */

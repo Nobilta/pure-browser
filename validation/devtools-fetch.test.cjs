@@ -36,8 +36,23 @@ test('fetch header snapshots never coerce a stateful value a second time', () =>
   window.fetch('/object', {method: 'POST', headers: {'X-Test': objectValue}});
   assert.strictEqual(objectValue.calls, 1, 'object header was coerced after the real fetch');
 
+  let outerReads = 0, pairReads = 0, getterStringCalls = 0;
+  const getterPair = new Array(2);
+  Object.defineProperty(getterPair, '0', {get() { pairReads++; return 'X-Getter'; }});
+  Object.defineProperty(getterPair, '1', {get() {
+    pairReads++;
+    getterStringCalls++;
+    return 'first';
+  }});
+  const getterHeaders = new Array(1);
+  Object.defineProperty(getterHeaders, '0', {get() { outerReads++; return getterPair; }});
+  window.fetch('/getters', {method: 'POST', headers: getterHeaders});
+  assert.strictEqual(outerReads, 1, 'outer header array getter was read again');
+  assert.strictEqual(pairReads, 1, 'header pair getter was read again');
+  assert.strictEqual(getterStringCalls, 1);
+
   const requests = messages.filter(message => message.type === 'net-request');
-  assert.strictEqual(requests.length, 2);
+  assert.strictEqual(requests.length, 3);
   for (const request of requests) {
     assert.strictEqual(request.headersUnavailable, true);
     assert.deepStrictEqual(request.headers, []);
