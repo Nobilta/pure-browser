@@ -107,17 +107,33 @@
         return result;
       }
       if (Array.isArray(value)) {
-        // The request already consumed these pairs. Never run new Headers() or String()
-        // here: a stateful toString() would be evaluated a second time and the log would
-        // disagree with what was sent.
+        // The request already consumed these pairs. Read every level through property
+        // descriptors so a getter is not invoked a second time; getters are marked unknown.
         for (var p = 0; p < value.length && result.headers.length < MAX_HEADERS; p++) {
-          var pair = value[p];
-          if (!Array.isArray(pair) || pair.length < 2 ||
-              typeof pair[0] !== 'string' || typeof pair[1] !== 'string') {
+          var pairDescriptor = propertyDescriptor(value, String(p));
+          if (!pairDescriptor || !Object.prototype.hasOwnProperty.call(pairDescriptor, 'value')) {
             result.unknown = true;
             continue;
           }
-          result.headers.push([pair[0].slice(0, 256), pair[1].slice(0, MAX_HEADER_VALUE)]);
+          var pair = pairDescriptor.value;
+          if (!Array.isArray(pair)) {
+            result.unknown = true;
+            continue;
+          }
+          var nameDescriptor = propertyDescriptor(pair, '0');
+          var valueDescriptor = propertyDescriptor(pair, '1');
+          if (!nameDescriptor || !valueDescriptor ||
+              !Object.prototype.hasOwnProperty.call(nameDescriptor, 'value') ||
+              !Object.prototype.hasOwnProperty.call(valueDescriptor, 'value') ||
+              typeof nameDescriptor.value !== 'string' ||
+              typeof valueDescriptor.value !== 'string') {
+            result.unknown = true;
+            continue;
+          }
+          result.headers.push([
+            nameDescriptor.value.slice(0, 256),
+            valueDescriptor.value.slice(0, MAX_HEADER_VALUE),
+          ]);
         }
         return result;
       }
@@ -784,6 +800,7 @@
   var api = null;
   if (isTop) {
     var sourceCache = null;
+    var sourceSeq = 0;
     var nodeIds = new WeakMap();
     var nodes = new Map();
     var records = new Map();
@@ -849,9 +866,19 @@
       rememberNode(node, id, path);
       return id;
     }
+    function updateRecordPath(node, id, knownPath) {
+      var record = records.get(id);
+      if (!record) return;
+      var path = knownPath || pathIndices(node);
+      if (path) record.path = path.slice();
+    }
     function nodeId(node, knownPath) {
       var id = nodeIds.get(node);
-      if (id) return id;
+      if (id) {
+        // A live node can move without losing its identity; keep the fallback path current.
+        updateRecordPath(node, id, knownPath);
+        return id;
+      }
       var path = knownPath || pathIndices(node);
       if (!path) return 'n-invalid';
       return assignNode(node, path);
@@ -868,13 +895,17 @@
       var record = records.get(id);
       if (!record) return null;
       var node = nodes.get(id);
-      if (node && node.isConnected && node[ID_PROP] === record.token) return node;
+      if (node && node.isConnected && node[ID_PROP] === record.token) {
+        updateRecordPath(node, id);
+        return node;
+      }
       if (node) nodes.delete(id);
       node = resolveRecord(record);
       if (!node || !node.isConnected) return null;
       if (node[ID_PROP] !== record.token) return null;
       nodes.set(id, node);
       nodeIds.set(node, id);
+      updateRecordPath(node, id);
       return node;
     }
     function kindOf(node) {
@@ -891,7 +922,9 @@
     }
     function describe(node, knownPath) {
       var kind = kindOf(node);
-      var id = nodeIds.get(node) || (knownPath ? assignNode(node, knownPath) : nodeId(node));
+      var knownId = nodeIds.get(node);
+      if (knownId) updateRecordPath(node, knownId, knownPath);
+      var id = knownId || (knownPath ? assignNode(node, knownPath) : nodeId(node));
       var out = { id: id, kind: kind, name: '', childCount: 0, attributes: [] };
       if (kind === 'element') {
         out.name = String(node.tagName || '').toLowerCase();
@@ -937,7 +970,7 @@
       for (var i = 0; i < text.length; i++) {
         if (text.charCodeAt(i) === 10) starts.push(i + 1);
       }
-      sourceCache = { doc: D, text: text, starts: starts };
+      sourceCache = { doc: D, text: text, starts: starts, id: ++sourceSeq };
       return sourceCache;
     }
     api = {
@@ -948,7 +981,7 @@
       sourceInfo: function () {
         var state = ensureSource();
         return stringify({ totalChars: state.text.length, totalLines: state.starts.length,
-          url: location.href, title: D.title || '' });
+          url: location.href, title: D.title || '', sourceId: state.id });
       },
       sourcePage: function (offset, maxChars, maxLines) {
         var state = ensureSource();
@@ -976,7 +1009,7 @@
           startLine: startLine, endLine: lastLine + 1,
           totalChars: total, totalLines: state.starts.length,
           next: end < total ? end : null,
-          continued: offset > state.starts[startLine] });
+          continued: offset > state.starts[startLine], sourceId: state.id });
       },
       domRoot: function () {
         if (!D.documentElement) return stringify({ empty: true });
