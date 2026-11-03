@@ -40,6 +40,7 @@ test('DOM pagination survives eviction of the parent and child ids', () => {
   const bigNode = bodyKids.find(node => node.id && node.name === 'div');
   assert.ok(bigNode);
 
+  const stableFirstId = children(bigNode.id, 0).nodes[0].id;
   let loaded = 0;
   while (loaded < 20100) {
     const page = children(bigNode.id, loaded);
@@ -53,6 +54,7 @@ test('DOM pagination survives eviction of the parent and child ids', () => {
   // The parent and a much earlier child were evicted from the 20k map by now; path ids
   // must still resolve both.
   const early = children(bigNode.id, 0).nodes[0];
+  assert.strictEqual(early.id, stableFirstId, 'evicted live node was assigned a new id');
   assert.ok(!JSON.parse(api.domHtml(early.id)).invalid, 'early child id became invalid');
   assert.ok(!JSON.parse(api.domHtml(tail.nodes[99].id)).invalid, 'tail child id became invalid');
   dom.window.close();
