@@ -156,7 +156,7 @@ internal fun DeveloperTools(
                             webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput)
                         1 -> NetworkLogTab(
                             entries = networkEntries,
-                            onClear = { session?.network?.clear() },
+                            onClear = { session?.clearNetwork() },
                             onExplain = onExplainFilter,
                             session = session,
                             capture = capture,
