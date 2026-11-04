@@ -28,6 +28,7 @@ internal class PageNavigator(
     private val importUserScript: (String) -> Boolean,
     private val openExternal: (String) -> Unit,
     private val openNewTab: (String) -> Unit,
+    private val onRequestContextChanged: (String) -> Unit = {},
 ) {
     var backHistory by mutableStateOf<List<BackHistoryEntry>?>(null)
         private set
@@ -39,6 +40,7 @@ internal class PageNavigator(
         tab?.mediaNavigation = tab?.mediaNavigation?.follow(url, isRedirect = false)
             ?.let { if (isRedirect) it else it.forLoad() }
         val headers = tab?.mediaNavigation?.headersFor(url).orEmpty()
+        onRequestContextChanged(url)
         state.onNavigationRequested(url)
         if (headers.isEmpty()) webView().loadUrl(url) else webView().loadUrl(url, headers)
     }
