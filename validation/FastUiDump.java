@@ -110,7 +110,18 @@ public final class FastUiDump {
                     root = playerRoot(activeRoot(automation), 0);
                 }
             }
-            if (args.length == 2 && args[0].equals("setText")) {
+            if (args.length == 3 && args[0].equals("tapInRow")) {
+                JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[2]), StandardCharsets.UTF_8));
+                AccessibilityNodeInfo row = findRow(root, args[1], 0);
+                AccessibilityNodeInfo target = row == null ? null : findVisible(row, labels, 0, false);
+                if (target == null) throw new IllegalStateException("No matching row action");
+                // A sheet can move while its accessibility bounds are being updated.
+                // Invoke the identified button, so a stale position cannot hit another row.
+                while (!target.isClickable() && !target.equals(row)) target = target.getParent();
+                if (target.equals(row) || !target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    throw new IllegalStateException("Row button action rejected");
+                System.out.println("Tapped row action");
+            } else if (args.length == 2 && args[0].equals("setText")) {
                 AccessibilityNodeInfo input = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
                 if (input == null || !input.isEditable()) input = focusedEditable(root, 0);
                 if (input == null || !input.isEditable()) {
@@ -243,6 +254,22 @@ public final class FastUiDump {
             if (found != null) return found;
         }
         return null;
+    }
+
+    private static boolean hasSuffix(AccessibilityNodeInfo node, String suffix, int depth) {
+        if (depth > 50 || node == null) return false;
+        if (node.getText() != null && node.getText().toString().endsWith(suffix)) return true;
+        for (int i = 0; i < node.getChildCount(); i++) if (hasSuffix(node.getChild(i), suffix, depth + 1)) return true;
+        return false;
+    }
+
+    private static AccessibilityNodeInfo findRow(AccessibilityNodeInfo node, String suffix, int depth) {
+        if (depth > 50 || node == null) return null;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo found = findRow(node.getChild(i), suffix, depth + 1);
+            if (found != null) return found;
+        }
+        return node.isVisibleToUser() && node.isCheckable() && hasSuffix(node, suffix, 0) ? node : null;
     }
 
     private static AccessibilityNodeInfo findVisible(AccessibilityNodeInfo node, JSONArray labels, int depth, boolean nativeOnly) {

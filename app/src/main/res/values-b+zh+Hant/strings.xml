@@ -1018,4 +1018,8 @@
     <string name="dev_dom_show_whitespace">顯示空白節點</string>
     <string name="dev_text_page">第 %1$d/%2$d 段</string>
     <string name="dev_copy_captured">複製已擷取內容</string>
+    <string name="media_request_network">無法連線到媒體伺服器。</string>
+    <string name="media_request_timeout">媒體請求逾時。</string>
+    <string name="media_request_redirect">媒體伺服器傳回無效或不安全的跳轉。</string>
+    <string name="media_request_http">媒體伺服器傳回 HTTP %1$d。</string>
 </resources>

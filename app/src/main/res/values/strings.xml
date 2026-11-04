@@ -1020,4 +1020,8 @@
     <string name="dev_dom_show_whitespace">Show whitespace nodes</string>
     <string name="dev_text_page">Section %1$d of %2$d</string>
     <string name="dev_copy_captured">Copy captured content</string>
+    <string name="media_request_network">The media server could not be reached.</string>
+    <string name="media_request_timeout">The media request timed out.</string>
+    <string name="media_request_redirect">The media server returned an invalid or unsafe redirect.</string>
+    <string name="media_request_http">The media server returned HTTP %1$d.</string>
 </resources>

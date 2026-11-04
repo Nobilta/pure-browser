@@ -62,27 +62,70 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path.startswith('/cast-referer/'):
             case = parse_qs(parsed.query).get('case', ['default'])[0][:80]
             expected = 'http://127.0.0.1:8875/cast-referrer-fixture.html?case=' + case
+            if case.startswith('origin-'):
+                expected = 'http://127.0.0.1:8875/'
+            elif case.startswith('none-'):
+                expected = ''
             referer = self.headers.get('Referer', '')
+            is_cdn = self.headers.get('Host', '').startswith('localhost:')
+            if parsed.path == '/cast-referer/seed':
+                self.send_response(200)
+                self.send_header('Set-Cookie', 'cdn_session=seed; Path=/cast-referer/; SameSite=None; Secure')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
             leak_check = parsed.path == '/cast-referer/leak-check'
             has_cookie = ('cast_session=' + case) in self.headers.get('Cookie', '').split('; ')
+            if is_cdn:
+                values = self.headers.get('Cookie', '').split('; ')
+                has_cookie = 'cdn_session=seed' in values
+                # CookieManager requires HTTPS when storing Secure cookies, even for
+                # loopback. Verify response writes with a regular Lax cookie on the GET
+                # main navigation; cross-site media subrequests must not send that cookie.
+                if parsed.path.endswith('/cdn-final.mp4') and not self.headers.get('Range'):
+                    has_cookie = has_cookie and ('cdn_hop=' + case) in values
             allowed = referer != expected if leak_check else referer == expected and has_cookie
             with LOCK:
                 EVENTS['cast-referrer-' + case].append({
                     'path': parsed.path, 'port': self.server.server_port, 'referer': referer,
+                    'host': self.headers.get('Host', ''), 'cookie': self.headers.get('Cookie', ''),
                     'range': self.headers.get('Range', ''), 'hasCookie': has_cookie, 'allowed': allowed, 'receivedAt': time.time(),
                 })
             if not allowed:
                 self.send_error(403, 'Unexpected Referer'); return
+            with LOCK:
+                armed = bool(EVENTS.get('media-failure-' + case))
+            if armed and case.startswith('failhttp-'):
+                self.send_error(403, 'Media denied'); return
+            if armed and (case.startswith('failtls-') or case.startswith('failoffline-')):
+                target = 'https://localhost:8877' if case.startswith('failtls-') else 'http://127.0.0.1:8879'
+                self.send_response(302)
+                self.send_header('Location', target + self.path)
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            if armed and case.startswith('failread-'):
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', '100000')
+                self.end_headers(); self.wfile.write(b'truncated')
+                self.close_connection = True; return
             if leak_check:
                 body = b'<h1>No stale media Referer</h1>'
                 self.send_response(200); self.send_header('Content-Type', 'text/html')
                 self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if parsed.path in ('/cast-referer/cdn.mp4', '/cast-referer/cdn-session.mp4'):
+                self.send_response(302)
+                if is_cdn:
+                    self.send_header('Set-Cookie', 'cdn_hop=' + case + '; Path=/cast-referer/; SameSite=Lax')
+                next_path = 'cdn-final.mp4' if is_cdn else 'cdn-session.mp4'
+                self.send_header('Location', 'http://localhost:8876/cast-referer/' + next_path + '?case=' + case)
+                self.send_header('Referrer-Policy', 'unsafe-url')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
             if parsed.path == '/cast-referer/redirect.mp4':
                 self.send_response(302)
                 self.send_header('Location', 'http://127.0.0.1:8876/cast-referer/final.mp4?case=' + case)
+                self.send_header('Referrer-Policy', 'unsafe-url')
                 self.send_header('Cache-Control', 'no-store')
                 self.send_header('Content-Length', '0'); self.end_headers(); return
-            file = ROOT / 'player-sample.mp4'
+            name = parsed.path.rsplit('/', 1)[-1].removesuffix('.mp4')
+            file = ROOT / 'results' / (name + '.mp4') if name in ('large', 'boundary', 'over-limit') else ROOT / 'player-sample.mp4'
             size = file.stat().st_size
             match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
             start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
@@ -100,7 +143,12 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             try:
                 with file.open('rb') as stream:
-                    stream.seek(start); self.wfile.write(stream.read(end - start + 1))
+                    stream.seek(start)
+                    remaining = end - start + 1
+                    while remaining:
+                        chunk = stream.read(min(64 * 1024, remaining))
+                        if not chunk: break
+                        self.wfile.write(chunk); remaining -= len(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
@@ -256,5 +304,14 @@ if __name__ == '__main__':
     APK_PATH = parser.parse_args().apk.resolve()
     secondary = ThreadingHTTPServer(('127.0.0.1', 8876), Handler)
     threading.Thread(target=secondary.serve_forever, daemon=True).start()
+    cert = ROOT / 'results/referrer-tls-cert.pem'
+    key = ROOT / 'results/referrer-tls-key.pem'
+    if cert.exists() and key.exists():
+        import ssl
+        tls = ThreadingHTTPServer(('127.0.0.1', 8877), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        tls.socket = context.wrap_socket(tls.socket, server_side=True)
+        threading.Thread(target=tls.serve_forever, daemon=True).start()
     print('Fixtures available on loopback ports 8875 and 8876', flush=True)
     ThreadingHTTPServer(('127.0.0.1', 8875), Handler).serve_forever()

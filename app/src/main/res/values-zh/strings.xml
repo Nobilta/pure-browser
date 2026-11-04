@@ -1019,4 +1019,8 @@
     <string name="dev_dom_show_whitespace">显示空白节点</string>
     <string name="dev_text_page">第 %1$d/%2$d 段</string>
     <string name="dev_copy_captured">复制已采集内容</string>
+    <string name="media_request_network">无法连接到媒体服务器。</string>
+    <string name="media_request_timeout">媒体请求超时。</string>
+    <string name="media_request_redirect">媒体服务器返回了无效或不安全的跳转。</string>
+    <string name="media_request_http">媒体服务器返回 HTTP %1$d。</string>
 </resources>
