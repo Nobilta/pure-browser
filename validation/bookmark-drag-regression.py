@@ -80,15 +80,17 @@ def run(serial, package):
         ux.adb('shell', 'input', 'swipe', x,y,x,y,'850'); time.sleep(.5)
     def handles():
         return [n for n in ux.nodes()[0].iter('node') if ux.visible(n) and n.get('content-desc') in ux.resource_labels('bookmarks_drag')]
-    def drag(index, target, hold=0, cancel=False):
+    def drag(index, target, hold=0, cancel=False, jump=False):
         h = handles(); x1,y1,x2,y2 = ux.bounds(h[index]); x,y = (x1+x2)//2,(y1+y2)//2
         if target == 'edge':
             scroll = next(n for n in ux.nodes()[0].iter('node') if n.get('scrollable')=='true')
             end = ux.bounds(scroll)[3]-15
         else:
             a,b,c,d=ux.bounds(h[target]); end=(b+d)//2 + (55 if target > index else -55)
+        args = ['dragJump', str(x), str(y), str(x), str(end)] if jump else [
+            'dragCancel' if cancel else 'dragHold', str(x), str(y), str(x), str(end), '1200', str(hold)]
         ux.adb('shell','env','CLASSPATH='+ux.UI_PROBE,'app_process','-Xusejit:false','/system/bin',
-               'com.mybrowser.validation.FastUiDump','dragCancel' if cancel else 'dragHold',str(x),str(y),str(x),str(end),'1200',str(hold))
+               'com.mybrowser.validation.FastUiDump', *args)
         time.sleep(.8)
     def screenshot(name):
         _,xml = ux.nodes(); (out / ('bookmark-'+name+'.xml')).write_text(xml)
@@ -135,6 +137,16 @@ def run(serial, package):
         drag(rows.index('Drag QA 001'), 0)
         assert database()['bookmarks'][0] == ('Drag QA 001',)
         record('Upward drag returns the bookmark to the first position')
+        jump_from = min(len(handles()) - 1, 6)
+        jump_to = max(1, jump_from - 3)
+        assert jump_from - jump_to >= 3, 'Not enough visible rows for a multi-row jump'
+        before_jump = [r[0] for r in database()['bookmarks']]
+        jumped = before_jump[jump_from]
+        drag(jump_from, jump_to, jump=True)
+        jumped_rows = [r[0] for r in database()['bookmarks']]
+        assert abs(jumped_rows.index(jumped) - jump_to) <= 1 and jumped_rows.index(jumped) < jump_from - 1, jumped_rows[:10]
+        assert {'Drag QA 001','Drag QA 002'} <= selection()
+        record('One coalesced upward move crosses multiple rows and saves the hovered position')
         drag(0, 'edge', 13000)
         rows = [r[0] for r in database()['bookmarks']]
         assert rows.index('Drag QA 001') >= 50 and len(rows)==75 and len(set(rows))==75, rows

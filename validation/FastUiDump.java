@@ -48,7 +48,24 @@ public final class FastUiDump {
                 UiAutomation.class.getMethod("connect", int.class).invoke(automation,
                         UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
             } else UiAutomation.class.getMethod("connect").invoke(automation);
-            if (args.length == 7 && (args[0].equals("dragHold") || args[0].equals("dragCancel"))) {
+            if (args.length == 5 && args[0].equals("dragJump")) {
+                float x = Float.parseFloat(args[1]), y = Float.parseFloat(args[2]);
+                float endX = Float.parseFloat(args[3]), endY = Float.parseFloat(args[4]);
+                long down = SystemClock.uptimeMillis();
+                // Start the recognizer, then deliver one coalesced move across rows.
+                float slopY = y + Math.copySign(Math.min(48f, Math.abs(endY - y) / 2), endY - y);
+                float[] ys = new float[] {y, slopY, endY, endY};
+                int[] actions = new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE,
+                        MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP};
+                for (int i = 0; i < actions.length; i++) {
+                    MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), actions[i],
+                            i < 2 ? x : endX, ys[i], 0);
+                    event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                    if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Jump drag injection failed");
+                    event.recycle(); SystemClock.sleep(64);
+                }
+                System.out.println("Jumped and released");
+            } else if (args.length == 7 && (args[0].equals("dragHold") || args[0].equals("dragCancel"))) {
                 float x = Float.parseFloat(args[1]), y = Float.parseFloat(args[2]);
                 float endX = Float.parseFloat(args[3]), endY = Float.parseFloat(args[4]);
                 int duration = Integer.parseInt(args[5]), hold = Integer.parseInt(args[6]);

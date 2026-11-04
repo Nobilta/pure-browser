@@ -113,6 +113,19 @@ SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子
 
 ## 模拟器回归
 
+媒体原生回退回归可单独运行，不需要 QA 服务：
+
+```bash
+python3 validation/media-fallback-regression.py --serial emulator-5554
+```
+
+脚本在本机 8880 端口启动夹具，检查跳转响应的 no-referrer／origin 策略、HTML 目标与刷新，
+以及直接／重定向附件和显式无来源的下载确认。结果写入 `validation/results/media-fallback-<serial>.json`，
+记录被测 APK 和测试源码校验值；`--package com.mybrowser.debug` 可检查调试包。
+书签排序回归运行 `python3 validation/bookmark-drag-regression.py --serial emulator-5554`，需先启动下面的 QA 服务。
+它使用专用 root 模拟器中的夹具记录，覆盖分页边缘滚动、取消、持久排序、多选和一次位移跨多行的向上拖动。
+修改 FastUiDump 后先运行 `python3 validation/setup-ui-probe.py emulator-5554`，避免旧辅助程序漏测新手势。
+
 投屏列表的播放操作可在 QA 服务运行后单独检查：
 
 ```bash
