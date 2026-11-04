@@ -59,6 +59,51 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path.startswith('/cast-referer/'):
+            case = parse_qs(parsed.query).get('case', ['default'])[0][:80]
+            expected = 'http://127.0.0.1:8875/cast-referrer-fixture.html?case=' + case
+            referer = self.headers.get('Referer', '')
+            leak_check = parsed.path == '/cast-referer/leak-check'
+            has_cookie = ('cast_session=' + case) in self.headers.get('Cookie', '').split('; ')
+            allowed = referer != expected if leak_check else referer == expected and has_cookie
+            with LOCK:
+                EVENTS['cast-referrer-' + case].append({
+                    'path': parsed.path, 'port': self.server.server_port, 'referer': referer,
+                    'range': self.headers.get('Range', ''), 'hasCookie': has_cookie, 'allowed': allowed, 'receivedAt': time.time(),
+                })
+            if not allowed:
+                self.send_error(403, 'Unexpected Referer'); return
+            if leak_check:
+                body = b'<h1>No stale media Referer</h1>'
+                self.send_response(200); self.send_header('Content-Type', 'text/html')
+                self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if parsed.path == '/cast-referer/redirect.mp4':
+                self.send_response(302)
+                self.send_header('Location', 'http://127.0.0.1:8876/cast-referer/final.mp4?case=' + case)
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            file = ROOT / 'player-sample.mp4'
+            size = file.stat().st_size
+            match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+            start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
+            if start > end or start >= size:
+                self.send_response(416); self.send_header('Content-Range', f'bytes */{size}'); self.end_headers(); return
+            if match:
+                end = min(end, start + 64 * 1024 - 1)
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', 'video/mp4')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Content-Length', str(end - start + 1))
+            if match:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            try:
+                with file.open('rb') as stream:
+                    stream.seek(start); self.wfile.write(stream.read(end - start + 1))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         if parsed.path == '/__auth':
             if self.headers.get('Authorization') != 'Basic dGVzdDpwdXJl':
                 self.send_response(401)

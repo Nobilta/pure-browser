@@ -44,10 +44,11 @@ class PrivacyMode(private val appContext: android.content.Context) {
     private var sharedJarCleared = false
 
     /** Credentials always come from the profile that owns the requesting page. */
+    fun cookieManagerForCurrentProfile(): CookieManager? =
+        if (isIncognito && hasRealIsolation) IncognitoProfile.cookieManager() else CookieManager.getInstance()
+
     fun cookiesFor(url: String): String? = runCatching {
-        val manager = if (isIncognito && hasRealIsolation) IncognitoProfile.cookieManager()
-            else CookieManager.getInstance()
-        manager?.getCookie(url)
+        cookieManagerForCurrentProfile()?.getCookie(url)
     }.getOrNull()
 
     /**

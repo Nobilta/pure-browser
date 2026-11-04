@@ -574,12 +574,17 @@ class MainActivity : ComponentActivity(),
      * from Chromium's network thread is unnecessary coupling and can observe a stale snapshot;
      * the volatile value is updated alongside the main-frame callbacks instead.
      */
-    private data class WorkerDocument(val url: String = ABOUT_BLANK, val filtering: Boolean = true)
+    private data class WorkerDocument(val url: String = ABOUT_BLANK, val filtering: Boolean = true,
+                                     val mediaNavigation: com.mybrowser.tabs.MediaNavigation? = null,
+                                     val cookies: android.webkit.CookieManager? = null)
     @Volatile private var workerDocument = WorkerDocument()
     private var temporaryFilterOrigins by mutableStateOf<Set<String>>(emptySet())
     private var filterExplanation by mutableStateOf<com.mybrowser.core.NetworkRequestLog?>(null)
-    private fun documentFor(url: String) = WorkerDocument(url,
-        activeSites.get(url).filtering && SiteOrigin.of(url) !in temporaryFilterOrigins)
+    private fun documentFor(url: String): WorkerDocument {
+        val navigation = if (::tabManager.isInitialized) tabManager.currentTab?.mediaNavigation?.takeIf { it.matches(url) } else null
+        return WorkerDocument(url, activeSites.get(url).filtering && SiteOrigin.of(url) !in temporaryFilterOrigins,
+            navigation, if (navigation != null) privacy.cookieManagerForCurrentProfile() else null)
+    }
 
     private val webView: WebView
         get() = checkNotNull(webViewOrNull) { "WebView read before onCreate acquired it" }
@@ -2336,7 +2341,7 @@ class MainActivity : ComponentActivity(),
         persistNormalSession()
     }
 
-    private fun openUrlInNewTab(url: String, background: Boolean = false) {
+    private fun openUrlInNewTab(url: String, background: Boolean = false, mediaPageUrl: String? = null) {
         val target = NavigationPolicy.resolve(url, searchEngine)
         if (target is NavigationTarget.External) {
             onExternalUrl(target.url)
@@ -2347,7 +2352,8 @@ class MainActivity : ComponentActivity(),
         if (!tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); return }
         if (!background) saveCurrentTab()
         tabManager.createTab(loadUrl, select = !background, title = UrlUtils.hostOf(loadUrl).orEmpty(),
-            openerTabId = tabManager.currentTab?.id)
+            openerTabId = tabManager.currentTab?.id,
+            mediaNavigation = com.mybrowser.tabs.MediaNavigation.create(loadUrl, mediaPageUrl))
         if (background) {
             persistNormalSession()
             toast(getString(R.string.context_opened_background))
@@ -2529,8 +2535,11 @@ class MainActivity : ComponentActivity(),
         }
         sheetNavigation.clear()
         leaveFullscreen()
-        openUrlInNewTab(candidate.url)
+        openUrlInNewTab(candidate.url, mediaPageUrl = mediaSourcePage(candidate))
     }
+
+    private fun mediaSourcePage(candidate: MediaSniffer.Candidate): String? =
+        tabManager.currentTab?.mediaNavigation?.sourceFor(candidate.url, candidate.pageUrl) ?: candidate.pageUrl
 
     private fun downloadMediaCandidate(candidate: com.mybrowser.media.MediaSniffer.Candidate) {
         submitDownloadRequest(
@@ -2541,7 +2550,7 @@ class MainActivity : ComponentActivity(),
                 MimeTypeMap.getFileExtensionFromUrl(candidate.url),
             ),
             fromUser = true,
-            referer = candidate.pageUrl?.takeIf { com.mybrowser.core.UrlUtils.isHttpUrl(it) },
+            referer = mediaSourcePage(candidate)?.takeIf { com.mybrowser.core.UrlUtils.isHttpUrl(it) },
         )
     }
 
@@ -2912,13 +2921,32 @@ class MainActivity : ComponentActivity(),
 
     override fun isCurrentWebView(view: WebView): Boolean = webViewOrNull === view
 
-    override fun onMainFrameNavigation(url: String) {
+    override fun onMainFrameNavigation(url: String, isRedirect: Boolean): Boolean {
+        val tab = tabManager.currentTab
+        val mediaNavigation = tab?.mediaNavigation
         state.onNavigationRequested(url)
         cancelWebsitePermissions()
+        if (isRedirect && mediaNavigation != null && UrlUtils.isHttpUrl(url)) {
+            tab.mediaNavigation = mediaNavigation.follow(url, isRedirect = true)
+            if (!mediaNavigation.canFollowRedirect) {
+                onPageError(url, android.webkit.WebViewClient.ERROR_REDIRECT_LOOP, "Too many redirects")
+                return true
+            }
+            applySiteSettings(webView, url)
+            // Chromium can reduce the explicit referrer to an origin across hosts. Reapply
+            // it to this GET redirect, or omit it entirely when the target is a downgrade.
+            navigator.load(url, isRedirect = true)
+            return true
+        }
+        tab?.mediaNavigation = mediaNavigation?.follow(url, isRedirect = false)
         applySiteSettings(webView, url)
+        return false
     }
 
     override fun onPageStarted(url: String) {
+        tabManager.currentTab?.let { tab ->
+            tab.mediaNavigation = tab.mediaNavigation?.follow(url, isRedirect = false)
+        }
         ReaderMode.onPageStarted()
         translationJob?.cancel()
         translationScrollJob?.cancel()
@@ -3264,7 +3292,11 @@ class MainActivity : ComponentActivity(),
         }
 
         MediaSniffer.inspect(request, documentUrl)?.let { media.add(it, mediaGeneration) }
-        return null
+        return com.mybrowser.media.MediaRequestInterceptor.intercept(request, document.mediaNavigation, document.cookies) {
+            val current = workerDocument
+            webViewOrNull === view && current.mediaNavigation?.url == document.mediaNavigation?.url &&
+                current.mediaNavigation?.referer == document.mediaNavigation?.referer && current.cookies === document.cookies
+        }
     }
 
     override fun onNetworkHttpError(
