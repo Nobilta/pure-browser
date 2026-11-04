@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="unsafe-url">
+<title>Cast referrer fixture</title>
+<h1>Cast referrer fixture</h1>
+<button onclick="refreshSources()">Refresh sources</button>
+<button onclick="document.querySelector('video').play()">Play primary</button>
+<video controls muted loop playsinline style="width:100%"></video>
+<script>
+  const query = '?case=' + encodeURIComponent(new URLSearchParams(location.search).get('case'));
+  document.cookie = 'cast_session=' + new URLSearchParams(location.search).get('case') + '; Path=/cast-referer/; SameSite=Lax';
+  const direct = '/cast-referer/direct.mp4' + query;
+  document.querySelector('video').src = direct;
+  function refreshSources() {
+    fetch(direct, {cache: 'no-store'}).catch(() => {});
+    fetch('/cast-referer/redirect.mp4' + query, {cache: 'no-store'}).catch(() => {});
+  }
+  refreshSources();
+</script>

@@ -33,15 +33,24 @@ internal class PageNavigator(
         private set
     private var backHistoryEpoch = 0L
 
-    fun load(url: String) {
-        if (readiness.awaitPrivacy { load(url) }) return
+    fun load(url: String, isRedirect: Boolean = false) {
+        if (readiness.awaitPrivacy { load(url, isRedirect) }) return
+        val tab = tabs().currentTab
+        tab?.mediaNavigation = tab?.mediaNavigation?.follow(url, isRedirect = false)
+            ?.let { if (isRedirect) it else it.forLoad() }
+        val headers = tab?.mediaNavigation?.headersFor(url).orEmpty()
         state.onNavigationRequested(url)
-        webView().loadUrl(url)
+        if (headers.isEmpty()) webView().loadUrl(url) else webView().loadUrl(url, headers)
     }
 
     fun reload() {
         if (readiness.awaitPrivacy(::reload)) return
         val view = webView()
+        val url = view.url ?: state.currentUrl
+        if (tabs().currentTab?.mediaNavigation?.matches(url) == true) {
+            load(url)
+            return
+        }
         state.onNavigationRequested(view.url ?: state.currentUrl)
         view.reload()
     }

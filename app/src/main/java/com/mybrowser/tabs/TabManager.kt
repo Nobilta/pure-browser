@@ -61,10 +61,12 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     }
 
     /** Background tabs remain metadata until selected. At the cap, returns the current id. */
-    fun createTab(url: String = "", select: Boolean = true, title: String = "", openerTabId: String? = null): String {
+    fun createTab(url: String = "", select: Boolean = true, title: String = "", openerTabId: String? = null,
+                  mediaNavigation: MediaNavigation? = null): String {
         if (_tabs.size >= maxTabs) return currentTab?.id.orEmpty()
         val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url), title = title.take(MAX_TAB_TITLE_LENGTH),
-            group = currentTab?.group.orEmpty(), openerTabId = openerTabId?.takeIf { id -> _tabs.any { it.id == id } })
+            group = currentTab?.group.orEmpty(), openerTabId = openerTabId?.takeIf { id -> _tabs.any { it.id == id } },
+            mediaNavigation = mediaNavigation?.takeIf { it.matches(url) })
         _tabs += tab
         if (select || currentIndex < 0) { currentIndex = _tabs.lastIndex; rememberSelection() }
         changed()
@@ -160,6 +162,12 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     }
 
     fun loadCurrentState(webView: WebView): Boolean {
+        // A restored Chromium history entry need not retain loadUrl's extra headers.
+        // Reload media explicitly through PageNavigator when a parked renderer is unavailable.
+        currentTab?.takeIf { it.mediaNavigation?.matches(it.url) == true }?.let {
+            it.savedState = null
+            return false
+        }
         val state = currentTab?.savedState ?: return false
         val restored = runCatching { webView.restoreState(state) != null }.getOrDefault(false)
         if (!restored) {

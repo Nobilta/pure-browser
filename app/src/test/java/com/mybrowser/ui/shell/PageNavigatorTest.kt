@@ -7,6 +7,7 @@ import androidx.core.net.toUri
 import com.mybrowser.core.NavigationReadiness
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.tabs.TabManager
+import com.mybrowser.tabs.MediaNavigation
 import kotlinx.coroutines.test.TestScope
 import org.junit.Assert.*
 import org.junit.Test
@@ -20,9 +21,37 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class PageNavigatorTest {
     private class HistoryView : WebView(RuntimeEnvironment.getApplication()) {
+        var requestHeaders = emptyMap<String, String>()
+        override fun loadUrl(url: String) {
+            requestHeaders = emptyMap()
+            super.loadUrl(url)
+        }
+        override fun loadUrl(url: String, additionalHttpHeaders: MutableMap<String, String>) {
+            requestHeaders = additionalHttpHeaders.toMap()
+            super.loadUrl(url, additionalHttpHeaders)
+        }
         override fun canGoBackOrForward(steps: Int): Boolean = copyBackForwardList().let {
             it.currentIndex + steps in 0 until it.size
         }
+    }
+
+    @Test fun mediaLoadRefreshAndRendererReplacementRetainOnlyTheirOwnReferrer() {
+        val f = Fixture()
+        val url = "https://cdn.example/video.mp4?token=a%2Bb"
+        val referer = "https://site.example/watch"
+        f.tabs.createTab(url, mediaNavigation = MediaNavigation.create(url, referer))
+        f.navigator.load(url)
+        assertEquals(mapOf("Referer" to referer), (f.view as HistoryView).requestHeaders)
+        f.navigator.reload()
+        assertEquals(mapOf("Referer" to referer), (f.view as HistoryView).requestHeaders)
+        f.tabs.saveCurrentState(f.view)
+        f.view = HistoryView()
+        assertFalse(f.tabs.loadCurrentState(f.view))
+        f.navigator.load(f.tabs.currentTab!!.url)
+        assertEquals(mapOf("Referer" to referer), (f.view as HistoryView).requestHeaders)
+        f.navigator.navigate("https://cdn.example/article")
+        assertTrue((f.view as HistoryView).requestHeaders.isEmpty())
+        assertNull(f.tabs.currentTab!!.mediaNavigation)
     }
 
     private class Fixture(maxTabs: Int = 32) {

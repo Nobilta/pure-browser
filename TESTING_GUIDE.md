@@ -108,6 +108,12 @@ python3 validation/cast-play-regression.py --serial emulator-5554
 清单夹具只用于检查入口和导航，不用于验证分片播放或合并下载。
 结果写入 `validation/results/cast-play.json`，包含被测 APK 的 SHA-256；实体接收器需另行验证。
 
+来源校验回归运行 `python3 validation/cast-referrer-regression.py --serial emulator-5554`。
+QA 服务对缺少或错误 Referer 的媒体返回 403；脚本检查普通／无痕标签播放、Range／拖动、刷新、
+跨源重定向，以及同标签打开其他页面后不再发送旧来源。结果保存在 `validation/results/cast-referrer.json`。
+夹具同时检查当前会话 Cookie，并分段返回媒体以覆盖连续 Range 请求；本回归不代表超大文件、
+未知长度／压缩响应及 HLS／DASH 分片播放已兼容，实际覆盖以 `release/notes.md` 为准。
+
 JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
 导出前订阅初始化、导入后的首次规则更新等），联想测试用本地 HTTP 服务核对 OpenSearch / JSONP
 与深嵌套失败处理，备份测试用真实书签与历史存储核对导出合并、上限截断和重复导入不累加。
