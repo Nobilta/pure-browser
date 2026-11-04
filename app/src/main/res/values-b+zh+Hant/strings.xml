@@ -523,7 +523,7 @@
     <string name="site_save_failed">無法儲存網站設定，請重試。</string>
 
     <!-- Tab recovery and bookmark interchange. -->
-    <string name="bookmarks_transfer">匯入或匯出書籤</string>
+    <string name="bookmarks_transfer">書籤操作</string>
     <string name="bookmarks_import">匯入書籤</string>
     <string name="bookmarks_export">匯出書籤</string>
     <string name="bookmarks_import_preview">匯入 %1$d 個網頁書籤？已略過 %2$d 個無效或重複項目。現有書籤會保留。</string>
@@ -1022,4 +1022,6 @@
     <string name="media_request_timeout">媒體請求逾時。</string>
     <string name="media_request_redirect">媒體伺服器傳回無效或不安全的跳轉。</string>
     <string name="media_request_http">媒體伺服器傳回 HTTP %1$d。</string>
+    <string name="bookmarks_drag">拖曳排序</string>
+    <string name="bookmarks_organize">整理資料夾</string>
 </resources>

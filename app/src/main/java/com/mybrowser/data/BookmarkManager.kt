@@ -493,6 +493,26 @@ class BookmarkManager(context: Context) {
     }
 
     @Synchronized
+    fun moveRelative(id: Long, folder: Boolean, parentId: Long, anchorId: Long, after: Boolean) {
+        check(!closed)
+        require(id != anchorId)
+        val table = if (folder) "bookmark_folders" else "bookmarks"
+        val parent = if (folder) "parent_id" else "folder_id"
+        db.writableDatabase.transaction {
+            val ids = query(table, arrayOf("id"), "$parent = ?", arrayOf(parentId.toString()), null, null, "position, id").use {
+                buildList { while (it.moveToNext()) add(it.getLong(0)) }.toMutableList()
+            }
+            // Resolve stable IDs against the complete directory, not the visible page.
+            check(id in ids && anchorId in ids) { "Bookmark directory changed" }
+            ids.remove(id)
+            ids.add(ids.indexOf(anchorId) + if (after) 1 else 0, id)
+            ids.forEachIndexed { index, row ->
+                execSQL("UPDATE $table SET position = ? WHERE id = ?", arrayOf<Any>(index, row))
+            }
+        }
+    }
+
+    @Synchronized
     fun reorder(id: Long, folder: Boolean, direction: Int) {
         check(!closed)
         require(direction == -1 || direction == 1)

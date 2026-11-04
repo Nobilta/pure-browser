@@ -169,7 +169,6 @@ import com.mybrowser.download.DownloadHandler
 import com.mybrowser.download.DownloadSettings
 import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.data.Bookmark
-import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.HistoryEntry
 import com.mybrowser.ui.shell.BrowserScreen
 import com.mybrowser.ui.shell.ElementPickerState
@@ -1095,35 +1094,6 @@ class MainActivity : ComponentActivity(),
                             },
                             onDeleteBookmark = ::removeBookmark,
                             onDeleteBookmarks = ::deleteBookmarksWithUndo,
-                            onClearAll = {
-                                dialogs.confirm(this, getString(R.string.bookmarks_clear),
-                                    getString(R.string.bookmarks_clear_confirm)) { confirmed ->
-                                    if (confirmed) {
-                                        var folders = emptyList<BookmarkFolder>()
-                                        var bookmarks = emptyList<Bookmark>()
-                                        updateLibrary({
-                                            folders = bookmarkManager.getFolders()
-                                            bookmarks = bookmarkManager.getAllBookmarks()
-                                            bookmarkManager.clearAll()
-                                        }) {
-                                            bookmarkStatus.setKnown(state.currentUrl, false)
-                                            loadBookmarks()
-                                            snackbar(getString(R.string.bookmarks_cleared),
-                                                getString(R.string.action_undo)) {
-                                                updateLibrary({
-                                                    check(bookmarkManager.restoreSnapshot(folders, bookmarks)) {
-                                                        "bookmark snapshot restore failed"
-                                                    }
-                                                }) {
-                                                    refreshBookmarkStatus(state.currentUrl)
-                                                    loadBookmarks()
-                                                    toast(getString(R.string.bookmarks_restored))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
                             onDismiss = { dismissSheet(entry) },
                         )
 
@@ -2654,7 +2624,7 @@ class MainActivity : ComponentActivity(),
         val shouldAddToHome = addToHome && UrlUtils.isHttpUrl(normalized)
         // Give the background encoder its own bitmap, and only reuse the site's icon
         // when the edited URL still identifies the current page.
-        val faviconCopy = if (shouldAddToHome && normalized == state.currentUrl) {
+        val faviconCopy = if (normalized == state.currentUrl) {
             runCatching {
                 tabManager.currentTab?.favicon
                     ?.takeUnless(Bitmap::isRecycled)
@@ -2669,6 +2639,7 @@ class MainActivity : ComponentActivity(),
                 if (draft.id == null) bookmarkManager.addBookmark(cleanTitle, normalized)
                 else if (bookmarkManager.updateBookmark(draft.id, cleanTitle, normalized)) draft.id else -1L
             }.getOrDefault(-1L)
+            if (rowId >= 0L && faviconCopy != null) com.mybrowser.data.BookmarkIcons.write(this@MainActivity, normalized, faviconCopy)
             val updatedShortcuts = if (rowId >= 0L && shouldAddToHome) {
                 runCatching {
                     homeRepository.upsertShortcut(cleanTitle, normalized, faviconCopy)
@@ -3386,6 +3357,15 @@ class MainActivity : ComponentActivity(),
             // Chromium and pending Compose frames may still hold the previous bitmap.
             tab.favicon = icon
             tabManager.notifyChanged()
+            if (!privacy.isIncognito && icon != null && !icon.isRecycled) {
+                val url = tab.url
+                val copy = runCatching { icon.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+                if (copy != null) lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        if (bookmarkManager.isBookmarked(url)) com.mybrowser.data.BookmarkIcons.write(this@MainActivity, url, copy)
+                    } finally { copy.recycle() }
+                }
+            }
         }
     }
 

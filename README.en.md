@@ -20,7 +20,7 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
 - **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with system Back to exit, selectable detail text and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.
 - **Ad blocking and userscripts**: built-in filter rules, custom subscriptions and userscript installation.
-- **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export.
+- **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export; bookmarks show cached website icons and can be reordered with left-side handles after long-pressing to select.
 - **Reader mode and printing**: one-tap reflow of the body into reader mode; print pages or save them as PDF from the system print sheet.
 - **Downloads**: pause and resume downloads and choose custom folders.
 - **Immersive fullscreen**: hides the system bars and toolbar so the page fills the screen.

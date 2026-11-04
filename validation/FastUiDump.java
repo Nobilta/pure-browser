@@ -48,7 +48,35 @@ public final class FastUiDump {
                 UiAutomation.class.getMethod("connect", int.class).invoke(automation,
                         UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
             } else UiAutomation.class.getMethod("connect").invoke(automation);
-            if (args.length == 2 && args[0].equals("sequence")) {
+            if (args.length == 7 && (args[0].equals("dragHold") || args[0].equals("dragCancel"))) {
+                float x = Float.parseFloat(args[1]), y = Float.parseFloat(args[2]);
+                float endX = Float.parseFloat(args[3]), endY = Float.parseFloat(args[4]);
+                int duration = Integer.parseInt(args[5]), hold = Integer.parseInt(args[6]);
+                if (duration < 100 || duration > 5000 || hold < 0 || hold > 20000) throw new IllegalArgumentException("Invalid drag duration");
+                long down = SystemClock.uptimeMillis();
+                int steps = Math.max(1, duration / 16);
+                for (int i = 0; i <= steps; i++) {
+                    MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), i == 0 ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_MOVE,
+                            x + (endX - x) * i / steps, y + (endY - y) * i / steps, 0);
+                    event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                    if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Drag injection failed");
+                    event.recycle(); SystemClock.sleep(16);
+                }
+                SystemClock.sleep(hold);
+                if (args[0].equals("dragCancel")) {
+                    long keyDown = SystemClock.uptimeMillis();
+                    for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                        automation.injectInputEvent(new KeyEvent(keyDown, SystemClock.uptimeMillis(), action,
+                                KeyEvent.KEYCODE_BACK, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                                0, 0, InputDevice.SOURCE_KEYBOARD), true);
+                    }
+                    SystemClock.sleep(600);
+                }
+                MotionEvent up = MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, endX, endY, 0);
+                up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                automation.injectInputEvent(up, true); up.recycle();
+                System.out.println("Dragged and released");
+            } else if (args.length == 2 && args[0].equals("sequence")) {
                 JSONArray events = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
                 if (events.length() > 256) throw new IllegalArgumentException("Too many input events");
                 long started = SystemClock.uptimeMillis();

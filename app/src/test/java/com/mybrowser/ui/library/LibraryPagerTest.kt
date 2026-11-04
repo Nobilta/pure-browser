@@ -9,6 +9,26 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryPagerTest {
+    @Test fun replacingSortedPrefixCancelsOldPageAndContinuesAtTheLoadedBoundary() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var rows = (1L..123L).toList()
+        val pager = LibraryPager(this, { it: Long -> it }, dispatcher) { _, limit, offset -> rows.drop(offset).take(limit) }
+        pager.refresh()
+        advanceUntilIdle()
+        pager.loadMore()
+        advanceUntilIdle()
+        pager.loadMore()
+        pager.pauseLoading()
+        rows = rows.drop(1).toMutableList().apply { add(80, 1L) }
+        pager.replaceLoaded(rows.take(100), true)
+        advanceUntilIdle()
+        assertEquals(rows.take(100), pager.entries)
+        pager.loadMore()
+        advanceUntilIdle()
+        assertEquals(rows, pager.entries)
+        assertFalse(pager.hasMore)
+    }
+
     @Test
     fun pagesHaveNoGapsAndStopAtEnd() = runTest {
         val rows = (1L..123L).toList()

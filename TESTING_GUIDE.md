@@ -4,6 +4,14 @@
 
 ## 自动检查
 
+书签拖拽设备回归：在隐藏窗口的本地可 root 模拟器启动 `validation/qa-server.py`，安装待测 APK，
+运行 `python3 validation/setup-ui-probe.py emulator-5554`，再运行
+`python3 validation/bookmark-drag-regression.py --serial emulator-5554`（调试包加 `--package com.mybrowser.debug`）。
+脚本只在模拟器建立专用 `Drag QA` 目录和 75 条测试书签，保留其他记录；检查精简菜单、文件夹排序、
+拖动取消及原滚动位置恢复、上下拖动、多选保持、边缘滚动跨过 50 条分页、顺序持久化、搜索禁用拖拽和本地网站图标。
+记录在 `validation/results/bookmark-drag-<serial>.json`，截图同目录 `bookmark-*.png`；再次运行会重置专用夹具。
+该脚本会启动本地网页获取图标，不访问外部图标服务。
+
 ```bash
 ./build-and-test.sh --quick
 ```
