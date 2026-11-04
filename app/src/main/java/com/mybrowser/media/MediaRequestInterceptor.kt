@@ -27,6 +27,11 @@ object MediaRequestInterceptor {
         val jar = MediaCookies(cookies, if (request.isForMainFrame) navigation.sourcePageUrl else navigation.url,
             request.isForMainFrame, allowThirdPartyCookies)
         val notified = AtomicBoolean(false)
+        val redirects = mutableListOf<MediaNavigation>()
+        fun fallback(): WebResourceResponse? {
+            if (request.isForMainFrame && isActive()) navigation.loadId.fallbackRedirects = redirects.toList()
+            return null
+        }
         fun report(failure: Failure) { if (isActive() && notified.compareAndSet(false, true)) onFailure(failure) }
         fun reportIo(error: IOException) {
             if (error !is Cancelled) report(Failure(when (error) {
@@ -78,6 +83,7 @@ object MediaRequestInterceptor {
                         throw RedirectFailure()
                     }
                     context = context.follow(next.toString(), true, opened.getHeaderField("Referrer-Policy")) ?: throw RedirectFailure()
+                    redirects += context
                     opened.disconnect()
                     connection = null
                     current = next
@@ -93,13 +99,13 @@ object MediaRequestInterceptor {
                     val contentType = opened.contentType.orEmpty()
                     val mime = contentType.substringBefore(';').ifBlank { "application/octet-stream" }
                     // A redirected HTML/login page must retain its real origin in WebView.
-                    if (request.isForMainFrame && !mime.startsWith("video/", true) && !mime.startsWith("audio/", true)) return null
+                    if (request.isForMainFrame && !mime.startsWith("video/", true) && !mime.startsWith("audio/", true)) return fallback()
                     val charset = contentType.split(';').firstOrNull { it.trim().startsWith("charset=", true) }
                         ?.substringAfter('=')?.trim()?.trim('"')
                     val body = opened.inputStream
                     val encoding = opened.contentEncoding
                     if (!encoding.isNullOrBlank() && !encoding.equals("identity", true)) {
-                        return null
+                        return fallback()
                     }
                     val range = if (status == 206) opened.getHeaderField("Content-Range")?.let { CONTENT_RANGE.matchEntire(it.trim()) } else null
                     val rangeStart = range?.groupValues?.get(1)?.toLongOrNull() ?: 0L
@@ -107,7 +113,7 @@ object MediaRequestInterceptor {
                         ?: opened.contentLengthLong.coerceAtLeast(0)
                     // The WebView stream bridge represents this bound as a signed 32-bit int.
                     // Keep native handling when its range cannot be represented faithfully.
-                    if (virtualEnd > Int.MAX_VALUE || virtualEnd <= 0 && status < 400) return null
+                    if (virtualEnd > Int.MAX_VALUE || virtualEnd <= 0 && status < 400) return fallback()
                     val stream = object : FilterInputStream(body) {
                         private var positioned = false
                         private val closed = AtomicBoolean(false)

@@ -13,6 +13,31 @@ class MediaNavigationTest {
     private val media = "https://cdn.example/video.mp4?token=a%2Bb"
     private val source = "https://site.example/watch?id=1"
 
+    @Test fun nativeFallbackUsesTheActualRedirectReferrerWithoutReconstructingMissingHeaders() {
+        val request = MediaNavigation.create(media, source, source)!!
+        val html = "https://cdn.example/login"
+        val none = request.followNativeRedirect(html, null)!!
+        assertTrue(none.headersFor(html).isEmpty())
+        assertEquals("", none.downloadRefererFor(html))
+        assertEquals("", none.forLoad().referer)
+        assertSame(request.loadId, none.loadId)
+        assertEquals(source, none.sourcePageUrl)
+        val reduced = request.followNativeRedirect(html, "https://site.example/")!!
+        assertEquals("https://site.example/", reduced.downloadRefererFor(html))
+        assertEquals("https://site.example/", reduced.forLoad().referer)
+    }
+
+    @Test fun mediaAttachmentDownloadsRetainTheirSourceIncludingExplicitlyAbsentReferrers() {
+        val request = MediaNavigation.create(media, source, source)!!
+        assertEquals(source, request.downloadRefererFor(media))
+        assertEquals(source, request.downloadRefererFor(media + "#fragment"))
+        assertNull(request.downloadRefererFor("https://cdn.example/unrelated.mp4"))
+        assertEquals("", MediaNavigation.create(media, source, "")!!.downloadRefererFor(media))
+        val attachment = "https://other.example/attachment.mp4"
+        val redirected = request.followNativeRedirect(attachment, source)!!
+        assertEquals(source, redirected.downloadRefererFor(attachment))
+    }
+
     @Test fun referrerStripsCredentialsAndFragmentButKeepsTheSourceQuery() {
         val request = MediaNavigation.create(media, "https://user:secret@site.example/watch?id=1#private", "https://user:secret@site.example/watch?id=1#private")!!
         assertEquals(mapOf("Referer" to source), request.headersFor(media + "#t=10"))

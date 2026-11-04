@@ -16,6 +16,39 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class MediaRequestInterceptorTest {
+    @Test fun htmlFallbackRetainsEveryHopPolicyForNativeNavigationAndAttachmentDownloads() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/media.mp4") { exchange ->
+            exchange.responseHeaders.add("Location", "/reduced")
+            exchange.responseHeaders.add("Referrer-Policy", "origin")
+            exchange.sendResponseHeaders(302, -1); exchange.close()
+        }
+        server.createContext("/reduced") { exchange ->
+            exchange.responseHeaders.add("Location", "/login")
+            exchange.responseHeaders.add("Referrer-Policy", "no-referrer")
+            exchange.sendResponseHeaders(302, -1); exchange.close()
+        }
+        server.createContext("/login") { exchange ->
+            exchange.responseHeaders.add("Content-Type", "text/html")
+            exchange.sendResponseHeaders(200, 1); exchange.responseBody.use { it.write(7) }
+        }
+        server.start()
+        try {
+            val base = "http://127.0.0.1:${server.address.port}"
+            val source = "$base/watch?private=secret"
+            val navigation = MediaNavigation.create("$base/media.mp4", source, source)!!
+            assertNull(MediaRequestInterceptor.intercept(request(navigation.url, main = true), navigation, null) { true })
+            val reduced = navigation.followNativeRedirect("$base/reduced", null)!!
+            assertEquals("$base/", reduced.referer)
+            val login = reduced.followNativeRedirect("$base/login", null)!!
+            assertEquals("", login.referer)
+            assertEquals("", login.downloadRefererFor(login.url))
+            assertEquals("", login.forLoad().referer)
+            assertTrue(login.forLoad().loadId.fallbackRedirects.isEmpty())
+            assertSame(navigation.loadId, login.loadId)
+        } finally { server.stop(0) }
+    }
+
     private fun request(url: String, main: Boolean = false, headers: Map<String, String> = emptyMap()) = object : WebResourceRequest {
         override fun getUrl() = url.toUri()
         override fun isForMainFrame() = main

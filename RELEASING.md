@@ -10,7 +10,7 @@
 
 正式签名和设备回归在本地完成。CI 不持有签名密钥，也不自动发布正式版本。
 快速检查包含发布工具的 Python 单元测试；推送标签不会触发当前 CI，也不会自动生成 Release。
-本地和远程统一使用 `main`，CI 监听 `main`。
+本地维护分支为 `master`，远程发布分支和 CI 监听分支为 `main`。
 每版的变化写在 [CHANGELOG.md](CHANGELOG.md)；发布说明由 `release/prepare.py` 从该版本的段落生成，
 只在仓库外多出这一份，不需要维护两份。验证范围写在 [release/notes.md](release/notes.md)，
 它是仓库内的记录，不进入发布页，也不进入应用内的更新提示。
@@ -48,10 +48,10 @@ keyPassword=填写私钥密码
    [release/notes.md](release/notes.md)：这份记录留在仓库里，供审查时核对本版实际验证范围，
    不对外发布。
    用 suite JSON 的 SHA-256 核对结果属于本次安装包；应用源码变化后重新构建和验证。
-4. 在本地 `main` 提交源码和文档，确认工作区（含未跟踪文件）干净后推送，等待该提交在远程 `main` 的 CI 通过：
+4. 在本地 `master` 提交源码和文档，确认工作区（含未跟踪文件）干净后推送，等待该提交在远程 `main` 的 CI 通过：
 
    ```bash
-   git push origin main
+   git push origin HEAD:main
    ```
 
 5. 确认 `gh` 在 PATH 中并已登录，读取本次构建的文件名并创建草稿：
