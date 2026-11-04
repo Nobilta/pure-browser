@@ -68,11 +68,7 @@ fun BookmarksSheet(
     val folders = library.folders
     // Search results span folders. Resolve every path once per folder list rather than walking
     // the parent chain for each visible row; with a 50-row page that was quadratic.
-    val folderPaths = remember(folders) {
-        folders.associate { folder ->
-            folder.id to runCatching { BookmarkFolders.path(folder.id, folders) }.getOrDefault(emptyList())
-        }
-    }
+    val folderPaths = remember(folders) { BookmarkFolders.paths(folders) }
     val parentId = library.path.lastOrNull()?.parentId ?: 0L
     val listState = rememberLazyListState()
     val drag = remember(listState) { BookmarkDragState(listState) }
@@ -292,11 +288,16 @@ private fun BookmarkDragHandle(key: Long, drag: BookmarkDragState, enabled: Bool
 
 @Composable
 private fun BookmarkFolderPicker(choices: List<BookmarkFolder>, all: List<BookmarkFolder>, onSelect: (Long) -> Unit, onDismiss: () -> Unit) {
+    val rows = remember(choices, all) {
+        val paths = BookmarkFolders.paths(all)
+        choices.map { it to paths.getValue(it.id).joinToString(" / ") { folder -> folder.title } }
+            .sortedBy { it.second }
+    }
     BrowserAlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.bookmarks_move_to)) },
         text = { LazyColumn(Modifier.heightIn(max = 400.dp)) {
             item { TextButton(onClick = { onSelect(0) }) { Text(stringResource(R.string.bookmarks_root)) } }
-            items(choices.sortedBy { BookmarkFolders.path(it.id, all).joinToString("/") { item -> item.title } }, key = { it.id }) { folder ->
-                TextButton(onClick = { onSelect(folder.id) }) { Text(BookmarkFolders.path(folder.id, all).joinToString(" / ") { it.title }) }
+            items(rows, key = { it.first.id }) { (folder, path) ->
+                TextButton(onClick = { onSelect(folder.id) }) { Text(path) }
             }
         } }, confirmButton = {}, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } })
 }

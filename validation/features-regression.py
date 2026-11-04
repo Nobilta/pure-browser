@@ -45,14 +45,15 @@ class Regression:
 
     def page(self, extra=""):
         self.since = time.time()
-        ux.launch(self.base + "feature-fixture.html?case=" + self.case + "&visit=" + str(time.time_ns()) + extra)
+        self.expected_url = self.base + "feature-fixture.html?case=" + self.case + "&visit=" + str(time.time_ns()) + extra
+        ux.launch(self.expected_url)
 
     def wait(self, predicate, timeout=15):
         deadline = time.monotonic() + timeout
         latest = None
         while time.monotonic() < deadline:
             events = json.load(urllib.request.urlopen(self.base + "__state?case=" + self.case, timeout=5))
-            latest = events[-1] if events else None
+            latest = next((row for row in reversed(events) if row.get("url") == self.expected_url), None)
             if latest and latest["receivedAt"] > self.since and predicate(latest):
                 return latest
             time.sleep(.3)
@@ -67,6 +68,20 @@ class Regression:
         ux.adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
         time.sleep(.5)
 
+    def named_switch(self, root, label):
+        # Compose exposes the state on a parent and the name on its child.
+        # A few pixels of a clipped switch are not a usable touch target.
+        for node in root.iter("node"):
+            if node.get("checkable") != "true":
+                continue
+            for child in node.iter("node"):
+                if child.get("content-desc") not in ux.labels(label) or not ux.visible(child):
+                    continue
+                x1, y1, x2, y2 = ux.bounds(child)
+                if min(x2 - x1, y2 - y1) >= 24:
+                    return node, child
+        return None
+
     def card(self, label, action=None):
         for forward in (True, False):
             previous = None
@@ -74,7 +89,7 @@ class Regression:
             for _ in range(10):
                 root, _ = ux.nodes()
                 containers = [n for n in root.iter("node") if any(c.get("text") in ux.labels(label) for c in n.iter("node"))
-                              and any(c.get("checkable") == "true" for c in n.iter("node"))
+                              and self.named_switch(n, label) is not None
                               and (action is None or ux.match(n, action) is not None)]
                 if containers:
                     return min(containers, key=lambda n: len(list(n.iter("node"))))
@@ -103,18 +118,18 @@ class Regression:
 
     def set_switch(self, label, checked):
         card = self.card(label)
-        switch = next(n for n in card.iter("node") if n.get("checkable") == "true")
+        switch, target = self.named_switch(card, label)
         for _ in range(3):
             if switch.get("checked") == str(checked).lower():
                 break
             assert switch.get("enabled") == "true", "Switch disabled: " + label
-            self.click(switch)
+            self.click(target)
             # A swallowed tap must not silently continue: re-read the switch
             # and retry, so the following navigation always tests the
             # requested state.
             time.sleep(.8)
             card = self.card(label)
-            switch = next(n for n in card.iter("node") if n.get("checkable") == "true")
+            switch, target = self.named_switch(card, label)
         assert switch.get("checked") == str(checked).lower(), "Switch did not apply: " + label
 
     def card_action(self, label, action):
@@ -225,6 +240,8 @@ class Regression:
         ux.expect("油猴脚本")
         root, _ = ux.nodes()
         legacy = ux.match(root, ux._translations[0]["script_old_webview"]) is not None
+        if not legacy:
+            self.set_switch("Pure storage fixture", True)
         self.record("script links require review before installation", legacyWebView=legacy)
         self.page()
         if not legacy:
@@ -246,11 +263,16 @@ class Regression:
         ux.tap("Install DOM fixture")
         root, _ = ux.nodes()
         ux.tap("替换脚本" if ux.match(root, "替换脚本") is not None else "安装脚本")
+        ux.expect("油猴脚本")
+        # Replacement preserves the user's enabled state, including a previous
+        # interrupted regression that stopped just after disabling this fixture.
+        self.set_switch("Pure DOM fixture", True)
         self.page()
         start = self.wait(lambda s: s["domReady"] != "")
         assert start["domReady"] == ("complete" if legacy else "loading"), start
         self.record("document-start script uses the detected WebView capability", observedReadyState=start["domReady"])
         self.since = time.time()
+        self.expected_url = self.base + "feature-fixture.html?case=" + self.case + "&popup=1"
         ux.launch(self.base + "feature-popup-fixture.html?case=" + self.case + "&popup=1")
         ux.tap("Open script fixture in new tab")
         popup = self.wait(lambda s: s.get("popup") and s["domReady"] != "" and (legacy or s["storageCount"] > start["storageCount"]))
@@ -273,10 +295,8 @@ class Regression:
         self.page()
         # Settle first: the storage script reads its value asynchronously, so a count sampled the
         # instant the page reports can be one visit behind the one that is actually stored.
-        before_private = self.wait(lambda s: s["ready"] == "complete" and s["domReady"] != "")
-        baseline = before_private["storageCount"]
-        time.sleep(1.5)
-        before_private = self.wait(lambda s: s["storageCount"] == baseline and s["domReady"] != "")
+        before_private = self.wait(lambda s: s["ready"] == "complete" and s["domReady"] != ""
+                                   and (legacy or s["storageCount"] > 0))
         baseline = before_private["storageCount"]
         ux.menu_item("进入无痕模式")
         self.page()
@@ -431,7 +451,8 @@ class Regression:
 
     def media(self):
         self.since = time.time()
-        ux.launch(self.base + "media-fixture.html?case=" + self.case)
+        self.expected_url = self.base + "media-fixture.html?case=" + self.case
+        ux.launch(self.expected_url)
         self.wait(lambda s: bool(s.get("mediaButtons")))
         patterns = [re.escape(s["cast_detected_sources"]).replace(re.escape("%1$d"), r"\d+") for s in ux._translations]
         def cast_button():

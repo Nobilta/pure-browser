@@ -359,7 +359,10 @@ class Regression:
         self.expect_outside("#hero-unit")
         ux.tap("Block on every site")
         self.expect_outside("Tap the element to block", present=False)
-        state = self.wait(lambda r: r["ready"] == "complete", label="page after a generic block")
+        # Saving the rule and applying it are asynchronous; the old complete
+        # document is still reported while that work is pending.
+        state = self.wait(lambda r: r["ready"] == "complete" and not r["heroVisible"],
+                          label="page after a generic block")
         assert state["heroVisible"] is False, "Blocking on every site did not hide the element"
         self.record("a pick can be blocked on every site instead")
         self.open_rules()
@@ -412,13 +415,7 @@ class Regression:
         the store — and these rules hide the very elements the next attempt presses, which reads as
         a failure of the app rather than of the harness.
 
-        A previous stage can leave a sheet open over the toolbar, and the menu is only reachable
-        from the page. Only a known sheet is dismissed; pressing back on an ordinary page would
-        navigate instead, which would leave the fixture behind.
         """
-        if any(text in ("下载管理", "Download manager") for text in self.texts()):
-            ux.adb("shell", "input", "keyevent", "4")
-            time.sleep(.8)
         self.open_rules()
         # The path rule's text is a selector the fixture decides, so it is matched by shape rather
         # than by an exact string; a half-written one from an interrupted run hides the rail.
@@ -429,6 +426,9 @@ class Regression:
         self.page()
 
     def run(self):
+        ux.adb("reverse", "tcp:8875", "tcp:8875")
+        ux.adb("shell", "am", "force-stop", ux.PACKAGE)
+        self.page()
         self.clear_leftovers()
         self.element_picker()
         self.path_selector()

@@ -16,7 +16,88 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class MediaRequestInterceptorTest {
-    @Test fun htmlFallbackRetainsEveryHopPolicyForNativeNavigationAndAttachmentDownloads() {
+    @Test fun attachmentHandsItsOnlyResponseToTheDownloaderAndOutlivesThePage() = kotlinx.coroutines.runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        var requests = 0
+        val expected = ByteArray(90_001) { (it % 251).toByte() }
+        server.createContext("/once.mp4") { e ->
+            requests++
+            e.responseHeaders.add("Content-Type", "video/mp4")
+            e.responseHeaders.add("Content-Disposition", "attachment; filename=once.mp4")
+            e.sendResponseHeaders(if (requests == 1) 200 else 403, expected.size.toLong())
+            e.responseBody.use { it.write(expected) }
+        }
+        server.start()
+        val directory = java.nio.file.Files.createTempDirectory("media-download").toFile()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/once.mp4"
+            var active = true
+            var download: com.mybrowser.download.DownloadResponse? = null
+            val intercepted = MediaRequestInterceptor.intercept(request(url, main = true), MediaNavigation.create(url, url), null,
+                onDownloadResponse = { _, response ->
+                    download = com.mybrowser.download.DownloadResponse(response.data, expected.size.toLong())
+                    true
+                }) { active }
+            assertEquals(204, intercepted!!.statusCode)
+            active = false
+            val payload = com.mybrowser.download.HttpDownloadEngine().downloadResponse(download!!, directory) { _, _, _ -> }
+            assertArrayEquals(expected, payload.parts.single().readBytes())
+            assertEquals(1, requests)
+        } finally { directory.deleteRecursively(); server.stop(0) }
+    }
+
+    @Test fun successfulFallbackTypesUseTheOriginalBodyExactlyOnce() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val counts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        val expected = "Single use response".toByteArray()
+        server.createContext("/") { e ->
+            val path = e.requestURI.path
+            val count = counts.merge(path, 1, Int::plus)!!
+            val encoded = path == "/gzip"
+            val bytes = if (encoded) java.io.ByteArrayOutputStream().also { out ->
+                java.util.zip.GZIPOutputStream(out).use { it.write(expected) }
+            }.toByteArray() else expected
+            e.responseHeaders.add("Content-Type", if (path == "/html") "text/html" else "application/octet-stream")
+            if (encoded) e.responseHeaders.add("Content-Encoding", "gzip")
+            if (path == "/attachment") e.responseHeaders.add("Content-Disposition", "attachment; filename=one.mp4")
+            e.sendResponseHeaders(if (count == 1) 200 else 403, if (path == "/chunked") 0 else bytes.size.toLong())
+            e.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            for (path in listOf("/html", "/attachment", "/chunked", "/gzip")) {
+                val url = "http://127.0.0.1:${server.address.port}$path"
+                val response = MediaRequestInterceptor.intercept(request(url, main = true), MediaNavigation.create(url, url), null) { true }!!
+                assertEquals(200, response.statusCode)
+                assertArrayEquals(expected, response.data.use { it.readBytes() })
+                assertEquals(1, counts[path])
+            }
+        } finally { server.stop(0) }
+    }
+
+    @Test fun authChallengesLeaveTheWholeLoadAndItsReloadWithChromium() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        var requests = 0
+        server.createContext("/auth.mp4") { e ->
+            requests++
+            e.responseHeaders.add("WWW-Authenticate", "Basic realm=media")
+            e.sendResponseHeaders(401, -1); e.close()
+        }
+        server.start()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/auth.mp4"
+            val navigation = MediaNavigation.create(url, url)!!
+            val failures = mutableListOf<MediaRequestInterceptor.Failure>()
+            assertNull(MediaRequestInterceptor.intercept(request(url, main = true), navigation, null, onFailure = failures::add) { true })
+            assertTrue(navigation.loadId.nativeRequests)
+            assertNull(MediaRequestInterceptor.intercept(request(url), navigation, null) { true })
+            assertNull(MediaRequestInterceptor.intercept(request(url, main = true), navigation.forLoad(), null) { true })
+            assertTrue(failures.isEmpty())
+            assertEquals(1, requests)
+        } finally { server.stop(0) }
+    }
+
+    @Test fun redirectedHtmlTransfersTheFetchedResponseAtItsRealOriginAndRetainsItsPolicy() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/media.mp4") { exchange ->
             exchange.responseHeaders.add("Location", "/reduced")
@@ -37,15 +118,19 @@ class MediaRequestInterceptorTest {
             val base = "http://127.0.0.1:${server.address.port}"
             val source = "$base/watch?private=secret"
             val navigation = MediaNavigation.create("$base/media.mp4", source, source)!!
-            assertNull(MediaRequestInterceptor.intercept(request(navigation.url, main = true), navigation, null) { true })
-            val reduced = navigation.followNativeRedirect("$base/reduced", null)!!
-            assertEquals("$base/", reduced.referer)
-            val login = reduced.followNativeRedirect("$base/login", null)!!
+            var destination: MediaNavigation? = null
+            var fetched: android.webkit.WebResourceResponse? = null
+            val response = MediaRequestInterceptor.intercept(request(navigation.url, main = true), navigation, null,
+                onRedirectResponse = { next, body -> destination = next; fetched = body; true }) { true }!!
+            assertEquals(204, response.statusCode)
+            val login = destination!!
+            assertEquals("$base/login", login.url)
             assertEquals("", login.referer)
             assertEquals("", login.downloadRefererFor(login.url))
             assertEquals("", login.forLoad().referer)
-            assertTrue(login.forLoad().loadId.fallbackRedirects.isEmpty())
             assertSame(navigation.loadId, login.loadId)
+            assertEquals("text/html", fetched!!.mimeType)
+            assertArrayEquals(byteArrayOf(7), fetched!!.data.use { it.readBytes() })
         } finally { server.stop(0) }
     }
 
@@ -172,7 +257,7 @@ class MediaRequestInterceptorTest {
         } finally { server.stop(0) }
     }
 
-    @Test fun rangesBeyondTheWebViewBridgeSizeLimitKeepNativeHandling() {
+    @Test fun rangesBeyondInt32UseUnknownAvailableWithoutRepeatingTheGet() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/media.mp4") { exchange ->
             exchange.responseHeaders.add("Content-Type", "video/mp4")
@@ -183,8 +268,17 @@ class MediaRequestInterceptorTest {
         server.start()
         try {
             val url = "http://127.0.0.1:${server.address.port}/media.mp4"
-            assertNull(MediaRequestInterceptor.intercept(request(url, headers = mapOf("Range" to "bytes=3000000000-")),
-                MediaNavigation.create(url, "http://site.example/watch"), null) { true })
+            val response = MediaRequestInterceptor.intercept(request(url, headers = mapOf("Range" to "bytes=3000000000-")),
+                MediaNavigation.create(url, "http://site.example/watch"), null) { true }!!
+            assertEquals(0, response.data.available())
+            var left = 3000000000L
+            while (left > 0) {
+                // The native bridge in WebView 113 stores each skip result in an int.
+                val skipped = response.data.skip(left).toInt()
+                assertTrue(skipped > 0)
+                left -= skipped
+            }
+            assertArrayEquals(byteArrayOf(3, 4, 5), response.data.use { it.readBytes() })
         } finally { server.stop(0) }
     }
 }

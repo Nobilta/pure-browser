@@ -165,10 +165,7 @@ class SettingsTransfer(
         // The library is capped, never refused: a device over the budget still gets a file,
         // and the export reports what was left out instead of writing something unimportable.
         val folders = bookmarks.getFolders()
-        fun pathOf(folderId: Long): List<String> = runCatching {
-            BookmarkFolders.path(folderId, folders).map { it.title }
-        }.getOrDefault(emptyList())
-        val paths = folders.associate { it.id to pathOf(it.id) }
+        val paths = BookmarkFolders.paths(folders).mapValues { (_, path) -> path.map { it.title } }
         // Costs are UTF-8 bytes, not characters: the file is written as UTF-8 and the importer
         // refuses it at 8 MiB, so a budget counted in characters lets a Chinese title spend three
         // bytes for one. The per-row slack covers the JSON keys and escaping of one row.

@@ -142,7 +142,9 @@ internal object SqlLike {
 
     fun limitClause(limit: Int, offset: Int = 0): String? {
         if (limit == 0 && offset == 0) return null
-        val count = if (limit == 0) Int.MAX_VALUE else limit.coerceIn(1, MAX_RESULTS)
+        // Search callers apply MAX_RESULTS themselves. A folder reload may need the
+        // entire already displayed prefix plus a sentinel, including beyond 200 rows.
+        val count = if (limit == 0) Int.MAX_VALUE else limit.coerceAtLeast(1)
         return "$offset,$count"
     }
 

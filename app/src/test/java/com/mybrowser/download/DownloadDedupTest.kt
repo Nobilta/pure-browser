@@ -25,6 +25,33 @@ import java.util.concurrent.Executors
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadDedupTest {
+    @Test fun unclaimedResponsesCloseOnRejectionSuppressionAndDocumentRemoval() {
+        fun offer(suffix: String): Pair<DownloadRequestCoordinator.Request, () -> Boolean> {
+            var closed = false
+            val body = object : java.io.ByteArrayInputStream(byteArrayOf(1)) {
+                override fun close() { closed = true; super.close() }
+            }
+            return request(url(suffix)).copy(response = DownloadResponse(body, 1)) to { closed }
+        }
+        val first = offer("?first")
+        assertTrue(coordinator.submit(first.first) is DownloadRequestCoordinator.SubmitResult.Confirm)
+        val duplicate = offer("?first")
+        coordinator.submit(duplicate.first)
+        assertTrue(duplicate.second())
+        assertFalse(first.second())
+        coordinator.rejectPending()
+        assertTrue(first.second())
+        assertNull(coordinator.blocked.value.single().request.response)
+        val next = offer("?next")
+        coordinator.submit(next.first)
+        coordinator.startDocument("initial")
+        assertTrue(next.second())
+        val last = offer("?last")
+        coordinator.submit(last.first)
+        coordinator.resetTransientState()
+        assertTrue(last.second())
+    }
+
     @Test fun dismissingAnExistingShortcutDoesNotRepeatAutomaticManagerRouting() {
         val item = request(url("?existing-dismissed"))
         assertTrue(handler.enqueueOrGetExisting(item.url, null, null, null) is DownloadHandler.EnqueueOutcome.Started)

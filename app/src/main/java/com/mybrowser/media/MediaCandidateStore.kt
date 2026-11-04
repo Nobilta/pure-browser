@@ -76,13 +76,12 @@ class MediaCandidateStore {
         // A player signal can arrive before its network request. Re-evaluate the single
         // active match whenever a late candidate is added, then sort with that match first.
         val playing = findPlayingCandidate(expanded, current.playingVideoHints)?.url
-        val bounded = boundCandidates(expanded, playing)
+        val bounded = sortCandidates(expanded, playing).take(MAX_CANDIDATES)
         publish(
             current.copy(
-                candidates = bounded.first,
-                // Do not retain a pointer to a candidate that was evicted by the cap. In
-                // particular, a long ad-heavy page may discover the active stream late.
-                playingCandidateUrl = bounded.second,
+                candidates = bounded,
+                // The playing candidate sorts first, so truncation always retains it.
+                playingCandidateUrl = playing,
             ),
         )
         return true
@@ -152,15 +151,7 @@ class MediaCandidateStore {
         )
     }
 
-    private fun publish(next: Snapshot) {
-        // Lists are created with immutable operations above. Copy the two externally
-        // supplied collections once more so a caller cannot mutate a value after it has
-        // been published to StateFlow.
-        _state.value = next.copy(
-            candidates = next.candidates.toList(),
-            playingVideoHints = next.playingVideoHints.toList(),
-        )
-    }
+    private fun publish(next: Snapshot) { _state.value = next }
 
     private fun sanitizeCandidate(candidate: MediaSniffer.Candidate): MediaSniffer.Candidate? {
         val url = candidate.url.trim()
@@ -181,28 +172,6 @@ class MediaCandidateStore {
             .thenByDescending { it.kind.rank }
             .thenBy { it.label },
     )
-
-    /**
-     * Applies the picker cap while guaranteeing that a successfully matched active stream is
-     * kept. Without this, a URL sorted below the first 24 entries could make the UI silently
-     * lose the “正在播放” marker even though matching succeeded.
-     */
-    private fun boundCandidates(
-        values: List<MediaSniffer.Candidate>,
-        playingUrl: String?,
-    ): Pair<List<MediaSniffer.Candidate>, String?> {
-        val sorted = sortCandidates(values, playingUrl)
-        if (sorted.size <= MAX_CANDIDATES) return sorted to playingUrl
-
-        val bounded = sorted.take(MAX_CANDIDATES).toMutableList()
-        if (playingUrl != null && bounded.none { it.url == playingUrl }) {
-            sorted.firstOrNull { it.url == playingUrl }?.let { active ->
-                bounded[bounded.lastIndex] = active
-            }
-        }
-        val retainedPlaying = playingUrl?.takeIf { url -> bounded.any { it.url == url } }
-        return bounded to retainedPlaying
-    }
 
     /** Resolves hints in O(candidates × hints), parsing each URL once per update. */
     private fun findPlayingCandidate(

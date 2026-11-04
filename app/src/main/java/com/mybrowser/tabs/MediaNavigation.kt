@@ -15,7 +15,8 @@ class MediaNavigation private constructor(
     class RequestLifetime {
         @Volatile var cancelled: Boolean = false
         @Volatile var failure: com.mybrowser.media.MediaRequestInterceptor.Failure? = null
-        @Volatile internal var fallbackRedirects: List<MediaNavigation> = emptyList()
+        /** HTTP authentication belongs to Chromium's credential cache and callbacks. */
+        @Volatile var nativeRequests: Boolean = false
     }
 
     enum class Policy(val token: String) {
@@ -31,7 +32,9 @@ class MediaNavigation private constructor(
     }
 
     val canFollowRedirect: Boolean get() = redirects < 10
-    fun forLoad(): MediaNavigation = MediaNavigation(url, referer, sourcePageUrl, policy)
+    fun forLoad(): MediaNavigation = MediaNavigation(url, referer, sourcePageUrl, policy).also {
+        it.loadId.nativeRequests = loadId.nativeRequests
+    }
     fun matches(target: String): Boolean = target.substringBefore('#') == url
     fun sameSourceAs(other: MediaNavigation?): Boolean = other != null && url == other.url &&
         referer == other.referer && sourcePageUrl == other.sourcePageUrl && policy == other.policy
@@ -46,9 +49,8 @@ class MediaNavigation private constructor(
      * replay the old header or reconstruct a header absent from the observed request. */
     fun followNativeRedirect(target: String, observedReferer: String?): MediaNavigation? {
         val next = follow(target, isRedirect = true) ?: return null
-        // Older providers omit headers from shouldOverrideUrlLoading. The
-        // interceptor has already read these response policies before fallback.
-        loadId.fallbackRedirects.firstOrNull { it.url == next.url && it.redirects == next.redirects }?.let { return it }
+        // A native retry can receive different redirects/policies (for example after
+        // Set-Cookie). Never infer its headers from an earlier manual request.
         val observed = create(target, sourcePageUrl, observedReferer.orEmpty()) ?: return null
         return MediaNavigation(next.url, observed.referer, sourcePageUrl, observed.policy,
             next.redirects, loadId)

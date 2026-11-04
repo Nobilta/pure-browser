@@ -15,6 +15,23 @@ import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
 
 class HttpDownloadEngineTest {
+    @Test fun `a server ignoring Range supplies the only full response for a single use download`() = runBlocking {
+        var requests = 0
+        val expected = ByteArray(200_003) { (it % 239).toByte() }
+        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/once") { exchange ->
+                requests++
+                exchange.sendResponseHeaders(if (requests == 1) 200 else 403, expected.size.toLong())
+                exchange.responseBody.use { it.write(expected) }
+            }
+            start()
+        }
+        tempDirectory = Files.createTempDirectory("single-use-download").toFile()
+        val payload = HttpDownloadEngine().download("http://127.0.0.1:${server!!.address.port}/once",
+            DownloadRequestHeaders("", null, null), 8, tempDirectory!!, { _, _, _ -> })
+        assertArrayEquals(expected, payload.parts.single().readBytes())
+        assertEquals(1, requests)
+    }
 
     private var server: HttpServer? = null
     private var redirectTarget: HttpServer? = null

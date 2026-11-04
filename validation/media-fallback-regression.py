@@ -4,6 +4,7 @@ import argparse
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -31,6 +32,8 @@ def run(serial, package):
     apk = ux.adb('shell', 'pm', 'path', package).partition(':')[2].strip()
     result['apkSha256'] = ux.adb('shell', 'sha256sum', apk).split()[0]
     events = []
+    armed = set()
+    consumed = set()
     samples = (ROOT / 'player-sample.mp4').read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
@@ -45,9 +48,15 @@ def run(serial, package):
             ref = self.headers.get('Referer', '')
             events.append({'path': parsed.path, 'case': case, 'referer': ref,
                            'receivedAt': time.time()})
+            if parsed.path == '/auth.mp4' and case in armed:
+                self.send_response(401)
+                self.send_header('WWW-Authenticate', 'Basic realm="Media regression"')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
             if parsed.path == '/redirect.mp4':
                 policy = 'origin' if case.startswith('origin-') else 'no-referrer' if case.startswith('none-') else 'unsafe-url'
-                target = '/attachment.mp4' if case.startswith('redirect-attachment-') else '/landing'
+                target = '/attachment.mp4' if case.startswith(('redirect-attachment-', 'redirect-once-')) else '/landing'
                 self.send_response(302)
                 self.send_header('Location', target + '?case=' + case)
                 self.send_header('Referrer-Policy', policy)
@@ -60,15 +69,25 @@ def run(serial, package):
             elif parsed.path == '/attachment.mp4':
                 body = samples
                 kind = 'application/octet-stream'
-                self.send_response(200 if ref == expected else 403)
+                once = case.startswith(('once-', 'redirect-once-', 'gzip-', 'chunked-'))
+                permitted = ref == expected and not (once and case in consumed)
+                if once and case in armed:
+                    consumed.add(case)
+                body = gzip.compress(samples) if case.startswith('gzip-') else samples
+                self.send_response(200 if permitted else 403)
                 self.send_header('Content-Type', kind)
                 self.send_header('Content-Disposition', 'attachment; filename="fallback-' + case + '.mp4"')
-                self.send_header('Content-Length', str(len(body)))
+                if case.startswith('gzip-'):
+                    self.send_header('Content-Encoding', 'gzip')
+                if not case.startswith('chunked-'):
+                    self.send_header('Content-Length', str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
                 return
             else:
-                target = '/attachment.mp4' if case.startswith(('attachment-', 'none-attachment-')) else '/redirect.mp4'
+                target = '/attachment.mp4' if case.startswith(('attachment-', 'none-attachment-', 'once-', 'gzip-', 'chunked-')) else '/redirect.mp4'
+                if case.startswith('auth-'):
+                    target = '/auth.mp4'
                 policy = 'no-referrer' if case.startswith('none-attachment-') else 'unsafe-url'
                 html = ('<!doctype html><meta name="viewport" content="width=device-width">'
                         '<meta name="referrer" content="' + policy + '"><title>Fallback source</title>'
@@ -95,7 +114,7 @@ def run(serial, package):
         time.sleep(.4)
 
     try:
-        for name in ('none', 'origin', 'attachment', 'none-attachment', 'redirect-attachment'):
+        for name in ('none', 'origin', 'attachment', 'none-attachment', 'redirect-attachment', 'once', 'redirect-once', 'gzip', 'chunked', 'auth'):
             case = name + '-' + str(time.time_ns())
             ux.launch(BASE + '/watch?case=' + case)
             ux.expect('Fallback source')
@@ -104,23 +123,32 @@ def run(serial, package):
             ux.menu_item('Cast')
             ux.expect('Choose media to cast')
             start = len(events)
+            armed.add(case)
             labels = base64.b64encode(json.dumps(sorted(ux.resource_labels('cast_play'))).encode()).decode()
-            filename = 'attachment.mp4' if name in ('attachment', 'none-attachment') else 'redirect.mp4'
+            filename = 'attachment.mp4' if name in ('attachment', 'none-attachment', 'once', 'gzip', 'chunked') else 'auth.mp4' if name == 'auth' else 'redirect.mp4'
             receipt = ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false',
                              '/system/bin', 'com.mybrowser.validation.FastUiDump', 'tapInRow', ' · ' + filename, labels)
             assert 'Tapped row action' in receipt, receipt
-            if 'attachment' in name:
+            if name == 'auth':
+                ux.expect('Authentication required')
+                ux.tap('Cancel')
+                record('auth: media selection reaches the native HTTP login prompt')
+            elif name not in ('none', 'origin'):
                 ux.expect('Download file?')
-                before_confirm = len(events)
                 ux.tap('Download')
-                deadline = time.monotonic() + 15
-                while not any(e['path'] == '/attachment.mp4' and e['case'] == case for e in events[before_confirm:]):
-                    assert time.monotonic() < deadline, 'Download did not reach the fixture'
+                filename = 'fallback-' + case + '.mp4'
+                deadline = time.monotonic() + 20
+                expected_hash = hashlib.sha256(samples).hexdigest()
+                while True:
+                    output = ux.adb('shell', 'sh', '-c', "if [ -f /sdcard/Download/" + filename + " ]; then sha256sum /sdcard/Download/" + filename + "; fi")
+                    if output.startswith(expected_hash):
+                        break
+                    assert time.monotonic() < deadline, 'Saved attachment missing or corrupted: ' + output
                     time.sleep(.2)
+                downloads = [e for e in events[start:] if e['path'] == '/attachment.mp4' and e['case'] == case]
                 expected = '' if name == 'none-attachment' else BASE + '/watch?case=' + case
-                downloads = [e for e in events[before_confirm:] if e['path'] == '/attachment.mp4' and e['case'] == case]
-                assert downloads and all(e['referer'] == expected for e in downloads), downloads
-                record(name + ': confirmed download retains the media request referrer')
+                assert len(downloads) == 1 and downloads[0]['referer'] == expected, downloads
+                record(name + ': one GET through confirmation and saving, exact file bytes and referrer')
             else:
                 ux.expect('Fallback landing')
                 ux.tap('Refresh')

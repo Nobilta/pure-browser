@@ -74,7 +74,7 @@ class UserScriptRuntime(
     val status: StateFlow<UserScriptStatus> = _status.asStateFlow()
     val documentStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     private val messageSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
-    private val source by lazy { view.context.assets.open("userscript-runtime.js").bufferedReader().use { it.readText() } }
+    private val source by lazy { com.mybrowser.core.BundledScripts.read(view.context, "userscript-runtime.js") }
 
     fun install() {
         if (closed) return

@@ -19,7 +19,7 @@ const caseId=new URLSearchParams(location.search).get('case')||'feature';
 function report(){
  const r=document.documentElement.dataset;
  fetch('/__state?case='+encodeURIComponent(caseId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-  ready:document.readyState,popup:new URLSearchParams(location.search).has('popup'),storageCount:Number(r.storageCount||0),dependency:r.dependency||'',domReady:window.__pureStartReady||'',pasted:r.pasted||'',
+  url:location.href,ready:document.readyState,popup:new URLSearchParams(location.search).has('popup'),storageCount:Number(r.storageCount||0),dependency:r.dependency||'',domReady:window.__pureStartReady||'',pasted:r.pasted||'',
   resourceText:r.resourceText||'',resourceBytes:Number(r.resourceBytes||0),resourceHeader:r.resourceHeader||'',browserVersion:r.browserVersion||'',
   styleApplied:getComputedStyle(document.querySelector('#script-status')).color==='rgb(20, 100, 60)',
   markerLoaded:window.__pureFilterMarker===true,cosmeticHidden:getComputedStyle(document.querySelector('#pure-filter-unit')).display==='none',
