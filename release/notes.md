@@ -1,32 +1,34 @@
 ## 0.19 本地测试包验证范围
 
 被测产物：`PureBrowser-v0.19-release.apk`（versionCode 71），本地签名 Release，尚未发布。
-本次更新书签页：精简顶栏和菜单、显示缓存的网站图标、长按多选后通过手柄拖动排序，版本号保持 0.19。
+本次提前应用主文档的广告元素隐藏规则，减少加载过程中先显示后隐藏；版本号保持 0.19。
 
-自动检查通过：764 项 JVM、69 项 Rust、127 项 Node、14 项发布工具测试；三种语言的 1013 条字符串一致。
-Rust fmt/clippy、Android lint、Release 构建和签名校验通过；lint 无错误，保留 84 条警告和 3 条提示。
-构建日志保存在 `validation/results/bookmark-release-build.log`。
+自动检查通过：766 项 JVM、69 项 Rust、129 项 Node、14 项发布工具测试；三种语言的 1013 条字符串一致。
+Rust fmt/clippy、Android lint、Release 构建和签名校验通过；lint 无错误，保留 83 条警告和 3 条提示。
+构建日志保存在 `validation/results/cosmetic-release-build.log`。
 
 最终签名包在隐藏窗口的 ARM64 模拟器 Android 14 / API 34、WebView 113.0.5672.136 上通过
-`validation/bookmark-drag-regression.py` 的 8 项场景：
+`validation/cosmetic-flash-regression.py` 的 11 项场景：
 
-- 根目录无清空按钮和根目录路径行；菜单仅含新建文件夹、导入、导出。
-- 长按文件夹显示手柄并保存同级排序。
-- 拖动中按返回取消，数据库顺序和原滚动位置均恢复。
-- 书签向下拖动并松手保存；已选择的多条书签保持选中，短距离拖动不跳页。
-- 书签向上拖动回到第一位。
-- 持续拖到列表边缘，自动加载超过 50 条的下一页；75 条记录完整保留，保存后保留视图位置。
-- 重新打开目录保留顺序；全局搜索中长按可多选，但不显示拖动手柄。
-- 实际访问本地测试网页后缓存 WebView 图标，并在书签页显示；截图人工复核通过。
+- 冷启动首屏、动态设置广告 class、替换 head 后恢复样式；正常内容保持可见。
+- 重定向后按实际目标地址应用规则。
+- elemhide、generichide、document 三种例外分别按预期保留元素或放行网络请求。
+- 弹窗新标签的首屏隐藏。
+- 临时关闭本站过滤后放行，恢复过滤后再次隐藏。
+- 无痕页面的首屏隐藏。
+- 持久站点开关及全局开关关闭后放行。
 
-详细结果和被测 APK 校验值保存在 `validation/results/bookmark-drag-emulator-5554.json`，
-执行日志为 `validation/results/bookmark-release-regression.log`，截图为同目录 `bookmark-*.png`。
+逐个 requestAnimationFrame 检查匹配广告的计算样式，故意延迟图片 2.5 秒，确认隐藏不依赖 load 完成。
+旧签名包基线 175 个采样帧中有 163 帧广告可见；新签名包所有开启隐藏的场景均为 0 个可见广告采样帧。
+这不是屏幕逐像素录制，不代表未覆盖的广告或全部脚本执行时点；正常正文在所有场景保持可见。
+测试使用 10.0.2.2，避免 EasyList 对 localhost/127.0.0.1 的 generichide 例外干扰。
+测试检查页面伪造桥接凭据被拒绝；JVM 另覆盖非法网址、实例关闭及查询异常。
 
-同一签名包还通过 `validation/productivity-regression.py --section library` 的 4 项场景：
-书签搜索和编辑、重复地址拒绝、手动加载下一页、历史搜索及删除确认、大字体 1.3 下控件可见。
-结果为 `validation/results/api34-productivity-library.json`，日志为 `validation/results/bookmark-library-regression.log`。
+详细结果、WebView 版本与被测 APK 校验值在 `validation/results/cosmetic-flash-emulator-5554.json`，
+旧包基线在 `cosmetic-flash-baseline-emulator-5554.json`，执行日志为 `cosmetic-release-regression.log`。
+Node 测试覆盖 DOM 尚未建立、动态元素、替换 head、规则更新和关闭隐藏后的恢复。
 
-未验证其他 Android / WebView 版本、真机、平板、折叠屏和 TalkBack 实际操作；手柄保留辅助排序操作。
-本轮未重跑媒体播放设备回归。此前调试包无痕返回时发生过一次未定位的 WebView 原生 JNI 崩溃，
-本次书签回归不能视为修复；诊断日志保留在 `validation/results/cast-referrer-debug-crash.log`。
-既有媒体兼容范围见 `FEATURES.md`。
+未验证真机、平板、折叠屏、不支持 DOCUMENT_START_SCRIPT 的旧 WebView 兼容路径及多 Profile 无痕隔离。
+本机 Android 17 模拟器缺少系统镜像，未计入通过范围。跨源 iframe 内部、Shadow DOM、CSP/页面强制覆盖样式、
+未匹配规则的广告不保证首帧隐藏。本轮未重跑书签和媒体播放设备回归；此前未定位的调试包 WebView JNI 崩溃
+不能视为已修复，既有诊断日志仍保留在 `validation/results/cast-referrer-debug-crash.log`。

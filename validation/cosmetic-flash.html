@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width">
+<title>Cosmetic first paint fixture</title></head><body>
+<h1>Cosmetic fixture ready</h1><main id="content">Normal content stays visible</main>
+<div id="generic" class="cosmetic-flash-ad">Generic advertisement</div>
+<div id="scoped" class="cosmetic-scoped-ad">Host advertisement</div>
+<div id="dynamic">Later advertisement</div>
+<img src="/slow.png" width="1" height="1" alt="">
+<script>
+(() => {
+    const query = new URLSearchParams(location.search), run = query.get('run');
+    const result = {run, url: location.href, samples: 0, genericVisible: 0, scopedVisible: 0,
+        dynamicVisible: 0, normalHidden: 0, firstSample: null, loadedAt: null};
+    result.bridgeRejectsPage = !window.mybrowserCosmeticRules ||
+        window.mybrowserCosmeticRules.css('untrusted-page', location.href) === '';
+    function sample(now) {
+        result.samples++;
+        if (result.firstSample === null) result.firstSample = now;
+        for (const name of ['generic', 'scoped']) {
+            if (getComputedStyle(document.getElementById(name)).display !== 'none') result[name + 'Visible']++;
+        }
+        if (document.getElementById('dynamic').className && getComputedStyle(document.getElementById('dynamic')).display !== 'none') result.dynamicVisible++;
+        if (getComputedStyle(document.getElementById('content')).display === 'none') result.normalHidden++;
+        if (result.loadedAt !== null && now > result.loadedAt + 200) {
+            result.styles = document.querySelectorAll('#__pureAdStyle').length;
+            const style = document.getElementById('__pureAdStyle');
+            result.genericRulePresent = !!style && style.textContent.includes('.cosmetic-flash-ad{');
+            result.scopedRulePresent = !!style && style.textContent.includes('.cosmetic-scoped-ad{');
+            result.genericRuleParsed = !!style && Array.from(style.sheet.cssRules).some(rule => (rule.selectorText || '').includes('.cosmetic-flash-ad'));
+            result.cssLength = style ? style.textContent.length : 0;
+            fetch('/report', {method:'POST', body:JSON.stringify(result)});
+        } else requestAnimationFrame(sample);
+    }
+    requestAnimationFrame(sample);
+    setTimeout(() => { document.getElementById('dynamic').className = 'cosmetic-flash-ad'; }, 150);
+    // Rebuilding <head> must not lose the active hiding rules.
+    setTimeout(() => { document.head.replaceWith(document.createElement('head')); }, 700);
+    addEventListener('load', () => { result.loadedAt = performance.now(); });
+})();
+</script>
+<script defer src="/blocked.js"></script>
+</body></html>

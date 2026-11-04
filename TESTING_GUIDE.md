@@ -4,6 +4,14 @@
 
 ## 自动检查
 
+广告闪现回归：安装待测 APK 后运行 `python3 validation/cosmetic-flash-regression.py --serial emulator-5554`。
+脚本仅用于可 root 的本地模拟器，临时设置测试订阅与站点偏好，结束后恢复；自带 8878 端口服务器，
+使用模拟器宿主地址 `10.0.2.2`，避免 EasyList 对 localhost 的通用隐藏例外干扰结果。
+每个动画帧检查首屏、动态插入及 head 替换后的广告可见性，延迟图片 2.5 秒验证不依赖加载完成，
+并覆盖重定向、弹窗标签、无痕、临时及持久站点开关、全局开关和规则例外。旧包可加 `--expect-flash` 验证基线。
+结果和被测 APK 校验值写入 `validation/results/cosmetic-flash-<serial>.json`；只证明夹具匹配规则的可见性，
+不代表所有真实广告、WebView 版本或帧内脚本观察时点都已覆盖。Node 测试另检查样式重挂载及关闭恢复。
+
 书签拖拽设备回归：在隐藏窗口的本地可 root 模拟器启动 `validation/qa-server.py`，安装待测 APK，
 运行 `python3 validation/setup-ui-probe.py emulator-5554`，再运行
 `python3 validation/bookmark-drag-regression.py --serial emulator-5554`（调试包加 `--package com.mybrowser.debug`）。
