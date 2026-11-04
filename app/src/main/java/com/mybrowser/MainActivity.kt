@@ -2520,9 +2520,9 @@ class MainActivity : ComponentActivity(),
         handleDownloadSubmission(downloadRequests.submit(request))
     }
 
-    /** Open a still-current direct media candidate in a foreground tab, keeping its full URL. */
+    /** Open a still-current media candidate in a foreground tab, keeping its full URL. */
     private fun playMediaCandidate(candidate: MediaSniffer.Candidate) {
-        if (candidate.isStream || candidate !in media.candidates) return
+        if (candidate !in media.candidates) return
         if (!tabManager.canCreateTab) {
             toast(getString(R.string.ui_tab_limit_reached))
             return
@@ -2532,9 +2532,7 @@ class MainActivity : ComponentActivity(),
         openUrlInNewTab(candidate.url)
     }
 
-    /** Manifests are playlists rather than a video file the download engine can save. */
     private fun downloadMediaCandidate(candidate: com.mybrowser.media.MediaSniffer.Candidate) {
-        if (candidate.isStream) return
         submitDownloadRequest(
             url = candidate.url,
             userAgent = webView.settings.userAgentString,

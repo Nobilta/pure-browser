@@ -103,8 +103,9 @@ SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子
 python3 validation/cast-play-regression.py --serial emulator-5554
 ```
 
-该脚本使用 `cast-play-fixture.html`，检查播放／下载按钮、清单操作范围、下载取消后投屏选择不变，
-以及普通视频携带完整 URL 参数在新标签播放、返回原页面和投屏资源行选择。
+该脚本使用 `cast-play-fixture.html`，检查普通媒体、HLS 和 DASH 均显示播放／下载按钮，下载取消后投屏选择不变，
+普通视频携带完整 URL 参数在新标签播放、返回原页面和投屏资源行选择，并核对清单的下载确认和新标签打开。
+清单夹具只用于检查入口和导航，不用于验证分片播放或合并下载。
 结果写入 `validation/results/cast-play.json`，包含被测 APK 的 SHA-256；实体接收器需另行验证。
 
 JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
