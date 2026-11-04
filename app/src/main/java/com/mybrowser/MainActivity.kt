@@ -1518,7 +1518,7 @@ class MainActivity : ComponentActivity(),
                     if (playing) cast.startPositionFor(signal?.position ?: 0.0, signal?.duration ?: 0.0) else null,
                     ::toast)
             },
-            onCopyUrl = { copyToClipboard(it.url) },
+            onPlay = ::playMediaCandidate,
             onDownload = { downloadMediaCandidate(it) },
             onDismiss = onDismiss,
             preferredCandidate = mediaSnapshot.preferredCandidate,
@@ -2520,13 +2520,19 @@ class MainActivity : ComponentActivity(),
         handleDownloadSubmission(downloadRequests.submit(request))
     }
 
-    /**
-     * Saves a video the sniffer found rather than the page offering a link.
-     *
-     * Manifests are not offered here: the engine transfers one response body, so an HLS or DASH
-     * address would save a playlist, not the video. The candidate list hides those rows' action
-     * for the same reason — see MediaSniffer.Candidate.isStream.
-     */
+    /** Open a still-current direct media candidate in a foreground tab, keeping its full URL. */
+    private fun playMediaCandidate(candidate: MediaSniffer.Candidate) {
+        if (candidate.isStream || candidate !in media.candidates) return
+        if (!tabManager.canCreateTab) {
+            toast(getString(R.string.ui_tab_limit_reached))
+            return
+        }
+        sheetNavigation.clear()
+        leaveFullscreen()
+        openUrlInNewTab(candidate.url)
+    }
+
+    /** Manifests are playlists rather than a video file the download engine can save. */
     private fun downloadMediaCandidate(candidate: com.mybrowser.media.MediaSniffer.Candidate) {
         if (candidate.isStream) return
         submitDownloadRequest(

@@ -97,6 +97,16 @@ SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子
 
 ## 模拟器回归
 
+投屏列表的播放操作可在 QA 服务运行后单独检查：
+
+```bash
+python3 validation/cast-play-regression.py --serial emulator-5554
+```
+
+该脚本使用 `cast-play-fixture.html`，检查播放／下载按钮、清单操作范围、下载取消后投屏选择不变，
+以及普通视频携带完整 URL 参数在新标签播放、返回原页面和投屏资源行选择。
+结果写入 `validation/results/cast-play.json`，包含被测 APK 的 SHA-256；实体接收器需另行验证。
+
 JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
 导出前订阅初始化、导入后的首次规则更新等），联想测试用本地 HTTP 服务核对 OpenSearch / JSONP
 与深嵌套失败处理，备份测试用真实书签与历史存储核对导出合并、上限截断和重复导入不累加。

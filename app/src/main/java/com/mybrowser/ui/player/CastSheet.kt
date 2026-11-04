@@ -58,7 +58,7 @@ fun CastSheet(
     isSearching: Boolean,
     onSearch: () -> Unit,
     onCast: (MediaSniffer.Candidate, DlnaDevice) -> Unit,
-    onCopyUrl: (MediaSniffer.Candidate) -> Unit,
+    onPlay: (MediaSniffer.Candidate) -> Unit,
     onDownload: (MediaSniffer.Candidate) -> Unit,
     onDismiss: () -> Unit,
     preferredCandidate: MediaSniffer.Candidate? = null,
@@ -143,7 +143,8 @@ fun CastSheet(
                             userSelected = true
                         }
                     },
-                    onCopy = { onCopyUrl(candidate) },
+                    // WebView can open direct media in a tab; manifests need a stream player.
+                    onPlay = if (candidate.isStream) null else ({ onPlay(candidate) }),
                     // A manifest is not a file this engine can fetch as one body, so those rows
                     // offer no download instead of saving a playlist nobody can play.
                     onDownload = if (candidate.isStream) null else ({ onDownload(candidate) }),
@@ -225,7 +226,7 @@ private fun MediaRow(
     enabled: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    onCopy: () -> Unit,
+    onPlay: (() -> Unit)?,
     onDownload: (() -> Unit)?,
 ) {
     Row(
@@ -281,8 +282,10 @@ private fun MediaRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = onCopy) {
-            Text(stringResource(R.string.cast_copy))
+        onPlay?.let { play ->
+            TextButton(onClick = play, modifier = Modifier.testTag("cast_play")) {
+                Text(stringResource(R.string.cast_play))
+            }
         }
         onDownload?.let { download ->
             TextButton(onClick = download, modifier = Modifier.testTag("cast_download")) {
