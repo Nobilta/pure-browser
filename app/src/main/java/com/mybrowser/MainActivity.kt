@@ -235,6 +235,7 @@ class MainActivity : ComponentActivity(),
     private lateinit var customFilter: FilterSubscriptions
     private lateinit var userScripts: UserScriptStore
     private val scriptRuntimes = WeakHashMap<WebView, UserScriptRuntime>()
+    private val cosmeticRuntimes = WeakHashMap<WebView, com.mybrowser.filter.CosmeticFilterRuntime>()
     private lateinit var privacy: PrivacyMode
     private val dataCleaner by lazy { BrowsingDataCleaner(this) }
     private var showClearData by mutableStateOf(false)
@@ -461,6 +462,7 @@ class MainActivity : ComponentActivity(),
                 // transfer reading one of them has to end here just as it does for the main frame.
                 pageFileDownloads[view]?.onDocumentChanged()
                 scriptRuntimes[view]?.onDocumentChanged(url)
+                cosmeticRuntimes[view]?.onDocumentChanged(url)
                 page.loading = true
                 page.failure = null
                 page.certificateError = false
@@ -477,6 +479,7 @@ class MainActivity : ComponentActivity(),
                 if (!privacy.isIncognito && page.failure == null) addToHistory(url, view.title ?: url)
                 // Cleared at the start of the load; see the main frame path.
                 scriptRuntimes[view]?.onPageFinished(url)
+                cosmeticRuntimes[view]?.refresh(url)
             }
             override fun onError(url: String, code: Int, description: String) {
                 if (url != page.document.url) return
@@ -1532,6 +1535,7 @@ class MainActivity : ComponentActivity(),
             onTemporaryFilteringChange = {
                 temporaryFilterOrigins = if (origin in temporaryFilterOrigins) temporaryFilterOrigins - origin
                     else (temporaryFilterOrigins + origin).toList().takeLast(128).toSet()
+                cosmeticRuntimes.values.forEach { it.excludedOrigins = temporaryFilterOrigins }
                 if (SiteOrigin.of(state.currentUrl) == origin) {
                     workerDocument = documentFor(state.currentUrl)
                     navigator.reload()
@@ -1667,6 +1671,11 @@ class MainActivity : ComponentActivity(),
         // Apply desktop mode setting
         applySiteSettings(view, state.currentUrl)
 
+        cosmeticRuntimes.remove(view)?.close()
+        cosmeticRuntimes[view] = com.mybrowser.filter.CosmeticFilterRuntime(view, filter, activeSites).also {
+            it.excludedOrigins = temporaryFilterOrigins
+            it.install()
+        }
         installMediaPlaybackTracker(view)
         // Same reason as the media probe and the script runtime above: the message channel is
         // attached while the WebView is being configured, which is always before anything has
@@ -1728,6 +1737,7 @@ class MainActivity : ComponentActivity(),
         popupPages.idOf { it.view === view }?.let { popupPages.remove(it)?.alive = false }
         if (::devTools.isInitialized) devTools.detach(view)
         scriptRuntimes.remove(view)?.close()
+        cosmeticRuntimes.remove(view)?.close()
         if (webViewOrNull === view) {
             systemMedia.detach(this)
             leaveFullscreen()
@@ -1936,6 +1946,7 @@ class MainActivity : ComponentActivity(),
         val popup = runCatching { acquireFreshPage() }.getOrNull() ?: return null
         mediaTrackers.trackerOf(popup)?.prepareForPopup()
         scriptRuntimes[popup]?.prepareForPopup()
+        cosmeticRuntimes[popup]?.prepareForPopup()
         // A document-start registration does not survive the popup content replacement Chromium
         // performs on this WebView, so the page half is dropped here and reinstalled in
         // onPopupContentsAttached — the same window the media probe and script runtime use.
@@ -2039,6 +2050,7 @@ class MainActivity : ComponentActivity(),
         navigationReadiness.cancelScripts()
         clearResidentTabs()
         temporaryFilterOrigins = emptySet()
+        cosmeticRuntimes.values.forEach { it.excludedOrigins = emptySet() }
         viewOwnerId = null
         cancelWebsitePermissions()
         showSiteOrigin = null
@@ -2987,6 +2999,7 @@ class MainActivity : ComponentActivity(),
         // load, rather than at its end: clearing it immediately before repopulating it left the
         // previous page's scripts named in the menu for the whole of the next page's load.
         scriptRuntimes[webView]?.onDocumentChanged(url)
+        cosmeticRuntimes[webView]?.onDocumentChanged(url)
         // Update current tab URL
         tabManager.currentTab?.url = url
         tabManager.notifyChanged()
@@ -2996,7 +3009,10 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    override fun onPageCommitVisible(url: String) = state.onPageCommitVisible(url)
+    override fun onPageCommitVisible(url: String) {
+        state.onPageCommitVisible(url)
+        cosmeticRuntimes[webView]?.onPageCommitVisible(url)
+    }
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
         // The WebView's own URL is the authority. `state.currentUrl` can lag a server redirect
@@ -3036,18 +3052,7 @@ class MainActivity : ComponentActivity(),
         // registrations that existed then. Calling onDocumentChanged here as well would retake the
         // snapshot after any registration made during the load, crediting a script that never ran.
         scriptRuntimes[webView]?.onPageFinished(url)
-        val target = webView
-        val documentEpoch = permissionEpoch
-        lifecycleScope.launch(Dispatchers.Default) {
-            val css = filter.cosmeticCss(url, workerDocument.let { it.url == url && it.filtering })
-            withContext(Dispatchers.Main) {
-                if (permissionEpoch == documentEpoch && webViewOrNull === target && target.url == url) {
-                    target.evaluateJavascript(
-                        "(function(){var s=document.getElementById('__pureAdStyle');if(!s){s=document.createElement('style');s.id='__pureAdStyle';(document.head||document.documentElement).appendChild(s);}s.textContent=" +
-                            org.json.JSONObject.quote(css) + ";})();", null)
-                }
-            }
-        }
+        cosmeticRuntimes[webView]?.refresh(url)
     }
 
     override fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {
@@ -3478,6 +3483,7 @@ class MainActivity : ComponentActivity(),
             if (!isDestroyed && !isFinishing && pool.owns(view)) {
                 mediaTrackers.trackerOf(view)?.onPopupContentsAttached()
                 scriptRuntimes[view]?.onPopupContentsAttached()
+                cosmeticRuntimes[view]?.onPopupContentsAttached()
                 pageFileDownloads[view]?.onPopupContentsAttached()
             }
         } finally {
