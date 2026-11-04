@@ -19,4 +19,6 @@ data class TabState(
     var group: String = "",
     /** Session-only navigation relationship; never crosses normal/private stacks. */
     var openerTabId: String? = null,
+    /** Retained in this tab stack only; excluded from saved session metadata. */
+    var mediaNavigation: MediaNavigation? = null,
 )

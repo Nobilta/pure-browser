@@ -31,7 +31,7 @@ class BrowserWebViewClient(
         fun isCurrentWebView(view: WebView): Boolean = true
 
         fun onPageStarted(url: String)
-        fun onMainFrameNavigation(url: String) {}
+        fun onMainFrameNavigation(url: String, isRedirect: Boolean): Boolean = false
         fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean)
 
         /** The new document has painted; anything the previous document showed may be dropped. */
@@ -98,8 +98,7 @@ class BrowserWebViewClient(
 
         // Let the WebView handle anything it can render itself.
         if (UrlUtils.isInternalScheme(url)) {
-            if (request.isForMainFrame) listener.onMainFrameNavigation(url)
-            return false
+            return request.isForMainFrame && listener.onMainFrameNavigation(url, request.isRedirect)
         }
 
         // Everything else is a handoff to another app. request.hasGesture() is the
