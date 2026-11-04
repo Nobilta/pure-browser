@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cast playback fixture</title>
+<h1>Cast playback fixture</h1>
+<button onclick="document.querySelector('video').play()">Play primary</button>
+<button onclick="refreshSources()">Refresh sources</button>
+<video controls autoplay muted loop playsinline style="width:100%"
+       src="/sample-default.mp4?token=primary"></video>
+<script>
+  function refreshSources() {
+    fetch('/player-sample.mp4?token=second%2Bsource&quality=720', {cache: 'no-store'}).catch(function () {});
+    fetch('/stream-secondary.m3u8?token=stream', {cache: 'no-store'}).catch(function () {});
+  }
+  setTimeout(refreshSources, 500);
+</script>
