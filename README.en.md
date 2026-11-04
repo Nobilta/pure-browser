@@ -15,7 +15,7 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 
 ## Core features
 
-- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting; every source in the cast list offers actions to open it in a new tab or download it, with playback preserving the original media request’s referrer information when available.
+- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting; every source in the cast list offers actions to open it in a new tab or download it. Playback and attachment downloads preserve the original media request’s referrer information when available, and redirects follow the server’s referrer policy.
 - **Page translation**: full-page bilingual translation and selected-text translation; includes a built-in no-login service and supports custom translation APIs.
 - **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
 - **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with system Back to exit, selectable detail text and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.

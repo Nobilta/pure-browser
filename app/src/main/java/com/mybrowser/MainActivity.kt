@@ -1,5 +1,7 @@
 package com.mybrowser
 
+import com.mybrowser.core.observedReferer
+
 import com.mybrowser.R
 import com.mybrowser.site.*
 import com.mybrowser.data.BookmarkDocuments
@@ -1649,7 +1651,8 @@ class MainActivity : ComponentActivity(),
             ) {
                 return@setDownloadListener
             }
-            submitDownloadRequest(url, userAgent, contentDisposition, mimeType, contentLength)
+            submitDownloadRequest(url, userAgent, contentDisposition, mimeType, contentLength,
+                referer = tabManager.currentTab?.mediaNavigation?.downloadRefererFor(url))
         }
 
         // Find in page listener
@@ -2912,22 +2915,24 @@ class MainActivity : ComponentActivity(),
 
     override fun isCurrentWebView(view: WebView): Boolean = webViewOrNull === view
 
-    override fun onMainFrameNavigation(url: String, isRedirect: Boolean): Boolean {
+    override fun onMainFrameNavigation(request: WebResourceRequest): Boolean {
+        val url = request.url.toString()
         val tab = tabManager.currentTab
         val mediaNavigation = tab?.mediaNavigation
         state.onNavigationRequested(url)
         cancelWebsitePermissions()
-        if (isRedirect && mediaNavigation != null && UrlUtils.isHttpUrl(url)) {
-            tab.mediaNavigation = mediaNavigation.follow(url, isRedirect = true)
+        if (request.isRedirect && mediaNavigation != null && UrlUtils.isHttpUrl(url)) {
             if (!mediaNavigation.canFollowRedirect) {
+                tab.mediaNavigation = null
                 onPageError(url, android.webkit.WebViewClient.ERROR_REDIRECT_LOOP, "Too many redirects")
                 return true
             }
+            val referer = request.observedReferer()
+            tab.mediaNavigation = mediaNavigation.followNativeRedirect(url, referer)
+            // Progressive media redirects are handled by the interceptor. A native
+            // fallback must keep Chromium's response policy and real target origin.
             applySiteSettings(webView, url)
-            // Chromium can reduce the explicit referrer to an origin across hosts. Reapply
-            // it to this GET redirect, or omit it entirely when the target is a downgrade.
-            navigator.load(url, isRedirect = true)
-            return true
+            return false
         }
         tab?.mediaNavigation = mediaNavigation?.follow(url, isRedirect = false)
         applySiteSettings(webView, url)

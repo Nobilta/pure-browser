@@ -2,6 +2,7 @@ package com.mybrowser.ui.library
 
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,14 +56,8 @@ internal class BookmarkDragState(val list: LazyListState) {
     private fun moveAtCenter() {
         val key = active ?: return
         val from = order.indexOf(key)
-        val target = list.layoutInfo.visibleItemsInfo.lastOrNull { item ->
-            val candidate = item.key as? Long
-            candidate != null && candidate != key && (candidate < 0) == (key < 0) &&
-                item.index == order.indexOf(candidate) &&
-                if (direction > 0) item.index > from && center > item.offset + item.size / 2f
-                else item.index < from && center < item.offset + item.size / 2f
-        } ?: return
-        val to = order.indexOf(target.key)
+        val target = bookmarkDragTarget(order, key, center, direction, list.layoutInfo.visibleItemsInfo) ?: return
+        val to = order.indexOf(target)
         list.requestScrollToItem(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset)
         order = order.toMutableList().apply { removeAt(from); add(to, key) }
     }
@@ -117,4 +112,18 @@ internal class BookmarkDragState(val list: LazyListState) {
         order = keys
     }
     data class Move(val key: Long, val anchor: Long, val after: Boolean)
+}
+
+/** A coalesced pointer event can cross several rows in either direction. */
+internal fun bookmarkDragTarget(order: List<Long>, key: Long, center: Float, direction: Float,
+    visible: List<LazyListItemInfo>): Long? {
+    val from = order.indexOf(key)
+    val crossed: (LazyListItemInfo) -> Boolean = { item ->
+        val candidate = item.key as? Long
+        candidate != null && candidate != key && (candidate < 0) == (key < 0) &&
+            item.index == order.indexOf(candidate) &&
+            if (direction > 0) item.index > from && center > item.offset + item.size / 2f
+            else item.index < from && center < item.offset + item.size / 2f
+    }
+    return (if (direction > 0) visible.lastOrNull(crossed) else visible.firstOrNull(crossed))?.key as? Long
 }

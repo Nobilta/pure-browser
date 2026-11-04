@@ -15,6 +15,7 @@ class MediaNavigation private constructor(
     class RequestLifetime {
         @Volatile var cancelled: Boolean = false
         @Volatile var failure: com.mybrowser.media.MediaRequestInterceptor.Failure? = null
+        @Volatile internal var fallbackRedirects: List<MediaNavigation> = emptyList()
     }
 
     enum class Policy(val token: String) {
@@ -37,6 +38,21 @@ class MediaNavigation private constructor(
 
     fun headersFor(target: String): Map<String, String> =
         if (matches(target) && referer.isNotEmpty()) mapOf("Referer" to referer) else emptyMap()
+
+    /** null is unrelated; empty deliberately suppresses the ordinary page referrer. */
+    fun downloadRefererFor(target: String): String? = if (matches(target)) referer else null
+
+    /** Native fallback redirects already apply the server's Referrer-Policy. Never
+     * replay the old header or reconstruct a header absent from the observed request. */
+    fun followNativeRedirect(target: String, observedReferer: String?): MediaNavigation? {
+        val next = follow(target, isRedirect = true) ?: return null
+        // Older providers omit headers from shouldOverrideUrlLoading. The
+        // interceptor has already read these response policies before fallback.
+        loadId.fallbackRedirects.firstOrNull { it.url == next.url && it.redirects == next.redirects }?.let { return it }
+        val observed = create(target, sourcePageUrl, observedReferer.orEmpty()) ?: return null
+        return MediaNavigation(next.url, observed.referer, sourcePageUrl, observed.policy,
+            next.redirects, loadId)
+    }
 
     fun sourceFor(target: String, pageUrl: String?): String? =
         if (matches(target) && pageUrl != null && matches(pageUrl)) sourcePageUrl else pageUrl
