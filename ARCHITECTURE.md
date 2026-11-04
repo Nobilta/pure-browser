@@ -29,6 +29,7 @@ Kotlin 源码位于 [app/src/main/java/com/mybrowser](app/src/main/java/com/mybr
 共享类型放在 `core`；`ResourceType` 和 `SourceToken` 的枚举顺序属于 JNI 契约，修改时需同步 Rust。
 `url_utils` 还负责书签导入和源码词法高亮；高亮通过一次有界 JNI 调用返回 UTF-16 区间，Kotlin 负责文本分块与展示。
 `media` 使用 Compose 渲染全屏控件，因此它也依赖部分 UI 组件。
+`core/BundledScripts` 按 APK 资源名共享不变的脚本文本，多个 WebView 复用同一份字符串，不保留 Activity。
 
 ## 状态与异步回调
 
@@ -237,6 +238,9 @@ Compose 1.9.4 有 `Modifier.preferredFrameRate`（底层是 API 35 的 `View.set
 PiP 复用原视图，使用进入前的画面区域；停止、视频消失、导航或关闭 PiP 时释放系统会话、通知和服务，
 消失 frame 的旧状态需超时清理，后台服务的启动与停止按请求顺序处理。
 `MediaCandidateStore` 将网络线索和实际视频来源关联，保留完整签名参数。
+投屏列表的新标签播放由 `MediaNavigation` 保留来源策略与请求生命周期。`MediaRequestInterceptor`
+转交已取得的响应：HTML 跳转通过 `MediaResponseHandoff` 在最终 URL 提交，附件交给下载确认与保存，
+成功响应不重新请求。HTTP 认证挑战交回 Chromium，后续刷新继续使用原生凭据与实际导航头。
 DLNA 的 `CastController` 由进程持有，发现和轮询随面板可见性启停，控制动作串行执行；
 SetURI / Play 被接受与设备返回 PLAYING 是不同状态。
 设备发现用 SSDP：向 `239.255.255.250:1900` 发 M-SEARCH（包含 `ssdp:all`），收单播回复，再取设备描述。
@@ -282,6 +286,8 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 下载请求先经 `DownloadRequestCoordinator` 汇聚：确认、预算和拦截记录按标签文档保存，
 前台只暴露所选标签状态，主文档导航或关页清理，后台窗口导航也重置自身状态。
 `DownloadPresenter` 管理任务操作、文件打开及结果提示；WebView 提供的 contentLength 传至确认框。
+已打开的媒体附件以 `DownloadResponse` 传递流的所有权：取消、导航与重复请求关闭未认领响应，确认后由
+下载任务负责读取和关闭。它与普通单流下载共用写入与长度校验；Range 探测遇到完整响应也直接复用。
 `DownloadIdentity` 是模式相关下载策略的唯一出处：凭据来源、持久化范围、通知与可恢复性都由它决定，
 新增差异应加在这里而不是散落成新的布尔判断。
 `DownloadMetadataStore` 负责有界记录读写、旧格式迁移、隐私字段裁剪及重启恢复，返回记录与可恢复的中断任务 ID；

@@ -43,6 +43,16 @@ async function compare(w, items = ready(w)) {
   await tick();
 }
 
+test('an empty document has no translation work', t => {
+  const w = page(t, '');
+  assert.deepEqual(collect(w), []);
+  assert.equal(w.__pureTranslateTranslatedMode(), 'none');
+  assert.deepEqual(JSON.parse(w.__pureTranslateCompareStart()), {
+    totalCharacters: 0, totalGroups: 0, truncated: false,
+  });
+  assert.deepEqual(ready(w), []);
+});
+
 test('removing a nested block merges source groups without retaining a child translation', async t => {
   const w = page(t, '<div id="outer">Leading <span><div id="block">Middle</div>Trailing</span></div>');
   w.__pureTranslateCompareStart();

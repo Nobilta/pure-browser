@@ -4,13 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
-import java.security.MessageDigest
+import com.mybrowser.core.Hex
 
 /** Local WebView icons only: opening the library never contacts bookmarked sites. */
 object BookmarkIcons {
     private fun directory(context: Context) = File(context.cacheDir, "bookmark-icons")
-    private fun key(url: String) = MessageDigest.getInstance("SHA-256")
-        .digest(url.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) } + ".png"
+    private fun key(url: String) = Hex.sha256(url.toByteArray(Charsets.UTF_8)) + ".png"
 
     @Synchronized
     fun read(context: Context, url: String): Bitmap? = runCatching {

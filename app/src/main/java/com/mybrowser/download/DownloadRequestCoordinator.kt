@@ -30,6 +30,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
          * carries, so the download engine never sees it.
          */
         val pageFile: PageFileOffer? = null,
+        val response: DownloadResponse? = null,
     ) {
         val identity: String
             get() = pageFile?.let { DownloadValidation.PAGE_FILE_PREFIX + it.url } ?: url.substringBefore('#')
@@ -61,6 +62,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         var noticed = false
         var overflowNoticed = false
         var overflow = 0
+        fun close() { pending?.request?.response?.close() }
     }
     private val documents = mutableMapOf<String, Document>()
     private var tabId = "initial"
@@ -75,24 +77,30 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
 
     fun selectTab(id: String) { tabId = id; publish() }
     fun startDocument(id: String) {
-        documents.remove(id)
+        documents.remove(id)?.close()
         if (id == tabId) publish()
     }
     fun retainTabs(ids: Set<String>) {
-        documents.keys.retainAll(ids)
+        documents.keys.filterNot { it in ids }.forEach { documents.remove(it)?.close() }
         if (tabId in ids) publish() else { _pending.value = null; _blocked.value = emptyList(); _overflow.value = 0 }
     }
-    fun resetTransientState() { documents.clear(); publish() }
+    fun resetTransientState() { documents.values.forEach { it.close() }; documents.clear(); publish() }
     private fun publish() {
         _pending.value = document.pending
         _blocked.value = document.blocked
         _overflow.value = document.overflow
     }
 
-    fun submit(request: Request): SubmitResult = submit(request, explicit = false)
+    fun submit(request: Request): SubmitResult = submitOwned(request, explicit = false)
 
     /** Long-press actions bypass page suppression/budgets, but still require confirmation. */
-    fun submitFromUser(request: Request): SubmitResult = submit(request, explicit = true, fromUser = true)
+    fun submitFromUser(request: Request): SubmitResult = submitOwned(request, explicit = true, fromUser = true)
+
+    private fun submitOwned(request: Request, explicit: Boolean, fromUser: Boolean = false): SubmitResult {
+        val result = submit(request, explicit, fromUser)
+        if (result !is SubmitResult.Confirm) request.response?.close()
+        return result
+    }
 
     private fun submit(request: Request, explicit: Boolean, fromUser: Boolean = false): SubmitResult {
         val state = document
@@ -144,14 +152,15 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         return handler.enqueueOrGetExisting(
             request.url, request.userAgent, request.contentDisposition, request.mimeType,
             referer = request.referer, isPrivate = request.isPrivate, cookieHeader = request.cookieHeader,
-            newCopy = newCopy, pageFile = request.pageFile,
-        )
+            newCopy = newCopy, pageFile = request.pageFile, response = request.response,
+        ).also { if (it !is DownloadHandler.EnqueueOutcome.Started) request.response?.close() }
     }
 
     fun rejectPending() {
         val state = document
         val request = state.pending?.request ?: return
         val fromUser = state.fromUser
+        request.response?.close()
         state.pending = null
         state.newCopy = false
         state.fromUser = false
@@ -197,7 +206,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         }
         if (state.blocked.size >= MAX_BLOCKED_ENTRIES) {
             state.overflow = (state.overflow.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        } else state.blocked = state.blocked + BlockedEntry(request, reason)
+        } else state.blocked = state.blocked + BlockedEntry(request.copy(response = null), reason)
         publish()
     }
 

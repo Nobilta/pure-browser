@@ -3,6 +3,7 @@ package com.mybrowser.update
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import com.mybrowser.core.Hex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -96,7 +97,7 @@ class UpdateRepository internal constructor(
                     }
                     output.fd.sync()
                 } }
-                if (written != release.size || hex(digest.digest()) != release.sha256) throw Failure(Problem.VERIFICATION)
+                if (written != release.size || Hex.encode(digest.digest()) != release.sha256) throw Failure(Problem.VERIFICATION)
             }
             coroutineContext.ensureActive()
             verifyPackage(temporary, release)
@@ -123,7 +124,7 @@ class UpdateRepository internal constructor(
                 digest.update(bytes, 0, count)
             }
         }
-        if (hex(digest.digest()) != release.sha256) throw Failure(Problem.VERIFICATION)
+        if (Hex.encode(digest.digest()) != release.sha256) throw Failure(Problem.VERIFICATION)
         verifyPackage(file, release)
     }
 
@@ -212,7 +213,6 @@ class UpdateRepository internal constructor(
             uri.scheme == "https" && uri.host in hosts && uri.rawUserInfo == null &&
                 uri.port in listOf(-1, 443) && uri.rawFragment == null && value.length <= 16_384
         }.getOrDefault(false)
-        private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
 
         private fun integer(json: JSONObject, key: String): Long = when (val value = json.get(key)) {
             is Int -> value.toLong()

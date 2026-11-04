@@ -20,6 +20,8 @@
 记录在 `validation/results/bookmark-drag-<serial>.json`，截图同目录 `bookmark-*.png`；再次运行会重置专用夹具。
 该脚本会启动本地网页获取图标，不访问外部图标服务。
 
+`BookmarkLibraryTest` 用 275 条记录覆盖超过 SQL 搜索上限后的排序与继续分页；搜索查询仍保持单次结果上限。
+
 ```bash
 ./build-and-test.sh --quick
 ```
@@ -70,7 +72,7 @@ adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser
 在三秒延迟内切到第三个标签，确认关闭的是弹窗，返回原页面后回调请求成功；再验证嵌套弹窗、
 无痕模式（仅窗口通信）、关闭其他标签和退出会话。真实 Bitwarden 与 Google/X 登录需另外记录版本和结果。
 
-签名配置完成后，发布检查额外运行 clippy、lint、R8、签名及 zipalign 校验：
+签名配置完成后，发布检查包含全部快速检查，并运行 clippy、lint、R8、签名及 zipalign 校验；无需再先运行 `--quick`：
 
 ```bash
 ./build-and-test.sh --release
@@ -113,14 +115,16 @@ SSE 和 opaque 响应显示不支持的原因；元素页 DOM 树、搜索、子
 
 ## 模拟器回归
 
-媒体原生回退回归可单独运行，不需要 QA 服务：
+媒体响应交接回归可单独运行，不需要 QA 服务：
 
 ```bash
 python3 validation/media-fallback-regression.py --serial emulator-5554
 ```
 
 脚本在本机 8880 端口启动夹具，检查跳转响应的 no-referrer／origin 策略、HTML 目标与刷新，
-以及直接／重定向附件和显式无来源的下载确认。结果写入 `validation/results/media-fallback-<serial>.json`，
+以及 HTTP 登录提示、直接／重定向附件、一次性链接、gzip 和未知长度响应。
+下载通过实际文件 SHA-256 和服务器请求计数验证，不能用“出现确认框”代替保存完成。
+结果写入 `validation/results/media-fallback-<serial>.json`，
 记录被测 APK 和测试源码校验值；`--package com.mybrowser.debug` 可检查调试包。
 书签排序回归运行 `python3 validation/bookmark-drag-regression.py --serial emulator-5554`，需先启动下面的 QA 服务。
 它使用专用 root 模拟器中的夹具记录，覆盖分页边缘滚动、取消、持久排序、多选和一次位移跨多行的向上拖动。
@@ -143,8 +147,8 @@ QA 服务对缺少或错误 Referer 的媒体返回 403；脚本检查普通／�
 夹具同时检查当前会话 Cookie、跨主机重定向各自的 Cookie／Set-Cookie，以及 origin／no-referrer 策略。
 跨主机夹具用浏览器预置目标域会话 Cookie，并用每次运行独有的 Lax Cookie 验证 GET 主导航的逐跳写入；
 不要在 HTTP 夹具中用手动写入 Secure Cookie 验证更新，CookieManager 要求这类写入使用 HTTPS。
-扩展回归运行 `python3 validation/cast-referrer-regression.py --serial emulator-5554 --cases direct,redirect,origin,none,cdn,large,boundary,private`。
-先运行 `python3 validation/create-large-media-fixtures.py` 生成稀疏 MP4；其中视频样本位于 1 GiB 和接近 2 GiB 的偏移，
+扩展回归运行 `python3 validation/cast-referrer-regression.py --serial emulator-5554 --cases direct,redirect,origin,none,cdn,large,boundary,over-limit,private`。
+先运行 `python3 validation/create-large-media-fixtures.py` 生成稀疏 MP4；其中视频样本覆盖 1 GiB、2 GiB 边界及超过边界的偏移，
 可验证流定位和解码，不代表持续大码率传输。应在旧、新 WebView 上分别运行，不能只凭 Android API 版本判断覆盖。
 
 错误页回归运行 `python3 validation/cast-media-failure-regression.py --serial emulator-5554`，检查 HTTP 拒绝、连接失败、
@@ -156,7 +160,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -keyout validation/results/ref
 
 QA 服务发现这两个文件时会额外监听 8877；测试不会信任该证书或跳过 TLS 校验。设备结果保存在
 `validation/results/cast-media-failure-<serial>.json`。两份回归脚本均可加 `--debug` 检查调试包；最终交付仍须检查签名 Release。
-本回归不代表超出 2 GiB 流接口上限、未知长度／压缩响应及 HLS／DASH 分片播放已兼容，实际覆盖以 `release/notes.md` 为准。
+这些回归不代表 HLS／DASH 分片播放已兼容，实际设备与场景覆盖以 `release/notes.md` 为准。
 
 JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
 导出前订阅初始化、导入后的首次规则更新等），联想测试用本地 HTTP 服务核对 OpenSearch / JSONP

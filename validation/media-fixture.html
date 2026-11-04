@@ -35,7 +35,7 @@
         });
         fetch('/__state?case=' + encodeURIComponent(caseId), {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({capturedAt: Date.now(), mediaButtons: buttons,
+          body: JSON.stringify({url: location.href, capturedAt: Date.now(), mediaButtons: buttons,
             viewport: {width: innerWidth, height: innerHeight, dpr: devicePixelRatio},
             playing: !primary.paused ? 'primary' : !secondary.paused ? 'secondary' : null})
         }).catch(function () {});

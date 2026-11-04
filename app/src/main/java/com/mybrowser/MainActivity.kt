@@ -373,7 +373,10 @@ class MainActivity : ComponentActivity(),
             importUserScript = ::onUserScriptUrl,
             openExternal = { onExternalUrl(it) },
             openNewTab = { openUrlInNewTab(it) },
-            onRequestContextChanged = { workerDocument = documentFor(it) },
+            onRequestContextChanged = {
+                workerDocument = documentFor(it)
+                mediaResponseHandoff.retain(workerDocument.mediaNavigation)
+            },
         )
     }
 
@@ -584,6 +587,7 @@ class MainActivity : ComponentActivity(),
                                      val cookies: android.webkit.CookieManager? = null,
                                      val thirdPartyCookies: Boolean = false)
     @Volatile private var workerDocument = WorkerDocument()
+    private val mediaResponseHandoff = com.mybrowser.media.MediaResponseHandoff()
     private var temporaryFilterOrigins by mutableStateOf<Set<String>>(emptySet())
     private var filterExplanation by mutableStateOf<com.mybrowser.core.NetworkRequestLog?>(null)
     private fun documentFor(url: String): WorkerDocument {
@@ -2139,6 +2143,7 @@ class MainActivity : ComponentActivity(),
      * If the tab has saved state, restore it; otherwise load its URL.
      */
     private fun loadCurrentTab() {
+        mediaResponseHandoff.close()
         if (navigationReadiness.awaitPrivacy { loadCurrentTab(); refreshTranslationState() }) return
         systemMedia.detach(this)
         cancelWebsitePermissions()
@@ -2412,9 +2417,11 @@ class MainActivity : ComponentActivity(),
         contentLength: Long = -1,
         fromUser: Boolean = false,
         referer: String? = null,
+        response: com.mybrowser.download.DownloadResponse? = null,
     ) {
         val filename = downloadHandler.previewFilename(url, contentDisposition, mimeType)
         if (filename == null) {
+            response?.close()
             toast(getString(R.string.ui_unable_to_start_the_download))
             return
         }
@@ -2430,6 +2437,7 @@ class MainActivity : ComponentActivity(),
             cookieHeader = privacy.cookiesFor(url),
             sourceOrigin = com.mybrowser.site.SiteOrigin.of(origin),
             contentLength = contentLength.takeIf { it >= 0 },
+            response = response,
         )
         handleDownloadSubmission(if (fromUser) downloadRequests.submitFromUser(request) else downloadRequests.submit(request))
     }
@@ -2943,6 +2951,7 @@ class MainActivity : ComponentActivity(),
         tabManager.currentTab?.let { tab ->
             tab.mediaNavigation = tab.mediaNavigation?.follow(url, isRedirect = false)
         }
+        mediaResponseHandoff.retain(tabManager.currentTab?.mediaNavigation)
         ReaderMode.onPageStarted()
         translationJob?.cancel()
         translationScrollJob?.cancel()
@@ -3284,11 +3293,37 @@ class MainActivity : ComponentActivity(),
         val stillActive = {
             val current = workerDocument
             webViewOrNull === view && document.mediaNavigation?.loadId?.cancelled == false &&
-                current.mediaNavigation?.loadId === document.mediaNavigation?.loadId &&
-                current.mediaNavigation?.sameSourceAs(document.mediaNavigation) == true
+                current.mediaNavigation?.loadId === document.mediaNavigation?.loadId
         }
+        mediaResponseHandoff.take(request, document.mediaNavigation)?.let { return it }
         return com.mybrowser.media.MediaRequestInterceptor.intercept(request, document.mediaNavigation, document.cookies,
             allowThirdPartyCookies = document.thirdPartyCookies,
+            onDownloadResponse = { navigation, response ->
+                val disposition = response.responseHeaders.entries.firstOrNull { it.key.equals("Content-Disposition", true) }?.value
+                val length = response.responseHeaders.entries.firstOrNull { it.key.equals("Content-Length", true) }?.value?.toLongOrNull() ?: -1L
+                val download = com.mybrowser.download.DownloadResponse(response.data, length)
+                val posted = view.post {
+                    if (stillActive()) submitDownloadRequest(navigation.url, view.settings.userAgentString,
+                        disposition, response.mimeType, length, referer = navigation.referer, response = download)
+                    else download.close()
+                }
+                if (!posted) download.close()
+                posted
+            },
+            onRedirectResponse = { navigation, response ->
+                if (!stillActive()) false else {
+                    mediaResponseHandoff.offer(navigation, response)
+                    val posted = view.post {
+                        if (stillActive()) {
+                            tabManager.currentTab?.mediaNavigation = navigation
+                            navigator.load(navigation.url, isRedirect = true)
+                        } else mediaResponseHandoff.discard(response)
+                    }
+                    if (!posted) mediaResponseHandoff.discard(response)
+                    else view.postDelayed({ mediaResponseHandoff.discard(response) }, 30_000)
+                    posted
+                }
+            },
             onFailure = { failure ->
                 if (stillActive()) {
                     document.mediaNavigation?.loadId?.failure = failure
@@ -3995,6 +4030,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onDestroy() {
+        mediaResponseHandoff.close()
         if (isChangingConfigurations && ::privacy.isInitialized && privacy.isIncognito) saveCurrentTab()
         dialogs.dismiss()
         if (::pipController.isInitialized) pipController.close()

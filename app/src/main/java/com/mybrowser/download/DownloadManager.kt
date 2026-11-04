@@ -70,6 +70,7 @@ class DownloadHandler(context: Context) : Closeable {
     private val destinationWriter = DownloadDestinationWriter(appContext)
     private val metadata = ConcurrentHashMap<Long, DownloadMetadata>()
     private val jobs = ConcurrentHashMap<Long, Job>()
+    private val responses = ConcurrentHashMap<Long, DownloadResponse>()
     private val deleting = ConcurrentHashMap.newKeySet<Long>()
     private val taskLock = Any()
     /** Survives replacement of a cancelled job that was itself waiting for an older job. */
@@ -183,6 +184,7 @@ class DownloadHandler(context: Context) : Closeable {
          * driven by [startPageFile] rather than by the engine.
          */
         pageFile: PageFileOffer? = null,
+        response: DownloadResponse? = null,
     ): EnqueueOutcome {
         if (closed) return EnqueueOutcome.Rejected
         val offer = pageFile
@@ -233,7 +235,7 @@ class DownloadHandler(context: Context) : Closeable {
                 // The length the page reported and the user confirmed. It is what the finished file
                 // is checked against, so a page that stops early becomes a failure rather than a
                 // silently truncated download.
-                totalBytes = offer?.size?.coerceAtLeast(0L) ?: 0L,
+                totalBytes = (offer?.size ?: response?.length)?.coerceAtLeast(0L) ?: 0L,
                 // A page file is exempt: its bytes are already in the renderer, so there is no
                 // network to wait for. Everything else keeps the user setting, which this line
                 // used to overwrite for every download.
@@ -242,12 +244,13 @@ class DownloadHandler(context: Context) : Closeable {
                 // The bytes come from the renderer, so there is no segmented transfer to configure
                 // and nothing metered to defer: the page already has them.
                 configuredThreadCount = if (offer != null) 1 else settings.threadCount,
-                actualThreadCount = if (offer != null) 1 else settings.threadCount,
+                actualThreadCount = if (offer != null || response != null) 1 else settings.threadCount,
                 destinationMode = settings.destinationMode,
                 customTreeUri = settings.customTreeUri,
                 destinationLabel = settings.destinationLabel,
             )
             if (offer != null) fromPageTasks.add(id)
+            if (response != null) responses[id] = response
             metadata[id] = created
             created
         }
@@ -682,6 +685,7 @@ class DownloadHandler(context: Context) : Closeable {
             current
         }
         interrupted.remove(id)
+        responses.remove(id)?.close()
         // The record dies here, so the page must stop handing bytes over: the sink they reach would
         // otherwise keep writing into a task nothing is watching.
         pageFileSources.remove(id)?.cancel()
@@ -717,6 +721,7 @@ class DownloadHandler(context: Context) : Closeable {
                 return
             }
             interrupted.remove(id)
+            responses.remove(id)?.close()
             pageFileSources.remove(id)?.cancel()
             fromPageTasks.remove(id)
             pageFileFailures.remove(id)
@@ -775,6 +780,7 @@ class DownloadHandler(context: Context) : Closeable {
                 } else current
             }
             if (!paused) return
+            responses.remove(id)?.close()
             interrupted.remove(id)
             jobs[id]?.cancel()
         }
@@ -944,6 +950,8 @@ class DownloadHandler(context: Context) : Closeable {
         synchronized(taskLock) {
             jobs.values.forEach(Job::cancel)
             jobs.clear()
+            responses.values.forEach { it.close() }
+            responses.clear()
             metadata.replaceAll { _, entry ->
                 if (entry.backend == DownloadBackend.LOCAL &&
                     entry.status.active
@@ -1080,17 +1088,13 @@ class DownloadHandler(context: Context) : Closeable {
 
     private suspend fun performDownload(id: Long) {
         val entry = metadata[id] ?: return
+        val response = responses[id]
         val tempDirectory = temporaryDirectory(id)
         val transferJob = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])
         var sampleTime = android.os.SystemClock.elapsedRealtime()
         var sampleBytes = entry.bytesDownloaded
         try {
-            val payload = retryTransfer(id, entry.unmeteredOnly) { engine.download(
-                url = entry.url,
-                headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
-                requestedThreads = entry.configuredThreadCount,
-                tempDirectory = tempDirectory,
-                onProgress = { downloaded, total, actualThreads ->
+            val onProgress: (Long, Long, Int) -> Unit = { downloaded, total, actualThreads ->
                     synchronized(taskLock) {
                         val now = android.os.SystemClock.elapsedRealtime()
                         val duration = now - sampleTime
@@ -1112,7 +1116,18 @@ class DownloadHandler(context: Context) : Closeable {
                     if (now - previous > PROGRESS_PERSIST_INTERVAL_MS &&
                         lastProgressPersist.compareAndSet(previous, now)
                     ) persistMetadata()
-                },
+                }
+            val payload = if (response != null) {
+                metadata.computeIfPresent(id) { _, current ->
+                    if (current.status.active) current.copy(status = DownloadStatus.DOWNLOADING) else current
+                }
+                engine.downloadResponse(response, tempDirectory, onProgress)
+            } else retryTransfer(id, entry.unmeteredOnly) { engine.download(
+                url = entry.url,
+                headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
+                requestedThreads = entry.configuredThreadCount,
+                tempDirectory = tempDirectory,
+                onProgress = onProgress,
             ) }
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             publishParts(id, payload.parts, payload.totalBytes, payload.actualThreadCount, clearSource = false,
@@ -1130,6 +1145,10 @@ class DownloadHandler(context: Context) : Closeable {
                 }
             }
         } finally {
+            if (response != null) {
+                responses.remove(id, response)
+                response.close()
+            }
             val latest = metadata[id]
             if (latest == null || latest.status == DownloadStatus.COMPLETED) {
                 cleanupTemporaryFiles(id)

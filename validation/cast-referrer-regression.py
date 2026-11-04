@@ -109,7 +109,7 @@ def run(serial, scenarios=None):
             first = video_state(case, seek=True)
             expected_url = target
             assert first['url'] == expected_url, first
-            seeks = [video_state(case, seek=p) for p in (.15, .85)] if name in ('large', 'boundary') else []
+            seeks = [video_state(case, seek=p) for p in (.15, .85)] if name in ('large', 'boundary', 'over-limit') else []
             ux.tap('Refresh')
             second = video_state(case)
             assert second['url'] == expected_url, second
@@ -124,8 +124,8 @@ def run(serial, scenarios=None):
                 target_rows = [r for r in requests if r['host'].startswith('localhost:')]
                 assert target_rows and all('cast_session=' not in r['cookie'] for r in target_rows), requests
                 assert any('cdn_hop=' + case in r['cookie'] for r in target_rows), requests
-            if name in ('large', 'boundary'):
-                threshold = 1024 ** 3 - 2000000 if name == 'large' else 2 ** 31 - 2000000
+            if name in ('large', 'boundary', 'over-limit'):
+                threshold = 2 ** 31 if name == 'over-limit' else (1024 ** 3 - 2000000 if name == 'large' else 2 ** 31 - 2000000)
                 assert any(r['range'] and int(r['range'].split('=')[1].split('-')[0]) > threshold for r in requests), requests
             record(('private' if private_mode else 'normal') + ' ' + name + ': protected playback, seek/Range and reload retain Referer')
             if name == 'redirect':

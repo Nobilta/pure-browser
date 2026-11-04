@@ -49,7 +49,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 验证改动
 
-代码改动先运行 `./build-and-test.sh --quick`，再在本地模拟器上验证受影响的行为。
+代码改动运行 `./build-and-test.sh --quick`，再在本地模拟器上验证受影响的行为。
+交付签名包时直接使用 `--release`：它包含全部快速检查，无需先重复执行 `--quick`。
 界面、生命周期和 WebView 改动尤其需要实际操作验证；现有阶段、签名包要求和运行方法见[测试指南](TESTING_GUIDE.md)。
 修复缺陷时，优先增加能重现原问题的检查，并说明修复前后的结果。
 发布脚本的门禁测试位于 `release/test_release.py`，已纳入快速检查与三平台 CI；

@@ -12,11 +12,12 @@ internal object Hex {
      * A lookup table instead of `"%02x".format(byte)`: filter payloads and resumable
      * downloads hash megabytes at a time, where one String allocation per byte dominates.
      */
-    fun sha256(data: ByteArray): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(data)
-        val out = CharArray(digest.size * 2)
-        for (i in digest.indices) {
-            val value = digest[i].toInt() and 0xff
+    fun sha256(data: ByteArray): String = encode(MessageDigest.getInstance("SHA-256").digest(data))
+
+    fun encode(bytes: ByteArray): String {
+        val out = CharArray(bytes.size * 2)
+        for (i in bytes.indices) {
+            val value = bytes[i].toInt() and 0xff
             out[i * 2] = DIGITS[value ushr 4]
             out[i * 2 + 1] = DIGITS[value and 0x0f]
         }

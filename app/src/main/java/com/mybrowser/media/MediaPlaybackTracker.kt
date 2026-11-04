@@ -406,11 +406,8 @@ class MediaPlaybackTracker(
         /** Backstop for the expiry above: frames reporting within one timeout window. */
         private const val MAX_TRACKED_FRAMES = 256
         private const val BRIDGE = "mybrowserMediaProbe"
-        @Volatile private var cachedSource: String? = null
-        private fun probeSource(context: Context): String = cachedSource ?: synchronized(this) {
-            cachedSource ?: context.assets.open("playback-probe.js").bufferedReader().use { it.readText() }
-                .also { cachedSource = it }
-        }
+        private fun probeSource(context: Context): String =
+            com.mybrowser.core.BundledScripts.read(context, "playback-probe.js")
         private fun decode(raw: String?): Any? {
             if (raw == null || raw.length > 131_072) return null
             val result = runCatching { JSONTokener(raw).nextValue() }.getOrNull()

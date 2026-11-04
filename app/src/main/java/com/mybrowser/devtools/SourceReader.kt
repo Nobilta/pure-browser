@@ -14,8 +14,6 @@ import org.json.JSONObject
  * stays reachable; only the page on screen is held by the UI.
  */
 internal class SourceReader(private val session: DevToolsSession) {
-    fun invalidate() = Unit
-
     suspend fun info(): PageResult<SourceInfo> {
         val namespace = session.namespace() ?: return PageResult.Unavailable
         val expected = session.documentId

@@ -395,7 +395,6 @@ internal class SourceViewerState(private val session: DevToolsSession) {
         // Source refresh must not clear the page-side node registry: an expanded DOM tree
         // on screen would otherwise keep ids that no longer exist.
         session.source.resetCache()
-        session.source.invalidate()
         reset()
         load(first = true)
     }
