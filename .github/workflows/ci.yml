@@ -124,14 +124,16 @@ jobs:
         run: ./build-and-test.sh --quick
 
       # The release ABI: JNI cross-compile, resource processing with the host aapt2, DEX and
-      # packaging. This is what a contributor on this platform would ship.
+      # packaging. Linux covers ARM64 packaging with the Release build below.
       - name: Debug build (arm64-v8a)
+        if: runner.os != 'Linux'
         shell: bash
         run: ./gradlew :app:assembleDebug --console=plain
 
       # The emulator ABI: an x86_64 host runs the API 37 emulator natively, and the harness needs a
-      # com.mybrowser package for that ABI (see TESTING_GUIDE.md).
+      # debug package for that ABI. Linux covers this shared ABI path once.
       - name: Emulator test package (x86_64)
+        if: runner.os == 'Linux'
         shell: bash
         run: ./gradlew -Pmybrowser.abi=x86_64 :app:assembleDebug --console=plain
 

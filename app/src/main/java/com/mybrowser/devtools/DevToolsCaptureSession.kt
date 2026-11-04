@@ -93,7 +93,7 @@ internal class DevToolsSession(
 
     private val scriptSource: String? by lazy {
         runCatching {
-            view.context.assets.open("devtools-capture.js").bufferedReader().use { it.readText() }
+            com.mybrowser.core.BundledScripts.read(view.context, "devtools-capture.js")
         }.getOrNull()
     }
 
@@ -239,8 +239,6 @@ internal class DevToolsSession(
         preserved.filter { it.id in remaining }.forEach {
             details.put(it.copy(documentId = documentId))
         }
-        dom.invalidate()
-        source.invalidate()
     }
 
     fun onPageFinished(url: String) {
@@ -680,8 +678,6 @@ internal class DevToolsSession(
         removeBridge()
         network.clear()
         details.clear()
-        dom.invalidate()
-        source.invalidate()
         publish()
     }
 

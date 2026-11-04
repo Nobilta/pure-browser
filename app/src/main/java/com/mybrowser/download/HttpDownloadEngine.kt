@@ -85,6 +85,9 @@ internal class HttpDownloadEngine {
         } else {
             null
         }
+        probe?.fullResponse?.let { connection ->
+            return@withContext downloadSingle(url, headers, tempDirectory, onProgress, connection)
+        }
         if (checkpoint != null && probe?.supportsRanges == true && probe.totalBytes == checkpoint.total &&
             probe.validator == checkpoint.validator &&
             DownloadCheckpoint.digest(probe.entityUrl) == checkpoint.entityUrlDigest) {
@@ -147,6 +150,7 @@ internal class HttpDownloadEngine {
         headers: DownloadRequestHeaders,
     ): RangeProbe {
         val connection = openConnection(url, headers, range = "bytes=0-0")
+        var retained = false
         return try {
             val code = connection.responseCode
             requireIdentityEncoding(connection)
@@ -168,17 +172,19 @@ internal class HttpDownloadEngine {
                 )
             } else {
                 if (code !in 200..299 && code != 416) throw DownloadHttpException(code)
-                // Do not consume a server that ignored Range: disconnecting immediately
-                // avoids downloading the full file twice.
+                // A successful full response already consumed the URL. Hand it to the
+                // single-stream writer, including when a server ignored Range.
+                retained = code in 200..299
                 RangeProbe(
                     totalBytes = connection.contentLengthLong.coerceAtLeast(0L),
                     supportsRanges = false,
                     validator = null,
                     entityUrl = connection.url.toExternalForm(),
+                    fullResponse = connection.takeIf { retained },
                 )
             }
         } finally {
-            releaseConnection(connection)
+            if (!retained) releaseConnection(connection)
         }
     }
 
@@ -187,10 +193,17 @@ internal class HttpDownloadEngine {
         headers: DownloadRequestHeaders,
         tempDirectory: File,
         onProgress: (Long, Long, Int) -> Unit,
+        fullResponse: HttpURLConnection? = null,
     ): DownloadPayload {
         val destination = File(tempDirectory, "part-0")
-        val connection = openConnection(url, headers)
+        val connection = fullResponse ?: openConnection(url, headers)
         try {
+            if (fullResponse != null) {
+                tempDirectory.deleteRecursively()
+                if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
+                    throw IOException("Unable to recreate download temporary directory")
+                }
+            }
             val code = connection.responseCode
             requireIdentityEncoding(connection)
             if (code !in 200..299 || code == HttpURLConnection.HTTP_PARTIAL) {
@@ -209,33 +222,9 @@ internal class HttpDownloadEngine {
                     DownloadCheckpoint.digest(connection.url.toExternalForm()),
                 ).save(tempDirectory)
             }
-            var downloaded = 0L
-            var lastUpdateNanos = 0L
-            connection.inputStream.use { input ->
-                FileOutputStream(destination).buffered().use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE_BYTES)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (count == 0) continue
-                        if (declaredTotal > 0 && downloaded + count > declaredTotal) throw ResumeRejected("Full response exceeded Content-Length")
-                        output.write(buffer, 0, count)
-                        downloaded += count
-                        val now = System.nanoTime()
-                        if (now - lastUpdateNanos >= PROGRESS_INTERVAL_NANOS) {
-                            lastUpdateNanos = now
-                            onProgress(downloaded, declaredTotal, 1)
-                        }
-                    }
-                }
+            return connection.inputStream.use { input ->
+                copyResponse(input, declaredTotal, destination, onProgress)
             }
-            val total = declaredTotal.takeIf { it > 0L } ?: downloaded
-            if (declaredTotal > 0L && downloaded != declaredTotal) {
-                throw IOException("Length mismatch: expected $declaredTotal, got $downloaded")
-            }
-            onProgress(downloaded, total, 1)
-            return DownloadPayload(listOf(destination), total, 1)
         } catch (cancelled: CancellationException) {
             if (DownloadCheckpoint.read(tempDirectory, url) == null) destination.delete()
             throw cancelled
@@ -245,6 +234,58 @@ internal class HttpDownloadEngine {
         } finally {
             releaseConnection(connection)
         }
+    }
+
+    suspend fun downloadResponse(
+        response: DownloadResponse,
+        tempDirectory: File,
+        onProgress: (Long, Long, Int) -> Unit,
+    ): DownloadPayload = withContext(Dispatchers.IO) {
+        val destination = File(tempDirectory, "part-0")
+        response.use {
+            if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
+                throw IOException("Unable to create download temporary directory")
+            }
+            try {
+                copyResponse(it.body, it.length.coerceAtLeast(0), destination, onProgress)
+            } catch (error: Exception) {
+                destination.delete()
+                throw error
+            }
+        }
+    }
+
+    private suspend fun copyResponse(
+        input: java.io.InputStream,
+        declaredTotal: Long,
+        destination: File,
+        onProgress: (Long, Long, Int) -> Unit,
+    ): DownloadPayload {
+        var downloaded = 0L
+        var lastUpdateNanos = 0L
+        FileOutputStream(destination).buffered().use { output ->
+            val buffer = ByteArray(BUFFER_SIZE_BYTES)
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                if (declaredTotal > 0 && downloaded + count > declaredTotal) throw ResumeRejected("Full response exceeded Content-Length")
+                output.write(buffer, 0, count)
+                downloaded += count
+                val now = System.nanoTime()
+                if (now - lastUpdateNanos >= PROGRESS_INTERVAL_NANOS) {
+                    lastUpdateNanos = now
+                    onProgress(downloaded, declaredTotal, 1)
+                }
+            }
+        }
+        val total = declaredTotal.takeIf { it > 0L } ?: downloaded
+        if (declaredTotal > 0L && downloaded != declaredTotal) {
+            throw IOException("Length mismatch: expected $declaredTotal, got $downloaded")
+        }
+        onProgress(downloaded, total, 1)
+        return DownloadPayload(listOf(destination), total, 1)
     }
 
     private suspend fun downloadParallel(
@@ -453,6 +494,7 @@ internal class HttpDownloadEngine {
         val supportsRanges: Boolean,
         val validator: String?,
         val entityUrl: String,
+        val fullResponse: HttpURLConnection? = null,
     )
 
     private companion object {

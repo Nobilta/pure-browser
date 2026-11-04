@@ -247,7 +247,7 @@ class PageFileDownload(
     fun startScript(): Boolean {
         if (closed) return false
         return runCatching {
-            val source = view.context.assets.open(SCRIPT).bufferedReader().use { it.readText() }
+            val source = com.mybrowser.core.BundledScripts.read(view.context, SCRIPT)
             script = WebViewCompat.addDocumentStartJavaScript(view, "$source(window);", setOf("*"))
             true
         }.getOrElse { false }

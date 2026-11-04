@@ -8,8 +8,14 @@ object BookmarkFolders {
     const val MAX_DEPTH = 16
     const val MAX_NAME = 128
 
-    fun path(id: Long, folders: List<BookmarkFolder>): List<BookmarkFolder> {
+    fun path(id: Long, folders: List<BookmarkFolder>): List<BookmarkFolder> = path(id, folders.associateBy { it.id })
+
+    fun paths(folders: List<BookmarkFolder>): Map<Long, List<BookmarkFolder>> {
         val byId = folders.associateBy { it.id }
+        return folders.associate { it.id to path(it.id, byId) }
+    }
+
+    private fun path(id: Long, byId: Map<Long, BookmarkFolder>): List<BookmarkFolder> {
         val seen = HashSet<Long>()
         val path = ArrayList<BookmarkFolder>()
         var current = id
@@ -26,7 +32,7 @@ object BookmarkFolders {
         require(folders.size <= MAX_FOLDERS && folders.map { it.id }.distinct().size == folders.size)
         folders.forEach {
             require(it.id > 0 && it.title.isNotBlank() && it.title.length <= MAX_NAME)
-            path(it.id, folders)
         }
+        paths(folders)
     }
 }

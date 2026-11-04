@@ -6,7 +6,8 @@
 ## CI 与本地分工
 
 [CI](.github/workflows/ci.yml) 在 `main` 推送、PR 和手动触发时执行快速检查、lint、clippy、
-未签名 Release 构建及 DEX / Rust JNI 库检查。报告和未签名 APK 附件保留 14 天，执行日志见对应 Actions 运行。
+未签名 Release 构建及 DEX / Rust JNI 库检查。
+三个宿主都执行快速检查；macOS/Windows 验证 ARM64 Debug 包，Linux 验证 ARM64 Release 和 x86_64 Debug 包，避免重复打包。报告和未签名 APK 附件保留 14 天，执行日志见对应 Actions 运行。
 
 正式签名和设备回归在本地完成。CI 不持有签名密钥，也不自动发布正式版本。
 快速检查包含发布工具的 Python 单元测试；推送标签不会触发当前 CI，也不会自动生成 Release。

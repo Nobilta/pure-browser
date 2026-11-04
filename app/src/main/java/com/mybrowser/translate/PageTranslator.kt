@@ -44,8 +44,7 @@ data class TranslationComparisonBatch(
 
 /** Reads and replaces text nodes without handing the page's HTML back to the renderer. */
 class PageTranslator(context: Context) {
-    private val script: String = context.applicationContext.assets
-        .open("translation.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    private val script: String = com.mybrowser.core.BundledScripts.read(context, "translation.js")
 
     suspend fun collect(webView: WebView): TranslationPage = withContext(Dispatchers.Main.immediate) {
         evaluate(webView, script)

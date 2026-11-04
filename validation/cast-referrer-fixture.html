@@ -10,13 +10,13 @@
 <script>
   const query = '?case=' + encodeURIComponent(new URLSearchParams(location.search).get('case'));
   document.cookie = 'cast_session=' + new URLSearchParams(location.search).get('case') + '; Path=/cast-referer/; SameSite=Lax';
-  const mode = new URLSearchParams(location.search).get('case').split('-')[0];
-  const primary = ['origin', 'none', 'cdn', 'large', 'boundary'].includes(mode) ? mode : 'direct';
+  const mode = new URLSearchParams(location.search).get('case').replace(/-\d+$/, '');
+  const primary = ['origin', 'none', 'cdn', 'large', 'boundary', 'over-limit'].includes(mode) ? mode : 'direct';
   if (mode === 'origin' || mode === 'none') document.querySelector('meta[name=referrer]').content = mode === 'none' ? 'no-referrer' : 'origin';
   const direct = '/cast-referer/' + primary + '.mp4' + query;
   document.querySelector('video').src = direct;
   function refreshSources() {
-    if (!['large', 'boundary'].includes(primary)) fetch(direct, {cache: 'no-store'}).catch(() => {});
+    if (!['large', 'boundary', 'over-limit'].includes(primary)) fetch(direct, {cache: 'no-store'}).catch(() => {});
     if (mode === 'direct' || mode === 'redirect') fetch('/cast-referer/redirect.mp4' + query, {cache: 'no-store'}).catch(() => {});
   }
   if (mode === 'cdn') {

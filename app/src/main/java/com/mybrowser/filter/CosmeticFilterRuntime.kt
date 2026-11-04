@@ -49,7 +49,7 @@ class CosmeticFilterRuntime(
     private var bridgeInstalled = false
     @Volatile var excludedOrigins: Set<String> = emptySet()
     private val bridge = CosmeticRuleBridge(::cssFor)
-    private val source: String = view.context.assets.open("cosmetic-style.js").bufferedReader().use { it.readText() }
+    private val source: String = com.mybrowser.core.BundledScripts.read(view.context, "cosmetic-style.js")
 
     // The bridge runs on WebView's JavaScript interface thread. StateFlow and the
     // immutable exclusion snapshot are safe there; no Activity/Compose state is read.

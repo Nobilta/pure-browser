@@ -13,9 +13,6 @@ import org.json.JSONObject
  * page at a time so the native side never receives a complete DOM as one JSON document.
  */
 internal class DomReader(private val session: DevToolsSession) {
-    /** No native cache: ids are validated against the session's current document on every read. */
-    fun invalidate() = Unit
-
     fun isAvailable(): Boolean = session.canInspectDocument() && session.namespace() != null
 
     suspend fun reset(): Boolean {

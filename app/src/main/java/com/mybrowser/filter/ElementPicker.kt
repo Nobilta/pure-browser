@@ -185,10 +185,7 @@ internal class ElementPicker(private val webView: WebView) {
         ))
     }
 
-    private fun source(): String = cachedSource ?: synchronized(this) {
-        cachedSource ?: webView.context.assets.open(SCRIPT).bufferedReader().use { it.readText() }
-            .also { cachedSource = it }
-    }
+    private fun source(): String = com.mybrowser.core.BundledScripts.read(webView.context, SCRIPT)
 
     private companion object {
         const val SCRIPT = "element-picker.js"
@@ -198,7 +195,5 @@ internal class ElementPicker(private val webView: WebView) {
         const val MAX_MATCHES = 100_000
         const val MAX_INSET_PX = 4_000
 
-        /** Read once per process: the script is the same for every page and every WebView. */
-        @Volatile private var cachedSource: String? = null
     }
 }
