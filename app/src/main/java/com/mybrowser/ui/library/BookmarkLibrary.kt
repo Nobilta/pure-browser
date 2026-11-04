@@ -36,9 +36,9 @@ class BookmarkLibrary(private val scope: CoroutineScope, private val repository:
 
     // Typing a search only needs the folder list for path labels, which is loaded once when the
     // sheet opens. Refreshing the whole folder table on every keystroke was the expensive part.
-    fun search(value: String) { pager.search(value); ensureFolders() }
+    fun search(value: String) { if (!busy) { pager.search(value); ensureFolders() } }
     fun refresh() { pager.refresh(); readFolders() }
-    fun loadMore() = pager.loadMore()
+    fun loadMore() { if (!busy) pager.loadMore() }
     fun openFolder(id: Long) { if (!busy) { folderId = id; search("") } }
 
     private fun ensureFolders() { if (!foldersLoaded) readFolders() }
@@ -69,6 +69,34 @@ class BookmarkLibrary(private val scope: CoroutineScope, private val repository:
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (_: Exception) { onFailure() }
             finally { busy = false }
+        }
+    }
+
+    fun moveRelative(id: Long, folder: Boolean, anchorId: Long, after: Boolean) {
+        if (busy || query.isNotBlank()) return
+        busy = true
+        ++folderGeneration
+        pager.pauseLoading()
+        val directory = folderId
+        val count = entries.size.coerceAtLeast(50)
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { repository.moveRelative(id, folder, directory, anchorId, after) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { onFailure() }
+            finally {
+                try {
+                    val snapshot = withContext(Dispatchers.IO) {
+                        repository.getFolders() to repository.getFolderBookmarks(directory, count + 1)
+                    }
+                    if (folderId == directory) {
+                        folders = snapshot.first
+                        pager.replaceLoaded(snapshot.second.take(count), snapshot.second.size > count)
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { onFailure() }
+                finally { busy = false }
+            }
         }
     }
 }

@@ -12,6 +12,28 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class BookmarkFoldersTest {
+    @Test fun relativeReorderingUsesWholeDirectoryAndKeepsOtherFoldersUntouched() {
+        val manager = BookmarkManager(RuntimeEnvironment.getApplication())
+        try {
+            val folder = manager.addFolder("Ordered")
+            val elsewhere = manager.addFolder("Other")
+            val ids = (1..120).map { manager.addBookmark("Item $it", "https://order.test/$it") }
+            manager.moveBookmarks(ids.toSet(), folder)
+            val other = manager.addBookmark("Other", "https://other.test")
+            manager.moveBookmarks(setOf(other), elsewhere)
+            manager.moveRelative(ids.first(), false, folder, ids[80], true)
+            val expected = ids.drop(1).toMutableList().apply { add(80, ids.first()) }
+            assertEquals(expected, manager.getFolderBookmarks(folder, 200).map { it.id })
+            assertEquals(listOf(other), manager.getFolderBookmarks(elsewhere).map { it.id })
+            assertThrows(IllegalStateException::class.java) { manager.moveRelative(ids[1], false, folder, other, true) }
+            assertEquals(expected, manager.getFolderBookmarks(folder, 200).map { it.id })
+            manager.moveRelative(ids.first(), false, folder, ids[1], false)
+            assertEquals(ids, manager.getFolderBookmarks(folder, 200).map { it.id })
+            manager.moveRelative(elsewhere, true, 0, folder, false)
+            assertEquals(listOf(elsewhere, folder), manager.getFolders().map { it.id })
+        } finally { manager.close() }
+    }
+
     @Test fun upgradingVersionTwoPreservesIdsAndTimestamps() {
         val context = RuntimeEnvironment.getApplication()
         val path = context.getDatabasePath("browser.db").also { it.parentFile!!.mkdirs() }

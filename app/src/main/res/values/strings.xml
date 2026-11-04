@@ -524,7 +524,7 @@
     <string name="site_save_failed">Unable to save website settings. Try again.</string>
 
     <!-- Tab recovery and bookmark interchange. -->
-    <string name="bookmarks_transfer">Import or export bookmarks</string>
+    <string name="bookmarks_transfer">Bookmark actions</string>
     <string name="bookmarks_import">Import bookmarks</string>
     <string name="bookmarks_export">Export bookmarks</string>
     <string name="bookmarks_import_preview">Web bookmarks to import: %1$d. Invalid or duplicate entries skipped: %2$d. Existing bookmarks will be kept.</string>
@@ -1024,4 +1024,6 @@
     <string name="media_request_timeout">The media request timed out.</string>
     <string name="media_request_redirect">The media server returned an invalid or unsafe redirect.</string>
     <string name="media_request_http">The media server returned HTTP %1$d.</string>
+    <string name="bookmarks_drag">Drag to reorder</string>
+    <string name="bookmarks_organize">Organize folders</string>
 </resources>

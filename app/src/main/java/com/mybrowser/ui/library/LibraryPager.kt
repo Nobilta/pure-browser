@@ -44,6 +44,22 @@ class LibraryPager<T>(
 
     fun refresh() = load(reset = true)
 
+    /** Invalidate an in-flight page before changing the order of its prefix. */
+    fun pauseLoading() {
+        ++generation
+        job?.cancel()
+        loading = false
+    }
+
+    fun replaceLoaded(entries: List<T>, hasMore: Boolean) {
+        pauseLoading()
+        this.entries = entries.distinctBy(key)
+        this.hasMore = hasMore
+        nextOffset = this.entries.size
+        error = false
+        retryFromStart = false
+    }
+
     fun loadMore() {
         if (!loading && (hasMore || error)) load(reset = error && retryFromStart)
     }

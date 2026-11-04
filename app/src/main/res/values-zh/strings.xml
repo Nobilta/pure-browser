@@ -523,7 +523,7 @@
     <string name="site_save_failed">无法保存网站设置，请重试。</string>
 
     <!-- Tab recovery and bookmark interchange. -->
-    <string name="bookmarks_transfer">导入或导出书签</string>
+    <string name="bookmarks_transfer">书签操作</string>
     <string name="bookmarks_import">导入书签</string>
     <string name="bookmarks_export">导出书签</string>
     <string name="bookmarks_import_preview">导入 %1$d 个网页书签？已跳过 %2$d 个无效或重复条目。已有书签会保留。</string>
@@ -1023,4 +1023,6 @@
     <string name="media_request_timeout">媒体请求超时。</string>
     <string name="media_request_redirect">媒体服务器返回了无效或不安全的跳转。</string>
     <string name="media_request_http">媒体服务器返回 HTTP %1$d。</string>
+    <string name="bookmarks_drag">拖动排序</string>
+    <string name="bookmarks_organize">整理文件夹</string>
 </resources>
