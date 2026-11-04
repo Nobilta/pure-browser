@@ -56,7 +56,17 @@ class MediaCandidateStore {
     fun add(candidate: MediaSniffer.Candidate): Boolean {
         val clean = sanitizeCandidate(candidate) ?: return false
         val current = _state.value
-        if (current.candidates.any { it.url == clean.url }) return false
+        val existing = current.candidates.firstOrNull { it.url == clean.url }
+        if (existing != null) {
+            // A DOM signal may arrive first. Only native observations may replace its unknown
+            // request context, including an explicit absence of the header.
+            if (clean.requestReferer != null && clean.requestReferer != existing.requestReferer) {
+                publish(current.copy(candidates = current.candidates.map {
+                    if (it.url == clean.url) it.copy(requestReferer = clean.requestReferer) else it
+                }))
+            }
+            return false
+        }
 
         // Keep progressive URLs even when a page also exposes HLS/DASH. A media element may
         // legitimately be playing the progressive source, and dropping it would make the
@@ -159,6 +169,7 @@ class MediaCandidateStore {
             url = url,
             label = candidate.label.trim().take(MAX_LABEL_LENGTH).ifBlank { url },
             pageUrl = candidate.pageUrl?.trim()?.take(MAX_URL_LENGTH),
+            requestReferer = candidate.requestReferer?.takeIf { it.length <= MAX_URL_LENGTH } ?: candidate.requestReferer?.let { "" },
         )
     }
 

@@ -46,6 +46,12 @@ def run(serial):
     def selected(item):
         return item.get('checked') == 'true' or item.get('selected') == 'true'
 
+    def activate(source, name):
+        labels = base64.b64encode(json.dumps(sorted(ux.resource_labels(name))).encode()).decode()
+        receipt = ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false',
+                         '/system/bin', 'com.mybrowser.validation.FastUiDump', 'tapInRow', ' · ' + source, labels)
+        assert 'Tapped row action' in receipt, receipt
+
     def cast():
         prefixes = [label.split('%')[0] for label in ux.resource_labels('cast_detected_sources')]
         button = next(n for n in ux.nodes()[0].iter('node') if ux.visible(n)
@@ -78,12 +84,12 @@ def run(serial):
             action(item, 'download_confirm_action')
         assert not any(n.get('text') in {'Copy', '复制', '複製'} for n in ux.nodes()[0].iter('node'))
         record('direct media, HLS and DASH all have Play/Download actions')
-        ux.tap_node(action(row('player-sample.mp4'), 'download_confirm_action'))
+        activate('player-sample.mp4', 'download_confirm_action')
         ux.expect('Download file?')
         ux.tap('Cancel')
         assert selected(row('sample-default.mp4')), 'Download changed the cast selection'
         record('download confirmation and cancellation preserve the selected cast source')
-        ux.tap_node(action(row('player-sample.mp4'), 'cast_play'))
+        activate('player-sample.mp4', 'cast_play')
         ux.expect('Choose media to cast', present=False)
         ux.menu_item('More tools')
         ux.tap('Developer tools')
@@ -128,11 +134,11 @@ def run(serial):
             ux.tap('Play primary')
             count = tab_count()
             cast()
-            ux.tap_node(action(row(source.split('?')[0]), 'download_confirm_action'))
+            activate(source.split('?')[0], 'download_confirm_action')
             ux.expect('Download file?')
             ux.tap('Cancel')
             assert selected(row('sample-default.mp4')), 'Manifest download changed the cast selection'
-            ux.tap_node(action(row(source.split('?')[0]), 'cast_play'))
+            activate(source.split('?')[0], 'cast_play')
             ux.expect('Choose media to cast', present=False)
             # Unsupported formats may invoke WebView's normal download callback after navigation.
             root = ux.nodes()[0]

@@ -9,21 +9,41 @@ import java.io.FilterInputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.SSLException
 
 /** Keeps the selected media's Referer on its initial request, redirects and Range requests. */
 object MediaRequestInterceptor {
+    enum class FailureKind { NETWORK, TIMEOUT, CERTIFICATE, REDIRECT, HTTP }
+    data class Failure(val kind: FailureKind, val status: Int = 0)
+    private class RedirectFailure : IOException()
+    private class Cancelled : IOException()
     fun intercept(request: WebResourceRequest, navigation: MediaNavigation?, cookies: CookieManager?,
-                  isActive: () -> Boolean): WebResourceResponse? {
+                  allowThirdPartyCookies: Boolean = false,
+                  onFailure: (Failure) -> Unit = {}, isActive: () -> Boolean): WebResourceResponse? {
         val target = request.url.toString()
         if (navigation == null || request.method != "GET" || !navigation.matches(target)) return null
+        val jar = MediaCookies(cookies, if (request.isForMainFrame) navigation.sourcePageUrl else navigation.url,
+            request.isForMainFrame, allowThirdPartyCookies)
+        val notified = AtomicBoolean(false)
+        fun report(failure: Failure) { if (isActive() && notified.compareAndSet(false, true)) onFailure(failure) }
+        fun reportIo(error: IOException) {
+            if (error !is Cancelled) report(Failure(when (error) {
+                is SSLException -> FailureKind.CERTIFICATE
+                is SocketTimeoutException -> FailureKind.TIMEOUT
+                is RedirectFailure -> FailureKind.REDIRECT
+                else -> FailureKind.NETWORK
+            }))
+        }
         var connection: HttpURLConnection? = null
         try {
             val original = URL(target)
             var current = original
+            var context: MediaNavigation = navigation
             repeat(6) { hop ->
-                if (!isActive()) throw IOException("Media page left")
-                val context = MediaNavigation.create(current.toString(), navigation.referer)
-                    ?: throw IOException("Invalid media redirect")
+                if (!isActive()) throw Cancelled()
+                jar.visit(current.toString())
                 val sameOrigin = current.protocol.equals(original.protocol, true) &&
                     current.host.equals(original.host, true) && current.portOrDefault() == original.portOrDefault()
                 val opened = (current.openConnection() as HttpURLConnection).apply {
@@ -38,12 +58,9 @@ object MediaRequestInterceptor {
                         }
                     }
                     setRequestProperty("Accept-Encoding", "identity")
-                    setRequestProperty("Referer", context.referer)
-                    if (current.host.equals(original.host, true) && current.protocol.equals(original.protocol, true)) {
-                        val cookie = (if (sameOrigin) request.requestHeaders.entries.firstOrNull { it.key.equals("Cookie", true) }?.value else null)
-                            ?: cookies?.getCookie(current.toString())
-                        cookie?.let { setRequestProperty("Cookie", it) }
-                    }
+                    context.headersFor(current.toString())["Referer"]?.let { setRequestProperty("Referer", it) }
+                    val initialCookie = if (hop == 0) request.requestHeaders.entries.firstOrNull { it.key.equals("Cookie", true) }?.value else null
+                    jar.header(current.toString(), initialCookie)?.let { setRequestProperty("Cookie", it) }
                     if (sameOrigin) {
                         request.requestHeaders.entries.firstOrNull { it.key.equals("Authorization", true) }?.value
                             ?.let { setRequestProperty("Authorization", it) }
@@ -51,20 +68,25 @@ object MediaRequestInterceptor {
                 }
                 connection = opened
                 val status = opened.responseCode
-                if (!isActive()) throw IOException("Media page left")
-                if (sameOrigin) opened.headerFields.entries.filter { it.key.equals("Set-Cookie", true) }
-                    .flatMap { it.value }.forEach { cookies?.setCookie(current.toString(), it) }
+                if (!isActive()) throw Cancelled()
+                opened.headerFields.entries.filter { it.key.equals("Set-Cookie", true) }
+                    .flatMap { it.value }.forEach { if (!isActive()) throw Cancelled(); jar.store(current.toString(), it) }
                 if (status in setOf(301, 302, 303, 307, 308)) {
-                    if (hop == 5) throw IOException("Too many media redirects")
-                    val next = URL(current, opened.getHeaderField("Location") ?: throw IOException("Missing redirect"))
+                    if (hop == 5) throw RedirectFailure()
+                    val next = URL(current, opened.getHeaderField("Location") ?: throw RedirectFailure())
                     if (next.userInfo != null || current.protocol == "https" && next.protocol != "https") {
-                        throw IOException("Unsafe media redirect")
+                        throw RedirectFailure()
                     }
+                    context = context.follow(next.toString(), true, opened.getHeaderField("Referrer-Policy")) ?: throw RedirectFailure()
                     opened.disconnect()
                     connection = null
                     current = next
                 } else {
                     if (status !in 100..599 || status in 300..399) throw IOException("Invalid media response")
+                    if (status >= 400) {
+                        report(Failure(FailureKind.HTTP, status))
+                        return failedResponse(status)
+                    }
                     val headers = opened.headerFields.entries.filter { it.key != null &&
                         !it.key.equals("Set-Cookie", true) && !it.key.equals("Transfer-Encoding", true) && !it.key.equals("Connection", true) }
                         .associate { it.key to it.value.joinToString(", ") }.toMutableMap()
@@ -74,7 +96,7 @@ object MediaRequestInterceptor {
                     if (request.isForMainFrame && !mime.startsWith("video/", true) && !mime.startsWith("audio/", true)) return null
                     val charset = contentType.split(';').firstOrNull { it.trim().startsWith("charset=", true) }
                         ?.substringAfter('=')?.trim()?.trim('"')
-                    val body = (if (status >= 400) opened.errorStream else opened.inputStream) ?: ByteArrayInputStream(byteArrayOf())
+                    val body = opened.inputStream
                     val encoding = opened.contentEncoding
                     if (!encoding.isNullOrBlank() && !encoding.equals("identity", true)) {
                         return null
@@ -88,29 +110,44 @@ object MediaRequestInterceptor {
                     if (virtualEnd > Int.MAX_VALUE || virtualEnd <= 0 && status < 400) return null
                     val stream = object : FilterInputStream(body) {
                         private var positioned = false
+                        private val closed = AtomicBoolean(false)
+                        private var remaining = opened.contentLengthLong
+                        private fun received(count: Int): Int {
+                            if (count < 0) {
+                                if (remaining > 0) throw java.io.EOFException("Incomplete media response")
+                                close()
+                            } else if (remaining >= 0) remaining -= count
+                            return count
+                        }
                         private fun checkActive() {
-                            if (!isActive()) { close(); throw IOException("Media page left") }
+                            if (closed.get() || !isActive()) { close(); throw Cancelled() }
                         }
                         // Chromium's InputStreamReader treats available() as the entire resource
                         // size, then calls skip(rangeStart), even for a server's 206 body. The
                         // slice's end makes its computed response length match the real body.
                         // The HTTP Content-Range still supplies the complete media size.
                         override fun available(): Int = if (!positioned) virtualEnd.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else super.available()
-                        override fun skip(count: Long): Long {
-                            checkActive()
+                        override fun skip(count: Long): Long = reading {
                             if (!positioned && rangeStart > 0 && count == rangeStart) {
                                 positioned = true
-                                return count
+                                return@reading count
                             }
                             positioned = true
-                            return super.skip(count)
+                            super.skip(count).also { if (remaining >= 0) remaining -= it }
                         }
-                        override fun read(): Int { checkActive(); positioned = true; return super.read().also { if (it == -1) close() } }
-                        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-                            checkActive(); positioned = true
-                            return super.read(buffer, offset, length).also { if (it == -1) close() }
+                        private inline fun <T> reading(block: () -> T): T = try {
+                            checkActive(); block()
+                        } catch (error: IOException) {
+                            if (!closed.get()) reportIo(error)
+                            runCatching { close() }
+                            throw error
                         }
-                        override fun close() { try { super.close() } finally { opened.disconnect() } }
+                        override fun read(): Int = reading { positioned = true; super.read().also { received(if (it == -1) -1 else 1) } }
+                        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = reading {
+                            positioned = true
+                            received(super.read(buffer, offset, length))
+                        }
+                        override fun close() { if (closed.compareAndSet(false, true)) try { super.close() } finally { opened.disconnect() } }
                     }
                     val response = WebResourceResponse(mime, charset, status,
                         opened.responseMessage?.takeIf { it.isNotBlank() && it.all { c -> c.code in 32..126 } }
@@ -119,14 +156,18 @@ object MediaRequestInterceptor {
                     return response
                 }
             }
-        } catch (_: IOException) {
-            return WebResourceResponse("text/plain", "UTF-8", 502, "Media request failed", emptyMap(),
-                ByteArrayInputStream(byteArrayOf()))
+        } catch (error: IOException) {
+            reportIo(error)
+            return failedResponse(if (error is Cancelled) 499 else 502)
         } finally {
             connection?.disconnect()
         }
         return null
     }
+
+    private fun failedResponse(status: Int) = WebResourceResponse("text/plain", "UTF-8", status,
+        "Media request stopped", mapOf("Cache-Control" to "no-store"),
+        ByteArrayInputStream("Media request stopped".toByteArray()))
 
     private fun URL.portOrDefault() = if (port >= 0) port else defaultPort
 

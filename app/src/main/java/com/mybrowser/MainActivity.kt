@@ -371,6 +371,7 @@ class MainActivity : ComponentActivity(),
             importUserScript = ::onUserScriptUrl,
             openExternal = { onExternalUrl(it) },
             openNewTab = { openUrlInNewTab(it) },
+            onRequestContextChanged = { workerDocument = documentFor(it) },
         )
     }
 
@@ -576,14 +577,16 @@ class MainActivity : ComponentActivity(),
      */
     private data class WorkerDocument(val url: String = ABOUT_BLANK, val filtering: Boolean = true,
                                      val mediaNavigation: com.mybrowser.tabs.MediaNavigation? = null,
-                                     val cookies: android.webkit.CookieManager? = null)
+                                     val cookies: android.webkit.CookieManager? = null,
+                                     val thirdPartyCookies: Boolean = false)
     @Volatile private var workerDocument = WorkerDocument()
     private var temporaryFilterOrigins by mutableStateOf<Set<String>>(emptySet())
     private var filterExplanation by mutableStateOf<com.mybrowser.core.NetworkRequestLog?>(null)
     private fun documentFor(url: String): WorkerDocument {
         val navigation = if (::tabManager.isInitialized) tabManager.currentTab?.mediaNavigation?.takeIf { it.matches(url) } else null
         return WorkerDocument(url, activeSites.get(url).filtering && SiteOrigin.of(url) !in temporaryFilterOrigins,
-            navigation, if (navigation != null) privacy.cookieManagerForCurrentProfile() else null)
+            navigation, if (navigation != null) privacy.cookieManagerForCurrentProfile() else null,
+            navigation != null && activeSites.get(url).thirdPartyCookies)
     }
 
     private val webView: WebView
@@ -886,6 +889,7 @@ class MainActivity : ComponentActivity(),
                     onHome = navigator::goHome,
                     onReloadOrStop = {
                         if (state.isLoading) {
+                            tabManager.currentTab?.mediaNavigation?.loadId?.cancelled = true
                             webView.stopLoading()
                             state.onLoadStopped()
                         } else navigator.reload()
@@ -2341,7 +2345,7 @@ class MainActivity : ComponentActivity(),
         persistNormalSession()
     }
 
-    private fun openUrlInNewTab(url: String, background: Boolean = false, mediaPageUrl: String? = null) {
+    private fun openUrlInNewTab(url: String, background: Boolean = false, mediaNavigation: com.mybrowser.tabs.MediaNavigation? = null) {
         val target = NavigationPolicy.resolve(url, searchEngine)
         if (target is NavigationTarget.External) {
             onExternalUrl(target.url)
@@ -2353,7 +2357,7 @@ class MainActivity : ComponentActivity(),
         if (!background) saveCurrentTab()
         tabManager.createTab(loadUrl, select = !background, title = UrlUtils.hostOf(loadUrl).orEmpty(),
             openerTabId = tabManager.currentTab?.id,
-            mediaNavigation = com.mybrowser.tabs.MediaNavigation.create(loadUrl, mediaPageUrl))
+            mediaNavigation = mediaNavigation)
         if (background) {
             persistNormalSession()
             toast(getString(R.string.context_opened_background))
@@ -2535,11 +2539,15 @@ class MainActivity : ComponentActivity(),
         }
         sheetNavigation.clear()
         leaveFullscreen()
-        openUrlInNewTab(candidate.url, mediaPageUrl = mediaSourcePage(candidate))
+        openUrlInNewTab(candidate.url, mediaNavigation = mediaNavigationFor(candidate))
     }
 
-    private fun mediaSourcePage(candidate: MediaSniffer.Candidate): String? =
-        tabManager.currentTab?.mediaNavigation?.sourceFor(candidate.url, candidate.pageUrl) ?: candidate.pageUrl
+    private fun mediaNavigationFor(candidate: MediaSniffer.Candidate): com.mybrowser.tabs.MediaNavigation? =
+        tabManager.currentTab?.mediaNavigation?.takeIf { it.matches(candidate.url) && candidate.pageUrl?.let(it::matches) == true }
+            ?.forLoad() ?: com.mybrowser.tabs.MediaNavigation.create(candidate.url, candidate.pageUrl, candidate.requestReferer)
+
+    private fun mediaSourcePage(candidate: MediaSniffer.Candidate): String =
+        mediaNavigationFor(candidate)?.headersFor(candidate.url)?.get("Referer").orEmpty()
 
     private fun downloadMediaCandidate(candidate: com.mybrowser.media.MediaSniffer.Candidate) {
         submitDownloadRequest(
@@ -2550,7 +2558,7 @@ class MainActivity : ComponentActivity(),
                 MimeTypeMap.getFileExtensionFromUrl(candidate.url),
             ),
             fromUser = true,
-            referer = mediaSourcePage(candidate)?.takeIf { com.mybrowser.core.UrlUtils.isHttpUrl(it) },
+            referer = mediaSourcePage(candidate),
         )
     }
 
@@ -2989,6 +2997,7 @@ class MainActivity : ComponentActivity(),
         // left otherwise is a bar over a page that no longer has anything selected.
         stopElementPicker()
         state.onPageStarted(url)
+        applyMediaRequestFailure()
         devTools.sessionFor(webViewOrNull)?.onDocumentStarted(url)
         consoleLogs.clear()
         mediaProbeJob?.cancel()
@@ -3273,10 +3282,9 @@ class MainActivity : ComponentActivity(),
     }
 
     /**
-     * Runs on a Chromium worker thread, once per subresource, and blocks that request until
-     * it returns — so everything here is allocation-light and lock-free. Both consumers are
-     * built for that: the filter is an immutable index behind a read lock, and the store
-     * takes a snapshot-state write that Compose is happy to receive off-thread.
+     * Runs on a Chromium worker thread. Ordinary resources only pass through filtering and
+     * discovery; the selected media may perform scoped HTTP I/O here to preserve its request
+     * context. UI failure callbacks must still belong to the same active load.
      */
     override fun onInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val mediaGeneration = media.pageGeneration
@@ -3292,11 +3300,37 @@ class MainActivity : ComponentActivity(),
         }
 
         MediaSniffer.inspect(request, documentUrl)?.let { media.add(it, mediaGeneration) }
-        return com.mybrowser.media.MediaRequestInterceptor.intercept(request, document.mediaNavigation, document.cookies) {
+        val stillActive = {
             val current = workerDocument
-            webViewOrNull === view && current.mediaNavigation?.url == document.mediaNavigation?.url &&
-                current.mediaNavigation?.referer == document.mediaNavigation?.referer && current.cookies === document.cookies
+            webViewOrNull === view && document.mediaNavigation?.loadId?.cancelled == false &&
+                current.mediaNavigation?.loadId === document.mediaNavigation?.loadId &&
+                current.mediaNavigation?.sameSourceAs(document.mediaNavigation) == true
         }
+        return com.mybrowser.media.MediaRequestInterceptor.intercept(request, document.mediaNavigation, document.cookies,
+            allowThirdPartyCookies = document.thirdPartyCookies,
+            onFailure = { failure ->
+                if (stillActive()) {
+                    document.mediaNavigation?.loadId?.failure = failure
+                    view.post { if (stillActive()) applyMediaRequestFailure() }
+                }
+            }, isActive = stillActive)
+    }
+
+    /** A failure may arrive before onPageStarted; retain it for that load's error document. */
+    private fun applyMediaRequestFailure() {
+        val lifetime = tabManager.currentTab?.mediaNavigation?.loadId ?: return
+        val failure = lifetime.failure?.takeUnless { lifetime.cancelled } ?: return
+        val details = when (failure.kind) {
+            com.mybrowser.media.MediaRequestInterceptor.FailureKind.CERTIFICATE -> getString(R.string.ui_ssl_certificate_verification_failed)
+            com.mybrowser.media.MediaRequestInterceptor.FailureKind.TIMEOUT -> getString(R.string.media_request_timeout)
+            com.mybrowser.media.MediaRequestInterceptor.FailureKind.REDIRECT -> getString(R.string.media_request_redirect)
+            com.mybrowser.media.MediaRequestInterceptor.FailureKind.HTTP -> getString(R.string.media_request_http, failure.status)
+            com.mybrowser.media.MediaRequestInterceptor.FailureKind.NETWORK -> getString(R.string.media_request_network)
+        }
+        state.onPageError()
+        state.pageFailure = PageFailure(state.currentUrl, PageFailureKind.NETWORK, details)
+        if (failure.kind == com.mybrowser.media.MediaRequestInterceptor.FailureKind.CERTIFICATE) currentCertificateError = true
+        readyWebViewTabId = null
     }
 
     override fun onNetworkHttpError(

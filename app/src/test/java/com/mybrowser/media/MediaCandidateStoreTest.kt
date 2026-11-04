@@ -26,6 +26,19 @@ class MediaCandidateStoreTest {
         pageUrl = "https://example.com/watch",
     )
 
+    @Test fun nativeObservationEnrichesADomHintWithoutBeingErasedByLaterHints() {
+        val store = MediaCandidateStore()
+        val hint = candidate("https://cdn.example/movie.mp4")
+        store.add(hint)
+        store.add(hint.copy(requestReferer = "https://example.com/"))
+        store.add(hint)
+        assertEquals("https://example.com/", store.candidates.single().requestReferer)
+        store.add(hint.copy(requestReferer = ""))
+        store.add(hint)
+        assertEquals("", store.candidates.single().requestReferer)
+        assertEquals(1, store.count)
+    }
+
     @Test
     fun `old page request completing after navigation cannot contaminate new candidates`() {
         val store = MediaCandidateStore()

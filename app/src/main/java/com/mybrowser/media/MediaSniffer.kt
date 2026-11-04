@@ -35,6 +35,8 @@ object MediaSniffer {
         val label: String,
         /** Page the request originated from, for the Referer a DLNA renderer may need. */
         val pageUrl: String?,
+        /** null: DOM-only hint; empty: native request exposed no Referer. */
+        val requestReferer: String? = null,
     ) {
         fun displayLabel(resources: Resources): String {
             val prefix = when (kind) {
@@ -68,7 +70,9 @@ object MediaSniffer {
     fun inspect(request: WebResourceRequest, pageUrl: String?): Candidate? {
         // Only GET can be replayed by a renderer; a POSTed media URL is not castable.
         if (!request.method.equals("GET", ignoreCase = true)) return null
-        return inspect(request.url.toString(), pageUrl, request.requestHeaders)
+        return inspect(request.url.toString(), pageUrl, request.requestHeaders)?.copy(
+            requestReferer = request.requestHeaders.entries.firstOrNull { it.key.equals("Referer", true) }?.value.orEmpty(),
+        )
     }
 
     fun inspect(

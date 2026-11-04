@@ -110,9 +110,24 @@ python3 validation/cast-play-regression.py --serial emulator-5554
 
 来源校验回归运行 `python3 validation/cast-referrer-regression.py --serial emulator-5554`。
 QA 服务对缺少或错误 Referer 的媒体返回 403；脚本检查普通／无痕标签播放、Range／拖动、刷新、
-跨源重定向，以及同标签打开其他页面后不再发送旧来源。结果保存在 `validation/results/cast-referrer.json`。
-夹具同时检查当前会话 Cookie，并分段返回媒体以覆盖连续 Range 请求；本回归不代表超大文件、
-未知长度／压缩响应及 HLS／DASH 分片播放已兼容，实际覆盖以 `release/notes.md` 为准。
+跨源重定向，以及同标签打开其他页面后不再发送旧来源。结果保存在 `validation/results/cast-referrer-<serial>.json`。
+夹具同时检查当前会话 Cookie、跨主机重定向各自的 Cookie／Set-Cookie，以及 origin／no-referrer 策略。
+跨主机夹具用浏览器预置目标域会话 Cookie，并用每次运行独有的 Lax Cookie 验证 GET 主导航的逐跳写入；
+不要在 HTTP 夹具中用手动写入 Secure Cookie 验证更新，CookieManager 要求这类写入使用 HTTPS。
+扩展回归运行 `python3 validation/cast-referrer-regression.py --serial emulator-5554 --cases direct,redirect,origin,none,cdn,large,boundary,private`。
+先运行 `python3 validation/create-large-media-fixtures.py` 生成稀疏 MP4；其中视频样本位于 1 GiB 和接近 2 GiB 的偏移，
+可验证流定位和解码，不代表持续大码率传输。应在旧、新 WebView 上分别运行，不能只凭 Android API 版本判断覆盖。
+
+错误页回归运行 `python3 validation/cast-media-failure-regression.py --serial emulator-5554`，检查 HTTP 拒绝、连接失败、
+不受信任证书和响应读取中断。启动 QA 服务前，用下列命令生成仅用于本地夹具的短期自签名证书：
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -keyout validation/results/referrer-tls-key.pem -out validation/results/referrer-tls-cert.pem -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1
+```
+
+QA 服务发现这两个文件时会额外监听 8877；测试不会信任该证书或跳过 TLS 校验。设备结果保存在
+`validation/results/cast-media-failure-<serial>.json`。两份回归脚本均可加 `--debug` 检查调试包；最终交付仍须检查签名 Release。
+本回归不代表超出 2 GiB 流接口上限、未知长度／压缩响应及 HLS／DASH 分片播放已兼容，实际覆盖以 `release/notes.md` 为准。
 
 JVM 回归覆盖并发与会话逻辑（清理回调延迟与失败重试、Activity 等待者替换、ViewModel 结束下载会话、
 导出前订阅初始化、导入后的首次规则更新等），联想测试用本地 HTTP 服务核对 OpenSearch / JSONP

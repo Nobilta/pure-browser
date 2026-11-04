@@ -43,7 +43,7 @@ class MediaRequestInterceptorTest {
             val ref = "http://site.example/watch?id=1"
             val response = MediaRequestInterceptor.intercept(request(url, headers = mapOf(
                 "Referer" to url, "Range" to "bytes=3-5", "Cookie" to "session=one",
-                "Authorization" to "Bearer scoped", "If-None-Match" to "stale-cache")), MediaNavigation.create(url, ref), null) { true }!!
+                "Authorization" to "Bearer scoped", "If-None-Match" to "stale-cache")), MediaNavigation.create(url, ref, ref), null) { true }!!
             assertEquals(206, response.statusCode)
             assertEquals("bytes 3-5/9", response.responseHeaders.entries.first { it.key.equals("Content-Range", true) }.value)
             assertEquals(6, response.data.available())
@@ -73,21 +73,70 @@ class MediaRequestInterceptorTest {
             val url = "http://127.0.0.1:${source.address.port}/media"
             val ref = "http://site.example/watch"
             val response = MediaRequestInterceptor.intercept(request(url, headers = mapOf("Cookie" to "secret=1",
-                "Authorization" to "Bearer secret")), MediaNavigation.create(url, ref), null) { true }!!
+                "Authorization" to "Bearer secret")), MediaNavigation.create(url, ref, ref), null) { true }!!
             assertEquals(403, response.statusCode)
-            assertArrayEquals(byteArrayOf(7), response.data.use { it.readBytes() })
+            assertTrue(response.data.use { it.readBytes() }.isNotEmpty())
             assertEquals(listOf(null, null, ref), seen.single())
-            assertNull(MediaRequestInterceptor.intercept(request(url, main = true), MediaNavigation.create(url, ref), null) { true })
+            assertEquals(403, MediaRequestInterceptor.intercept(request(url, main = true), MediaNavigation.create(url, ref, ref), null) { true }!!.statusCode)
         } finally { source.stop(0); target.stop(0) }
     }
 
     @Test fun unrelatedRequestsStayWithWebViewAndExpiredPagesDoNotFetch() {
         val url = "http://127.0.0.1:1/video.mp4"
         val ref = "http://site.example/watch"
-        val context = MediaNavigation.create(url, ref)
+        val context = MediaNavigation.create(url, ref, ref)
         assertNull(MediaRequestInterceptor.intercept(request(url + "?other", main = true), context, null) { true })
         assertNull(MediaRequestInterceptor.intercept(request(url + "?another"), context, null) { true })
-        assertEquals(502, MediaRequestInterceptor.intercept(request(url), context, null) { false }!!.statusCode)
+        val failures = mutableListOf<MediaRequestInterceptor.Failure>()
+        assertEquals(499, MediaRequestInterceptor.intercept(request(url), context, null, onFailure = failures::add) { false }!!.statusCode)
+        assertTrue(failures.isEmpty())
+        assertEquals(502, MediaRequestInterceptor.intercept(request(url), context, null, onFailure = failures::add) { true }!!.statusCode)
+        assertEquals(MediaRequestInterceptor.FailureKind.NETWORK, failures.single().kind)
+    }
+
+    @Test fun sameOriginRedirectReadsTheUpdatedCookieInsteadOfReplayingTheOriginalHeader() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val seen = CopyOnWriteArrayList<String>()
+        server.createContext("/start.mp4") { exchange ->
+            exchange.responseHeaders.add("Set-Cookie", "session=new; Path=/")
+            exchange.responseHeaders.add("Location", "/final.mp4")
+            exchange.sendResponseHeaders(302, -1); exchange.close()
+        }
+        server.createContext("/final.mp4") { exchange ->
+            seen += exchange.requestHeaders.getFirst("Cookie").orEmpty()
+            exchange.responseHeaders.add("Content-Type", "video/mp4")
+            exchange.sendResponseHeaders(200, 1); exchange.responseBody.use { it.write(7) }
+        }
+        server.start()
+        val cookies = android.webkit.CookieManager.getInstance()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/start.mp4"
+            cookies.setCookie(url, "session=old; Path=/")
+            val response = MediaRequestInterceptor.intercept(request(url, main = true, headers = mapOf("Cookie" to "session=old")),
+                MediaNavigation.create(url, url), cookies) { true }!!
+            response.data.close()
+            assertTrue(seen.single().contains("session=new"))
+            assertFalse(seen.single().contains("session=old"))
+        } finally { cookies.removeAllCookies(null); server.stop(0) }
+    }
+
+    @Test fun closingTheResponseDoesNotReportALateReadAsANetworkFailure() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/media.mp4") { exchange ->
+            exchange.responseHeaders.add("Content-Type", "video/mp4")
+            exchange.sendResponseHeaders(200, 3)
+            exchange.responseBody.use { it.write(byteArrayOf(1, 2, 3)) }
+        }
+        server.start()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/media.mp4"
+            val failures = mutableListOf<MediaRequestInterceptor.Failure>()
+            val response = MediaRequestInterceptor.intercept(request(url), MediaNavigation.create(url, url), null,
+                onFailure = failures::add) { true }!!
+            response.data.close()
+            assertThrows(java.io.IOException::class.java) { response.data.read() }
+            assertTrue(failures.isEmpty())
+        } finally { server.stop(0) }
     }
 
     @Test fun rangesBeyondTheWebViewBridgeSizeLimitKeepNativeHandling() {

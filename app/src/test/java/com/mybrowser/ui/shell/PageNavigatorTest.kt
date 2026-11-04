@@ -39,7 +39,7 @@ class PageNavigatorTest {
         val f = Fixture()
         val url = "https://cdn.example/video.mp4?token=a%2Bb"
         val referer = "https://site.example/watch"
-        f.tabs.createTab(url, mediaNavigation = MediaNavigation.create(url, referer))
+        f.tabs.createTab(url, mediaNavigation = MediaNavigation.create(url, referer, referer))
         f.navigator.load(url)
         assertEquals(mapOf("Referer" to referer), (f.view as HistoryView).requestHeaders)
         f.navigator.reload()
