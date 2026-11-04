@@ -11,6 +11,7 @@
   function refreshSources() {
     fetch('/player-sample.mp4?token=second%2Bsource&quality=720', {cache: 'no-store'}).catch(function () {});
     fetch('/stream-secondary.m3u8?token=stream', {cache: 'no-store'}).catch(function () {});
+    fetch('/cast-sample.mpd?token=dash%2Bsource', {cache: 'no-store'}).catch(function () {});
   }
   setTimeout(refreshSources, 500);
 </script>

@@ -143,11 +143,8 @@ fun CastSheet(
                             userSelected = true
                         }
                     },
-                    // WebView can open direct media in a tab; manifests need a stream player.
-                    onPlay = if (candidate.isStream) null else ({ onPlay(candidate) }),
-                    // A manifest is not a file this engine can fetch as one body, so those rows
-                    // offer no download instead of saving a playlist nobody can play.
-                    onDownload = if (candidate.isStream) null else ({ onDownload(candidate) }),
+                    onPlay = { onPlay(candidate) },
+                    onDownload = { onDownload(candidate) },
                 )
             }
 
@@ -226,8 +223,8 @@ private fun MediaRow(
     enabled: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    onPlay: (() -> Unit)?,
-    onDownload: (() -> Unit)?,
+    onPlay: () -> Unit,
+    onDownload: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -282,15 +279,11 @@ private fun MediaRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        onPlay?.let { play ->
-            TextButton(onClick = play, modifier = Modifier.testTag("cast_play")) {
-                Text(stringResource(R.string.cast_play))
-            }
+        TextButton(onClick = onPlay, modifier = Modifier.testTag("cast_play")) {
+            Text(stringResource(R.string.cast_play))
         }
-        onDownload?.let { download ->
-            TextButton(onClick = download, modifier = Modifier.testTag("cast_download")) {
-                Text(stringResource(R.string.download_confirm_action))
-            }
+        TextButton(onClick = onDownload, modifier = Modifier.testTag("cast_download")) {
+            Text(stringResource(R.string.download_confirm_action))
         }
     }
 }
@@ -298,7 +291,7 @@ private fun MediaRow(
 /**
  * Adds a stable, human-readable variant suffix when two URLs would otherwise render with
  * the same basename.  The map is keyed by the full URL so signed/query-bearing candidates
- * remain distinct and can still be copied or cast independently.
+ * remain distinct and can still be opened, downloaded or cast independently.
  */
 private fun duplicateAwareLabels(
     candidates: List<MediaSniffer.Candidate>,

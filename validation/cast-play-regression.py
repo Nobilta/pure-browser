@@ -5,6 +5,7 @@ import base64
 import importlib.util
 import json
 from pathlib import Path
+import re
 import time
 
 ROOT = Path(__file__).resolve().parent
@@ -46,8 +47,22 @@ def run(serial):
         return item.get('checked') == 'true' or item.get('selected') == 'true'
 
     def cast():
-        ux.menu_item('Cast')
+        prefixes = [label.split('%')[0] for label in ux.resource_labels('cast_detected_sources')]
+        button = next(n for n in ux.nodes()[0].iter('node') if ux.visible(n)
+                      and any(n.get('content-desc', '').startswith(prefix) for prefix in prefixes))
+        ux.tap_node(button)
         ux.expect('Choose media to cast')
+
+    def tab_count():
+        patterns = [re.compile(re.escape(label).replace('%1\\$d', r'(\d+)'))
+                    for label in ux.resource_labels('tabs_count')]
+        for node in ux.nodes()[0].iter('node'):
+            for key in ('text', 'content-desc'):
+                for pattern in patterns:
+                    found = pattern.fullmatch(node.get(key, ''))
+                    if found:
+                        return int(found[1])
+        raise AssertionError('Tab count is not visible')
 
     try:
         ux.launch('http://127.0.0.1:8875/cast-play-fixture.html')
@@ -57,11 +72,12 @@ def run(serial):
         time.sleep(1)
         cast()
         assert selected(row('sample-default.mp4')), 'Playing source is not selected'
-        stream = row('stream-secondary.m3u8')
-        assert not any(c.get('text') in ux.resource_labels('cast_play') |
-                       ux.resource_labels('download_confirm_action') for c in stream.iter('node'))
+        for source in ('sample-default.mp4', 'player-sample.mp4', 'stream-secondary.m3u8', 'cast-sample.mpd'):
+            item = row(source)
+            action(item, 'cast_play')
+            action(item, 'download_confirm_action')
         assert not any(n.get('text') in {'Copy', '复制', '複製'} for n in ux.nodes()[0].iter('node'))
-        record('direct media has Play/Download; streams remain selectable for casting without these actions')
+        record('direct media, HLS and DASH all have Play/Download actions')
         ux.tap_node(action(row('player-sample.mp4'), 'download_confirm_action'))
         ux.expect('Download file?')
         ux.tap('Cancel')
@@ -107,6 +123,28 @@ def run(serial):
         assert selected(row('stream-secondary.m3u8')), 'Stream selection stopped working'
         record('Back returns to the original page; explicit cast-row selection still works')
         back()
+        for source in ('stream-secondary.m3u8?token=stream', 'cast-sample.mpd?token=dash%2Bsource'):
+            ux.tap('Refresh sources')
+            ux.tap('Play primary')
+            count = tab_count()
+            cast()
+            ux.tap_node(action(row(source.split('?')[0]), 'download_confirm_action'))
+            ux.expect('Download file?')
+            ux.tap('Cancel')
+            assert selected(row('sample-default.mp4')), 'Manifest download changed the cast selection'
+            ux.tap_node(action(row(source.split('?')[0]), 'cast_play'))
+            ux.expect('Choose media to cast', present=False)
+            # Unsupported formats may invoke WebView's normal download callback after navigation.
+            root = ux.nodes()[0]
+            if ux.match(root, 'Download file?') is not None:
+                ux.tap('Cancel')
+            assert tab_count() == count + 1, 'Manifest Play did not open a new tab'
+            text = '\n'.join(n.get('text', '') for n in ux.nodes()[0].iter('node'))
+            assert source in text, 'Manifest URL lost its query: ' + text
+            back()
+            ux.expect('Cast playback fixture')
+            assert tab_count() == count, 'Back did not close the media child tab'
+            record(source.split('?')[0] + ': Download opens confirmation; Play opens the full URL in a new tab; Back returns')
     except Exception as error:
         result['error'] = str(error)
         raise
