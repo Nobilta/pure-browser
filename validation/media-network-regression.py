@@ -29,7 +29,7 @@ def run(serial, cases):
     result = {'serial': serial, 'apkSha256': ux.adb('shell', 'sha256sum', apk).split()[0],
               'webView': ux.adb('shell', 'dumpsys', 'webviewupdate'), 'checks': [], 'requests': [],
               'testSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), 'error': None}
-    armed, failed_ranges, telemetry = set(), set(), []
+    armed, failed_ranges, renewed, telemetry = set(), set(), set(), []
     media = ROOT / 'results/large.mp4'
     assert media.exists(), 'Run create-large-media-fixtures.py first'
 
@@ -59,7 +59,7 @@ def run(serial, cases):
             ref = self.headers.get('Referer', '')
             rng = self.headers.get('Range', '')
             authorization = self.headers.get('Authorization', '')
-            authenticated = authorization == 'Basic ' + base64.b64encode(b'test:pure').decode()
+            authenticated = authorization == 'Basic ' + base64.b64encode(b'test:renewed' if case in renewed else b'test:pure').decode()
             event = {'case': case, 'referer': ref, 'range': rng, 'authenticated': authenticated,
                      'host': self.headers.get('Host', ''),
                      'tls': self.server.server_port == TLS_PORT, 'armed': case in armed,
@@ -91,7 +91,7 @@ def run(serial, cases):
                 self.send_header('Location', f'http://localhost:{PORT}/media.mp4?case=' + case)
                 self.send_header('Referrer-Policy', 'unsafe-url')
                 self.send_header('Content-Length', '0'); self.end_headers(); return
-            if case.startswith('auth-') and not authenticated:
+            if (case.startswith('auth-') or case in renewed) and not authenticated:
                 event['status'] = 401
                 self.send_response(401); self.send_header('WWW-Authenticate', 'Basic realm="Network media"')
                 self.send_header('Content-Length', '0'); self.end_headers(); return
@@ -141,7 +141,7 @@ def run(serial, cases):
             if fields[index].get('focused') == 'true': break
             assert time.monotonic() < deadline, 'Input did not receive focus'
             time.sleep(.1)
-        if value in ('test', 'pure'):
+        if value in ('test', 'pure', 'renewed'):
             ux.adb('shell', 'input', 'text', value)
         else:
             receipt = ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false', '/system/bin',
@@ -149,30 +149,41 @@ def run(serial, cases):
             assert 'Text entered' in receipt, receipt
 
 
-    def probe(case, seek=False, expect_playing=True, reset=False):
+    def probe(case, seek=False, expect_playing=True, reset=False, login=False):
         ux.tap('Menu'); ux.expect_menu(); time.sleep(.5)
         ux.menu_item('More tools'); ux.expect('Developer tools'); time.sleep(.4)
         ux.tap('Developer tools'); ux.expect('Console'); time.sleep(.4); ux.tap('Console')
         sample = str(time.time_ns())
         # The small encoded samples can all be buffered despite the sparse 1 GiB file.
         # Clear that buffer when testing a failed Range, so seeking must reach the server.
-        script = "(()=>{const v=document.querySelector('video');" + ('v?.load();' if reset else '') + (
+        script = "(()=>{window.__networkDocument??=String(Math.random());const v=document.querySelector('video');" + ('v?.load();' if reset else '') + (
             'if(v&&Number.isFinite(v.duration))v.currentTime=v.duration*.85;' if seek else '') + \
             "v?.play().catch(()=>{});let n=0;const t=setInterval(()=>{fetch('/state',{method:'POST',body:JSON.stringify({sample:" + json.dumps(sample) + \
-            ",video:!!v,ready:v?.readyState,playing:v?.paused===false,position:v?.currentTime,error:v?.error?.code})});if(++n>=20)clearInterval(t)},500)})()"
+            ",document:window.__networkDocument,video:!!v,ready:v?.readyState,playing:v?.paused===false,position:v?.currentTime,error:v?.error?.code})});if(++n>=60)clearInterval(t)},500)})()"
         set_text(script); ux.tap('Run')
+        if login:
+            ux.expect('Authentication required', timeout=10)
+            before_login = next(s for s in reversed(telemetry) if s.get('sample') == sample)
+            set_text('test'); set_text('renewed', 1)
+            ux.adb('shell', 'input', 'keyevent', '4'); ux.tap('Sign in')
         deadline = time.monotonic() + 15
         while True:
             state = next((s for s in reversed(telemetry) if s.get('sample') == sample), None)
             if state and (not expect_playing or state.get('playing') and state.get('ready', 0) >= 3 and state.get('position', 0) > .2): break
             assert time.monotonic() < deadline, {'state': state, 'requests': result['requests'][-10:]}
             time.sleep(.2)
+        if login:
+            assert state['document'] == before_login['document'], 'Authentication replaced the document'
+            assert state['position'] >= before_login['position'] - .5, (before_login, state)
         for _ in range(6):
             ux.adb('shell', 'input', 'keyevent', '4'); time.sleep(.3)
             if ux.match(ux.nodes()[0], 'Edit address') is not None: break
         return state
 
     ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
+    # Let tab restoration finish before delivering a new VIEW intent; otherwise a
+    # restored fixture with the same heading can satisfy the first page assertion.
+    ux.launch(); ux.expect('Edit address', timeout=10); time.sleep(1)
     try:
         prompted = set()
         for name in cases:
@@ -202,6 +213,18 @@ def run(serial, cases):
                 print('PASS:', name, flush=True)
                 continue
             state = probe(case)
+            if name == 'reauth':
+                renewed.add(case)
+                start = len(result['requests'])
+                after = probe(case, reset=True, login=True)
+                assert after['document'] == state['document'], 'Authentication reloaded the media document'
+                requests = [e for e in result['requests'][start:] if e['case'] == case]
+                assert any(e.get('status') == 401 and e['range'] for e in requests), requests
+                assert any(e.get('status') == 206 and e['authenticated'] for e in requests), requests
+                assert all(e['range'] for e in requests), 'Authentication made a new document request'
+                result['checks'].append({'case': name, 'before': state, 'after': after})
+                print('PASS:', name, flush=True)
+                continue
             if name == 'range': failed_ranges.add(case)
             state = probe(case, seek=True, expect_playing=name != 'range', reset=name == 'range')
             if name == 'range':
@@ -229,6 +252,6 @@ def run(serial, cases):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
-    parser.add_argument('--cases', nargs='+', choices=['auth', 'auth-redirect', 'tls', 'range', 'cookies'], default=['auth', 'auth', 'auth-redirect', 'tls', 'tls', 'range', 'cookies'])
+    parser.add_argument('--cases', nargs='+', choices=['auth', 'auth-redirect', 'reauth', 'tls', 'range', 'cookies'], default=['auth', 'auth', 'auth-redirect', 'reauth', 'tls', 'tls', 'range', 'cookies'])
     args = parser.parse_args()
     run(args.serial, args.cases)

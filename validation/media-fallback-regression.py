@@ -145,8 +145,14 @@ def run(serial, package, cases=None):
                         assert time.monotonic() < deadline, 'Explicit retry did not request the file'
                         time.sleep(.2)
                     ux.menu_item('Downloads')
-                    ux.expect(next(iter(ux.resource_labels('download_response_retry'))))
-                    record('expired response: closes after confirmation timeout; only explicit Retry sends another GET and warns about one-time links')
+                    filename = 'fallback-' + case + '.mp4'
+                    ux.expect(filename)
+                    candidates = [n for n in ux.nodes()[0].iter('node')
+                                  if any(c.get('text') == filename for c in n.iter('node'))
+                                  and any(c.get('text') in ux.resource_labels('ui_retry') for c in n.iter('node'))]
+                    row = min(candidates, key=lambda n: len(list(n.iter('node'))))
+                    assert not any(c.get('text') in ux.resource_labels('download_response_retry') for c in row.iter('node'))
+                    record('expired response: only explicit Retry sends another GET; the retried task uses ordinary download recovery')
                     back(); back()
                     result['cases'].append({'name': name, 'requests': events[start:]})
                     continue

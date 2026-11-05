@@ -72,8 +72,14 @@ class DownloadHandlerTest {
             assertEquals(0, requests.get())
             assertTrue(handler.downloads.value.single { it.id == id }.requiresNewRequest)
             handler.retry(id)
+            assertFalse(handler.downloads.value.single { it.id == id }.requiresNewRequest)
             withTimeout(5000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.WAITING_NETWORK } } }
             assertEquals(0, requests.get())
+            // Read the persisted running task as a new process would. Its retry is now an
+            // ordinary HTTP transfer and must be eligible for automatic recovery.
+            val restored = DownloadMetadataStore(context.getSharedPreferences("downloads", Context.MODE_PRIVATE)).load()
+            assertTrue(id in restored.interruptedIds)
+            assertFalse(restored.entries.single { it.id == id }.responseBacked)
             val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
             org.robolectric.Shadows.shadowOf(connectivity.getNetworkCapabilities(connectivity.activeNetwork))
                 .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)

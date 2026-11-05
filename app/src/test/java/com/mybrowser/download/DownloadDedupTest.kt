@@ -34,6 +34,19 @@ class DownloadDedupTest {
         assertEquals(0, requests.get())
     }
 
+    @Test fun explicitRetryFromAnExpiredConfirmationCreatesAnOrdinaryRecoverableTransfer() = runBlocking {
+        val response = DownloadResponse(java.io.ByteArrayInputStream(byteArrayOf(1)), 1)
+        assertTrue(coordinator.submit(request(url()).copy(response = response)) is DownloadRequestCoordinator.SubmitResult.Confirm)
+        response.discard(DownloadResponse.Unavailable.EXPIRED)
+        val started = coordinator.confirmPending(retryResponse = true) as DownloadHandler.EnqueueOutcome.Started
+        awaitDownloading(started.id)
+        assertFalse(handler.downloads.value.single { it.id == started.id }.requiresNewRequest)
+        val restored = DownloadMetadataStore(context.getSharedPreferences("downloads", Context.MODE_PRIVATE)).load()
+        assertTrue(started.id in restored.interruptedIds)
+        handler.pause(started.id)
+        assertFalse(handler.downloads.value.single { it.id == started.id }.requiresNewRequest)
+    }
+
     @Test fun unclaimedResponsesCloseOnRejectionSuppressionAndDocumentRemoval() {
         fun offer(suffix: String): Pair<DownloadRequestCoordinator.Request, () -> Boolean> {
             var closed = false
