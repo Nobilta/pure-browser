@@ -37,18 +37,21 @@ internal class MediaRequestAccess {
         }
         fun clear() { credentials.clear(); certificates.clear() }
     }
-    var session = Session()
-    private data class Challenge(val url: String, val realm: String, val utf8: Boolean)
+    /** Published from WebView's worker thread and consumed by UI callbacks. */
+    @Volatile var session = Session()
+    private data class Challenge(val url: String, val realm: String, val utf8: Boolean, val mainFrame: Boolean)
     @Volatile private var challenge: Challenge? = null
     private val authorized = ConcurrentHashMap<String, Challenge>()
 
-    fun challenge(url: String, header: String) {
+    fun challenge(url: String, header: String, mainFrame: Boolean) {
         challenge = if (header.trimStart().startsWith("Basic ", true)) {
             val realm = REALM.find(header)?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }
             realm?.let { Challenge(url, it.replace("\\\"", "\"").replace("\\\\", "\\"),
-                Regex("charset\\s*=\\s*\"?UTF-8", RegexOption.IGNORE_CASE).containsMatchIn(header)) }
+                Regex("charset\\s*=\\s*\"?UTF-8", RegexOption.IGNORE_CASE).containsMatchIn(header), mainFrame) }
         } else null
     }
+
+    fun challengeUrl(): String? = challenge?.url
 
     fun useCachedLogin(): Boolean {
         val pending = challenge ?: return false
@@ -57,13 +60,15 @@ internal class MediaRequestAccess {
         return true
     }
 
-    fun authenticate(host: String, realm: String, username: String, password: String): Boolean {
-        val pending = challenge ?: return false
-        if (!pending.url.toUri().host.equals(host, true) || pending.realm != realm || ':' in username) return false
+    enum class AuthenticatedRequest { DOCUMENT, SUBRESOURCE }
+
+    fun authenticate(host: String, realm: String, username: String, password: String): AuthenticatedRequest? {
+        val pending = challenge ?: return null
+        if (!pending.url.toUri().host.equals(host, true) || pending.realm != realm || ':' in username) return null
         session.rememberLogin(pending.url, realm, username, password)
         authorized[pending.url] = pending
         challenge = null
-        return true
+        return if (pending.mainFrame) AuthenticatedRequest.DOCUMENT else AuthenticatedRequest.SUBRESOURCE
     }
 
     fun authorization(url: String): String? = authorized[url]?.let { session.basic(url, it.realm, it.utf8) }

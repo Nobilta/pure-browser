@@ -97,6 +97,33 @@ class MediaRequestInterceptorTest {
         } finally { server.stop(0) }
     }
 
+    @Test fun sameUrlRangeChallengeAuthenticatesAsASubresource() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/media.mp4") { e ->
+            if (e.requestHeaders.getFirst("Authorization") == "Basic dGVzdDpwdXJl") {
+                e.responseHeaders.add("Content-Type", "video/mp4")
+                e.responseHeaders.add("Content-Range", "bytes 0-0/1")
+                e.sendResponseHeaders(206, 1); e.responseBody.use { it.write(7) }
+            } else {
+                e.responseHeaders.add("WWW-Authenticate", "Basic realm=\"Video\"")
+                e.sendResponseHeaders(401, -1); e.close()
+            }
+        }
+        server.start()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/media.mp4"
+            val navigation = MediaNavigation.create(url, url)!!
+            val range = request(url, main = false, headers = mapOf("Range" to "bytes=0-"))
+            assertNull(MediaRequestInterceptor.intercept(range, navigation, null) { true })
+            assertEquals(MediaRequestAccess.AuthenticatedRequest.SUBRESOURCE,
+                navigation.loadId.access.authenticate("127.0.0.1", "Video", "test", "pure"))
+            navigation.loadId.nativeRequests = false
+            val response = MediaRequestInterceptor.intercept(range, navigation, null) { true }!!
+            assertEquals(206, response.statusCode)
+            response.data.use { assertEquals(7, it.read()) }
+        } finally { server.stop(0) }
+    }
+
     @Test fun redirectedLoginHandsOnlyTheChallengedUrlAndItsReducedPolicyToChromium() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val seen = mutableListOf<List<String?>>()
@@ -128,7 +155,7 @@ class MediaRequestInterceptorTest {
             assertTrue(selected.url.endsWith("/auth.mp4"))
             assertEquals("", selected.referer)
             assertSame(original.loadId, selected.loadId)
-            assertTrue(selected.loadId.access.authenticate("127.0.0.1", "Video", "test", "pure"))
+            assertEquals(MediaRequestAccess.AuthenticatedRequest.DOCUMENT, selected.loadId.access.authenticate("127.0.0.1", "Video", "test", "pure"))
             selected.loadId.nativeRequests = false
             MediaRequestInterceptor.intercept(request(selected.url, headers = mapOf("Range" to "bytes=0-")), selected, null) { true }!!.data.use {
                 assertEquals(1, it.read())

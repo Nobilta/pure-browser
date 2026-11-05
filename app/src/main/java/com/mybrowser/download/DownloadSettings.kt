@@ -45,6 +45,8 @@ class DownloadSettingsRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    val unmeteredOnly: Boolean get() = prefs.getBoolean("unmetered_only", false)
+
     fun load(): DownloadSettings {
         val treeUri = prefs.getString(KEY_CUSTOM_TREE_URI, null)
             ?.takeIf { value -> runCatching { value.toUri().scheme == "content" }.getOrDefault(false) }
@@ -71,7 +73,7 @@ class DownloadSettingsRepository(context: Context) {
         }
 
         return DownloadSettings(
-            unmeteredOnly = prefs.getBoolean("unmetered_only", false),
+            unmeteredOnly = unmeteredOnly,
             destinationMode = effectiveMode,
             customTreeUri = treeUri,
             customDirectoryLabel = prefs.getString(KEY_CUSTOM_DIRECTORY_LABEL, null),

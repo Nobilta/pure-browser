@@ -99,7 +99,7 @@ object MediaRequestInterceptor {
                         // This is a challenge, not a consumed successful response. Chromium
                         // must perform the retry so its auth dialog/cache can answer it.
                         if (status == 401) {
-                            navigation.loadId.access.challenge(current.toString(), opened.getHeaderField("WWW-Authenticate"))
+                            navigation.loadId.access.challenge(current.toString(), opened.getHeaderField("WWW-Authenticate"), request.isForMainFrame)
                             if (authenticatedUrls.add(current.toString()) && navigation.loadId.access.useCachedLogin()) {
                                 opened.disconnect()
                                 connection = null
