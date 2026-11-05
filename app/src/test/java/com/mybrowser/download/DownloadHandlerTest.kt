@@ -21,6 +21,79 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
+    @Test fun queuedLiveResponseExpiresWithoutReadingOrBypassingTheHostBudget() = runBlocking {
+        val context = connectedContext()
+        val handler = DownloadHandler(context)
+        val started = java.util.concurrent.CountDownLatch(2)
+        val release = java.util.concurrent.CountDownLatch(1)
+        fun blockingResponse() = DownloadResponse(object : java.io.InputStream() {
+            private var signalled = false
+            override fun read(): Int {
+                if (!signalled) { signalled = true; started.countDown() }
+                release.await()
+                return -1
+            }
+            override fun close() { release.countDown() }
+        }, -1)
+        var closed = false
+        val queued = DownloadResponse(object : java.io.InputStream() {
+            override fun read(): Int = throw AssertionError("Queued response bypassed the host limit")
+            override fun close() { closed = true }
+        }, 1)
+        try {
+            for (i in 1..2) handler.enqueueOrGetExisting("https://queue.test/$i", null, null, null, response = blockingResponse())
+            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val id = (handler.enqueueOrGetExisting("https://queue.test/3", null, null, null, response = queued) as DownloadHandler.EnqueueOutcome.Started).id
+            withTimeout(10_000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.FAILED } } }
+            assertTrue(closed)
+            assertEquals(DownloadResponse.Unavailable.EXPIRED, queued.unavailable.value)
+        } finally { release.countDown(); handler.close() }
+    }
+
+    @Test fun meteredResponsesAreClosedAndOnlyAnExplicitRetryCanFetchAgain() = runBlocking {
+        val context = connectedContext()
+        DownloadSettingsRepository(context).importSettings(1, true, true)
+        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/once") { e -> requests.incrementAndGet(); e.sendResponseHeaders(403, -1); e.close() }
+        server.start()
+        var closed = false
+        val response = DownloadResponse(object : java.io.ByteArrayInputStream(byteArrayOf(1)) {
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw AssertionError("Must not read a metered response")
+            override fun close() { closed = true }
+        }, 1)
+        val handler = DownloadHandler(context)
+        try {
+            val outcome = handler.enqueueOrGetExisting("http://127.0.0.1:${server.address.port}/once", null, null, null, response = response)
+            val id = (outcome as DownloadHandler.EnqueueOutcome.Started).id
+            withTimeout(5000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.FAILED } } }
+            assertTrue(closed)
+            assertEquals(DownloadResponse.Unavailable.NETWORK, response.unavailable.value)
+            assertEquals(0, requests.get())
+            assertTrue(handler.downloads.value.single { it.id == id }.requiresNewRequest)
+            handler.retry(id)
+            withTimeout(5000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.WAITING_NETWORK } } }
+            assertEquals(0, requests.get())
+            val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+            org.robolectric.Shadows.shadowOf(connectivity.getNetworkCapabilities(connectivity.activeNetwork))
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            withTimeout(5000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.FAILED } } }
+            assertEquals(1, requests.get())
+        } finally { handler.close(); server.stop(0) }
+    }
+
+    @Test fun responseTasksDoNotAutomaticallyRefetchAfterProcessDeath() {
+        val context = RuntimeEnvironment.getApplication()
+        val data = """[{"version":1,"id":-21,"backend":"LOCAL","url":"https://once.test/file","filename":"once.bin","status":"DOWNLOADING","identity":"normal","responseBacked":true}]"""
+        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit().putString("entries", data).commit()
+        val handler = DownloadHandler(context)
+        try {
+            handler.resumeInterrupted()
+            assertEquals(DownloadStatus.PAUSED, handler.downloads.value.single().status)
+            assertTrue(handler.downloads.value.single().requiresNewRequest)
+        } finally { handler.close() }
+    }
+
     /** Robolectric starts with no usable network; a transfer without one waits instead of failing. */
     private fun connectedContext(): Context {
         val context = RuntimeEnvironment.getApplication()

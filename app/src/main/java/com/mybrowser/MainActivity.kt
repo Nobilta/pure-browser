@@ -615,7 +615,7 @@ class MainActivity : ComponentActivity(),
     private var showSecurityDialog by mutableStateOf(false)
     private var securityCertificate by mutableStateOf<CertificateDetails?>(null)
     private var showSSLErrorDialog by mutableStateOf(false)
-    private var pendingSSLError: Pair<SslErrorHandler, String>? = null
+    private var pendingSSLError: Triple<SslErrorHandler, String, java.security.cert.X509Certificate?>? = null
 
     // WebView callbacks that outlive a single stack frame. They are cleared on replacement
     // and teardown so a page cannot receive a result after its tab has gone away.
@@ -1401,7 +1401,7 @@ class MainActivity : ComponentActivity(),
 
                 // SSL Error Dialog
                 if (showSSLErrorDialog) {
-                    pendingSSLError?.let { (handler, url) ->
+                    pendingSSLError?.let { (handler, url, certificate) ->
                         com.mybrowser.ui.shell.SSLErrorDialog(
                             url = url,
                             onProceed = {
@@ -1410,7 +1410,15 @@ class MainActivity : ComponentActivity(),
                                 certificateWarnings.remember(state.currentUrl)
                                 showSSLErrorDialog = false
                                 pendingSSLError = null
-                                handler.proceed()
+                                if (certificate != null) (application as App).mediaAccessSession.approveCertificate(url, certificate)
+                                val navigation = tabManager.currentTab?.mediaNavigation?.takeIf { it.matches(url) }
+                                if (certificate != null && navigation != null) {
+                                    // TLS failed before HTTP was sent. Restart through the interceptor
+                                    // so Chromium cannot reduce the selected media's source header.
+                                    handler.cancel()
+                                    navigation.loadId.nativeRequests = false
+                                    navigator.load(navigation.url)
+                                } else handler.proceed()
                             },
                             onCancel = {
                                 handler.cancel()
@@ -2073,6 +2081,7 @@ class MainActivity : ComponentActivity(),
         // Do not retain a private session's certificate choices in the normal session.
         webViewOrNull?.clearSslPreferences()
         certificateWarnings.clear()
+        (application as App).mediaAccessSession.clear()
         currentCertificateError = false
         cancelPendingSslError()
 
@@ -2579,9 +2588,9 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun confirmDownloadRequest() {
+    private fun confirmDownloadRequest(retryResponse: Boolean) {
         val offer = downloadRequests.pending.value?.request?.pageFile
-        when (val outcome = downloadRequests.confirmPending()) {
+        when (val outcome = downloadRequests.confirmPending(retryResponse)) {
             is com.mybrowser.download.DownloadHandler.EnqueueOutcome.Started -> {
                 if (offer != null && !startPageFile(outcome.id, offer)) {
                     // The bytes could not start moving: fail and drop the task now rather than leave
@@ -2844,7 +2853,10 @@ class MainActivity : ComponentActivity(),
             }
             try {
                 if (request.types.any { it == ClearDataType.WEBSITE_DATA || it == ClearDataType.COOKIES }) {
-                    if (current in targets) resetPageForDataRemoval()
+                    if (current in targets) {
+                        (application as App).mediaAccessSession.clear()
+                        resetPageForDataRemoval()
+                    }
                 }
                 targets.forEach { target ->
                     if (ClearDataType.WEBSITE_DATA in request.types) attempt { dataCleaner.clearWebsiteData(target) }
@@ -3197,12 +3209,17 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onSslError(handler: SslErrorHandler, error: SslError, url: String?) {
+        val certificate = error.certificate?.x509Certificate
+        if (certificate != null && (application as App).mediaAccessSession.acceptsCertificate(url.orEmpty(), certificate)) {
+            handler.proceed()
+            return
+        }
         // Keep the handler pending until the user makes an explicit choice. A previous
         // request cannot remain alive when navigation races to a second certificate error.
         pendingSSLError?.first?.cancel()
         val failedUrl = url.orEmpty()
         if (failedUrl == state.currentUrl) currentCertificateError = true
-        pendingSSLError = handler to failedUrl
+        pendingSSLError = Triple(handler, failedUrl, certificate)
         runOnUiThread { showSSLErrorDialog = true }
     }
 
@@ -3213,11 +3230,24 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String) {
+        val navigation = tabManager.currentTab?.mediaNavigation
+        val loginUrl = state.currentUrl.takeIf { android.net.Uri.parse(it).host.equals(host, true) }
         dialogs.credentials(
             this,
             host,
             realm,
-            onResult = { username, password -> runCatching { handler.proceed(username, password) } },
+            onResult = { username, password ->
+                loginUrl?.let { (application as App).mediaAccessSession.rememberLogin(it, realm, username, password) }
+                val lifetime = navigation?.loadId?.takeUnless { it.cancelled }
+                if (navigation != null && lifetime?.access?.authenticate(host, realm, username, password) == true &&
+                    tabManager.currentTab?.mediaNavigation?.loadId === lifetime) {
+                    // Only a challenge was consumed. Send the authenticated request through
+                    // the interceptor, retaining the source after a cross-origin redirect.
+                    handler.cancel()
+                    lifetime.nativeRequests = false
+                    navigator.load(navigation.url)
+                } else runCatching { handler.proceed(username, password) }
+            },
             onCancel = { runCatching { handler.cancel() } },
         )
     }
@@ -3296,12 +3326,24 @@ class MainActivity : ComponentActivity(),
                 current.mediaNavigation?.loadId === document.mediaNavigation?.loadId
         }
         mediaResponseHandoff.take(request, document.mediaNavigation)?.let { return it }
+        document.mediaNavigation?.loadId?.access?.session = (application as App).mediaAccessSession
+        val mediaNetwork = if (document.mediaNavigation?.matches(request.url.toString()) == true)
+            getSystemService(android.net.ConnectivityManager::class.java).activeNetwork else null
         return com.mybrowser.media.MediaRequestInterceptor.intercept(request, document.mediaNavigation, document.cookies,
             allowThirdPartyCookies = document.thirdPartyCookies,
+            network = mediaNetwork,
+            onNativeNavigation = { navigation ->
+                stillActive() && view.post {
+                    if (stillActive()) {
+                        tabManager.currentTab?.mediaNavigation = navigation
+                        navigator.load(navigation.url, isRedirect = true)
+                    }
+                }
+            },
             onDownloadResponse = { navigation, response ->
                 val disposition = response.responseHeaders.entries.firstOrNull { it.key.equals("Content-Disposition", true) }?.value
                 val length = response.responseHeaders.entries.firstOrNull { it.key.equals("Content-Length", true) }?.value?.toLongOrNull() ?: -1L
-                val download = com.mybrowser.download.DownloadResponse(response.data, length)
+                val download = com.mybrowser.download.DownloadResponse(response.data, length, mediaNetwork)
                 val posted = view.post {
                     if (stillActive()) submitDownloadRequest(navigation.url, view.settings.userAgentString,
                         disposition, response.mimeType, length, referer = navigation.referer, response = download)

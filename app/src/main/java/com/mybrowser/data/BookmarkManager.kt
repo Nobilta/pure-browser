@@ -146,41 +146,6 @@ class BookmarkManager(context: Context) {
             -1L
         }
     }
-
-    /**
-     * Undo for "clear all": folders keep their ids so restored bookmarks land in the same
-     * places, and bookmarks are inserted in one transaction with the rest of their row.
-     */
-    @Synchronized
-    fun restoreSnapshot(folders: List<BookmarkFolder>, bookmarks: List<Bookmark>): Boolean {
-        if (closed) return false
-        require(folders.size <= BookmarkFolders.MAX_FOLDERS) { "Too many folders" }
-        return try {
-            db.writableDatabase.transaction {
-                folders.forEach { folder ->
-                    val values = ContentValues().apply {
-                        put("id", folder.id)
-                        put("parent_id", folder.parentId)
-                        put("title", folder.title)
-                        put("position", folder.position)
-                    }
-                    insertWithOnConflict(
-                        "bookmark_folders", null, values, SQLiteDatabase.CONFLICT_IGNORE,
-                    )
-                }
-                bookmarks.forEach { restoreBookmarkLocked(this, it) }
-                val count = rawQuery("SELECT COUNT(*) FROM bookmark_folders", null).use {
-                    if (it.moveToFirst()) it.getInt(0) else 0
-                }
-                require(count <= BookmarkFolders.MAX_FOLDERS) { "Too many folders" }
-            }
-            true
-        } catch (error: RuntimeException) {
-            Log.w(TAG, "Unable to restore bookmark snapshot", error)
-            false
-        }
-    }
-
     private fun restoreBookmarkLocked(database: SQLiteDatabase, bookmark: Bookmark): Long {
         val folderId = bookmark.folderId.takeIf { it == 0L || folderExists(database, it) } ?: 0L
         val position = if (folderId == bookmark.folderId) {
@@ -265,8 +230,9 @@ class BookmarkManager(context: Context) {
         return result
     }
 
+    @androidx.annotation.VisibleForTesting
     @Synchronized
-    fun clearAll() {
+    internal fun clearAll() {
         if (!closed) db.writableDatabase.transaction {
             delete("bookmarks", null, null)
             delete("bookmark_folders", null, null)

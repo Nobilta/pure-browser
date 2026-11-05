@@ -97,6 +97,46 @@ class MediaRequestInterceptorTest {
         } finally { server.stop(0) }
     }
 
+    @Test fun redirectedLoginHandsOnlyTheChallengedUrlAndItsReducedPolicyToChromium() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val seen = mutableListOf<List<String?>>()
+        server.createContext("/start.mp4") { e ->
+            e.responseHeaders.add("Location", "/auth.mp4")
+            e.responseHeaders.add("Referrer-Policy", "no-referrer")
+            e.sendResponseHeaders(302, -1); e.close()
+        }
+        server.createContext("/auth.mp4") { e ->
+            val auth = e.requestHeaders.getFirst("Authorization")
+            seen += listOf(auth, e.requestHeaders.getFirst("Referer"))
+            if (auth == "Basic dGVzdDpwdXJl") {
+                e.responseHeaders.add("Content-Type", "video/mp4")
+                e.sendResponseHeaders(200, 1); e.responseBody.use { it.write(1) }
+            } else {
+                e.responseHeaders.add("WWW-Authenticate", "Basic realm=\"Video\"")
+                e.sendResponseHeaders(401, -1); e.close()
+            }
+        }
+        server.start()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/start.mp4"
+            val original = MediaNavigation.create(url, "http://site.test/watch")!!
+            var redirected: MediaNavigation? = null
+            val response = MediaRequestInterceptor.intercept(request(url, main = true), original, null,
+                onNativeNavigation = { redirected = it; true }) { true }!!
+            assertEquals(204, response.statusCode)
+            val selected = requireNotNull(redirected)
+            assertTrue(selected.url.endsWith("/auth.mp4"))
+            assertEquals("", selected.referer)
+            assertSame(original.loadId, selected.loadId)
+            assertTrue(selected.loadId.access.authenticate("127.0.0.1", "Video", "test", "pure"))
+            selected.loadId.nativeRequests = false
+            MediaRequestInterceptor.intercept(request(selected.url, headers = mapOf("Range" to "bytes=0-")), selected, null) { true }!!.data.use {
+                assertEquals(1, it.read())
+            }
+            assertEquals(listOf(listOf(null, null), listOf("Basic dGVzdDpwdXJl", null)), seen)
+        } finally { server.stop(0) }
+    }
+
     @Test fun redirectedHtmlTransfersTheFetchedResponseAtItsRealOriginAndRetainsItsPolicy() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/media.mp4") { exchange ->
@@ -209,7 +249,31 @@ class MediaRequestInterceptorTest {
         assertEquals(499, MediaRequestInterceptor.intercept(request(url), context, null, onFailure = failures::add) { false }!!.statusCode)
         assertTrue(failures.isEmpty())
         assertEquals(502, MediaRequestInterceptor.intercept(request(url), context, null, onFailure = failures::add) { true }!!.statusCode)
+        assertTrue("A failed subresource must not replace the document", failures.isEmpty())
+        assertEquals(502, MediaRequestInterceptor.intercept(request(url, main = true), context, null, onFailure = failures::add) { true }!!.statusCode)
         assertEquals(MediaRequestInterceptor.FailureKind.NETWORK, failures.single().kind)
+    }
+
+    @Test fun failedRangesAndTruncatedSubresourcesDoNotReportDocumentFailure() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/denied.mp4") { e -> e.sendResponseHeaders(403, -1); e.close() }
+        server.createContext("/short.mp4") { e ->
+            e.responseHeaders.add("Content-Type", "video/mp4")
+            e.sendResponseHeaders(200, 100)
+            runCatching { e.responseBody.use { it.write(byteArrayOf(1, 2)) } }
+            e.close()
+        }
+        server.start()
+        try {
+            for (path in listOf("denied.mp4", "short.mp4")) for (main in listOf(false, true)) {
+                val url = "http://127.0.0.1:${server.address.port}/$path"
+                val failures = mutableListOf<MediaRequestInterceptor.Failure>()
+                val response = MediaRequestInterceptor.intercept(request(url, main = main, headers = mapOf("Range" to "bytes=0-")),
+                    MediaNavigation.create(url, url), null, onFailure = failures::add) { true }!!
+                runCatching { response.data.use { it.readBytes() } }
+                assertEquals("$path, main=$main", if (main) 1 else 0, failures.size)
+            }
+        } finally { server.stop(0) }
     }
 
     @Test fun sameOriginRedirectReadsTheUpdatedCookieInsteadOfReplayingTheOriginalHeader() {

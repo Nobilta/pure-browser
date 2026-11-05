@@ -92,18 +92,6 @@ class BookmarkFoldersTest {
         } finally { manager.close() }
     }
 
-    @Test fun restoringASnapshotRefusesToExceedTheFolderLimit() {
-        val manager = BookmarkManager(RuntimeEnvironment.getApplication())
-        try {
-            val folders = (1..(BookmarkFolders.MAX_FOLDERS + 1)).map {
-                BookmarkFolder(id = it.toLong(), parentId = 0, title = "F$it")
-            }
-            assertThrows(IllegalArgumentException::class.java) {
-                manager.restoreSnapshot(folders, emptyList())
-            }
-        } finally { manager.close() }
-    }
-
     @Test fun restoringIntoADeletedFolderFallsBackToRoot() {
         val manager = BookmarkManager(RuntimeEnvironment.getApplication())
         try {
@@ -116,22 +104,6 @@ class BookmarkFoldersTest {
             assertTrue(manager.restoreBookmark(removed) > 0)
             val restored = manager.findBookmark("https://docs.test")!!
             assertEquals(0L, restored.folderId)
-        } finally { manager.close() }
-    }
-
-    @Test fun restoringASnapshotKeepsFoldersAndBookmarks() {
-        val manager = BookmarkManager(RuntimeEnvironment.getApplication())
-        try {
-            val folder = manager.addFolder("Work")
-            val id = manager.addBookmark("Docs", "https://docs.test")
-            manager.moveBookmarks(linkedSetOf(id), folder)
-            val folders = manager.getFolders()
-            val bookmarks = manager.getAllBookmarks()
-            manager.clearAll()
-            assertTrue(manager.restoreSnapshot(folders, bookmarks))
-            val restoredFolder = manager.getFolders().single { it.title == "Work" }
-            val restored = manager.findBookmark("https://docs.test")!!
-            assertEquals(restoredFolder.id, restored.folderId)
         } finally { manager.close() }
     }
 

@@ -17,6 +17,7 @@ internal data class DownloadMetadata(
     /** Who this task belongs to; every mode-dependent policy is read from it. */
     val identity: DownloadIdentity = DownloadIdentity.Normal,
     val unmeteredOnly: Boolean = false,
+    val responseBacked: Boolean = false,
     val bytesPerSecond: Long = 0,
     val savingProgress: Int = 0,
     val bytesDownloaded: Long = 0L,

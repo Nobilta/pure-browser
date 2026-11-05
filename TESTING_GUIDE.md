@@ -126,8 +126,15 @@ python3 validation/media-fallback-regression.py --serial emulator-5554
 下载通过实际文件 SHA-256 和服务器请求计数验证，不能用“出现确认框”代替保存完成。
 结果写入 `validation/results/media-fallback-<serial>.json`，
 记录被测 APK 和测试源码校验值；`--package com.mybrowser.debug` 可检查调试包。
+媒体网络边界回归运行 `python3 validation/media-network-regression.py --serial emulator-5554`，
+使用 8881/8882 端口、下面生成的测试证书和 `create-large-media-fixtures.py` 的稀疏媒体。
+验证 Basic 直接地址与跨站跳转登录、缓存凭据后的来源保持、接受证书后的播放/拖动、分段 403 保留页面，
+以及原生导航与媒体拦截的 A→B→A Cookie 对照。脚本会重启被测应用，以清除进程内的认证与证书决定。
+本地测试账号固定为 test/pure，不连接外部网站。结果写入 `validation/results/media-network-<serial>.json`。
+
 书签排序回归运行 `python3 validation/bookmark-drag-regression.py --serial emulator-5554`，需先启动下面的 QA 服务。
 它使用专用 root 模拟器中的夹具记录，覆盖分页边缘滚动、取消、持久排序、多选和一次位移跨多行的向上拖动。
+跨分页拖动包含固定时长断言，应单独运行；并发模拟器的负载会影响滚动在限时内到达的行数。
 修改 FastUiDump 后先运行 `python3 validation/setup-ui-probe.py emulator-5554`，避免旧辅助程序漏测新手势。
 
 投屏列表的播放操作可在 QA 服务运行后单独检查：
@@ -152,7 +159,7 @@ QA 服务对缺少或错误 Referer 的媒体返回 403；脚本检查普通／�
 可验证流定位和解码，不代表持续大码率传输。应在旧、新 WebView 上分别运行，不能只凭 Android API 版本判断覆盖。
 
 错误页回归运行 `python3 validation/cast-media-failure-regression.py --serial emulator-5554`，检查 HTTP 拒绝、连接失败、
-不受信任证书和响应读取中断。启动 QA 服务前，用下列命令生成仅用于本地夹具的短期自签名证书：
+拒绝不受信任证书和响应读取中断。启动 QA 服务前，用下列命令生成仅用于本地夹具的短期自签名证书：
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -keyout validation/results/referrer-tls-key.pem -out validation/results/referrer-tls-cert.pem -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1
