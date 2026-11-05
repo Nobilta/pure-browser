@@ -33,6 +33,7 @@ class BrowserSessionState(application: Application) : AndroidViewModel(applicati
     fun beginPrivateSession() {
         check(!privacy.isTransitioning)
         if (privacy.isIncognito) return
+        app.mediaAccessSession.clear()
         app.downloadHandler.rotatePrivateScope()
         // A script's GM values are the private session's: held in memory and dropped with it. The
         // store is process-scoped, so the session has to say when it begins; a session that starts
@@ -47,6 +48,7 @@ class BrowserSessionState(application: Application) : AndroidViewModel(applicati
      * has to drop the same values, or the next launch in this process reads them.
      */
     fun endPrivateSession() {
+        if (privacy.isIncognito) app.mediaAccessSession.clear()
         app.downloadHandler.endPrivateScope()
         app.userScripts.endPrivateSession()
         if (privacy.isIncognito) privacy.exit(wipeSharedStorage = !privacy.hasRealIsolation)

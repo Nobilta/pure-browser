@@ -15,14 +15,14 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 
 ## Core features
 
-- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting; every source in the cast list offers actions to open it in a new tab or download it. Playback and attachment downloads preserve the original media request’s referrer information when available, and redirects follow the server’s referrer policy. HTTP login prompts and single-use attachment downloads are supported.
+- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting; every source in the cast list offers actions to open it in a new tab or download it. Playback and attachment downloads preserve the original media request’s referrer information when available, and redirects follow the server’s referrer policy. Basic HTTP authentication retains the source referrer; certificate confirmation and single-use attachment downloads are supported.
 - **Page translation**: full-page bilingual translation and selected-text translation; includes a built-in no-login service and supports custom translation APIs.
 - **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
 - **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with system Back to exit, selectable detail text and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.
 - **Ad blocking and userscripts**: built-in filter rules, custom subscriptions and userscript installation; supported WebViews apply element-hiding rules early to reduce ad flashes.
 - **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export; bookmarks show cached website icons and can be reordered with left-side handles after long-pressing to select.
 - **Reader mode and printing**: one-tap reflow of the body into reader mode; print pages or save them as PDF from the system print sheet.
-- **Downloads**: pause and resume downloads and choose custom folders.
+- **Downloads**: pause and resume downloads, choose custom folders, and restrict the network used. Interrupted single-use attachments explain their retry limitations.
 - **Immersive fullscreen**: hides the system bars and toolbar so the page fills the screen.
 - **Offline QR scanning**: scan QR codes with the camera or an image, without an internet connection.
 - **Personalisation**: customise the home page, address bar position, theme and three interface languages; set a per-site browser identity; settings can be exported to a file and imported on another device.

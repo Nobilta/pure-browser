@@ -25,13 +25,16 @@ object MediaRequestInterceptor {
                   allowThirdPartyCookies: Boolean = false,
                   onRedirectResponse: (MediaNavigation, WebResourceResponse) -> Boolean = { _, _ -> false },
                   onDownloadResponse: ((MediaNavigation, WebResourceResponse) -> Boolean)? = null,
-                  onFailure: (Failure) -> Unit = {}, isActive: () -> Boolean): WebResourceResponse? {
+                  onNativeNavigation: ((MediaNavigation) -> Boolean)? = null,
+                  onFailure: (Failure) -> Unit = {}, network: android.net.Network? = null,
+                  isActive: () -> Boolean): WebResourceResponse? {
         val target = request.url.toString()
         if (navigation == null || navigation.loadId.nativeRequests || request.method != "GET" || !navigation.matches(target)) return null
         val jar = MediaCookies(cookies, if (request.isForMainFrame) navigation.sourcePageUrl else navigation.url,
             request.isForMainFrame, allowThirdPartyCookies)
         val notified = AtomicBoolean(false)
-        fun report(failure: Failure) { if (isActive() && notified.compareAndSet(false, true)) onFailure(failure) }
+        // A failed seek/range belongs to the media element, not the already loaded document.
+        fun report(failure: Failure) { if (request.isForMainFrame && isActive() && notified.compareAndSet(false, true)) onFailure(failure) }
         fun reportIo(error: IOException) {
             if (error !is Cancelled) report(Failure(when (error) {
                 is SSLException -> FailureKind.CERTIFICATE
@@ -42,16 +45,18 @@ object MediaRequestInterceptor {
         }
         var connection: HttpURLConnection? = null
         var downloadOwned = false
+        var context: MediaNavigation = navigation
         try {
             val original = URL(target)
             var current = original
-            var context: MediaNavigation = navigation
-            repeat(6) { hop ->
+            var hops = 0
+            val authenticatedUrls = mutableSetOf<String>()
+            while (true) {
                 if (!isActive()) throw Cancelled()
-                jar.visit(current.toString())
                 val sameOrigin = current.protocol.equals(original.protocol, true) &&
                     current.host.equals(original.host, true) && current.portOrDefault() == original.portOrDefault()
-                val opened = (current.openConnection() as HttpURLConnection).apply {
+                val opened = ((network?.openConnection(current) ?: current.openConnection()) as HttpURLConnection).apply {
+                    if (this is javax.net.ssl.HttpsURLConnection) navigation.loadId.access.configure(this)
                     instanceFollowRedirects = false
                     useCaches = false
                     connectTimeout = 15_000
@@ -64,12 +69,13 @@ object MediaRequestInterceptor {
                     }
                     setRequestProperty("Accept-Encoding", "identity")
                     context.headersFor(current.toString())["Referer"]?.let { setRequestProperty("Referer", it) }
-                    val initialCookie = if (hop == 0) request.requestHeaders?.entries?.firstOrNull { it.key.equals("Cookie", true) }?.value else null
+                    val initialCookie = if (hops == 0) request.requestHeaders?.entries?.firstOrNull { it.key.equals("Cookie", true) }?.value else null
                     jar.header(current.toString(), initialCookie)?.let { setRequestProperty("Cookie", it) }
                     if (sameOrigin) {
                         request.requestHeaders?.entries?.firstOrNull { it.key.equals("Authorization", true) }?.value
                             ?.let { setRequestProperty("Authorization", it) }
                     }
+                    navigation.loadId.access.authorization(current.toString())?.let { setRequestProperty("Authorization", it) }
                 }
                 connection = opened
                 val status = opened.responseCode
@@ -77,7 +83,7 @@ object MediaRequestInterceptor {
                 opened.headerFields.entries.filter { it.key.equals("Set-Cookie", true) }
                     .flatMap { it.value }.forEach { if (!isActive()) throw Cancelled(); jar.store(current.toString(), it) }
                 if (status in setOf(301, 302, 303, 307, 308)) {
-                    if (hop == 5) throw RedirectFailure()
+                    if (hops++ == MediaNavigation.MAX_REDIRECTS) throw RedirectFailure()
                     val next = URL(current, opened.getHeaderField("Location") ?: throw RedirectFailure())
                     if (next.userInfo != null || current.protocol == "https" && next.protocol != "https") {
                         throw RedirectFailure()
@@ -88,11 +94,23 @@ object MediaRequestInterceptor {
                     current = next
                 } else {
                     if (status !in 100..599 || status in 300..399) throw IOException("Invalid media response")
-                    if (status == 401 && !opened.getHeaderField("WWW-Authenticate").isNullOrBlank() ||
-                        status == 407 && !opened.getHeaderField("Proxy-Authenticate").isNullOrBlank()) {
+                    if ((status == 401 && !opened.getHeaderField("WWW-Authenticate").isNullOrBlank()) ||
+                        (status == 407 && !opened.getHeaderField("Proxy-Authenticate").isNullOrBlank())) {
                         // This is a challenge, not a consumed successful response. Chromium
                         // must perform the retry so its auth dialog/cache can answer it.
+                        if (status == 401) {
+                            navigation.loadId.access.challenge(current.toString(), opened.getHeaderField("WWW-Authenticate"))
+                            if (authenticatedUrls.add(current.toString()) && navigation.loadId.access.useCachedLogin()) {
+                                opened.disconnect()
+                                connection = null
+                                continue
+                            }
+                        }
                         navigation.loadId.nativeRequests = true
+                        if (request.isForMainFrame && !navigation.matches(context.url) && onNativeNavigation != null) {
+                            if (isActive() && onNativeNavigation(context)) return emptyResponse()
+                            throw Cancelled()
+                        }
                         return null
                     }
                     if (status >= 400) {
@@ -201,12 +219,23 @@ object MediaRequestInterceptor {
                 }
             }
         } catch (error: IOException) {
+            if (error is SSLException && request.isForMainFrame && isActive()) {
+                // WebView must ask the user first. A later intercepted request may use only
+                // the exact certificate and origin the user accepted for this navigation.
+                navigation.loadId.nativeRequests = true
+                // No successful response was consumed. Retry only the challenged URL,
+                // retaining the policies already applied by the redirect chain.
+                if (!navigation.matches(context.url) && onNativeNavigation != null) {
+                    if (onNativeNavigation(context)) return emptyResponse()
+                    return failedResponse(499)
+                }
+                return null
+            }
             reportIo(error)
             return failedResponse(if (error is Cancelled) 499 else 502)
         } finally {
             connection?.disconnect()
         }
-        return null
     }
 
     private fun failedResponse(status: Int) = WebResourceResponse("text/plain", "UTF-8", status,

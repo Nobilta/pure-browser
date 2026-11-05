@@ -27,6 +27,8 @@ data class DownloadItem(
      * only answer with a failure.
      */
     val canResume: Boolean = true,
+    /** Continuing an interrupted handed-over response needs another HTTP request. */
+    val requiresNewRequest: Boolean = false,
 )
 
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAITING_NETWORK, SAVING;

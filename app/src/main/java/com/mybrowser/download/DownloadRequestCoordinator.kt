@@ -97,6 +97,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
     fun submitFromUser(request: Request): SubmitResult = submitOwned(request, explicit = true, fromUser = true)
 
     private fun submitOwned(request: Request, explicit: Boolean, fromUser: Boolean = false): SubmitResult {
+        request.response?.let(handler::prepareResponse)
         val result = submit(request, explicit, fromUser)
         if (result !is SubmitResult.Confirm) request.response?.close()
         return result
@@ -141,7 +142,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         return SubmitResult.Confirm(request)
     }
 
-    fun confirmPending(): DownloadHandler.EnqueueOutcome {
+    fun confirmPending(retryResponse: Boolean = false): DownloadHandler.EnqueueOutcome {
         val state = document
         val request = state.pending?.request ?: return DownloadHandler.EnqueueOutcome.Rejected
         val newCopy = state.newCopy
@@ -153,6 +154,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
             request.url, request.userAgent, request.contentDisposition, request.mimeType,
             referer = request.referer, isPrivate = request.isPrivate, cookieHeader = request.cookieHeader,
             newCopy = newCopy, pageFile = request.pageFile, response = request.response,
+            retryResponse = retryResponse && request.response?.unavailable?.value != null,
         ).also { if (it !is DownloadHandler.EnqueueOutcome.Started) request.response?.close() }
     }
 

@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -157,6 +158,13 @@ class DownloadHandler(context: Context) : Closeable {
         data object Rejected : EnqueueOutcome
     }
 
+    /** A live socket cannot wait for a different network; confirmation has a bounded lifetime. */
+    internal fun prepareResponse(response: DownloadResponse) {
+        if (!networkAllowed(settingsRepository.load().unmeteredOnly, response.network)) {
+            response.discard(DownloadResponse.Unavailable.NETWORK)
+        } else response.hold(transferScope)
+    }
+
     /**
      * Enqueues a validated HTTP(S) download, deduplicated against the tasks this engine
      * already owns. Task identity is the target URL without its fragment plus the
@@ -185,6 +193,7 @@ class DownloadHandler(context: Context) : Closeable {
          */
         pageFile: PageFileOffer? = null,
         response: DownloadResponse? = null,
+        retryResponse: Boolean = false,
     ): EnqueueOutcome {
         if (closed) return EnqueueOutcome.Rejected
         val offer = pageFile
@@ -204,6 +213,7 @@ class DownloadHandler(context: Context) : Closeable {
             MAX_COOKIE_LENGTH,
         )
         val settings = settingsRepository.load()
+        response?.let(::prepareResponse)
         val id = createLocalId()
         val entry = synchronized(taskLock) {
             if (closed) return EnqueueOutcome.Rejected
@@ -240,6 +250,7 @@ class DownloadHandler(context: Context) : Closeable {
                 // network to wait for. Everything else keeps the user setting, which this line
                 // used to overwrite for every download.
                 unmeteredOnly = offer == null && settings.unmeteredOnly,
+                responseBacked = response != null,
                 identity = identity,
                 // The bytes come from the renderer, so there is no segmented transfer to configure
                 // and nothing metered to defer: the page already has them.
@@ -250,7 +261,7 @@ class DownloadHandler(context: Context) : Closeable {
                 destinationLabel = settings.destinationLabel,
             )
             if (offer != null) fromPageTasks.add(id)
-            if (response != null) responses[id] = response
+            if (response != null && !retryResponse) responses[id] = response
             metadata[id] = created
             created
         }
@@ -845,9 +856,28 @@ class DownloadHandler(context: Context) : Closeable {
                 writerLock.withLock {
                     val entry = metadata[id]
                     if (entry?.status?.active == true) {
-                        awaitNetwork(id, entry.unmeteredOnly)
-                        tasks.acquire(entry.url.toUri().host.orEmpty()).use {
-                            if (metadata[id]?.status?.active == true) performDownload(id)
+                        val response = responses[id]
+                        val host = entry.url.toUri().host.orEmpty()
+                        if (response == null) {
+                            awaitNetwork(id, entry.unmeteredOnly)
+                            tasks.acquire(host).use {
+                                if (metadata[id]?.status?.active == true) performDownload(id)
+                            }
+                        } else {
+                            // Bound only the acquisition, never the transfer. A response already
+                            // accepted by the user must not silently turn into another GET.
+                            var lease: ConcurrencyBudget.Lease? = null
+                            try {
+                                val allowed = networkAllowed(entry.unmeteredOnly, response.network)
+                                // Store the lease inside the timeout: cancellation after acquire
+                                // returns must still release it in finally.
+                                val acquired = allowed && response.unavailable.value == null && withTimeoutOrNull(5_000) {
+                                    lease = tasks.acquire(host)
+                                    true
+                                } == true
+                                if (!acquired) response.discard(if (allowed) DownloadResponse.Unavailable.EXPIRED else DownloadResponse.Unavailable.NETWORK)
+                                if (metadata[id]?.status?.active == true) performDownload(id)
+                            } finally { lease?.close() }
                         }
                     }
                 }
@@ -969,14 +999,18 @@ class DownloadHandler(context: Context) : Closeable {
         runCatching { appContext.unregisterReceiver(completionReceiver) }
     }
 
-    private suspend fun awaitNetwork(id: Long, unmeteredOnly: Boolean) {
+    private fun networkAllowed(unmeteredOnly: Boolean, responseNetwork: android.net.Network? = null): Boolean {
         val connectivity = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+        val network = responseNetwork ?: connectivity.activeNetwork ?: return false
+        val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            (!unmeteredOnly || capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED))
+    }
+
+    private suspend fun awaitNetwork(id: Long, unmeteredOnly: Boolean) {
         while (true) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val network = connectivity.activeNetwork
-            val available = network != null && connectivity.getNetworkCapabilities(network)
-                ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-            if (available && (!unmeteredOnly || !connectivity.isActiveNetworkMetered)) break
+            if (networkAllowed(unmeteredOnly)) break
             metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.WAITING_NETWORK) else value }
             publishSnapshots()
             delay(1500)
@@ -1118,6 +1152,8 @@ class DownloadHandler(context: Context) : Closeable {
                     ) persistMetadata()
                 }
             val payload = if (response != null) {
+                if (!networkAllowed(entry.unmeteredOnly, response.network)) response.discard(DownloadResponse.Unavailable.NETWORK)
+                if (!response.start()) throw java.io.IOException("The original download response is no longer available")
                 metadata.computeIfPresent(id) { _, current ->
                     if (current.status.active) current.copy(status = DownloadStatus.DOWNLOADING) else current
                 }
@@ -1217,6 +1253,7 @@ class DownloadHandler(context: Context) : Closeable {
         savingProgress = entry.savingProgress,
         showsFilenameInNotification = entry.identity.showsFilenameInNotification,
         canResume = !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity),
+        requiresNewRequest = entry.responseBacked,
     )
 
     private fun publishSnapshots() = synchronized(metadataLock) {

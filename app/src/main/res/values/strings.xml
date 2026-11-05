@@ -40,7 +40,6 @@
     <string name="tab_untitled">New tab</string>
     <string name="bookmarks_title">Bookmarks</string>
     <string name="bookmarks_empty">No bookmarks</string>
-    <string name="bookmarks_clear">Clear all bookmarks</string>
     <string name="bookmark_added">Bookmark added</string>
     <string name="bookmark_removed">Bookmark removed</string>
     <string name="bookmark_restored">Bookmark restored</string>
@@ -398,7 +397,6 @@
     <string name="library_edit_failed">Unable to save. Check whether this URL is already bookmarked.</string>
     <string name="library_bookmark_saved">Bookmark updated</string>
     <string name="bookmarks_search">Search bookmarks</string>
-    <string name="bookmarks_clear_confirm">Delete all bookmarks? This cannot be undone.</string>
     <string name="history_search">Search history</string>
     <string name="history_clear_confirm">Delete all browsing history? This cannot be undone.</string>
     <string name="history_today">Today</string>
@@ -637,7 +635,6 @@
     <string name="bookmarks_root">All folders</string>
     <string name="bookmarks_selected">%1$d selected</string>
     <string name="bookmarks_deleted">%1$d bookmarks deleted</string>
-    <string name="bookmarks_cleared">All bookmarks deleted</string>
     <string name="bookmarks_restored">Bookmarks restored</string>
     <string name="bookmarks_move">Move</string>
     <string name="bookmarks_move_to">Move to folder</string>
@@ -1026,4 +1023,8 @@
     <string name="media_request_http">The media server returned HTTP %1$d.</string>
     <string name="bookmarks_drag">Drag to reorder</string>
     <string name="bookmarks_organize">Organize folders</string>
+    <string name="download_response_note">If interrupted, this download must reconnect. One-time links may no longer work.</string>
+    <string name="download_response_network">The original connection was closed because the download network policy is not met. Retry will request the file again when the network allows it; one-time links may fail.</string>
+    <string name="download_response_expired">The original connection expired while waiting. Retry will request the file again; one-time links may fail.</string>
+    <string name="download_response_retry">Retry needs a new connection. One-time links may no longer work.</string>
 </resources>

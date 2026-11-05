@@ -43,6 +43,14 @@ def run(serial, debug=False):
             receipt = ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false',
                              '/system/bin', 'com.mybrowser.validation.FastUiDump', 'tapInRow', ' · direct.mp4', labels)
             assert 'Tapped row action' in receipt, receipt
+            if name == 'failtls':
+                ux.expect('SSL certificate verification failed')
+                ux.tap('Go back to safety')
+                result['checks'].append(name + ': native certificate decision can reject the connection')
+                print('PASS:', result['checks'][-1], flush=True)
+                ux.adb('shell', 'input', 'keyevent', '4')
+                ux.expect('Cast referrer fixture')
+                continue
             ux.expect('Unable to open this page')
             ux.tap('Technical details')
             labels = [x.replace('%1$d', '403') for x in ux.resource_labels(detail)]
