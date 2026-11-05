@@ -1,12 +1,10 @@
-## 0.19.3 本地测试包验证范围
+## 0.20.0 本地测试包验证范围
 
-被测产物：`PureBrowser-v0.19.3-release.apk`（versionCode 74），本地签名 Release，尚未发布。
+被测产物：`PureBrowser-v0.20.0-release.apk`（versionCode 75），本地签名 Release，尚未发布。
 
-- 自动化：791 项 JVM、132 项 JavaScript、69 项 Rust、14 项发布工具测试全部通过；本地化、Clippy、Lint（无错误，保留建议警告）、R8、APK 签名与对齐检查通过。
-- Android 17 / API 37 ARM64 模拟器，WebView 145.0.7632.218：分段重新认证、首次 Basic 登录、凭据复用和跨站登录 4 个场景通过。重新认证的文档标记保持不变，恢复位置未回退；服务器确认 Range 请求携带新凭据及原始 Referer，播放器恢复播放。
-- 同一模拟器：普通附件、一次性附件、确认超时后显式重试 3 个场景通过。连续保存仅一次 GET，文件 SHA-256 一致；超时不自动请求，点击重试后进入普通下载状态，不再显示原响应专属提示。
-- JVM 检查同 URL 的子资源认证分类，以及下载列表和过期确认框两种重试入口写入普通任务状态，恢复快照允许自动续传。JavaScript 检查匹配媒体元素恢复播放位置、保留播放/暂停状态，并且不修改其他媒体元素。
+- 本版是从 0.19 起全部媒体、下载、书签、过滤改动的汇总重建包；源码与上一轮验证的 0.19.3 一致，差异只有版本号与更新日志。
+- 自动化：`./build-and-test.sh --release` 通过，包含 791 项 JVM、132 项 JavaScript、69 项 Rust、14 项发布工具测试，以及 1014 条三语资源一致性检查；Rust fmt/clippy、Android Lint（0 错误，85 条警告）、R8、APK 签名与 zipalign 校验通过。
+- 设备回归：未在新的安装包上重跑。上一轮源码对应的 Android 14 / API 34 / WebView 113 与 Android 17 / API 37 / WebView 145 结果保留在 `validation/results/`，可作为该源码的参考记录，但不构成本安装包的实测结论。
+- 未验证：实体设备、其他 Android 与 WebView 版本、Digest 与代理认证组合、真实 DLNA 接收设备；媒体格式兼容性仍受系统 WebView 与设备解码器限制。
 
-未验证：本版本未重跑 WebView 113 和其他 Android 版本、实体设备、Digest/代理认证组合。无法匹配媒体元素的认证由 WebView 原生重试，其 Referer 行为仍由 WebView 决定。上一版的广泛回归不计为本版本重新执行。
-
-详细日志、服务器请求与模拟器结果保存在忽略目录 `validation/results/`；产物校验值和签名信息由 `outputs/release/` 的发布附件记录。
+详细日志、服务器请求与模拟器结果保存在忽略目录 `validation/results/`。
