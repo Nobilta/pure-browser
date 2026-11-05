@@ -40,7 +40,6 @@
     <string name="tab_untitled">新标签页</string>
     <string name="bookmarks_title">书签</string>
     <string name="bookmarks_empty">暂无书签</string>
-    <string name="bookmarks_clear">清除全部书签</string>
     <string name="bookmark_added">已添加到书签</string>
     <string name="bookmark_removed">已从书签移除</string>
     <string name="bookmark_restored">已恢复书签</string>
@@ -398,7 +397,6 @@
     <string name="library_edit_failed">保存失败，请检查是否已存在相同网址的书签。</string>
     <string name="library_bookmark_saved">书签已更新</string>
     <string name="bookmarks_search">搜索书签</string>
-    <string name="bookmarks_clear_confirm">删除全部书签？此操作无法撤销。</string>
     <string name="history_search">搜索历史记录</string>
     <string name="history_clear_confirm">删除全部浏览历史？此操作无法撤销。</string>
     <string name="history_today">今天</string>
@@ -636,7 +634,6 @@
     <string name="bookmarks_root">书签根目录</string>
     <string name="bookmarks_selected">已选 %1$d 项</string>
     <string name="bookmarks_deleted">已删除 %1$d 个书签</string>
-    <string name="bookmarks_cleared">已删除全部书签</string>
     <string name="bookmarks_restored">已恢复书签</string>
     <string name="bookmarks_move">移动</string>
     <string name="bookmarks_move_to">移动到文件夹</string>
@@ -1025,4 +1022,8 @@
     <string name="media_request_http">媒体服务器返回 HTTP %1$d。</string>
     <string name="bookmarks_drag">拖动排序</string>
     <string name="bookmarks_organize">整理文件夹</string>
+    <string name="download_response_note">下载中断后需要重新连接，一次性链接可能无法恢复。</string>
+    <string name="download_response_network">当前网络不符合下载设置，已关闭原连接。重试会在网络允许时重新请求文件，一次性链接可能失效。</string>
+    <string name="download_response_expired">等待超时，已关闭原连接。重试会重新请求文件，一次性链接可能失效。</string>
+    <string name="download_response_retry">重试需要重新连接，一次性链接可能无法恢复。</string>
 </resources>

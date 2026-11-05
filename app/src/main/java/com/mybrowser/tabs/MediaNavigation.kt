@@ -13,6 +13,7 @@ class MediaNavigation private constructor(
     val loadId: RequestLifetime = RequestLifetime(),
 ) {
     class RequestLifetime {
+        internal var access = com.mybrowser.media.MediaRequestAccess()
         @Volatile var cancelled: Boolean = false
         @Volatile var failure: com.mybrowser.media.MediaRequestInterceptor.Failure? = null
         /** HTTP authentication belongs to Chromium's credential cache and callbacks. */
@@ -31,9 +32,10 @@ class MediaNavigation private constructor(
         }
     }
 
-    val canFollowRedirect: Boolean get() = redirects < 10
+    val canFollowRedirect: Boolean get() = redirects < MAX_REDIRECTS
     fun forLoad(): MediaNavigation = MediaNavigation(url, referer, sourcePageUrl, policy).also {
         it.loadId.nativeRequests = loadId.nativeRequests
+        it.loadId.access = loadId.access
     }
     fun matches(target: String): Boolean = target.substringBefore('#') == url
     fun sameSourceAs(other: MediaNavigation?): Boolean = other != null && url == other.url &&
@@ -71,6 +73,7 @@ class MediaNavigation private constructor(
     }
 
     companion object {
+        const val MAX_REDIRECTS = 10
         /** null = no network observation; empty = the observed request sent no Referer. */
         fun create(url: String, pageUrl: String?, observedReferer: String? = null): MediaNavigation? {
             if (!valid(url) || pageUrl == null || !valid(pageUrl)) return null

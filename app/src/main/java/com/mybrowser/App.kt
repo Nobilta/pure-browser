@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 class App : Application() {
 
     val certificateWarnings = com.mybrowser.security.CertificateWarnings()
+    internal val mediaAccessSession = com.mybrowser.media.MediaRequestAccess.Session()
     val mediaSession by lazy { com.mybrowser.media.BrowserMediaSession(this) }
 
     private var webEnginePrepared = false

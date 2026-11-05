@@ -51,8 +51,11 @@ def run(serial, scenarios=None):
                '/system/bin', 'com.mybrowser.validation.FastUiDump', 'setText', base64.b64encode(value.encode()).decode())
 
     def video_state(case, seek=False):
+        ux.tap('Menu'); ux.expect_menu(); time.sleep(.5)
         ux.menu_item('More tools')
+        ux.expect('Developer tools'); time.sleep(.4)
         ux.tap('Developer tools')
+        ux.expect('Console'); time.sleep(.4)
         ux.tap('Console')
         sample = str(time.time_ns())
         ratio = .65 if seek is True else seek

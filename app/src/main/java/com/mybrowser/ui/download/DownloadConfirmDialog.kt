@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -26,10 +27,11 @@ fun DownloadConfirmDialog(
     request: DownloadRequestCoordinator.Request,
     isNewCopy: Boolean,
     destinationLabel: String,
-    onConfirm: () -> Unit,
+    onConfirm: (retryResponse: Boolean) -> Unit,
     onCancel: () -> Unit,
 ) {
     val textResources = localizedResources()
+    val responseUnavailable = request.response?.unavailable?.collectAsState()?.value
     BrowserAlertDialog(
         onDismissRequest = onCancel,
         title = { Text(textResources.getString(if (isNewCopy) R.string.download_copy_title else R.string.download_confirm_title)) },
@@ -41,6 +43,13 @@ fun DownloadConfirmDialog(
                 )
                 if (isNewCopy) {
                     Text(textResources.getString(R.string.download_copy_note), style = MaterialTheme.typography.bodySmall)
+                }
+                if (request.response != null) {
+                    Text(textResources.getString(when (responseUnavailable) {
+                        com.mybrowser.download.DownloadResponse.Unavailable.NETWORK -> R.string.download_response_network
+                        com.mybrowser.download.DownloadResponse.Unavailable.EXPIRED -> R.string.download_response_expired
+                        null -> R.string.download_response_note
+                    }), style = MaterialTheme.typography.bodySmall)
                 }
                 Row(Modifier.fillMaxWidth()) {
                     Text(
@@ -73,8 +82,10 @@ fun DownloadConfirmDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(if (isNewCopy) R.string.download_copy_action else R.string.download_confirm_action))
+            // Capture the displayed action; expiry between rendering Download and the tap
+            // must not silently authorize a new request.
+            TextButton(onClick = { onConfirm(responseUnavailable != null) }) {
+                Text(stringResource(if (responseUnavailable != null) R.string.ui_retry else if (isNewCopy) R.string.download_copy_action else R.string.download_confirm_action))
             }
         },
         dismissButton = {

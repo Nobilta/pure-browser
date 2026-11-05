@@ -25,6 +25,15 @@ import java.util.concurrent.Executors
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadDedupTest {
+    @Test fun expiryAfterDownloadWasDisplayedDoesNotAuthorizeANewRequest() = runBlocking {
+        val response = DownloadResponse(java.io.ByteArrayInputStream(byteArrayOf(1)), 1)
+        assertTrue(coordinator.submit(request(url()).copy(response = response)) is DownloadRequestCoordinator.SubmitResult.Confirm)
+        response.discard(DownloadResponse.Unavailable.EXPIRED)
+        val started = coordinator.confirmPending() as DownloadHandler.EnqueueOutcome.Started
+        withTimeout(5_000) { handler.downloads.first { list -> list.any { it.id == started.id && it.status == DownloadStatus.FAILED } } }
+        assertEquals(0, requests.get())
+    }
+
     @Test fun unclaimedResponsesCloseOnRejectionSuppressionAndDocumentRemoval() {
         fun offer(suffix: String): Pair<DownloadRequestCoordinator.Request, () -> Boolean> {
             var closed = false
@@ -110,6 +119,7 @@ class DownloadDedupTest {
     }
     private val context get() = RuntimeEnvironment.getApplication()
     private lateinit var server: HttpServer
+    private val requests = java.util.concurrent.atomic.AtomicInteger()
     private lateinit var handler: DownloadHandler
     private lateinit var coordinator: DownloadRequestCoordinator
 
@@ -127,6 +137,7 @@ class DownloadDedupTest {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.executor = Executors.newCachedThreadPool { task -> Thread(task).apply { isDaemon = true } }
         server.createContext("/file") { exchange ->
+            requests.incrementAndGet()
             val total = 4 * 1024 * 1024
             exchange.responseHeaders.add("ETag", "\"dedup-stable\"")
             exchange.sendResponseHeaders(200, total.toLong())

@@ -49,7 +49,6 @@ object MediaSniffer {
             return "$localized · ${label.substringAfter(" · ")}"
         }
 
-        val isStream: Boolean get() = kind == Kind.HLS || kind == Kind.DASH
     }
 
     private val VIDEO_EXTENSIONS = setOf(

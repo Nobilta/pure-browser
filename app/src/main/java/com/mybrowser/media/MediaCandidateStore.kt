@@ -160,7 +160,8 @@ class MediaCandidateStore {
             url = url,
             label = candidate.label.trim().take(MAX_LABEL_LENGTH).ifBlank { url },
             pageUrl = candidate.pageUrl?.trim()?.take(MAX_URL_LENGTH),
-            requestReferer = candidate.requestReferer?.takeIf { it.length <= MAX_URL_LENGTH } ?: candidate.requestReferer?.let { "" },
+            // null means unobserved; an invalid observed header must remain explicitly absent.
+            requestReferer = candidate.requestReferer?.let { if (it.length <= MAX_URL_LENGTH) it else "" },
         )
     }
 

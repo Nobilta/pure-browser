@@ -15,14 +15,12 @@ internal class MediaCookies(
     private val allowThirdParty: Boolean,
     private val cookieInfo: (CookieManager, String) -> List<String>? = ::readCookieInfo,
 ) {
-    private var crossedSite = false
-
-    fun visit(url: String) { if (!sameSite(initiator, url)) crossedSite = true }
-
     @SuppressLint("RequiresFeature")
     fun header(url: String, initialHeader: String?): String? {
         if (manager == null) return initialHeader
-        val same = !crossedSite && sameSite(initiator, url)
+        // Chromium's default redirect policy compares the current hop to the initiator.
+        // Returning to the initiating site must not inherit the intermediate host's policy.
+        val same = sameSite(initiator, url)
         if (!topLevel && !same && !allowThirdParty) return null
         val info = cookieInfo(manager, url)
         return if (info != null) {
@@ -36,7 +34,7 @@ internal class MediaCookies(
     }
 
     fun store(url: String, value: String) {
-        val same = !crossedSite && sameSite(initiator, url)
+        val same = sameSite(initiator, url)
         if ((topLevel || same || allowThirdParty) && !partitioned(value) && (topLevel || allowed(value, same))) manager?.setCookie(url, value)
     }
 
@@ -51,7 +49,7 @@ internal class MediaCookies(
         if ("partitioned" in attrs) return false
         return when (attrs["samesite"]) {
             "strict" -> same
-            "none" -> true
+            "none" -> "secure" in attrs
             else -> same || topLevel // All intercepted requests are GET.
         }
     }

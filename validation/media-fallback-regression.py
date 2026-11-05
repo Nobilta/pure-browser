@@ -20,7 +20,7 @@ PORT = 8880
 BASE = f'http://127.0.0.1:{PORT}'
 
 
-def run(serial, package):
+def run(serial, package, cases=None):
     assert serial.startswith('emulator-'), 'Use a dedicated local emulator'
     ux.ADB = ['adb', '-s', serial]
     ux.PACKAGE = package
@@ -114,7 +114,7 @@ def run(serial, package):
         time.sleep(.4)
 
     try:
-        for name in ('none', 'origin', 'attachment', 'none-attachment', 'redirect-attachment', 'once', 'redirect-once', 'gzip', 'chunked', 'auth'):
+        for name in cases or ('none', 'origin', 'attachment', 'none-attachment', 'redirect-attachment', 'once', 'redirect-once', 'gzip', 'chunked', 'auth', 'once-expired'):
             case = name + '-' + str(time.time_ns())
             ux.launch(BASE + '/watch?case=' + case)
             ux.expect('Fallback source')
@@ -125,7 +125,7 @@ def run(serial, package):
             start = len(events)
             armed.add(case)
             labels = base64.b64encode(json.dumps(sorted(ux.resource_labels('cast_play'))).encode()).decode()
-            filename = 'attachment.mp4' if name in ('attachment', 'none-attachment', 'once', 'gzip', 'chunked') else 'auth.mp4' if name == 'auth' else 'redirect.mp4'
+            filename = 'attachment.mp4' if name in ('attachment', 'none-attachment', 'once', 'gzip', 'chunked', 'once-expired') else 'auth.mp4' if name == 'auth' else 'redirect.mp4'
             receipt = ux.adb('shell', 'env', 'CLASSPATH=' + ux.UI_PROBE, 'app_process', '-Xusejit:false',
                              '/system/bin', 'com.mybrowser.validation.FastUiDump', 'tapInRow', ' · ' + filename, labels)
             assert 'Tapped row action' in receipt, receipt
@@ -135,6 +135,21 @@ def run(serial, package):
                 record('auth: media selection reaches the native HTTP login prompt')
             elif name not in ('none', 'origin'):
                 ux.expect('Download file?')
+                if name == 'once-expired':
+                    ux.expect(next(iter(ux.resource_labels('download_response_expired'))), timeout=35)
+                    prior = [e for e in events[start:] if e['path'] == '/attachment.mp4' and e['case'] == case]
+                    assert len(prior) == 1, prior
+                    ux.tap('Retry')
+                    deadline = time.monotonic() + 10
+                    while len([e for e in events[start:] if e['path'] == '/attachment.mp4' and e['case'] == case]) < 2:
+                        assert time.monotonic() < deadline, 'Explicit retry did not request the file'
+                        time.sleep(.2)
+                    ux.menu_item('Downloads')
+                    ux.expect(next(iter(ux.resource_labels('download_response_retry'))))
+                    record('expired response: closes after confirmation timeout; only explicit Retry sends another GET and warns about one-time links')
+                    back(); back()
+                    result['cases'].append({'name': name, 'requests': events[start:]})
+                    continue
                 ux.tap('Download')
                 filename = 'fallback-' + case + '.mp4'
                 deadline = time.monotonic() + 20
@@ -181,5 +196,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
     parser.add_argument('--package', default='com.mybrowser')
+    parser.add_argument('--cases', nargs='+')
     args = parser.parse_args()
-    run(args.serial, args.package)
+    run(args.serial, args.package, args.cases)

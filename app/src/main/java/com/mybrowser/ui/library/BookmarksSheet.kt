@@ -151,7 +151,7 @@ fun BookmarksSheet(
                     val bookmark = bookmarksById[key]
                     val dragging = drag.active == key
                     var menu by remember { mutableStateOf(false) }
-                    val rowMotion = Modifier.animateItem(placementSpec = if (dragging) null else androidx.compose.animation.core.spring())
+                    val rowMotion = Modifier.animateItem(placementSpec = if (dragging) null else com.mybrowser.ui.shell.BrowserMotion.chromeSpatial())
                         .zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = drag.translation(key); shadowElevation = if (dragging) 8.dp.toPx() else 0f }
                         .background(if (dragging) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface)

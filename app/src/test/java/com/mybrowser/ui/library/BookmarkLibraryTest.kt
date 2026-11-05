@@ -15,6 +15,28 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class BookmarkLibraryTest {
+    @Test fun corruptFoldersAreReportedBeforePublishingThemToTheSheet() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val repository = BookmarkManager(context)
+        val database = com.mybrowser.data.BrowserDatabase.acquire(context)
+        try {
+            val valid = repository.addFolder("Valid", 0)
+            var failures = 0
+            val library = BookmarkLibrary(this, repository) { failures++ }
+            library.refresh()
+            withTimeout(5000) { while (library.folders.isEmpty()) delay(10) }
+            database.writableDatabase.execSQL("UPDATE bookmark_folders SET parent_id = 999 WHERE id = ?", arrayOf(valid))
+            library.refresh()
+            withTimeout(5000) { while (failures == 0) delay(10) }
+            assertEquals(0L, library.folders.single().parentId)
+            assertEquals(1, failures)
+            // The bad database is not rewritten or silently exported as an empty tree.
+            database.readableDatabase.rawQuery("SELECT parent_id FROM bookmark_folders WHERE id = ?", arrayOf(valid.toString())).use {
+                assertTrue(it.moveToFirst()); assertEquals(999L, it.getLong(0))
+            }
+        } finally { repository.close(); com.mybrowser.data.BrowserDatabase.release(database) }
+    }
+
     @Test fun sortingALargeLoadedPrefixKeepsEveryRowAndTheNextPage() = runBlocking {
         val repository = BookmarkManager(RuntimeEnvironment.getApplication())
         try {

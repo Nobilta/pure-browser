@@ -118,7 +118,9 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                     backend == DownloadBackend.LOCAL && restoredStatus.active
                 ) {
                     changed = true
-                    if (identity.resumesAfterRestart) interrupted.add(id)
+                    // A consumed response cannot be recovered after process death. Re-request
+                    // only after the user sees the one-time-link warning and chooses Retry.
+                    if (identity.resumesAfterRestart && !obj.optBoolean("responseBacked", false)) interrupted.add(id)
                     DownloadStatus.PAUSED
                 } else {
                     restoredStatus
@@ -141,6 +143,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                     timestamp = timestamp,
                     status = status,
                     unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
+                    responseBacked = obj.optBoolean("responseBacked", false),
                     identity = identity,
                     bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
                     totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
@@ -202,6 +205,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                 .put("status", entry.status.name)
                 .put("identity", DownloadIdentity.encode(entry.identity))
                 .put("unmeteredOnly", entry.unmeteredOnly)
+                .put("responseBacked", entry.responseBacked)
                 .put("bytesDownloaded", entry.bytesDownloaded)
                 .put("totalBytes", entry.totalBytes)
                 .put("configuredThreadCount", entry.configuredThreadCount)

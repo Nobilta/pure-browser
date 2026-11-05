@@ -407,6 +407,10 @@ private fun DownloadItemRow(
                     )
                 }
             }
+            if (download.requiresNewRequest && (download.status == DownloadStatus.PAUSED || download.status == DownloadStatus.FAILED)) {
+                Text(textResources.getString(R.string.download_response_retry), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         // Action button
@@ -423,7 +427,7 @@ private fun DownloadItemRow(
                     // button would only report a failure. View, open and delete stay available.
                     if (download.canResume) {
                         TextButton(onClick = onRetry) {
-                            Text(textResources.getString(if (download.status == DownloadStatus.PAUSED) R.string.download_resume else R.string.ui_retry))
+                            Text(textResources.getString(if (download.status == DownloadStatus.PAUSED && !download.requiresNewRequest) R.string.download_resume else R.string.ui_retry))
                         }
                     }
                     IconButton(onClick = onDelete) {
