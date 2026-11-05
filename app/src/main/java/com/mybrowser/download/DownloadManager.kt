@@ -160,7 +160,7 @@ class DownloadHandler(context: Context) : Closeable {
 
     /** A live socket cannot wait for a different network; confirmation has a bounded lifetime. */
     internal fun prepareResponse(response: DownloadResponse) {
-        if (!networkAllowed(settingsRepository.load().unmeteredOnly, response.network)) {
+        if (!networkAllowed(settingsRepository.unmeteredOnly, response.network)) {
             response.discard(DownloadResponse.Unavailable.NETWORK)
         } else response.hold(transferScope)
     }
@@ -250,7 +250,7 @@ class DownloadHandler(context: Context) : Closeable {
                 // network to wait for. Everything else keeps the user setting, which this line
                 // used to overwrite for every download.
                 unmeteredOnly = offer == null && settings.unmeteredOnly,
-                responseBacked = response != null,
+                responseBacked = response != null && !retryResponse,
                 identity = identity,
                 // The bytes come from the renderer, so there is no segmented transfer to configure
                 // and nothing metered to defer: the page already has them.
@@ -839,7 +839,14 @@ class DownloadHandler(context: Context) : Closeable {
         val cookie = cookieFor(old)
         synchronized(taskLock) {
             if (deleting.contains(id)) return null
-            if (!metadata.replace(id, old, old.copy(status = DownloadStatus.QUEUED, cookie = cookie, bytesPerSecond = 0))) return null
+            if (!metadata.replace(id, old, old.copy(
+                    status = DownloadStatus.QUEUED,
+                    cookie = cookie,
+                    bytesPerSecond = 0,
+                    // The handed-over response has been consumed or closed. Retry now owns a
+                    // normal HTTP transfer, so it can resume and recover across process death.
+                    responseBacked = false,
+                ))) return null
             val previous = jobs[id]
             previous?.cancel()
             launchTransfer(id)

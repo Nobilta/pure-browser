@@ -129,7 +129,7 @@ python3 validation/media-fallback-regression.py --serial emulator-5554
 媒体网络边界回归运行 `python3 validation/media-network-regression.py --serial emulator-5554`，
 使用 8881/8882 端口、下面生成的测试证书和 `create-large-media-fixtures.py` 的稀疏媒体。
 验证 Basic 直接地址与跨站跳转登录、缓存凭据后的来源保持、接受证书后的播放/拖动、分段 403 保留页面，
-以及原生导航与媒体拦截的 A→B→A Cookie 对照。脚本会重启被测应用，以清除进程内的认证与证书决定。
+以及分段重新认证保留文档、原生导航与媒体拦截的 A→B→A Cookie 对照。脚本会重启被测应用，以清除进程内的认证与证书决定。
 本地测试账号固定为 test/pure，不连接外部网站。结果写入 `validation/results/media-network-<serial>.json`。
 
 书签排序回归运行 `python3 validation/bookmark-drag-regression.py --serial emulator-5554`，需先启动下面的 QA 服务。

@@ -3232,6 +3232,7 @@ class MainActivity : ComponentActivity(),
     override fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String) {
         val navigation = tabManager.currentTab?.mediaNavigation
         val loginUrl = state.currentUrl.takeIf { android.net.Uri.parse(it).host.equals(host, true) }
+        val challengeUrl = navigation?.loadId?.access?.challengeUrl()
         dialogs.credentials(
             this,
             host,
@@ -3239,17 +3240,51 @@ class MainActivity : ComponentActivity(),
             onResult = { username, password ->
                 loginUrl?.let { (application as App).mediaAccessSession.rememberLogin(it, realm, username, password) }
                 val lifetime = navigation?.loadId?.takeUnless { it.cancelled }
-                if (navigation != null && lifetime?.access?.authenticate(host, realm, username, password) == true &&
-                    tabManager.currentTab?.mediaNavigation?.loadId === lifetime) {
-                    // Only a challenge was consumed. Send the authenticated request through
-                    // the interceptor, retaining the source after a cross-origin redirect.
-                    handler.cancel()
+                val authenticated = lifetime?.takeIf { tabManager.currentTab?.mediaNavigation?.loadId === it }
+                    ?.access?.authenticate(host, realm, username, password)
+                if (navigation != null && lifetime != null && authenticated != null) {
                     lifetime.nativeRequests = false
-                    navigator.load(navigation.url)
+                    if (authenticated == com.mybrowser.media.MediaRequestAccess.AuthenticatedRequest.SUBRESOURCE) {
+                        // Chromium's direct retry can replace the media element's source
+                        // policy with the media URL itself. Reload only that element so the
+                        // interceptor can supply the original page Referer; the document stays.
+                        retryMediaElement(navigation.url, challengeUrl) { retriedInPlace ->
+                            if (retriedInPlace) handler.cancel()
+                            else runCatching { handler.proceed(username, password) }
+                        }
+                    } else {
+                        // Only a document challenge is restarted. The interceptor retains the
+                        // source after a cross-origin redirect.
+                        handler.cancel()
+                        navigator.load(navigation.url)
+                    }
                 } else runCatching { handler.proceed(username, password) }
             },
             onCancel = { runCatching { handler.cancel() } },
         )
+    }
+
+    private fun retryMediaElement(mediaUrl: String, challengeUrl: String?, done: (Boolean) -> Unit) {
+        val encoded = org.json.JSONArray(listOfNotNull(mediaUrl, challengeUrl)).toString()
+        val script = """(function(targets){
+            targets=targets.map(function(value){return String(value).split('#')[0];});
+            var elements=Array.prototype.slice.call(document.querySelectorAll('video,audio'));
+            var element=elements.find(function(item){
+                return [item.currentSrc,item.src].some(function(value){ return value && targets.indexOf(String(value).split('#')[0])>=0; });
+            });
+            if(!element)return false;
+            var position=Number(element.currentTime)||0, playing=!element.paused;
+            var restore=function(){
+                try{if(Number.isFinite(position))element.currentTime=position;}catch(_){ }
+                if(playing)element.play().catch(function(){});
+            };
+            element.addEventListener('loadedmetadata',restore,{once:true});
+            element.load();
+            return true;
+        })($encoded)"""
+        val view = webViewOrNull
+        if (view == null) done(false)
+        else view.evaluateJavascript(script) { result -> done(result == "true") }
     }
 
     override fun onSafeBrowsingHit(
