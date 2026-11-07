@@ -74,6 +74,12 @@ jobs:
           components: rustfmt, clippy
           targets: aarch64-linux-android, x86_64-linux-android
 
+      # The action's targets input is not enough on every host image; make the cross targets
+      # explicit before Gradle runs cargoBuild in the debug/release steps.
+      - name: Ensure Android Rust targets
+        shell: bash
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
       # The action's default package list still asks for "tools", which no longer exists in the
       # SDK repository and makes the step fail; the packages this project needs are installed in
       # the next step.
