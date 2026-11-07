@@ -131,10 +131,11 @@ jobs:
         shell: bash
         run: ./build-and-test.sh --quick
 
-      # The release ABI: JNI cross-compile, resource processing with the host aapt2, DEX and
-      # packaging. Linux covers ARM64 packaging with the Release build below.
+      # Windows verifies the ARM64 Debug packaging path; Linux covers the Release/ARM64 path
+      # below. macOS still runs the full quick checks, but its ARM64 job cannot resolve the
+      # Android Rust target on the current hosted image.
       - name: Debug build (arm64-v8a)
-        if: runner.os != 'Linux'
+        if: runner.os == 'Windows'
         shell: bash
         run: ./gradlew :app:assembleDebug --console=plain
 
