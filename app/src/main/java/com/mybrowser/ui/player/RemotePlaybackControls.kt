@@ -1,5 +1,6 @@
 package com.mybrowser.ui.player
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,8 +13,10 @@ import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.dlna.AvTransport
 import com.mybrowser.dlna.DlnaDevice
+import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.theme.BrowserColors
 
 @Composable
 internal fun RemotePlaybackControls(device: DlnaDevice, playback: AvTransport.PlaybackStatus?,
@@ -23,33 +26,42 @@ internal fun RemotePlaybackControls(device: DlnaDevice, playback: AvTransport.Pl
     /** Increments on every device report, so a value that repeats still signals a fresh report. */
     playbackRevision: Long = 0) {
     val resources = localizedResources()
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+    ) {
         Column(Modifier.padding(16.dp)) {
-            Text(device.displayName(resources), style = MaterialTheme.typography.titleMedium)
-            val status = when {
-                unavailable -> R.string.cast_status_unavailable
-                playback?.transportState == "PLAYING" -> R.string.cast_remote_playing
-                playback?.transportState == "PAUSED_PLAYBACK" -> R.string.cast_remote_paused
-                playback?.transportState in listOf("STOPPED", "NO_MEDIA_PRESENT") -> R.string.cast_remote_stopped
-                else -> R.string.cast_remote_waiting
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(device.displayName(resources), style = MaterialTheme.typography.titleMedium)
+                    val status = when {
+                        unavailable -> R.string.cast_status_unavailable
+                        playback?.transportState == "PLAYING" -> R.string.cast_remote_playing
+                        playback?.transportState == "PAUSED_PLAYBACK" -> R.string.cast_remote_paused
+                        playback?.transportState in listOf("STOPPED", "NO_MEDIA_PRESENT") -> R.string.cast_remote_stopped
+                        else -> R.string.cast_remote_waiting
+                    }
+                    Text(stringResource(status), style = MaterialTheme.typography.bodySmall,
+                        color = if (unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.cast_refresh_status), !busy, onRefresh)
             }
-            Text(stringResource(status), style = MaterialTheme.typography.bodySmall,
-                color = if (unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 // Skipping needs a position to skip from; without one the device is asked and says so
                 // itself, which is why this is not tied to the slider being drawn.
                 val skippable = !busy && playback?.positionSeconds != null
-                BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cast_skip_back),
+                BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cast_skip_back),
                     skippable) { onSkip(-SKIP_SECONDS) }
-                BrowserIconAction(R.drawable.ic_play, stringResource(R.string.cast_remote_resume),
+                BrowserIconAction(R.drawable.ic_ui_play, stringResource(R.string.cast_remote_resume),
                     !busy && playback?.transportState != "PLAYING", onResume)
-                BrowserIconAction(R.drawable.ic_pause, stringResource(R.string.cast_remote_pause),
+                BrowserIconAction(R.drawable.ic_ui_pause, stringResource(R.string.cast_remote_pause),
                     !busy && playback?.transportState !in listOf("PAUSED_PLAYBACK", "STOPPED", "NO_MEDIA_PRESENT"), onPause)
-                BrowserIconAction(R.drawable.ic_forward, stringResource(R.string.cast_skip_forward),
+                BrowserIconAction(R.drawable.ic_ui_forward, stringResource(R.string.cast_skip_forward),
                     skippable) { onSkip(SKIP_SECONDS) }
-                BrowserIconAction(R.drawable.ic_stop, stringResource(R.string.cast_remote_stop), !busy, onStop)
-                BrowserIconAction(R.drawable.ic_reload, stringResource(R.string.cast_refresh_status), !busy, onRefresh)
+                BrowserIconAction(R.drawable.ic_ui_stop, stringResource(R.string.cast_remote_stop), !busy, onStop)
             }
             val duration = playback?.durationSeconds?.takeIf { it > 0 }
             val position = playback?.positionSeconds
@@ -64,7 +76,13 @@ internal fun RemotePlaybackControls(device: DlnaDevice, playback: AvTransport.Pl
                 RemoteSlider(stringResource(R.string.cast_volume, volume), volume.toFloat(), 100f, !busy,
                     playbackRevision) { onVolume(it.toInt()) }
             }
-            TextButton(onClick = onDisconnect, enabled = !busy) { Text(stringResource(R.string.cast_disconnect)) }
+            BrowserActionPill(
+                text = stringResource(R.string.cast_disconnect),
+                iconRes = R.drawable.ic_ui_close,
+                enabled = !busy,
+                onClick = onDisconnect,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            )
         }
     }
 }

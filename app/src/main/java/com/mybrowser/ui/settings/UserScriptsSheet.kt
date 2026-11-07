@@ -2,6 +2,7 @@ package com.mybrowser.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,8 +31,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.theme.BrowserColors
 
 private data class ScriptDraft(val source: String, val url: String?, val metadata: UserScriptMetadata, val previewOnly: Boolean = false)
 
@@ -109,7 +112,7 @@ fun UserScriptsSheet(
         }
     }
 
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
+    BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             BrowserSheetHeader(res.getString(R.string.script_title), onBack = onDismiss)
             Text(res.getString(R.string.script_summary), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
@@ -133,7 +136,12 @@ fun UserScriptsSheet(
                 if (scripts.isEmpty()) item { Text(res.getString(R.string.script_empty), Modifier.padding(8.dp)) }
                 items(scripts, key = { it.metadata.id }) { script ->
                     val metadata = script.metadata
-                    Card(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+                    ) {
                         Column(Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
@@ -178,7 +186,7 @@ fun UserScriptsSheet(
         // Source drafts are deliberately not put into a Bundle (scripts can be 1 MiB).
         var input by remember(inputMode) { mutableStateOf("") }
         val urlInput = inputMode == "url"
-        AlertDialog(onDismissRequest = { if (!busy) inputMode = null },
+        BrowserAlertDialog(onDismissRequest = { if (!busy) inputMode = null },
             title = { Text(res.getString(if (urlInput) R.string.script_import_url else R.string.script_paste)) },
             text = {
                 Column {
@@ -203,7 +211,7 @@ fun UserScriptsSheet(
     draft?.let { current ->
         val metadata = current.metadata
         val replacing = scripts.any { it.metadata.id == metadata.id }
-        AlertDialog(onDismissRequest = { if (!busy) draft = null },
+        BrowserAlertDialog(onDismissRequest = { if (!busy) draft = null },
             title = { Text(metadata.name) },
             text = {
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {

@@ -23,5 +23,5 @@ internal fun BookmarkIcon(url: String) {
         value = withContext(Dispatchers.IO) { BookmarkIcons.read(context, url) }
     }.value
     if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.size(24.dp))
-    else Icon(painterResource(R.drawable.ic_site), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    else Icon(painterResource(R.drawable.ic_ui_globe), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
 }

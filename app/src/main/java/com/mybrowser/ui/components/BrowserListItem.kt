@@ -65,14 +65,19 @@ fun BrowserListItem(
     /** Non-null switches to the flush row used by forms that already apply their own inset. */
     contentPadding: PaddingValues? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /** Lets a selected row use the paired container without changing every other row. */
+    containerColor: Color = Color.Transparent,
+    contentColorOverride: Color? = null,
+    supportingColorOverride: Color? = null,
+    leadingColorOverride: Color? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    val contentColor = when {
+    val contentColor = contentColorOverride ?: when {
         !enabled -> colors.onSurface.copy(alpha = 0.38f)
         destructive -> colors.error
         else -> colors.onSurface
     }
-    val supportingColor = when {
+    val supportingColor = supportingColorOverride ?: when {
         !enabled -> contentColor
         destructive -> colors.error
         else -> colors.onSurfaceVariant
@@ -129,6 +134,7 @@ fun BrowserListItem(
             leading = leading,
             contentColor = contentColor,
             supportingColor = supportingColor,
+            leadingColor = leadingColorOverride ?: contentColor,
             trailing = trailing,
             contentPadding = contentPadding,
             modifier = interactive,
@@ -157,13 +163,13 @@ fun BrowserListItem(
                     painterResource(it),
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = contentColor,
+                    tint = leadingColorOverride ?: contentColor,
                 )
             }
         },
         trailingContent = trailing,
         colors = ListItemDefaults.colors(
-            containerColor = Color.Transparent,
+            containerColor = containerColor,
             headlineColor = contentColor,
             supportingColor = supportingColor,
             leadingIconColor = contentColor,
@@ -179,6 +185,7 @@ private fun FlushRow(
     leading: (@Composable () -> Unit)?,
     contentColor: Color,
     supportingColor: Color,
+    leadingColor: Color,
     trailing: (@Composable () -> Unit)?,
     contentPadding: PaddingValues,
     modifier: Modifier,
@@ -195,7 +202,7 @@ private fun FlushRow(
                 painterResource(it),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = contentColor,
+                tint = leadingColor,
             )
         }
         if (leading != null || iconRes != null) Spacer(Modifier.width(16.dp))

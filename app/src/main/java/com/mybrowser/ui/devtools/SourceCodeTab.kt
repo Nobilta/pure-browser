@@ -31,7 +31,7 @@ internal fun SourceCodeTab(document: SourceDocument?, loading: Boolean, error: S
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(document?.let { stringResource(R.string.dev_source_summary, it.characters) } ?: stringResource(R.string.ui_source),
                 Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
-            BrowserIconAction(R.drawable.ic_reload, stringResource(R.string.dev_source_refresh), !loading) {
+            BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.dev_source_refresh), !loading) {
                 scope.launch { scroll.scrollToItem(0) }
                 onRefresh()
             }
@@ -40,7 +40,7 @@ internal fun SourceCodeTab(document: SourceDocument?, loading: Boolean, error: S
             Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall,
             color = colors.onSurfaceVariant)
         Surface(Modifier.weight(1f).fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-            color = colors.surfaceContainerLowest, shape = MaterialTheme.shapes.medium) {
+            color = BrowserColors.recessedWell, shape = MaterialTheme.shapes.medium) {
             when {
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(32.dp))

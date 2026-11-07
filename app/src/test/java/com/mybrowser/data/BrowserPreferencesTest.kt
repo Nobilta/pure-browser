@@ -48,6 +48,11 @@ class BrowserPreferencesTest {
         assertFalse(BrowserPreferencesRepository(context).load().autoCheckUpdates)
     }
 
+    @Test fun bottomAddressBarDefaultsOnForFreshInstalls() {
+        assertTrue(BrowserPreferences().bottomAddressBar)
+        assertTrue(BrowserPreferencesRepository(context).load().bottomAddressBar)
+    }
+
     @Test fun incognitoWishDefaultsOffSurvivesRecreationAndRoundTripsThroughBothWriters() {
         assertFalse(BrowserPreferencesRepository(context).load().incognitoEnabled)
         // saveIncognitoEnabled is the mode-switch path: it must report a confirmed write.

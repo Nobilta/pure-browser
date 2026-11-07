@@ -8,12 +8,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -21,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import com.mybrowser.R
+import com.mybrowser.ui.theme.BrowserColors
 
 /** One title, spacing and action layout for every browser-owned sheet/page. */
 @Composable
@@ -41,7 +47,7 @@ internal fun BrowserSheetHeader(
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
         .padding(start = startPadding, end = 12.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        onBack?.let { BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = it) }
+        onBack?.let { BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = it) }
         AnimatedContent(
             targetState = title,
             transitionSpec = {
@@ -54,7 +60,7 @@ internal fun BrowserSheetHeader(
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         actions()
-        onDismiss?.let { BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close), onClick = it) }
+        onDismiss?.let { BrowserIconAction(R.drawable.ic_ui_close, stringResource(R.string.ui_close), onClick = it) }
     }
 }
 
@@ -92,16 +98,72 @@ internal fun BrowserActionRow(icon: Int, label: String, detail: String? = null, 
     }
 }
 
+/**
+ * The one search field every library sheet uses.
+ *
+ * A 44dp pill on the interactive-pill base, not an MD3 `OutlinedTextField`: the outlined field
+ * carries a floating label, a 56dp form height and its own inset, none of which belong in a sheet
+ * header. Only real focus draws the 1.5dp accent ring, and the clear action appears only when there
+ * is text to clear.
+ */
 @Composable
-internal fun LibrarySearchField(query: String, label: String, onQueryChange: (String) -> Unit) {
-    OutlinedTextField(value = query, onValueChange = { onQueryChange(it.take(256)) }, singleLine = true,
-        placeholder = { Text(label) }, label = { Text(label) },
-        leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
-        trailingIcon = {
-            if (query.isNotEmpty()) BrowserIconAction(R.drawable.ic_close, stringResource(R.string.cd_clear)) {
-                onQueryChange("")
-            }
-        }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
+internal fun LibrarySearchField(
+    query: String,
+    label: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        shape = CircleShape,
+        color = if (focused) colors.surfaceContainerLow else colors.surfaceContainerHigh,
+        border = if (focused) BorderStroke(1.5.dp, colors.primary) else null,
+        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp).heightIn(min = 44.dp),
+    ) {
+        BasicTextField(
+            value = query,
+            onValueChange = { onQueryChange(it.take(256)) },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+            cursorBrush = SolidColor(colors.primary),
+            modifier = Modifier
+                .onFocusChanged { focused = it.isFocused }
+                .semantics { contentDescription = label },
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_ui_search),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = colors.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        innerTextField()
+                    }
+                    if (query.isNotEmpty()) {
+                        BrowserIconAction(
+                            icon = R.drawable.ic_ui_close,
+                            label = stringResource(R.string.cd_clear),
+                        ) { onQueryChange("") }
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -144,23 +206,43 @@ internal fun LibraryFooter(loading: Boolean, hasMore: Boolean, onLoadMore: () ->
 }
 
 @Composable
+internal fun BrowserDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+        shadowElevation = 3.dp,
+        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+        content = content,
+    )
+}
+
+@Composable
 internal fun LibraryItemMenu(onOpenNewTab: () -> Unit, onCopy: () -> Unit, onDelete: () -> Unit,
     onEdit: (() -> Unit)? = null) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        BrowserIconAction(R.drawable.ic_more, stringResource(R.string.library_item_actions)) { expanded = true }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        BrowserIconAction(R.drawable.ic_ui_more, stringResource(R.string.library_item_actions)) { expanded = true }
+        BrowserDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (onEdit != null) DropdownMenuItem(text = { Text(stringResource(R.string.library_edit_bookmark)) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_edit), null) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_ui_edit), null) },
                 onClick = { expanded = false; onEdit() })
             DropdownMenuItem(text = { Text(stringResource(R.string.context_open_new_tab)) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_add), null) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_ui_add), null) },
                 onClick = { expanded = false; onOpenNewTab() })
             DropdownMenuItem(text = { Text(stringResource(R.string.context_copy_link)) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_ui_copy), null) },
                 onClick = { expanded = false; onCopy() })
             DropdownMenuItem(text = { Text(stringResource(R.string.cd_delete)) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_delete), null) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_ui_delete), null) },
                 onClick = { expanded = false; onDelete() })
         }
     }

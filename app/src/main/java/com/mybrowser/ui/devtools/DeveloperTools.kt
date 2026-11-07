@@ -10,14 +10,14 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -136,7 +137,7 @@ internal fun DeveloperTools(
         val compactInput = selectedTab == 0 && maxHeight < 260.dp
         Column(Modifier.fillMaxSize()) {
             if (!compactInput) {
-                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools))
+                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools), onBack = onDismiss)
                 EnhancedCaptureBar(
                     capture = capture,
                     onEnable = enableCapture,
@@ -195,46 +196,54 @@ private fun EnhancedCaptureBar(
     onStop: () -> Unit,
 ) {
     val resources = localizedResources()
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val enabled = capture.enabled
-                Text(
-                    when {
-                        capture.installing -> resources.getString(R.string.dev_enhanced_installing)
-                        enabled && capture.ready -> resources.getString(R.string.dev_enhanced_ready)
-                        enabled -> resources.getString(R.string.dev_enhanced_document_pending)
-                        capture.stopped -> resources.getString(R.string.dev_enhanced_stopped)
-                        else -> resources.getString(R.string.dev_enhanced_off)
-                    },
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (enabled) BrowserColors.secure else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (enabled) {
-                    TextButton(onClick = onStop) { Text(resources.getString(R.string.dev_enhanced_stop)) }
-                } else {
-                    Button(
-                        onClick = onEnable,
-                        enabled = capture.supported && !capture.installing,
-                    ) { Text(resources.getString(R.string.dev_enhanced_enable), maxLines = 1) }
+    Surface(color = BrowserColors.recessedWell, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val enabled = capture.enabled
+                    Text(
+                        when {
+                            capture.installing -> resources.getString(R.string.dev_enhanced_installing)
+                            enabled && capture.ready -> resources.getString(R.string.dev_enhanced_ready)
+                            enabled -> resources.getString(R.string.dev_enhanced_document_pending)
+                            capture.stopped -> resources.getString(R.string.dev_enhanced_stopped)
+                            else -> resources.getString(R.string.dev_enhanced_off)
+                        },
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (enabled) BrowserColors.secure else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (enabled) {
+                        TextButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text(resources.getString(R.string.dev_enhanced_stop))
+                        }
+                    } else {
+                        Button(
+                            onClick = onEnable,
+                            enabled = capture.supported && !capture.installing,
+                            shape = CircleShape,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text(resources.getString(R.string.dev_enhanced_enable), maxLines = 1) }
+                    }
                 }
+                val notice = when {
+                    !capture.supported -> resources.getString(R.string.dev_enhanced_limited)
+                    capture.notice == CaptureNotice.HTTP_ONLY -> resources.getString(R.string.dev_enhanced_http_only)
+                    capture.notice == CaptureNotice.SCRIPT_MISSING -> resources.getString(R.string.dev_enhanced_script_missing)
+                    capture.notice == CaptureNotice.INSTALL_FAILED -> resources.getString(
+                        R.string.dev_enhanced_install_failed, capture.errorDetail.orEmpty())
+                    else -> null
+                }
+                if (notice != null) Text(
+                    notice,
+                    Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (!capture.supported || capture.notice == CaptureNotice.INSTALL_FAILED)
+                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            val notice = when {
-                !capture.supported -> resources.getString(R.string.dev_enhanced_limited)
-                capture.notice == CaptureNotice.HTTP_ONLY -> resources.getString(R.string.dev_enhanced_http_only)
-                capture.notice == CaptureNotice.SCRIPT_MISSING -> resources.getString(R.string.dev_enhanced_script_missing)
-                capture.notice == CaptureNotice.INSTALL_FAILED -> resources.getString(
-                    R.string.dev_enhanced_install_failed, capture.errorDetail.orEmpty())
-                else -> null
-            }
-            if (notice != null) Text(
-                notice,
-                Modifier.padding(top = 2.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (!capture.supported || capture.notice == CaptureNotice.INSTALL_FAILED)
-                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
         }
     }
 }
@@ -254,7 +263,7 @@ private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<Console
             TextButton(onClick = onClear) { Text(resources.getString(R.string.ui_clear)) }
         }
         Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = MaterialTheme.shapes.medium) {
+            color = BrowserColors.recessedWell, shape = MaterialTheme.shapes.medium) {
             LazyColumn(state = scroll, contentPadding = PaddingValues(12.dp)) {
                 if (entries.isEmpty() && evaluations.isEmpty()) item {
                     Text(resources.getString(R.string.ui_no_console_output), style = MaterialTheme.typography.bodySmall,
@@ -276,8 +285,13 @@ private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<Console
                 placeholder = { Text(resources.getString(R.string.ui_enter_a_javascript_command)) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onExecute() }))
             Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = onExecute, enabled = canExecute && command.isNotBlank()) {
-                Icon(Icons.Default.PlayArrow, null)
+            FilledTonalButton(
+                onClick = onExecute,
+                enabled = canExecute && command.isNotBlank(),
+                shape = CircleShape,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Icon(painterResource(R.drawable.ic_ui_play), null, Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(resources.getString(R.string.ui_run))
             }
@@ -300,7 +314,8 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = BorderStroke(1.dp, BrowserColors.cardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = MaterialTheme.shapes.medium,
     ) {

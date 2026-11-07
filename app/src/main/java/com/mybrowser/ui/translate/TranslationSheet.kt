@@ -1,7 +1,9 @@
 package com.mybrowser.ui.translate
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -19,10 +21,13 @@ import com.mybrowser.translate.TRANSLATION_TARGETS
 import com.mybrowser.translate.TranslationPageMode
 import com.mybrowser.translate.TranslationProvider
 import com.mybrowser.translate.TranslationSettings
+import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.browserSheetInsets
+import com.mybrowser.ui.theme.BrowserColors
 
 /** The page sheet is intentionally simple; credentials are edited only in Settings. */
 enum class TranslationSheetMode { PAGE, SETTINGS }
@@ -87,7 +92,11 @@ fun TranslationSheet(
                     onDismiss = onDismiss,
                 )
                 Column(
-                    Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     content = content,
                 )
@@ -278,17 +287,19 @@ private fun ColumnScope.TranslationFields(
     }
 
     if (!advanced) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = { if (onTranslatePage()) onDismiss() },
                 enabled = !busy && !pageTranslated && settings.supportsFullPage && settings.configured,
-                modifier = Modifier.weight(1f),
-            ) { Text(stringResource(R.string.translate_page)) }
-            OutlinedButton(
-                onClick = onRestorePage,
+                shape = CircleShape,
+                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
+            ) { Text(stringResource(R.string.translate_page), maxLines = 2) }
+            BrowserActionPill(
+                text = stringResource(R.string.translate_restore),
                 enabled = !busy && pageTranslated,
-                modifier = Modifier.weight(1f),
-            ) { Text(stringResource(R.string.translate_restore)) }
+                onClick = onRestorePage,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
         }
         if (busy) {
             TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.Start)) {
@@ -317,7 +328,7 @@ private fun SecretField(
         trailingIcon = {
             IconButton(onClick = { onShowChange(!show) }) {
                 Icon(
-                    painterResource(if (show) R.drawable.ic_lock_open else R.drawable.ic_lock),
+                    painterResource(if (show) R.drawable.ic_ui_unlock else R.drawable.ic_ui_lock),
                     contentDescription = stringResource(
                         if (show) R.string.translate_hide_key else R.string.translate_show_key,
                     ),
@@ -339,14 +350,38 @@ private fun <T> TranslationChoice(
     onSelect: (T) -> Unit,
 ) {
     Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-                Text(label, style = MaterialTheme.typography.labelSmall)
-                Text(value, style = MaterialTheme.typography.bodyLarge)
+        Surface(
+            onClick = { onExpandedChange(true) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, BrowserColors.cardBorder),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        value,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Icon(
+                    painterResource(R.drawable.ic_ui_arrow_down),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
             }
-            Icon(painterResource(R.drawable.ic_arrow_down), contentDescription = null, modifier = Modifier.size(20.dp))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+        BrowserDropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
             options.forEach { (key, text) ->
                 DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(key) })
             }

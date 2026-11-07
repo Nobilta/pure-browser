@@ -469,12 +469,12 @@ internal fun ElementsTab(
             Spacer(Modifier.width(8.dp))
             FilterChip(view == 1, { view = 1 }, label = { Text(resources.getString(R.string.dev_elements_source)) })
             Spacer(Modifier.weight(1f))
-            if (view == 0) BrowserIconAction(R.drawable.ic_reload, resources.getString(R.string.dev_dom_refresh)) {
+            if (view == 0) BrowserIconAction(R.drawable.ic_ui_refresh, resources.getString(R.string.dev_dom_refresh)) {
                 scope.launch {
                     domState.refresh()
                     sourceState.reset()
                 }
-            } else BrowserIconAction(R.drawable.ic_reload, resources.getString(R.string.dev_dom_refresh)) {
+            } else BrowserIconAction(R.drawable.ic_ui_refresh, resources.getString(R.string.dev_dom_refresh)) {
                 scope.launch { sourceState.refresh() }
             }
         }

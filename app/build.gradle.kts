@@ -28,8 +28,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 75
-        versionName = "0.20.0"
+        versionCode = 80
+        versionName = "0.21.0"
         testInstrumentationRunner = "com.mybrowser.validation.NativeFilterInstrumentation"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.

@@ -1,6 +1,6 @@
 package com.mybrowser.ui.translate
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,9 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 
@@ -33,20 +30,19 @@ fun TranslationFloatingBar(
     modifier: Modifier = Modifier,
 ) {
     val label = if (translating) stringResource(R.string.translate_stop) else stringResource(R.string.translate_restore)
-    val actionLabel = if (translating) stringResource(R.string.translate_stop) else stringResource(R.string.translate_restore)
     Surface(
+        onClick = { if (translating) onStop() else onRestore() },
         modifier = modifier,
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        tonalElevation = 4.dp,
-        shadowElevation = 6.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
     ) {
         Row(
             modifier = Modifier
                 .heightIn(min = 48.dp)
-                .semantics { contentDescription = actionLabel }
-                .clickable(role = Role.Button, onClick = { if (translating) onStop() else onRestore() })
                 .padding(start = 16.dp, end = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -54,6 +50,7 @@ fun TranslationFloatingBar(
             Icon(
                 painterResource(R.drawable.ic_ui_translate),
                 contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),
             )
             Text(label, style = MaterialTheme.typography.labelLarge)

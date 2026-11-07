@@ -1,16 +1,21 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +27,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.theme.BrowserColors
 
 /**
  * What the picker is showing over the page.
@@ -63,11 +70,12 @@ internal fun ElementPickerBar(
 ) {
     val chosen = state as? ElementPickerState.Chosen
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.large,
-        tonalElevation = 3.dp,
-        shadowElevation = 6.dp,
+        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+        tonalElevation = 0.dp,
+        shadowElevation = 4.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -80,15 +88,15 @@ internal fun ElementPickerBar(
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
-                BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close), onClick = onCancel)
+                BrowserIconAction(R.drawable.ic_ui_close, stringResource(R.string.ui_close), onClick = onCancel)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 IconButton(onClick = onParent, enabled = chosen?.canParent == true) {
-                    Icon(painterResource(R.drawable.ic_arrow_up),
+                    Icon(painterResource(R.drawable.ic_ui_arrow_up),
                         stringResource(R.string.picker_parent), Modifier.size(20.dp))
                 }
                 IconButton(onClick = onChild, enabled = chosen?.canChild == true) {
-                    Icon(painterResource(R.drawable.ic_arrow_down),
+                    Icon(painterResource(R.drawable.ic_ui_arrow_down),
                         stringResource(R.string.picker_child), Modifier.size(20.dp))
                 }
                 if (chosen == null) {
@@ -113,13 +121,24 @@ internal fun ElementPickerBar(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onBlock(false) }, enabled = chosen != null, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.picker_block_site), maxLines = 1)
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = { onBlock(false) },
+                    enabled = chosen != null,
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
+                ) {
+                    Text(stringResource(R.string.picker_block_site), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                OutlinedButton(onClick = { onBlock(true) }, enabled = chosen != null, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.picker_block_all), maxLines = 1)
-                }
+                BrowserActionPill(
+                    text = stringResource(R.string.picker_block_all),
+                    enabled = chosen != null,
+                    onClick = { onBlock(true) },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
             }
         }
     }

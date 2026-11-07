@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -12,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.mybrowser.R
+import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.core.NetworkRequestLog
 import com.mybrowser.core.ResourceType
 import com.mybrowser.filter.FilterController
@@ -32,7 +32,7 @@ fun FilterExplanationDialog(request: NetworkRequestLog, filter: FilterController
         }.getOrNull() }
         busy = false
     }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.filter_explain)) },
+    BrowserAlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.filter_explain)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.filter_explain_current))
             Text(request.url)

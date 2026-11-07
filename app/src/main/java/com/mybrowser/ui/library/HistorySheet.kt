@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -41,15 +42,21 @@ fun HistorySheet(
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
     val locale = resources.configuration.locales[0]
-    val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
-    val timeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
-    val groups = history.groupBy { Instant.ofEpochMilli(it.visitTime).atZone(zone).toLocalDate() }
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
+    val dateFormatter = remember(locale) {
+        DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
+    }
+    val timeFormatter = remember(locale) {
+        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
+    }
+    val groups = remember(history, zone) {
+        history.groupBy { Instant.ofEpochMilli(it.visitTime).atZone(zone).toLocalDate() }
+    }
+    BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
             BrowserSheetHeader(stringResource(R.string.history_title), onBack = onDismiss) {
-                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)
+                BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)
             }
-            LibrarySearchField(query, stringResource(R.string.history_search), onQueryChange)
+            LibrarySearchField(query, stringResource(R.string.history_search), onQueryChange = onQueryChange)
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 if (history.isEmpty() && !loading) item {
                     Text(stringResource(if (error) R.string.library_load_failed else if (query.isBlank()) R.string.history_empty else R.string.library_no_results),
@@ -61,14 +68,14 @@ fun HistorySheet(
                             today -> resources.getString(R.string.history_today)
                             today.minusDays(1) -> resources.getString(R.string.history_yesterday)
                             else -> dateFormatter.format(date)
-                        }, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        }, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)
                             .padding(vertical = 12.dp), style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary)
                     }
                     items(entries, key = { it.id }) { entry ->
                         Row(Modifier.fillMaxWidth().clickable { onSelectHistory(entry.url) }.padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(painterResource(R.drawable.ic_ui_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(entry.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -80,7 +87,8 @@ fun HistorySheet(
                             LibraryItemMenu(onOpenNewTab = { onOpenNewTab(entry.url) }, onCopy = { onCopy(entry.url) },
                                 onDelete = { onDeleteHistory(entry.id) })
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f))
                     }
                 }
                 item { LibraryFooter(loading, hasMore, onLoadMore, error) }

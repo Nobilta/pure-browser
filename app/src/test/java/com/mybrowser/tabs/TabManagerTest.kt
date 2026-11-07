@@ -120,6 +120,19 @@ class TabManagerTest {
     }
 
     @Test
+    fun closingOthersCanKeepABackgroundTabAndSelectsIt() {
+        val manager = TabManager()
+        try {
+            val background = manager.createTab("https://keep.example", select = false)
+            manager.closeOtherTabs(background)
+            assertEquals(listOf(background), manager.tabs.map { it.id })
+            assertEquals(background, manager.currentTab!!.id)
+        } finally {
+            manager.cleanup()
+        }
+    }
+
+    @Test
     fun restoredDuplicateIdsCannotSelectOrCloseWrongTab() {
         val manager = TabManager()
         assertTrue(manager.restoreMetadata(Bundle().apply {

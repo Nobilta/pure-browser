@@ -124,12 +124,13 @@ fun BookmarkEditDialog(
     onSave: (title: String, url: String, addToHome: Boolean) -> Unit,
     onDismiss: () -> Unit,
     isEditing: Boolean = false,
+    initialAddToHome: Boolean = false,
 ) {
     // Key both fields.  A user can open the editor on two pages with the same title but
     // different URLs; keying only one state would otherwise reuse the previous URL draft.
     var bookmarkTitle by remember(initialTitle, initialUrl) { mutableStateOf(initialTitle) }
     var bookmarkUrl by remember(initialTitle, initialUrl) { mutableStateOf(initialUrl) }
-    var addToHome by remember(initialTitle, initialUrl) { mutableStateOf(false) }
+    var addToHome by remember(initialTitle, initialUrl, initialAddToHome) { mutableStateOf(initialAddToHome) }
     val trimmedTitle = bookmarkTitle.trim()
     val trimmedUrl = bookmarkUrl.trim()
     val isUrlValid = UrlUtils.isNavigableInput(trimmedUrl)
