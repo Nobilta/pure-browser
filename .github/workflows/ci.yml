@@ -24,6 +24,8 @@ env:
   NODE_VERSION: '22'
   PYTHON_VERSION: '3.12'
   RUST_VERSION: '1.98.0'
+  # Keep the rustup shim, cargo and target installation on the same pinned toolchain.
+  RUSTUP_TOOLCHAIN: '1.98.0'
   NDK_VERSION: '27.2.12479018'
   ANDROID_PLATFORM: 'platforms;android-37.0'
   BUILD_TOOLS: 'build-tools;37.0.0'
