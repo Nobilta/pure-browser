@@ -1,6 +1,7 @@
 package com.mybrowser.ui.devtools
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import com.mybrowser.devtools.StorageEntry
 import com.mybrowser.devtools.StorageSnapshot
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.theme.BrowserColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -131,7 +133,7 @@ internal fun StorageTab(
             FilterChip(tab == SESSION_TAB, { tab = SESSION_TAB; query = ""; appliedQuery = "" },
                 label = { Text(stringResource(R.string.dev_storage_session)) })
             Spacer(Modifier.weight(1f))
-            BrowserIconAction(R.drawable.ic_reload, stringResource(R.string.dev_storage_refresh)) { refresh++ }
+            BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.dev_storage_refresh)) { refresh++ }
         }
         if (tab != COOKIE_TAB) {
             snapshot?.origin?.let { Text(
@@ -253,9 +255,12 @@ private fun CookieList(
         itemsIndexed(filtered, key = { index, cookie ->
             "${cookie.name}/${cookie.domain.orEmpty()}/${cookie.path.orEmpty()}/$index"
         }) { _, cookie ->
-            Card(
-                Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onOpen(cookie) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            Surface(
+                onClick = { onOpen(cookie) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, BrowserColors.cardBorder),
             ) {
                 Column(Modifier.padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -313,9 +318,12 @@ private fun StorageList(
         LazyColumn(Modifier.fillMaxSize(), state = listState,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
             items(entries, key = { it.name }) { entry ->
-                Card(
-                    Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onOpen(entry) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                Surface(
+                    onClick = { onOpen(entry) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, BrowserColors.cardBorder),
                 ) {
                     Column(Modifier.padding(10.dp)) {
                         Row {
@@ -351,7 +359,7 @@ private fun CookieDetail(cookie: CookieRow, onBack: () -> Unit) {
     val value = cookie.value
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onBack)
+            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = onBack)
             Text(cookie.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
             TextButton(onClick = { copyText(context, value) }) { Text(stringResource(R.string.dev_storage_copy_all)) }
@@ -413,7 +421,7 @@ private fun StorageEntryDetail(
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onBack)
+            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = onBack)
             Text(entry.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
             TextButton(onClick = { formatted = !formatted }) {
@@ -439,7 +447,7 @@ private fun StorageEntryDetail(
             )
             Surface(
                 Modifier.weight(1f).fillMaxWidth().padding(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                color = BrowserColors.recessedWell,
                 shape = MaterialTheme.shapes.medium,
             ) {
                 PagedSelectableText(json.orEmpty(), Modifier.fillMaxSize().padding(8.dp))

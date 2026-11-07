@@ -3,6 +3,7 @@ package com.mybrowser.ui.home
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -28,6 +30,7 @@ import com.mybrowser.home.ShortcutSaveResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.BrowserIconAction
 
 @Composable
@@ -86,7 +89,7 @@ internal fun HomeShortcutEditor(
     }
 
     if (confirmRemoval) {
-        AlertDialog(
+        BrowserAlertDialog(
             onDismissRequest = { if (!saving) confirmRemoval = false },
             title = { Text(stringResource(R.string.ui_remove_from_homepage)) },
             text = {
@@ -112,7 +115,7 @@ internal fun HomeShortcutEditor(
             },
         )
     } else {
-        AlertDialog(
+        BrowserAlertDialog(
             onDismissRequest = dismiss,
             modifier = Modifier.imePadding(),
             properties = DialogProperties(decorFitsSystemWindows = false),
@@ -120,7 +123,7 @@ internal fun HomeShortcutEditor(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.home_shortcut_edit), modifier = Modifier.weight(1f))
                     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.error) {
-                        BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.ui_remove_from_homepage_13d6f7), !saving) {
+                        BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.ui_remove_from_homepage_13d6f7), !saving) {
                             result = null
                             confirmRemoval = true
                         }
@@ -132,7 +135,11 @@ internal fun HomeShortcutEditor(
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(contentAlignment = Alignment.Center) {
-                            HomeShortcutIcon(title, url, icon, Modifier.size(64.dp))
+                            HomeShortcutIcon(
+                                title, url, icon,
+                                Modifier.size(64.dp).clip(MaterialTheme.shapes.large)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            )
                             if (loadingImage) CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
                         }
                         Spacer(Modifier.width(12.dp))
@@ -140,7 +147,7 @@ internal fun HomeShortcutEditor(
                             TextButton(enabled = !saving, onClick = {
                                 runCatching { picker.launch(arrayOf("image/*")) }.onFailure { imageError = true }
                             }) {
-                                Icon(painterResource(R.drawable.ic_edit), null, Modifier.size(18.dp))
+                                Icon(painterResource(R.drawable.ic_ui_edit), null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(stringResource(R.string.home_shortcut_choose_icon))
                             }

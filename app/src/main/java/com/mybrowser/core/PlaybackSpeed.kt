@@ -13,7 +13,8 @@ import kotlin.math.roundToInt
  *
  * Rates are continuous between [MIN] and [MAX] on a [STEP] grid, so the player's slider, the
  * persisted preferences and the page command guard all speak the same vocabulary; [OPTIONS],
- * [STEPS] and [BOOST_OPTIONS] only name the shortcuts the UI still offers as lists.
+ * [STEPS] is the shared grid's interior count (the player's slider no longer draws it as
+ * tick marks); [BOOST_OPTIONS] names the hold-to-boost shortcuts.
  */
 object PlaybackSpeed {
     const val DEFAULT = 1f
@@ -26,7 +27,7 @@ object PlaybackSpeed {
     /** Quick picks for the settings list; the player's panel drives a slider instead. */
     val OPTIONS: List<Float> = listOf(0.5f, 1f, 1.5f, 2f, 2.5f, 3f, 4f, 5f)
 
-    /** Tick marks between the slider's ends: one per [STEP] across the range. */
+    /** Interior steps on the shared grid; the player's slider renders no tick marks. */
     val STEPS: Int = ((MAX - MIN) / STEP).roundToInt() - 1
 
     /** Hold-to-boost starting rates the settings offer; dragging up from one reaches [MAX]. */

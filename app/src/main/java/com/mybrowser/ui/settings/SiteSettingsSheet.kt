@@ -1,17 +1,20 @@
 package com.mybrowser.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -24,8 +27,13 @@ import com.mybrowser.site.*
 import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserAlertDialog
+import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibrarySearchField
+import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.components.BrowserGroupDivider
+import com.mybrowser.ui.components.BrowserListItem
+import com.mybrowser.ui.theme.BrowserColors
 
 private val SiteSettingsSaver = listSaver<SiteSettings, String>(
     save = { value -> listOf(
@@ -66,9 +74,9 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     var confirmReset by remember { mutableStateOf(false) }
     var editingUserAgent by remember { mutableStateOf(false) }
     var userAgentDraft by remember { mutableStateOf("") }
-    BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
+    BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {
-            BrowserSheetHeader(stringResource(R.string.site_settings))
+            BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
             // Keep edge flings in the form. Sheet dragging and stretch overscroll
             // otherwise compete with its changing height/insets at the boundaries.
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null)) {
@@ -142,13 +150,21 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                     optionLabel = { width -> if (width == 0) stringResource(R.string.site_viewport_original) else width.toString() },
                     onSelect = { width -> draft = draft.copy(desktopWidth = width) },
                 )
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(
+                    Modifier.padding(vertical = 12.dp),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
                 val textZoomLabel = stringResource(R.string.site_text_zoom, draft.textZoom)
                 Text(textZoomLabel, style = MaterialTheme.typography.titleSmall)
                 Slider(value = draft.textZoom.toFloat(), onValueChange = { draft = draft.copy(textZoom = it.roundToInt()) },
                     valueRange = 50f..200f, steps = 29, enabled = !busy,
                     modifier = Modifier.semantics { contentDescription = textZoomLabel })
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(
+                    Modifier.padding(vertical = 12.dp),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
                 Text(stringResource(R.string.site_permissions), style = MaterialTheme.typography.titleSmall)
                 SiteDropdownRow(
                     label = stringResource(R.string.external_apps),
@@ -209,11 +225,23 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 },
             )
             }
-            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.weight(1f).fillMaxHeight()) { Text(stringResource(R.string.action_cancel)) }
-                Button(onClick = { onSave(mergeSiteDraft(initial, draft, settings)) },
-                    enabled = !busy && !needsRepair, modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    Text(stringResource(R.string.site_save_reload))
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                BrowserActionPill(
+                    text = stringResource(R.string.action_cancel),
+                    enabled = !busy,
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                Button(
+                    onClick = { onSave(mergeSiteDraft(initial, draft, settings)) },
+                    enabled = !busy && !needsRepair,
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
+                ) {
+                    Text(stringResource(R.string.site_save_reload), maxLines = 2)
                 }
             }
         }
@@ -231,18 +259,28 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
 fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Unit, onDismiss: () -> Unit,
     needsRepair: Boolean = false, busy: Boolean = false, onRepair: () -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 20.dp)) {
+    BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
             BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
             if (needsRepair) SiteStorageRepairNotice(busy, onRepair)
-            LibrarySearchField(query, stringResource(R.string.site_search)) { query = it }
-            val origins = sites.keys.filter { it.contains(query, true) }.sorted()
+            LibrarySearchField(query, stringResource(R.string.site_search), onQueryChange = { query = it })
+            val origins = remember(sites, query) { sites.keys.filter { it.contains(query, true) }.sorted() }
             if (origins.isEmpty()) Text(stringResource(R.string.site_none), modifier = Modifier.padding(vertical = 20.dp))
-            LazyColumn(Modifier.weight(1f), overscrollEffect = null) {
-                items(origins, key = { it }) { origin ->
-                    ListItem(colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        headlineContent = { Text(origin) }, modifier = Modifier.clickable { onSelect(origin) })
-                    HorizontalDivider()
+            if (origins.isNotEmpty()) Surface(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, BrowserColors.cardBorder),
+            ) {
+                LazyColumn(Modifier.fillMaxSize(), overscrollEffect = null) {
+                    itemsIndexed(origins, key = { _, origin -> origin }) { index, origin ->
+                        BrowserListItem(
+                            title = origin,
+                            onClick = { onSelect(origin) },
+                            containerColor = Color.Transparent,
+                        )
+                        if (index < origins.lastIndex) BrowserGroupDivider()
+                    }
                 }
             }
         }
@@ -275,7 +313,7 @@ fun WebsitePermissionDialog(prompt: WebsitePermissions.Prompt, onRespond: (Boole
                 Text(prompt.origin, style = MaterialTheme.typography.titleSmall)
                 Text(stringResource(R.string.site_permission_request_summary), Modifier.padding(top = 12.dp))
                 prompt.capabilities.forEach { Text("• " + stringResource(it.label()), Modifier.padding(vertical = 4.dp)) }
-                Row(Modifier.fillMaxWidth().toggleable(remember, role = Role.Checkbox) { remember = it }, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(remember, role = Role.Checkbox) { remember = it }, verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = remember, onCheckedChange = null)
                     Text(stringResource(if (prompt.privateSession) R.string.site_remember_private else R.string.site_remember),
                         style = MaterialTheme.typography.bodyMedium)
@@ -323,7 +361,7 @@ private fun <T> SiteDropdownRow(
             ) {
                 Text(valueLabel)
             }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            BrowserDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { option ->
                     DropdownMenuItem(
                         text = { Text(optionLabel(option)) },

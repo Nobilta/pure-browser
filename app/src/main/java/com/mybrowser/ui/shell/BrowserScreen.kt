@@ -39,6 +39,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
@@ -106,6 +108,7 @@ fun BrowserScreen(
     onOpenHomeShortcut: (HomeShortcut) -> Unit = {},
     onSaveHomeShortcut: suspend (String, String, String, ShortcutIconChange) -> ShortcutSaveResult = { _, _, _, _ -> ShortcutSaveResult.FAILED },
     onRemoveHomeShortcut: suspend (HomeShortcut) -> Boolean = { false },
+    onAddHomeShortcut: () -> Unit = {},
     onFindQueryChange: (String) -> Unit,
     onFindNext: () -> Unit,
     onFindPrevious: () -> Unit,
@@ -118,6 +121,8 @@ fun BrowserScreen(
     onPickerCancel: () -> Unit = {},
     isIncognito: Boolean = false,
     hasPrivateIsolation: Boolean = false,
+    isReaderActive: Boolean = false,
+    onToggleReader: () -> Unit = {},
     onNewTab: () -> Unit = onTabs,
     bottomAddressBar: Boolean = false,
     swipeTabs: Boolean = false,
@@ -139,6 +144,8 @@ fun BrowserScreen(
     onOmnibarSearch: (String) -> Unit = {},
     certificateError: Boolean = false,
     snackbarHostState: SnackbarHostState? = null,
+    /** The open sheet renders the snackbar itself; the page behind it must not draw a second one. */
+    suppressSnackbar: Boolean = false,
 ) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -192,7 +199,11 @@ fun BrowserScreen(
                     onSecurityClick = onSecurityClick,
                     isHomePage = showHomeDashboard,
                     onScanQr = { finishEditing(); onScanQr() },
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    isIncognito = isIncognito,
+                    hasPrivateIsolation = hasPrivateIsolation,
+                    isReaderActive = isReaderActive,
+                    onToggleReader = { finishEditing(); onToggleReader() },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
     }
 
@@ -220,44 +231,13 @@ fun BrowserScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // Tinted in incognito. A mode this consequential should be visible without
-                // opening a menu, and the surface tint is what X and Via both lean on.
-                .background(
-                    if (isIncognito) MaterialTheme.colorScheme.surfaceVariant
-                    else MaterialTheme.colorScheme.surfaceContainer,
-                )
+                .background(MaterialTheme.colorScheme.surfaceContainer)
                 .windowInsetsPadding(
                     WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
                     ),
                 ),
         ) {
-            AnimatedVisibility(
-                visible = isIncognito,
-                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
-                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_incognito),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(if (hasPrivateIsolation) R.string.incognito_badge else R.string.private_shared),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
             AnimatedVisibility(
                 visible = !state.isToolbarHidden || showHomeDashboard || chromeForced,
                 enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Top),
@@ -271,22 +251,28 @@ fun BrowserScreen(
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting
             // under the omnibar reads as a stalled page.
             AnimatedVisibility(
-                visible = showProgress && state.isProgressVisible,
+                visible = !bottomAddressBar && showProgress && state.isProgressVisible,
                 enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
                 exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             ) {
                 if (state.progress <= 0) LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
                 ) else LinearProgressIndicator(
                     progress = { state.progress / 100f },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.dp),
+                        .height(2.dp),
                     // MD3 1.3+ draws a track gap and a stop dot by default. Both are for
                     // a determinate task indicator; on a page-load bar spanning the full
                     // window they read as artefacts, so both are off.
                     gapSize = 0.dp,
                     drawStopIndicator = {},
+                )
+            }
+            if (!bottomAddressBar && (!state.isToolbarHidden || showHomeDashboard || chromeForced)) {
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                 )
             }
         }
@@ -331,6 +317,12 @@ fun BrowserScreen(
                     onOpen = onOpenHomeShortcut,
                     onSave = onSaveHomeShortcut,
                     onRemove = onRemoveHomeShortcut,
+                    isIncognito = isIncognito,
+                    hasPrivateIsolation = hasPrivateIsolation,
+                    searchEngineName = searchEngine.displayName(localizedResources()),
+                    onSearchClick = { state.revealToolbar(); state.onOmnibarFocusChange(true) },
+                    onAddShortcut = onAddHomeShortcut,
+                    bottomAddressBar = bottomAddressBar,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -410,10 +402,16 @@ fun BrowserScreen(
                     onClick = onCast,
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp,
+                    ),
                 ) {
                     BadgedBox(badge = { if (mediaCount > 1) Badge { Text(mediaCount.toString()) } }) {
                         Icon(
-                            painterResource(R.drawable.ic_cast),
+                            painterResource(R.drawable.ic_ui_cast),
                             contentDescription = stringResource(R.string.cast_detected_sources, mediaCount),
                             modifier = Modifier.size(24.dp),
                         )
@@ -441,15 +439,18 @@ fun BrowserScreen(
             ) {
                 FloatingActionButton(
                     onClick = onRevealChrome,
-                    // Incognito stays visually loud on the entry point, like the top bar tint.
-                    containerColor = if (isIncognito) MaterialTheme.colorScheme.surfaceVariant
-                        else MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = if (isIncognito) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp,
+                    ),
                     modifier = Modifier.testTag("browser_fullscreen_fab"),
                 ) {
                     Icon(
-                        painterResource(R.drawable.ic_fullscreen),
+                        painterResource(R.drawable.ic_ui_fullscreen),
                         contentDescription = stringResource(R.string.browser_fullscreen_actions),
                         modifier = Modifier.size(24.dp),
                     )
@@ -522,11 +523,33 @@ fun BrowserScreen(
                 enter = expandVertically(animationSpec = BrowserMotion.chromeSpatial(), expandFrom = Alignment.Bottom),
                 exit = shrinkVertically(animationSpec = BrowserMotion.chromeSpatial(), shrinkTowards = Alignment.Bottom),
             ) {
-                Box(Modifier.reportsCollapsibleHeight(state)) { addressBar() }
+                Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    // The load bar belongs to the address bar it describes: on a bottom dock it
+                    // sits directly above the field instead of stranded at the top of the screen.
+                    AnimatedVisibility(
+                        visible = showProgress && state.isProgressVisible,
+                        enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+                        exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
+                    ) {
+                        if (state.progress <= 0) LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                        ) else LinearProgressIndicator(
+                            progress = { state.progress / 100f },
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                            gapSize = 0.dp,
+                            drawStopIndicator = {},
+                        )
+                    }
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                    )
+                    Box(Modifier.reportsCollapsibleHeight(state)) { addressBar() }
+                }
             }
             // Find bar appears above the toolbar
             AnimatedVisibility(
-                visible = state.isFindBarVisible,
+                visible = state.isFindBarVisible && !state.isOmnibarFocused,
                 enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     slideInVertically(animationSpec = BrowserMotion.chromeSpatial()) { it },
                 exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
@@ -596,7 +619,9 @@ fun BrowserScreen(
                 swipeTabs = swipeTabs,
                 onSwitchTab = { finishEditing(); onSwitchTab(it) },
                 tabCount = tabCount,
+                isIncognito = isIncognito,
                 onMenu = { finishEditing(); onMenu() },
+                bottomAddressBar = bottomAddressBar,
                 modifier = Modifier
                     .background(MaterialTheme.colorScheme.surfaceContainer)
                     .windowInsetsPadding(
@@ -608,7 +633,7 @@ fun BrowserScreen(
         }
         }
     }
-    if (snackbarHostState != null) {
+    if (snackbarHostState != null && !suppressSnackbar) {
         val bottomChromeHeight = with(LocalDensity.current) { bottomChromeHeightPx.toDp() }
         val fabVisible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused &&
             !immersiveActive && elementPicker == null

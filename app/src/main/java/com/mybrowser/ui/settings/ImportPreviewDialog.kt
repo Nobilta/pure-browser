@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -15,6 +14,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.backup.ImportPreview
 import com.mybrowser.backup.ImportPreviewText
 import com.mybrowser.backup.SettingsBackupCodec
@@ -31,7 +31,7 @@ fun ImportPreviewDialog(
     onApply: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onCancel,
         title = { Text(stringResource(R.string.settings_import)) },
         text = {

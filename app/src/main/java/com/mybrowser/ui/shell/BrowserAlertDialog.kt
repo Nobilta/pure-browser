@@ -2,9 +2,11 @@ package com.mybrowser.ui.shell
 
 import androidx.compose.animation.core.Animatable
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialogDefaults
@@ -24,7 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.mybrowser.R
+import com.mybrowser.ui.theme.BrowserColors
 
 /**
  * The app's alert dialog: Material 3's layout, colours and slots, plus the entrance that the pinned
@@ -48,6 +52,8 @@ internal fun BrowserAlertDialog(
     icon: (@Composable () -> Unit)? = null,
     title: (@Composable () -> Unit)? = null,
     text: (@Composable () -> Unit)? = null,
+    properties: DialogProperties = DialogProperties(),
+    buttonsInColumn: Boolean = false,
 ) {
     val shown = remember { Animatable(0f) }
     val scale = remember { Animatable(0f) }
@@ -55,7 +61,7 @@ internal fun BrowserAlertDialog(
         launch { shown.animateTo(1f, BrowserMotion.contentCross()) }
         scale.animateTo(1f, BrowserMotion.localArrive())
     }
-    BasicAlertDialog(onDismissRequest = onDismissRequest, modifier = modifier) {
+    BasicAlertDialog(onDismissRequest = onDismissRequest, modifier = modifier, properties = properties) {
         Surface(
             modifier = Modifier.graphicsLayer {
                 alpha = shown.value
@@ -66,8 +72,11 @@ internal fun BrowserAlertDialog(
                 scaleY = grown
             },
             shape = AlertDialogDefaults.shape,
-            color = AlertDialogDefaults.containerColor,
-            tonalElevation = AlertDialogDefaults.TonalElevation,
+            // A dialog floats on the 32% scrim: it is the brightest surface in the hierarchy,
+            // framed by a crisp 1dp structural hairline.
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, BrowserColors.cardBorder),
+            tonalElevation = 0.dp,
         ) {
             // Paddings, type scale and content colours mirror AlertDialogContent so a migrated
             // dialog is pixel-identical to the library's at rest.
@@ -96,10 +105,20 @@ internal fun BrowserAlertDialog(
                         Box(Modifier.weight(1f, fill = false).padding(bottom = 24.dp).align(Alignment.Start)) { it() }
                     }
                 }
-                Box(Modifier.align(Alignment.End)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (buttonsInColumn) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         dismissButton?.let { it() }
                         confirmButton()
+                    }
+                } else {
+                    Box(Modifier.align(Alignment.End)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            dismissButton?.let { it() }
+                            confirmButton()
+                        }
                     }
                 }
             }

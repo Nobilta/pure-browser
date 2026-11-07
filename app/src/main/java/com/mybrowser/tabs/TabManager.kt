@@ -120,18 +120,18 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
         return currentTab
     }
 
-    /** Closes every tab except the selected one. */
-    fun closeOtherTabs() {
-        val current = currentTab ?: return
+    /** Closes every tab except [keepId] (the selected one by default). */
+    fun closeOtherTabs(keepId: String? = currentTab?.id) {
+        val keep = _tabs.firstOrNull { it.id == keepId } ?: return
         _tabs.forEach { tab ->
-            if (tab.id != current.id) {
+            if (tab.id != keep.id) {
                 releaseBitmaps(tab)
             }
         }
         _tabs.clear()
         activationOrder.clear()
-        current.openerTabId = null
-        _tabs += current
+        keep.openerTabId = null
+        _tabs += keep
         currentIndex = 0
         rememberSelection()
         changed()
@@ -175,25 +175,6 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
             changed()
         }
         return restored
-    }
-
-    /** Keep only the small display bitmap; encoding a duplicate cache copy blocked tab switching. */
-    fun captureCurrentThumbnail(webView: WebView, width: Int, height: Int) {
-        val tab = currentTab ?: return
-        if (webView.width <= 0 || webView.height <= 0 || width <= 0 || height <= 0) return
-        val scale = width.toFloat() / webView.width.toFloat()
-        val targetHeight = (webView.height * scale).toInt().coerceIn(1, height)
-        val bitmap = runCatching {
-            createBitmap(width, targetHeight, Bitmap.Config.RGB_565).also { output ->
-                android.graphics.Canvas(output).apply {
-                    scale(scale, scale)
-                    webView.draw(this)
-                }
-            }
-        }.getOrNull() ?: return
-
-        tab.thumbnail = bitmap
-        changed()
     }
 
     /** Saves URL/title metadata so normal tabs survive process death. */

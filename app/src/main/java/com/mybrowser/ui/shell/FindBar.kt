@@ -95,7 +95,7 @@ fun FindBar(
             modifier = Modifier.size(48.dp),
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_arrow_up),
+                painter = painterResource(R.drawable.ic_ui_arrow_up),
                 contentDescription = textResources.getString(R.string.ui_previous),
                 modifier = Modifier.size(20.dp),
             )
@@ -108,7 +108,7 @@ fun FindBar(
             modifier = Modifier.size(48.dp),
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_arrow_down),
+                painter = painterResource(R.drawable.ic_ui_arrow_down),
                 contentDescription = textResources.getString(R.string.ui_next),
                 modifier = Modifier.size(20.dp),
             )
@@ -120,7 +120,7 @@ fun FindBar(
             modifier = Modifier.size(48.dp),
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_close),
+                painter = painterResource(R.drawable.ic_ui_close),
                 contentDescription = textResources.getString(R.string.ui_close),
                 modifier = Modifier.size(20.dp),
             )

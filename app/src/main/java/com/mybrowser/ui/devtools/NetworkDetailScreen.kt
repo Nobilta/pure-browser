@@ -50,7 +50,7 @@ internal fun NetworkDetailScreen(
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrowserIconAction(R.drawable.ic_back, stringResource(R.string.cd_back), onClick = onBack)
+            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = onBack)
             Text(
                 stringResource(R.string.dev_network_detail_title),
                 Modifier.weight(1f),

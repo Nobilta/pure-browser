@@ -10,21 +10,22 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -40,6 +41,8 @@ import com.mybrowser.R
 import com.mybrowser.core.PlaybackSpeed
 import com.mybrowser.core.VideoFit
 import com.mybrowser.ui.shell.BrowserMotion
+import com.mybrowser.ui.theme.BrowserColors
+import kotlin.math.abs
 
 internal enum class PlayerMenu { SPEED, CAST, VIDEO }
 
@@ -114,23 +117,23 @@ internal fun PlayerControls(
                     state.statusTime, state.statusBattery, state.statusCharging,
                     Modifier.padding(start = 4.dp, end = 8.dp),
                 )
-                PlayerIcon(R.drawable.ic_back, stringResource(R.string.ui_exit_fullscreen), onExit)
+                PlayerIcon(R.drawable.ic_ui_back, stringResource(R.string.ui_exit_fullscreen), onExit)
                 Text(state.title, Modifier.weight(1f).padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.titleMedium, color = colors.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 onPictureInPicture?.let {
-                    PlayerIcon(R.drawable.ic_pip, stringResource(R.string.picture_in_picture), it)
+                    PlayerIcon(R.drawable.ic_ui_pip, stringResource(R.string.picture_in_picture), it)
                 }
-                PlayerIcon(R.drawable.ic_rotate, stringResource(R.string.ui_rotate_screen), onRotate)
+                PlayerIcon(R.drawable.ic_ui_rotate, stringResource(R.string.ui_rotate_screen), onRotate)
                 PlayerIcon(
-                    R.drawable.ic_more, stringResource(R.string.player_video_menu),
+                    R.drawable.ic_ui_more, stringResource(R.string.player_video_menu),
                     onClick = { onMenu(if (state.menu == PlayerMenu.VIDEO) null else PlayerMenu.VIDEO) },
                     tint = if (state.menu == PlayerMenu.VIDEO) colors.primary else null,
                 )
             }
         }
 
-        // Feedback and buffering share the centre: a stall and a gesture can be visible at once.
+        // Feedback and buffering share the centre: dark cinema capsules avoid glaring white flashes.
         Column(
             Modifier.align(Alignment.Center).padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -144,8 +147,8 @@ internal fun PlayerControls(
                 val label = stringResource(R.string.ui_player_buffering)
                 Row(
                     Modifier.testTag("player_buffering")
-                        .shadow(6.dp, RoundedCornerShape(20.dp))
-                        .background(colors.inverseSurface.copy(alpha = .96f), RoundedCornerShape(20.dp))
+                        .background(colors.surfaceContainerLow, MaterialTheme.shapes.large)
+                        .border(1.dp, BrowserColors.cardBorder, MaterialTheme.shapes.large)
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                         .semantics(mergeDescendants = true) {
                             liveRegion = LiveRegionMode.Polite
@@ -155,14 +158,14 @@ internal fun PlayerControls(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp,
-                        color = colors.inverseOnSurface)
-                    Text(label, style = MaterialTheme.typography.labelLarge, color = colors.inverseOnSurface)
+                        color = colors.primary)
+                    Text(label, style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
                     // The rate changes twice a second; announcing it would flood TalkBack.
                     state.networkSpeed?.let { speed ->
                         Text(stringResource(R.string.ui_player_network_speed, speed),
                             Modifier.clearAndSetSemantics {},
                             style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
-                            color = colors.inverseOnSurface.copy(alpha = .8f))
+                            color = colors.onSurfaceVariant)
                     }
                 }
             }
@@ -177,11 +180,14 @@ internal fun PlayerControls(
             ) {
                 lastHud?.let { message ->
                     // Feedback must stay touch-transparent so consecutive gestures reach the video.
-                    Box(Modifier.shadow(6.dp, RoundedCornerShape(20.dp))
-                        .background(colors.inverseSurface.copy(alpha = .96f), RoundedCornerShape(20.dp))
-                        .semantics { liveRegion = LiveRegionMode.Polite }) {
+                    Box(
+                        Modifier
+                            .background(colors.surfaceContainerLow, MaterialTheme.shapes.large)
+                            .border(1.dp, BrowserColors.cardBorder, MaterialTheme.shapes.large)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    ) {
                         Text(message, Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                            style = MaterialTheme.typography.titleMedium, color = colors.inverseOnSurface)
+                            style = MaterialTheme.typography.titleMedium, color = colors.onSurface)
                     }
                 }
             }
@@ -246,17 +252,19 @@ internal fun PlayerControls(
                                 PlayerMenu.VIDEO -> "player_video_menu"
                             })
                             .semantics { paneTitle = heading },
-                        shape = RoundedCornerShape(24.dp),
-                        color = colors.surfaceContainerHigh, contentColor = colors.onSurface,
-                        shadowElevation = 8.dp,
+                        shape = MaterialTheme.shapes.large,
+                        color = colors.surfaceContainerLow,
+                        contentColor = colors.onSurface,
+                        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+                        shadowElevation = 3.dp,
                     ) {
                         Column {
                             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 4.dp, top = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Text(heading, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                PlayerIcon(R.drawable.ic_close, stringResource(R.string.ui_close), { onMenu(null) })
+                                PlayerIcon(R.drawable.ic_ui_close, stringResource(R.string.ui_close), { onMenu(null) })
                             }
-                            HorizontalDivider(color = colors.outlineVariant.copy(alpha = .5f))
+                            HorizontalDivider(thickness = 0.5.dp, color = colors.outlineVariant.copy(alpha = .45f))
                             when (menu) {
                                 PlayerMenu.SPEED -> SpeedPanel(state.rate, onSpeedPreview, onSpeed)
                                 PlayerMenu.CAST -> castContent()
@@ -270,8 +278,9 @@ internal fun PlayerControls(
                 Box(
                     Modifier.fillMaxWidth().onSizeChanged { barHeight = it.height }
                         .testTag("player_control_bar")
-                        .clip(RoundedCornerShape(28.dp))
-                        .background(colors.surfaceContainer.copy(alpha = .94f)),
+                        .clip(MaterialTheme.shapes.extraLarge)
+                        .background(colors.surfaceContainer)
+                        .border(1.dp, BrowserColors.cardBorder, MaterialTheme.shapes.extraLarge),
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         val seekLabel = stringResource(R.string.ui_video_progress)
@@ -293,7 +302,7 @@ internal fun PlayerControls(
                                     },
                                     label = "playerPlayPause",
                                 ) { playing ->
-                                    Icon(painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play), playLabel,
+                                    Icon(painterResource(if (playing) R.drawable.ic_ui_pause else R.drawable.ic_ui_play), playLabel,
                                         Modifier.size(24.dp))
                                 }
                             }
@@ -302,37 +311,48 @@ internal fun PlayerControls(
                                 color = colors.onSurfaceVariant)
                             val speedLabel = PlaybackSpeed.label(state.rate)
                             val speedDescription = stringResource(R.string.ui_playback_speed, speedLabel)
+                            val speedActive = state.menu == PlayerMenu.SPEED || abs(state.rate - 1f) > 0.01f
                             FilledTonalButton(
                                 onClick = { onMenu(if (state.menu == PlayerMenu.SPEED) null else PlayerMenu.SPEED) },
-                                modifier = Modifier.height(48.dp).testTag("player_speed_action")
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("player_speed_action")
                                     .semantics { contentDescription = speedDescription },
-                                shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 14.dp),
+                                shape = CircleShape,
+                                border = if (speedActive) BorderStroke(1.dp, colors.primary) else null,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                                 colors = ButtonDefaults.filledTonalButtonColors(
-                                    // A button that owns an open panel stays lit while it is open;
-                                    // the light fades on instead of the button blinking.
                                     containerColor = animateColorAsState(
-                                        targetValue = if (state.menu == PlayerMenu.SPEED) colors.primaryContainer else colors.secondaryContainer,
+                                        targetValue = if (speedActive) colors.secondaryContainer else colors.surfaceContainerHigh,
                                         animationSpec = BrowserMotion.chromeFade(),
                                         label = "playerSpeedContainer",
                                     ).value,
+                                    contentColor = if (speedActive) colors.onSecondaryContainer else colors.onSurface,
                                 ),
                             ) {
-                                Icon(painterResource(R.drawable.ic_speed), null, Modifier.size(18.dp))
+                                Icon(
+                                    painterResource(R.drawable.ic_ui_speed),
+                                    null,
+                                    Modifier.size(18.dp),
+                                    tint = if (speedActive) colors.primary else colors.onSurfaceVariant,
+                                )
                                 Spacer(Modifier.width(8.dp))
                                 Text(speedLabel, style = MaterialTheme.typography.labelLarge)
                             }
                             if (state.canCast) {
-                                FilledTonalIconButton(
-                                    onClick = { onMenu(if (state.menu == PlayerMenu.CAST) null else PlayerMenu.CAST) },
-                                    modifier = Modifier.size(48.dp).testTag("player_cast_action"), shape = RoundedCornerShape(16.dp),
-                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                val castOpen = state.menu == PlayerMenu.CAST
+                                OutlinedIconButton(
+                                    onClick = { onMenu(if (castOpen) null else PlayerMenu.CAST) },
+                                    modifier = Modifier.size(48.dp).testTag("player_cast_action"),
+                                    shape = CircleShape,
+                                    border = if (castOpen) BorderStroke(1.dp, colors.primary) else null,
+                                    colors = IconButtonDefaults.outlinedIconButtonColors(
                                         containerColor = animateColorAsState(
-                                            targetValue = if (state.menu == PlayerMenu.CAST) colors.primaryContainer else colors.secondaryContainer,
+                                            targetValue = if (castOpen) colors.secondaryContainer else colors.surfaceContainerHigh,
                                             animationSpec = BrowserMotion.chromeFade(),
                                             label = "playerCastContainer",
                                         ).value,
+                                        contentColor = if (castOpen) colors.primary else colors.onSurface,
                                     ),
-                                ) { Icon(painterResource(R.drawable.ic_cast), stringResource(R.string.cd_cast), Modifier.size(24.dp)) }
+                                ) { Icon(painterResource(R.drawable.ic_ui_cast), stringResource(R.string.cd_cast), Modifier.size(22.dp)) }
                             }
                         }
                     }
@@ -346,22 +366,25 @@ internal fun PlayerControls(
             exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
             modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
         ) {
-            FilledTonalIconButton(onClick = onLock,
+            OutlinedIconButton(
+                onClick = onLock,
                 modifier = Modifier.size(48.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                shape = CircleShape,
+                border = if (state.locked) BorderStroke(1.dp, colors.primary) else null,
+                colors = IconButtonDefaults.outlinedIconButtonColors(
                     containerColor = animateColorAsState(
-                        targetValue = if (state.locked) colors.primaryContainer else colors.surfaceContainerHigh.copy(alpha = .9f),
+                        targetValue = if (state.locked) colors.secondaryContainer else colors.surfaceContainerHigh,
                         animationSpec = BrowserMotion.chromeFade(),
                         label = "playerLockContainer",
                     ).value,
                     contentColor = animateColorAsState(
-                        targetValue = if (state.locked) colors.onPrimaryContainer else colors.onSurface,
+                        targetValue = if (state.locked) colors.primary else colors.onSurface,
                         animationSpec = BrowserMotion.chromeFade(),
                         label = "playerLockContent",
                     ).value,
                 ),
             ) {
-                Icon(painterResource(if (state.locked) R.drawable.ic_lock_open else R.drawable.ic_lock),
+                Icon(painterResource(if (state.locked) R.drawable.ic_ui_unlock else R.drawable.ic_ui_lock),
                     stringResource(if (state.locked) R.string.ui_unlock_screen else R.string.ui_lock_screen), Modifier.size(22.dp))
             }
         }
@@ -369,8 +392,8 @@ internal fun PlayerControls(
 }
 
 /**
- * The rate is continuous, so the panel offers one slider on the shared 0.1 grid; its tick marks
- * are the grid, which is all the shortcuts the panel needs.
+ * The rate is continuous, so the panel offers one smooth slider on the shared 0.1 grid. The
+ * grid is enforced while dragging and committing, but it is not drawn as tick marks.
  *
  * The draft is kept here rather than read back from playback: a JS round trip and a 1 s probe
  * pulse both lag the finger, and the release must commit what the user last saw.
@@ -404,7 +427,7 @@ private fun SpeedPanel(
                 draft = null
             },
             valueRange = PlaybackSpeed.MIN..PlaybackSpeed.MAX,
-            steps = PlaybackSpeed.STEPS,
+            steps = 0,
             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("player_speed_slider")
                 .semantics { contentDescription = heading },
         )
@@ -474,7 +497,7 @@ private fun VideoPanel(
                     label = "playerRadioMark",
                 ) { checked ->
                     Icon(
-                        painterResource(if (checked) R.drawable.ic_radio_checked else R.drawable.ic_radio_unchecked),
+                        painterResource(if (checked) R.drawable.ic_ui_radio_checked else R.drawable.ic_ui_radio_unchecked),
                         contentDescription = null,
                         tint = animateColorAsState(
                             targetValue = if (checked) colors.primary else colors.onSurfaceVariant,
@@ -520,7 +543,7 @@ private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, mo
                 style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = clockColor)
         }
         if (battery != null) {
-            Icon(painterResource(R.drawable.ic_battery), null, Modifier.size(16.dp), tint = batteryColor)
+            Icon(painterResource(R.drawable.ic_ui_battery), null, Modifier.size(16.dp), tint = batteryColor)
             Text("$battery%", maxLines = 1,
                 style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = batteryColor)
         }

@@ -22,7 +22,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,7 +52,8 @@ import android.webkit.WebViewClient
 import com.mybrowser.R
 import com.mybrowser.data.BrowserPreferencesRepository
 import com.mybrowser.data.ThemeMode
-import com.mybrowser.ui.theme.MyBrowserTheme
+import com.mybrowser.ui.shell.SwipeDismissSnackbarHost
+import com.mybrowser.ui.theme.PureBrowserTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,7 +73,7 @@ class PlainTextActivity : ComponentActivity() {
         val themeMode = runCatching { BrowserPreferencesRepository(this).load().theme }
             .getOrDefault(ThemeMode.SYSTEM)
         setContent {
-            MyBrowserTheme(themeMode = themeMode) {
+            PureBrowserTheme(themeMode = themeMode) {
                 val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -155,7 +155,7 @@ private fun PlainTextScreen(uri: Uri?, onClose: () -> Unit) {
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SwipeDismissSnackbarHost(snackbar) },
     ) { padding ->
         when (val state = content) {
             null -> Box(

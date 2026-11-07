@@ -1,16 +1,22 @@
 package com.mybrowser.ui.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -23,10 +29,18 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import com.mybrowser.R
+import com.mybrowser.ui.components.BrowserGroupCard
+import com.mybrowser.ui.components.BrowserGroupDivider
 import com.mybrowser.ui.components.BrowserListItem
 import com.mybrowser.ui.shell.BrowserSheetHeader
 
@@ -43,7 +57,9 @@ internal fun SettingsToggle(
 ) {
     BrowserListItem(
         title = title,
-        subtitle = summary,
+        // Settings rows are intentionally single-line; detailed explanations live in the
+        // destination page or the dialog that performs the change.
+        subtitle = "",
         enabled = enabled,
         toggleState = checked,
         onClick = { onChange(!checked) },
@@ -62,15 +78,23 @@ internal fun SettingsNote(text: String) {
         modifier = Modifier.padding(SettingsRowPadding))
 }
 
+/**
+ * One settings group as a rounded card: a small accent label above, then the rows on the card's
+ * own surface. Rows are separated by a hairline inset from the edge instead of a full-width rule.
+ */
 @Composable
-internal fun SettingsGroup(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
-    )
+internal fun SettingsGroupCard(
+    title: String? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        BrowserGroupCard(title = title, content = content)
+    }
 }
+
+@Composable
+internal fun SettingsDivider(inset: Dp = 16.dp) = BrowserGroupDivider(inset)
 
 @Composable
 internal fun SettingsPage(
@@ -99,7 +123,7 @@ internal fun SettingsRadioItem(
 ) {
     BrowserListItem(
         title = title,
-        subtitle = subtitle,
+        subtitle = "",
         selected = selected,
         role = Role.RadioButton,
         onClick = onClick,
@@ -115,10 +139,13 @@ internal fun SettingsItem(
     subtitle: String,
     onClick: () -> Unit,
     iconRes: Int? = null,
+    selected: Boolean = false,
 ) {
+    val colors = MaterialTheme.colorScheme
+    val supporting = if (selected) colors.onSecondaryContainer.copy(alpha = 0.75f) else null
     BrowserListItem(
         title = title,
-        subtitle = subtitle,
+        subtitle = "",
         iconRes = iconRes,
         onClick = onClick,
         trailing = {
@@ -126,9 +153,16 @@ internal fun SettingsItem(
                 painterResource(R.drawable.ic_ui_chevron),
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
+                tint = if (selected) colors.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        modifier = Modifier.highlightSetting(title),
+        containerColor = if (selected) colors.secondaryContainer else Color.Transparent,
+        contentColorOverride = if (selected) colors.onSecondaryContainer else null,
+        supportingColorOverride = supporting,
+        leadingColorOverride = if (selected) colors.onSecondaryContainer else null,
+        modifier = Modifier.highlightSetting(title).then(
+            if (selected) Modifier.semantics { this.selected = true } else Modifier,
+        ),
     )
 }
 
