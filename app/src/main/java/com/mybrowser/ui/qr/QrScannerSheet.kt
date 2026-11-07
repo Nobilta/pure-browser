@@ -7,9 +7,12 @@ import android.content.pm.PackageManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -22,7 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -34,6 +39,7 @@ import com.mybrowser.R
 import com.mybrowser.qr.QrCameraController
 import com.mybrowser.qr.QrDecoder
 import com.mybrowser.qr.qrWebUrlOrNull
+import com.mybrowser.ui.components.BrowserActionPill
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,6 +48,7 @@ import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.localizedResources
+import com.mybrowser.ui.theme.BrowserColors
 
 /** Camera and photo scanning use the same offline decoder and result policy. */
 @Composable
@@ -102,58 +109,159 @@ internal fun QrScannerSheet(onOpenUrl: (String) -> Unit, onDismiss: () -> Unit) 
             if (result != null) {
                 val clipboard = LocalClipboard.current
                 var copied by remember(result) { mutableStateOf(false) }
-                SelectionContainer(Modifier.weight(1f).fillMaxWidth().padding(24.dp)) {
-                    Text(result.orEmpty(), Modifier.fillMaxSize().verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodyLarge)
+                Surface(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = MaterialTheme.shapes.large,
+                    color = BrowserColors.recessedWell,
+                ) {
+                    SelectionContainer(Modifier.fillMaxSize().padding(20.dp)) {
+                        Text(
+                            text = result.orEmpty(),
+                            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
                 }
-                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
-                    TextButton(onClick = { result = null; error = null; cameraError = false; cameraRevision++ }) { Text(stringResource(R.string.qr_scan_again)) }
-                    FilledTonalButton(onClick = { scope.launch {
-                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(resources.getString(R.string.qr_result_title), result.orEmpty())))
-                        copied = true
-                    } }) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    BrowserActionPill(
+                        text = stringResource(R.string.qr_scan_again),
+                        iconRes = R.drawable.ic_ui_qr,
+                        onClick = { result = null; error = null; cameraError = false; cameraRevision++ },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                clipboard.setClipEntry(
+                                    ClipEntry(ClipData.newPlainText(resources.getString(R.string.qr_result_title), result.orEmpty())),
+                                )
+                                copied = true
+                            }
+                        },
+                        shape = CircleShape,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
                         Text(stringResource(if (copied) R.string.qr_copied else R.string.qr_copy))
                     }
                 }
             } else BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
                 val landscape = maxWidth > maxHeight && maxWidth >= 560.dp
-                val controlsHeight = maxHeight * .5f
+                val controlsHeight = maxHeight * .45f
+                val liveCamera = permitted && !cameraError
                 val camera: @Composable (Modifier) -> Unit = { modifier ->
-                    Surface(modifier.clip(MaterialTheme.shapes.large), color = Color.Black) {
-                        if (permitted && !cameraError && !busy && !navigating) key(cameraRevision) {
+                    Surface(
+                        modifier = modifier.clip(MaterialTheme.shapes.large),
+                        shape = MaterialTheme.shapes.large,
+                        color = if (liveCamera) Color.Black else BrowserColors.recessedWell,
+                        border = if (liveCamera) null else BorderStroke(1.dp, BrowserColors.cardBorder),
+                    ) {
+                        if (liveCamera && !busy && !navigating) key(cameraRevision) {
                             CameraPreview(flash, onResult = accept, onError = { cameraError = true; flash = false }, onFlashAvailable = { hasFlash = it })
                         }
                         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             when {
                                 busy -> CircularProgressIndicator(Modifier.size(36.dp))
-                                !permitted || cameraError -> Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
-                                    horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(stringResource(if (cameraError) R.string.qr_camera_unavailable else R.string.qr_permission_summary),
-                                        color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                                !liveCamera -> Column(
+                                    modifier = Modifier
+                                        .widthIn(max = 360.dp)
+                                        .padding(24.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .background(
+                                                if (cameraError) MaterialTheme.colorScheme.errorContainer
+                                                else MaterialTheme.colorScheme.secondaryContainer,
+                                                MaterialTheme.shapes.small,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(if (cameraError) R.drawable.ic_ui_warning else R.drawable.ic_ui_qr),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                            tint = if (cameraError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                    Text(
+                                        text = stringResource(if (cameraError) R.string.qr_camera_unavailable else R.string.qr_permission_summary),
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    if (!permitted) {
+                                        Button(
+                                            onClick = { permission.launch(Manifest.permission.CAMERA) },
+                                            shape = CircleShape,
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                        ) {
+                                            Text(stringResource(R.string.qr_allow_camera))
+                                        }
+                                        if (requested) {
+                                            BrowserActionPill(
+                                                text = stringResource(R.string.qr_camera_settings),
+                                                iconRes = R.drawable.ic_ui_settings,
+                                                onClick = {
+                                                    context.startActivity(
+                                                        Intent(
+                                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                            "package:${context.packageName}".toUri(),
+                                                        ),
+                                                    )
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        }
+                                    } else if (cameraError) {
+                                        Button(
+                                            onClick = { cameraError = false; cameraRevision++ },
+                                            shape = CircleShape,
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                        ) {
+                                            Text(stringResource(R.string.qr_retry))
+                                        }
+                                    }
                                 }
-                                else -> Box(Modifier.size(minOf(maxWidth, maxHeight) * .7f)
-                                    .border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large))
+                                else -> Box(
+                                    Modifier.size(minOf(maxWidth, maxHeight) * .7f)
+                                        .border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large),
+                                )
                             }
                         }
                     }
                 }
+                val showFlashSlot = !liveCamera || hasFlash
                 val controls: @Composable (Modifier) -> Unit = { modifier ->
                     Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(R.string.qr_scan_hint), style = MaterialTheme.typography.titleMedium)
-                        Text(stringResource(R.string.qr_scan_privacy), style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
-                        if (busy) Text(stringResource(R.string.qr_reading_image), style = MaterialTheme.typography.bodySmall)
-                        if (!permitted) FilledTonalButton(onClick = { permission.launch(Manifest.permission.CAMERA) }) { Text(stringResource(R.string.qr_allow_camera)) }
-                        if (!permitted && requested) TextButton(onClick = {
-                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
-                        }) { Text(stringResource(R.string.qr_camera_settings)) }
-                        if (cameraError) TextButton(onClick = { cameraError = false; cameraRevision++ }) { Text(stringResource(R.string.qr_retry)) }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { flash = false; imagePicker.launch(arrayOf("image/*")) }, enabled = !busy) {
-                                Text(stringResource(R.string.qr_pick_image))
-                            }
-                            if (permitted && hasFlash && !cameraError) TextButton(onClick = { flash = !flash }, enabled = !busy) {
-                                Text(stringResource(if (flash) R.string.qr_flash_off else R.string.qr_flash_on))
+                        if (busy) Text(stringResource(R.string.qr_reading_image), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            BrowserActionPill(
+                                text = stringResource(R.string.qr_pick_image),
+                                iconRes = R.drawable.ic_ui_image,
+                                enabled = !busy,
+                                onClick = { flash = false; imagePicker.launch(arrayOf("image/*")) },
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                            )
+                            if (showFlashSlot) {
+                                BrowserActionPill(
+                                    text = stringResource(R.string.qr_flashlight),
+                                    iconRes = R.drawable.ic_ui_flash,
+                                    active = flash,
+                                    isToggle = true,
+                                    enabled = liveCamera && hasFlash && !busy,
+                                    onClick = { flash = !flash },
+                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                )
                             }
                         }
                     }

@@ -1,5 +1,6 @@
 package com.mybrowser.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -27,6 +29,7 @@ import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.shell.userItemMotion
+import com.mybrowser.ui.theme.BrowserColors
 
 @Composable
 fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: FilterController, onDismiss: () -> Unit) {
@@ -48,7 +51,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     val dateFormat = remember(res.configuration.locales.toLanguageTags()) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, res.configuration.locales[0])
     }
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
+    BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             BrowserSheetHeader(res.getString(R.string.ui_ad_filter_settings), onBack = onDismiss) {
                 Switch(enabled, onCheckedChange = filterController::setEnabled,
@@ -75,23 +78,29 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
             error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
                 item {
-                    ListItem(
-                        modifier = Modifier.toggleable(
-                            value = autoUpdate,
-                            role = Role.Switch,
-                            onValueChange = controller::setAutoUpdate,
-                        ),
-                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        headlineContent = { Text(res.getString(R.string.filter_auto_update)) },
-                        supportingContent = { Text(res.getString(R.string.filter_auto_update_summary)) },
-                        trailingContent = {
-                            Switch(
-                                autoUpdate,
-                                onCheckedChange = null,
-                                modifier = Modifier.semantics { contentDescription = res.getString(R.string.filter_auto_update) },
-                            )
-                        },
-                    )
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+                    ) {
+                        ListItem(
+                            modifier = Modifier.toggleable(
+                                value = autoUpdate,
+                                role = Role.Switch,
+                                onValueChange = controller::setAutoUpdate,
+                            ),
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            headlineContent = { Text(res.getString(R.string.filter_auto_update)) },
+                            supportingContent = { Text(res.getString(R.string.filter_auto_update_summary)) },
+                            trailingContent = {
+                                Switch(
+                                    autoUpdate,
+                                    onCheckedChange = null,
+                                    modifier = Modifier.semantics { contentDescription = res.getString(R.string.filter_auto_update) },
+                                )
+                            },
+                        )
+                    }
                 }
                 // The rules the user wrote by hand, above the lists they came from: this is where
                 // one of them is undone, and the rules are the part of this screen nobody else can
@@ -127,14 +136,19 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                                 }
                             }
                         }) {
-                            Icon(painterResource(R.drawable.ic_delete), res.getString(R.string.filter_user_rule_remove),
+                            Icon(painterResource(R.drawable.ic_ui_delete), res.getString(R.string.filter_user_rule_remove),
                                 Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
                 item { HorizontalDivider(Modifier.padding(top = 12.dp)) }
                 items(lists, key = { it.id }) { list ->
-                    Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, BrowserColors.cardBorder),
+                    ) {
                         Column(Modifier.padding(14.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().toggleable(

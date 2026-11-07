@@ -74,6 +74,7 @@ fun DownloadsSheet(
 
     BrowserBottomSheet(
         onDismissRequest = { if (selecting) leaveSelection() else onDismiss() },
+        dragHandleOnly = true,
     ) {
         Column(
             modifier = Modifier
@@ -119,10 +120,10 @@ fun DownloadsSheet(
                 countText = textResources.getString(R.string.ui_selected_count, selected.size),
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
-                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty()) {
+                BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.cd_delete), selected.isNotEmpty()) {
                     confirmDeleteSelected = true
                 }
-                BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_close)) { leaveSelection() }
+                BrowserIconAction(R.drawable.ic_ui_close, stringResource(R.string.ui_close)) { leaveSelection() }
             }
 
             if (blocked.isNotEmpty() || overflowCount > 0) {
@@ -169,7 +170,7 @@ fun DownloadsSheet(
                             }
                             IconButton(onClick = { onDismissBlocked(entry.identity) }) {
                                 Icon(
-                                    painter = painterResource(R.drawable.ic_close),
+                                    painter = painterResource(R.drawable.ic_ui_close),
                                     contentDescription = textResources.getString(R.string.ui_close),
                                 )
                             }
@@ -192,7 +193,7 @@ fun DownloadsSheet(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_download),
+                            painter = painterResource(R.drawable.ic_ui_download),
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -313,10 +314,10 @@ private fun DownloadItemRow(
         // row means. Fading the glyph and its tint across says that happened, where swapping both on
         // one frame made the row look replaced.
         val statusIcon = when (download.status) {
-            DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> R.drawable.ic_download
-            DownloadStatus.COMPLETED -> R.drawable.ic_file
-            DownloadStatus.FAILED -> R.drawable.ic_close
-            DownloadStatus.PAUSED -> R.drawable.ic_pause
+            DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> R.drawable.ic_ui_download
+            DownloadStatus.COMPLETED -> R.drawable.ic_ui_file
+            DownloadStatus.FAILED -> R.drawable.ic_ui_close
+            DownloadStatus.PAUSED -> R.drawable.ic_ui_pause
         }
         AnimatedContent(
             targetState = statusIcon,
@@ -417,8 +418,8 @@ private fun DownloadItemRow(
         if (!selecting) when (download.status) {
             DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> {
                 Column {
-                    if (download.canPause) BrowserIconAction(R.drawable.ic_pause, stringResource(R.string.download_pause), onClick = onPause)
-                    BrowserIconAction(R.drawable.ic_close, textResources.getString(R.string.ui_cancel_download), onClick = onCancel)
+                    if (download.canPause) BrowserIconAction(R.drawable.ic_ui_pause, stringResource(R.string.download_pause), onClick = onPause)
+                    BrowserIconAction(R.drawable.ic_ui_close, textResources.getString(R.string.ui_cancel_download), onClick = onCancel)
                 }
             }
             DownloadStatus.FAILED, DownloadStatus.PAUSED -> {
@@ -432,7 +433,7 @@ private fun DownloadItemRow(
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_delete),
+                            painter = painterResource(R.drawable.ic_ui_delete),
                             contentDescription = textResources.getString(R.string.ui_delete_download),
                         )
                     }
@@ -450,7 +451,7 @@ private fun DownloadItemRow(
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_delete),
+                            painter = painterResource(R.drawable.ic_ui_delete),
                             contentDescription = textResources.getString(R.string.ui_delete_download),
                         )
                     }
@@ -478,6 +479,7 @@ private fun DeleteDownloadDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .toggleable(
                             value = deleteFiles,
                             role = Role.Checkbox,

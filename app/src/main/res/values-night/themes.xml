@@ -7,6 +7,6 @@
         <item name="android:windowLightNavigationBar">false</item>
     </style>
     <style name="Theme.MyBrowser" parent="Theme.MyBrowser.Base">
-        <item name="android:windowBackground">#111318</item>
+        <item name="android:windowBackground">#0E131B</item>
     </style>
 </resources>

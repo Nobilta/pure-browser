@@ -31,7 +31,7 @@ internal fun DevToolsSearchField(query: String, label: String, onQueryChange: (S
         singleLine = true,
         placeholder = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         trailingIcon = if (query.isNotEmpty()) ({
-            BrowserIconAction(R.drawable.ic_close, stringResource(R.string.ui_clear)) { onQueryChange("") }
+            BrowserIconAction(R.drawable.ic_ui_close, stringResource(R.string.ui_clear)) { onQueryChange("") }
         }) else null,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).semantics { contentDescription = label },
     )

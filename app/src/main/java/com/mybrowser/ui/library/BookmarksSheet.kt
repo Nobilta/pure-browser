@@ -32,6 +32,7 @@ import com.mybrowser.R
 import com.mybrowser.data.Bookmark
 import com.mybrowser.data.BookmarkFolder
 import com.mybrowser.data.BookmarkFolders
+import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
@@ -74,11 +75,15 @@ fun BookmarksSheet(
     val drag = remember(listState) { BookmarkDragState(listState) }
     val haptic = LocalHapticFeedback.current
     val edge = with(LocalDensity.current) { 64.dp.toPx() }
-    val folderRows = if (query.isBlank()) folders.filter { it.parentId == library.folderId } else emptyList()
-    val keys = folderRows.map { -it.id } + bookmarks.map { it.id }
-    val keySet = keys.toSet()
-    val bookmarksById = bookmarks.associateBy { it.id }
-    val foldersById = folderRows.associateBy { -it.id }
+    // These maps are read on every frame of a drag; rebuilding them from the list on each
+    // recomposition made a long bookmark folder quadratic while a row was being moved.
+    val folderRows = remember(folders, library.folderId, query) {
+        if (query.isBlank()) folders.filter { it.parentId == library.folderId } else emptyList()
+    }
+    val bookmarksById = remember(bookmarks) { bookmarks.associateBy { it.id } }
+    val keys = remember(folderRows, bookmarks) { folderRows.map { -it.id } + bookmarks.map { it.id } }
+    val keySet = remember(keys) { keys.toSet() }
+    val foldersById = remember(folderRows) { folderRows.associateBy { -it.id } }
     LaunchedEffect(keys, library.busy) { drag.sync(keys, library.busy) }
     LaunchedEffect(library.folderId, query) {
         drag.cancel(keys); selected = emptySet(); selecting = false
@@ -113,8 +118,8 @@ fun BookmarksSheet(
         Column(Modifier.fillMaxSize().windowInsetsPadding(browserSheetInsets()).padding(horizontal = 16.dp)) {
             BrowserSheetHeader(stringResource(R.string.bookmarks_title), onBack = back) {
                 Box {
-                    BrowserIconAction(R.drawable.ic_more, stringResource(R.string.bookmarks_transfer), !transferBusy && !library.busy && drag.active == null) { actions = true }
-                    DropdownMenu(actions, onDismissRequest = { actions = false }) {
+                    BrowserIconAction(R.drawable.ic_ui_more, stringResource(R.string.bookmarks_transfer), !transferBusy && !library.busy && drag.active == null) { actions = true }
+                    BrowserDropdownMenu(actions, onDismissRequest = { actions = false }) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks_new_folder)) }, onClick = {
                             actions = false; editingFolder = null; folderName = ""; folderEditor = true
                         })
@@ -129,7 +134,7 @@ fun BookmarksSheet(
                     TextButton(onClick = { drag.cancel(keys); library.openFolder(folder.id) }, enabled = !library.busy) { Text(folder.title) }
                 }
             }
-            LibrarySearchField(query, stringResource(R.string.bookmarks_search), {
+            LibrarySearchField(query, stringResource(R.string.bookmarks_search), onQueryChange = {
                 if (!library.busy) { drag.cancel(keys); onQueryChange(it) }
             })
             LibrarySelectionBar(
@@ -141,7 +146,7 @@ fun BookmarksSheet(
                 countText = stringResource(R.string.bookmarks_selected, selected.size),
             ) {
                 TextButton(onClick = { movingFolder = null; moving = true }, enabled = selected.isNotEmpty() && !library.busy && drag.active == null) { Text(stringResource(R.string.bookmarks_move)) }
-                BrowserIconAction(R.drawable.ic_delete, stringResource(R.string.cd_delete), selected.isNotEmpty() && !library.busy && drag.active == null) { deleteSelected = true }
+                BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.cd_delete), selected.isNotEmpty() && !library.busy && drag.active == null) { deleteSelected = true }
             }
             if (library.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             LazyColumn(Modifier.weight(1f), state = listState, userScrollEnabled = drag.active == null,
@@ -164,12 +169,12 @@ fun BookmarksSheet(
                             if (selecting) BookmarkDragHandle(key, drag, !library.busy,
                                 onStart = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
                                 onEnd = ::finishDrag, onMove = { accessibleMove(key, it) })
-                            Icon(painterResource(R.drawable.ic_folder), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(painterResource(R.drawable.ic_ui_folder), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             Text(folder.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Box {
-                                BrowserIconAction(R.drawable.ic_more, stringResource(R.string.library_item_actions), !library.busy && drag.active == null) { menu = true }
-                                DropdownMenu(menu, { menu = false }) {
+                                BrowserIconAction(R.drawable.ic_ui_more, stringResource(R.string.library_item_actions), !library.busy && drag.active == null) { menu = true }
+                                BrowserDropdownMenu(menu, { menu = false }) {
                                     DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks_rename_folder)) }, onClick = {
                                         menu = false; editingFolder = folder; folderName = folder.title; folderEditor = true
                                     })
@@ -205,8 +210,8 @@ fun BookmarksSheet(
                             }
                             if (selecting) Checkbox(bookmark.id in selected, onCheckedChange = null)
                             else Box {
-                                BrowserIconAction(R.drawable.ic_more, stringResource(R.string.library_item_actions), !library.busy) { menu = true }
-                                DropdownMenu(menu, { menu = false }) {
+                                BrowserIconAction(R.drawable.ic_ui_more, stringResource(R.string.library_item_actions), !library.busy) { menu = true }
+                                BrowserDropdownMenu(menu, { menu = false }) {
                                     DropdownMenuItem(text = { Text(stringResource(R.string.context_open_new_tab)) }, onClick = { menu = false; onOpenNewTab(bookmark.url) })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.library_edit_bookmark)) }, onClick = { menu = false; onEditBookmark(bookmark) })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks_move)) }, onClick = { menu = false; selected = setOf(bookmark.id); movingFolder = null; moving = true })
@@ -282,7 +287,7 @@ private fun BookmarkDragHandle(key: Long, drag: BookmarkDragState, enabled: Bool
             onDragCancel = { if (drag.active == key) drag.cancel() },
         )
     }, contentAlignment = Alignment.Center) {
-        Icon(painterResource(R.drawable.ic_drag_handle), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(painterResource(R.drawable.ic_ui_drag_handle), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

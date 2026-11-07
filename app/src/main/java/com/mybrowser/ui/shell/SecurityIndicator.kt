@@ -7,13 +7,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import com.mybrowser.ui.theme.BrowserColors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,7 +38,7 @@ fun SecurityIndicator(
 
     Box(
         modifier = modifier
-            .size(48.dp)
+            .size(40.dp)
             .clip(CircleShape)
             .clickable(enabled = !isNativeHomepage, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -51,28 +50,31 @@ fun SecurityIndicator(
         Icon(
             // about:blank is the backing document for Pure's native navigation home,
             // not a failed or dangerous network connection.
-            imageVector = if (isNativeHomepage) {
-                Icons.Default.Home
-            } else {
-                when (securityLevel) {
-                    SecurityLevel.SECURE -> Icons.Default.Lock
-                    SecurityLevel.WARNING -> Icons.Default.Warning
-                    SecurityLevel.INSECURE -> Icons.Default.Warning
-                    SecurityLevel.DANGEROUS -> Icons.Default.Close
-                }
-            },
+            painter = painterResource(
+                when {
+                    isNativeHomepage -> R.drawable.ic_ui_home
+                    securityLevel == SecurityLevel.SECURE -> R.drawable.ic_ui_lock
+                    securityLevel == SecurityLevel.WARNING || securityLevel == SecurityLevel.INSECURE -> R.drawable.ic_ui_warning
+                    else -> R.drawable.ic_ui_close
+                },
+            ),
+            // The glyph alone cannot distinguish "encrypted" from "not encrypted": the
+            // description has to say which of the three states this page is in.
             contentDescription = when {
                 isNativeHomepage -> textResources.getString(R.string.ui_shortcuts_homepage)
-                certificateError -> textResources.getString(R.string.ui_ssl_certificate_verification_failed)
-                else -> securityInfo.protocol
+                securityLevel == SecurityLevel.SECURE -> textResources.getString(R.string.ui_secure_connection)
+                securityLevel == SecurityLevel.INSECURE -> textResources.getString(R.string.ui_insecure_connection)
+                securityLevel == SecurityLevel.WARNING -> textResources.getString(R.string.ui_connection_warning)
+                else -> textResources.getString(R.string.ui_dangerous_connection)
             },
             tint = if (isNativeHomepage) {
                 MaterialTheme.colorScheme.primary
             } else {
                 when (securityLevel) {
                     SecurityLevel.SECURE -> BrowserColors.secure
-                    SecurityLevel.WARNING -> BrowserColors.warning
-                    SecurityLevel.INSECURE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    // The design system treats plain HTTP as a warning, not as neutral chrome;
+                    // the neutral grey made it look less important than mixed content.
+                    SecurityLevel.WARNING, SecurityLevel.INSECURE -> BrowserColors.warning
                     SecurityLevel.DANGEROUS -> MaterialTheme.colorScheme.error
                 }
             },
@@ -94,21 +96,21 @@ fun SecurityInfoDialog(
     val securityInfo = SecurityChecker.getSecurityInfo(url, certificateError)
     val securityLevel = SecurityChecker.getSecurityLevel(url, certificateError)
 
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onDismiss,
         icon = {
             Icon(
-                imageVector = when (securityLevel) {
-                    SecurityLevel.SECURE -> Icons.Default.Lock
-                    SecurityLevel.WARNING -> Icons.Default.Warning
-                    SecurityLevel.INSECURE -> Icons.Default.Warning
-                    SecurityLevel.DANGEROUS -> Icons.Default.Close
-                },
+                painter = painterResource(
+                    when (securityLevel) {
+                        SecurityLevel.SECURE -> R.drawable.ic_ui_lock
+                        SecurityLevel.WARNING, SecurityLevel.INSECURE -> R.drawable.ic_ui_warning
+                        SecurityLevel.DANGEROUS -> R.drawable.ic_ui_close
+                    },
+                ),
                 contentDescription = null,
                 tint = when (securityLevel) {
                     SecurityLevel.SECURE -> BrowserColors.secure
-                    SecurityLevel.WARNING -> BrowserColors.warning
-                    SecurityLevel.INSECURE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    SecurityLevel.WARNING, SecurityLevel.INSECURE -> BrowserColors.warning
                     SecurityLevel.DANGEROUS -> MaterialTheme.colorScheme.error
                 },
                 modifier = Modifier.size(48.dp)
@@ -137,7 +139,7 @@ fun SecurityInfoDialog(
                     CertificateCard(certificate)
                 } else {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        color = BrowserColors.recessedWell,
                         shape = MaterialTheme.shapes.medium,
                     ) {
                         Row(
@@ -145,7 +147,7 @@ fun SecurityInfoDialog(
                             verticalAlignment = Alignment.Top,
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Info,
+                                painter = painterResource(R.drawable.ic_ui_info),
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp),
@@ -174,7 +176,7 @@ fun SecurityInfoDialog(
                             verticalAlignment = Alignment.Top,
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Warning,
+                                painter = painterResource(R.drawable.ic_ui_warning),
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
                             )
@@ -235,7 +237,7 @@ private fun InfoRow(label: String, value: String) {
 private fun CertificateCard(certificate: CertificateDetails) {
     val textResources = localizedResources()
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = BrowserColors.recessedWell,
         shape = MaterialTheme.shapes.medium,
     ) {
         Column(
@@ -289,61 +291,103 @@ fun SSLErrorDialog(
     onCancel: () -> Unit
 ) {
     val textResources = localizedResources()
-    AlertDialog(
+    BrowserAlertDialog(
         onDismissRequest = onCancel,
+        buttonsInColumn = true,
         icon = {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(48.dp)
-            )
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.errorContainer,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_ui_warning),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
         },
         title = {
             Text(
                 text = textResources.getString(R.string.ui_ssl_certificate_verification_failed),
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(textResources.getString(R.string.ui_website_b7aba5, url), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = textResources.getString(R.string.ui_website_b7aba5, url),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    shape = MaterialTheme.shapes.small
+                    shape = MaterialTheme.shapes.small,
+                    color = BrowserColors.recessedWell,
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Text(
                             text = textResources.getString(R.string.ui_possible_reasons),
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(textResources.getString(R.string.ui_the_website_certificate_has_expired), style = MaterialTheme.typography.bodySmall)
-                        Text(textResources.getString(R.string.ui_the_website_certificate_is_not_trusted), style = MaterialTheme.typography.bodySmall)
-                        Text(textResources.getString(R.string.ui_someone_may_be_trying_to_steal_your_information), style = MaterialTheme.typography.bodySmall)
+                        listOf(
+                            R.string.ui_the_website_certificate_has_expired,
+                            R.string.ui_the_website_certificate_is_not_trusted,
+                            R.string.ui_someone_may_be_trying_to_steal_your_information,
+                        ).forEach { reason ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_ui_warning),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 1.dp).size(14.dp),
+                                )
+                                Text(
+                                    text = textResources.getString(reason),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
 
                 Text(
                     text = textResources.getString(R.string.ui_we_recommend_leaving_this_website),
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = onCancel) {
-                Text(textResources.getString(R.string.ui_go_back_to_safety), color = MaterialTheme.colorScheme.primary)
+            Button(
+                onClick = onCancel,
+                shape = CircleShape,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(textResources.getString(R.string.ui_go_back_to_safety))
             }
         },
         dismissButton = {
-            TextButton(onClick = onProceed) {
-                Text(textResources.getString(R.string.ui_continue_anyway_unsafe), color = MaterialTheme.colorScheme.error)
+            TextButton(
+                onClick = onProceed,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(
+                    text = textResources.getString(R.string.ui_continue_anyway_unsafe),
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     )

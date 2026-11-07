@@ -1,6 +1,7 @@
 package com.mybrowser.ui.shell
 
 import androidx.activity.BackEventCompat
+import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -36,6 +38,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import com.mybrowser.ui.theme.BrowserColors
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mybrowser.R
@@ -233,9 +236,30 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
             snapshotFlow { measured }.first { it }
             progress.visibility.animateTo(1f, progress.arriveSpec())
         }
-        BrowserSheetWindow(progress, onDismissRequest, onMeasured = { measured = true },
-            composeDrivenExit = false) {
-            SheetWindowContent(onDismissRequest, content)
+        // The exit is driven here too, by the same progress that carried the surface in, so the
+        // platform window animation and Compose never add two displacements to one dismissal.
+        val scope = rememberCoroutineScope()
+        var closing by remember { mutableStateOf(false) }
+        val dismiss by rememberUpdatedState(onDismissRequest)
+        val close: () -> Unit = {
+            if (!closing) {
+                closing = true
+                scope.launch {
+                    progress.visibility.animateTo(0f, progress.departSpec())
+                    dismiss()
+                }
+            }
+        }
+        // A sheet opened by a page has no route host above it to supply the snackbar state. Give
+        // it one, so `LocalSnackbarHostState.current?.showSnackbar(...)` inside the sheet is not a
+        // silent no-op.
+        val fallbackHost = remember { SnackbarHostState() }
+        val host = LocalSnackbarHostState.current ?: fallbackHost
+        BrowserSheetWindow(progress, close, onMeasured = { measured = true },
+            composeDrivenExit = true) {
+            CompositionLocalProvider(LocalSnackbarHostState provides host) {
+                SheetWindowContent(close, content)
+            }
         }
     } else {
         val owner = remember { Any() }
@@ -553,7 +577,8 @@ private fun ReplacedSurface(shape: SheetShape, alpha: () -> Float, sheetShape: S
 internal fun BrowserBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    dragHandleOnly: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     SheetWindowContent(onDismissRequest) {
@@ -618,11 +643,13 @@ internal fun BrowserBottomSheet(
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
                         .onSizeChanged { surfaceHeight = it.height; if (it.height > 0) measured() }
-                        .nestedScroll(nestedScroll)
-                        .draggable(
-                            state = draggable,
-                            orientation = Orientation.Vertical,
-                            onDragStopped = { drag?.release(it) },
+                        .then(
+                            if (dragHandleOnly) Modifier.nestedScroll(nestedScroll)
+                            else Modifier.nestedScroll(nestedScroll).draggable(
+                                state = draggable,
+                                orientation = Orientation.Vertical,
+                                onDragStopped = { drag?.release(it) },
+                            )
                         )
                         .graphicsLayer {
                             // A sheet is a solid surface, not a translucent page floating over the
@@ -636,6 +663,7 @@ internal fun BrowserBottomSheet(
                         }.then(modifier),
                     shape = shape,
                     color = containerColor,
+                    border = BorderStroke(1.dp, BrowserColors.cardBorder),
                 ) {
                     Box {
                     Column(Modifier.windowInsetsPadding(safeInsets.only(WindowInsetsSides.Bottom))
@@ -648,7 +676,15 @@ internal fun BrowserBottomSheet(
                         // Material 3's modal sheet handle: the visible affordance for a surface
                         // that can be dragged down. Full-screen sheets do not get one.
                         Box(
-                            Modifier.fillMaxWidth().height(22.dp),
+                            Modifier.fillMaxWidth()
+                                .height(if (dragHandleOnly) 44.dp else 22.dp)
+                                .then(
+                                    if (dragHandleOnly) Modifier.draggable(
+                                        state = draggable,
+                                        orientation = Orientation.Vertical,
+                                        onDragStopped = { drag?.release(it) },
+                                    ) else Modifier
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Box(

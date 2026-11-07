@@ -1,8 +1,12 @@
 # 应用图标
 
-Pure 浏览器使用“青叶 P”图标：青绿色背景，前景由字母 P 和叶片组成。
+Pure 浏览器使用 **Pure Planet（澄白星环）** 自适应图标：瓷白微光渐变底、海蓝星球与倾斜轨道。
 
-[SVG 源图](leaf-p.svg)便于查看和编辑设计；应用实际使用 [Android 资源](../../app/src/main/res/)中的 XML。
-图标包含自适应版本和 Android 13+ 的主题单色版本，前景位于 108dp 画布中央的 66dp 安全圆内。
+实际资源位于 `app/src/main/res/`：
 
-修改时同步 SVG 和 Android XML，构建后在启动器检查圆形裁切、不同图标形状及主题单色效果。
+- `drawable/ic_launcher_background.xml`：`108dp` 瓷白渐变背景；
+- `drawable/ic_launcher_foreground.xml`：海蓝星球与轨道前景；
+- `drawable/ic_launcher_monochrome.xml`：Android 13+ 主题单色图标；
+- `mipmap-anydpi/ic_launcher.xml`：自适应图标入口。
+
+修改时同步这些 XML，并在启动器检查圆形、方形、圆角矩形与主题单色裁切效果。

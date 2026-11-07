@@ -24,16 +24,24 @@ class RecentTabStore<T>(private val dispose: (T) -> Unit) {
 
     fun remove(id: String) { entries.remove(id)?.let(dispose) }
 
-    fun removeWhere(predicate: (T) -> Boolean) { entries.filterValues(predicate).keys.toList().forEach(::remove) }
+    /** Removes matching entries and returns their ids so owners can clear per-tab state too. */
+    fun removeWhere(predicate: (T) -> Boolean): Set<String> {
+        val ids = entries.filterValues(predicate).keys.toList()
+        ids.forEach(::remove)
+        return ids.toSet()
+    }
 
     fun retain(ids: Set<String>) { (entries.keys - ids).forEach(::remove) }
 
     fun clear() { val old = entries.values.toList(); entries.clear(); old.forEach(dispose) }
 
     /** Drops the least recently parked page. False when there was nothing left to free. */
-    fun evictOldest(): Boolean {
-        val id = entries.keys.firstOrNull() ?: return false
+    fun evictOldest(): Boolean = evictOldestId() != null
+
+    /** Drops the least recently parked page and names it, so the owner can clear its state. */
+    fun evictOldestId(): String? {
+        val id = entries.keys.firstOrNull() ?: return null
         entries.remove(id)?.let(dispose)
-        return true
+        return id
     }
 }

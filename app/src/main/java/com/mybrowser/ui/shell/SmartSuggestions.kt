@@ -2,18 +2,18 @@ package com.mybrowser.ui.shell
 
 import com.mybrowser.R
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,6 +23,7 @@ import com.mybrowser.data.BookmarkManager
 import com.mybrowser.data.HistoryManager
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchSuggestionProvider
+import com.mybrowser.ui.theme.BrowserColors
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -87,17 +88,23 @@ fun SmartSuggestions(
     val textResources = localizedResources()
     // Each source updates independently so local rows never wait on the network.
     var extractedLinks by remember { mutableStateOf<List<String>>(emptyList()) }
+    // The query whose link scan has completed. A null/other value means "not scanned yet",
+    // which is different from "scanned and found no links" and must never allow a network send.
+    var linksScannedFor by remember { mutableStateOf<String?>(null) }
     var localSuggestions by remember { mutableStateOf<List<Suggestion>>(emptyList()) }
     var onlineTerms by remember { mutableStateOf<List<String>>(emptyList()) }
 
     // Local pass: links, bookmarks and (outside incognito) history.
     LaunchedEffect(query, bookmarkManager, historyManager) {
         extractedLinks = emptyList()
+        linksScannedFor = null
         localSuggestions = emptyList()
         if (query.isBlank()) return@LaunchedEffect
 
         delay(150) // Debounce
         val links = withContext(Dispatchers.IO) { WebLinkExtractor.extractWebLinks(query) }
+        extractedLinks = links
+        linksScannedFor = query
         val local = withContext(Dispatchers.IO) {
             val found = mutableListOf<Suggestion>()
             runCatching { bookmarkManager.suggestions(query) }
@@ -125,23 +132,32 @@ fun SmartSuggestions(
                 }
             found
         }
-        extractedLinks = links
         localSuggestions = rankSuggestions(query, local)
     }
 
     // Online pass: the current engine's keyword suggestions. Restarts (and cancels) on
     // every query, engine, switch or mode change, and keeps its rows empty while the IME
     // is still composing so half-typed pinyin never becomes a suggestion.
-    LaunchedEffect(query, searchEngine.id, onlineSuggestionsEnabled, suggestionProvider, hasComposingText, isIncognito) {
+    LaunchedEffect(query, searchEngine.id, onlineSuggestionsEnabled, suggestionProvider, hasComposingText, isIncognito, extractedLinks, linksScannedFor) {
         onlineTerms = emptyList()
         if (!onlineSuggestionsEnabled || suggestionProvider == null || hasComposingText) return@LaunchedEffect
 
         val trimmed = query.trim()
         if (trimmed.isEmpty() || trimmed.length > 100) return@LaunchedEffect
+        // Wait for the scan of this exact query; an empty list from the previous query (or
+        // before the scan starts) is not proof that the pasted text contains no link.
+        if (linksScannedFor != query) return@LaunchedEffect
         // A URL-shaped input, or mixed text that already contains a link, must not be
-        // shipped to the search engine as a keyword.
+        // shipped to the search engine as a keyword. The link extraction already ran on
+        // Dispatchers.IO for the local rows; reuse its result instead of parsing the text
+        // again on the main thread.
         if (UrlUtils.isNavigableInput(query)) return@LaunchedEffect
-        if (WebLinkExtractor.extractWebLinks(query).isNotEmpty()) return@LaunchedEffect
+        if (extractedLinks.isNotEmpty()) return@LaunchedEffect
+        // Belt and braces for a scheme the extractor could not turn into a valid link: never
+        // ship text that still visibly contains a URL scheme to the suggestion service.
+        if (query.contains("http://", ignoreCase = true) || query.contains("https://", ignoreCase = true)) {
+            return@LaunchedEffect
+        }
 
         delay(250) // Debounce
         val engine = searchEngine
@@ -164,11 +180,17 @@ fun SmartSuggestions(
         Card(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp)
+                .border(
+                    1.dp,
+                    BrowserColors.cardBorder,
+                    MaterialTheme.shapes.large,
+                ),
+            shape = MaterialTheme.shapes.large,
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             LazyColumn(
                 modifier = Modifier.heightIn(max = maxHeight)
@@ -180,7 +202,10 @@ fun SmartSuggestions(
                         onFill = { onFillSuggestion(suggestion.fillText) }
                     )
                     if (suggestion != suggestions.last()) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        HorizontalDivider(
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        )
                     }
                 }
             }
@@ -216,29 +241,23 @@ private fun SuggestionItem(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (suggestion.type == SuggestionType.LINK) {
-                Icon(
-                    androidx.compose.ui.res.painterResource(R.drawable.ic_open_in_new),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(18.dp)
-                )
-            } else {
-                Icon(
-                    imageVector = when (suggestion.type) {
-                        SuggestionType.BOOKMARK -> Icons.Default.Star
-                        SuggestionType.HISTORY -> Icons.Default.DateRange
-                        else -> Icons.Default.Search
+            Icon(
+                painter = painterResource(
+                    when (suggestion.type) {
+                        SuggestionType.BOOKMARK -> R.drawable.ic_ui_bookmark
+                        SuggestionType.HISTORY -> R.drawable.ic_ui_history
+                        SuggestionType.LINK -> R.drawable.ic_ui_open_in_new
+                        else -> R.drawable.ic_ui_search
                     },
-                    contentDescription = null,
-                    tint = when (suggestion.type) {
-                        SuggestionType.BOOKMARK -> MaterialTheme.colorScheme.onPrimaryContainer
-                        SuggestionType.HISTORY -> MaterialTheme.colorScheme.onSecondaryContainer
-                        else -> MaterialTheme.colorScheme.onTertiaryContainer
-                    },
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+                ),
+                contentDescription = null,
+                tint = when (suggestion.type) {
+                    SuggestionType.BOOKMARK, SuggestionType.LINK -> MaterialTheme.colorScheme.onPrimaryContainer
+                    SuggestionType.HISTORY -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onTertiaryContainer
+                },
+                modifier = Modifier.size(18.dp)
+            )
         }
 
         Spacer(modifier = Modifier.width(12.dp))
@@ -266,7 +285,7 @@ private fun SuggestionItem(
         }
 
         IconButton(onClick = onFill) {
-            Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_forward),
+            Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_ui_forward),
                 contentDescription = textResources.getString(R.string.suggestion_fill, suggestion.title))
         }
 

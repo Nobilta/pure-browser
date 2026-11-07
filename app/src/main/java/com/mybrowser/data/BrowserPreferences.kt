@@ -25,7 +25,7 @@ data class VideoPreferences(
 data class BrowserPreferences(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val video: VideoPreferences = VideoPreferences(),
-    val bottomAddressBar: Boolean = false,
+    val bottomAddressBar: Boolean = true,
     val swipeTabs: Boolean = false,
     /** Check the public release manifest once per process start and offer a newer build. */
     val autoCheckUpdates: Boolean = true,
@@ -56,7 +56,7 @@ class BrowserPreferencesRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("browser_preferences", Context.MODE_PRIVATE)
 
     private fun read(): BrowserPreferences = BrowserPreferences(
-        bottomAddressBar = prefs.getBoolean("bottom_address_bar", false),
+        bottomAddressBar = prefs.getBoolean("bottom_address_bar", true),
         swipeTabs = prefs.getBoolean("swipe_tabs", false),
         autoCheckUpdates = prefs.getBoolean("auto_check_updates", true),
         incognitoEnabled = prefs.getBoolean("incognito_enabled", false),

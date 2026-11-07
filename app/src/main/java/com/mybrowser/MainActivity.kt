@@ -21,15 +21,18 @@ import android.content.ComponentCallbacks2
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Rect
 import android.net.Uri
 import android.net.http.SslError
 import android.util.Log
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
 import com.mybrowser.translate.PageTranslator
@@ -43,6 +46,7 @@ import com.mybrowser.ui.translate.TranslationSheetMode
 import com.mybrowser.ui.translate.TranslationSheet
 import com.mybrowser.ui.menu.MoreToolsSheet
 import com.mybrowser.ui.shell.WelcomeDialog
+import com.mybrowser.ui.shell.BrowserAlertDialog
 import android.webkit.GeolocationPermissions
 import android.webkit.HttpAuthHandler
 import android.webkit.JsResult
@@ -75,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
@@ -191,7 +196,7 @@ import com.mybrowser.ui.settings.UserScriptsSheet
 import com.mybrowser.ui.shell.BookmarkEditDialog
 import com.mybrowser.ui.library.LibraryPager
 import com.mybrowser.ui.shell.PageContextSheet
-import com.mybrowser.ui.theme.MyBrowserTheme
+import com.mybrowser.ui.theme.PureBrowserTheme
 import com.mybrowser.ui.shell.Dialogs
 import java.io.ByteArrayInputStream
 import java.util.WeakHashMap
@@ -274,6 +279,26 @@ class MainActivity : ComponentActivity(),
     private var translationProgress by mutableIntStateOf(0)
     private var translationPageTranslated by mutableStateOf(false)
     private var translationSessionActive by mutableStateOf(false)
+    /**
+     * Reader mode lives inside one WebView's document, not in the Activity.
+     *
+     * A parked tab keeps its reader DOM, and a popup tab has its own document. Keying the state
+     * by tab id means switching between them shows the state of the page actually on screen, and
+     * a page start only clears the entry for the tab that navigated.
+     */
+    private val readerTabs = mutableStateMapOf<String, Boolean>()
+    private val readerActive: Boolean
+        get() = tabManager.currentTab?.id?.let { readerTabs[it] == true } ?: false
+
+    private fun setReaderActiveFor(tabId: String, active: Boolean) {
+        if (tabManager.tabs.none { it.id == tabId }) return
+        if (active) readerTabs[tabId] = true else readerTabs.remove(tabId)
+    }
+
+    private fun pruneReaderTabs() {
+        val live = tabManager.tabs.mapTo(HashSet()) { it.id }
+        readerTabs.keys.retainAll(live)
+    }
     private var translationComplete by mutableStateOf(false)
     private var translationClosing by mutableStateOf(false)
     private var showWelcome by mutableStateOf(false)
@@ -397,7 +422,12 @@ class MainActivity : ComponentActivity(),
     /** Non-null while the add-bookmark editor is visible. */
     private var bookmarkDraft: BookmarkDraft? by mutableStateOf(null)
 
-    private data class BookmarkDraft(val title: String, val url: String, val id: Long? = null)
+    private data class BookmarkDraft(
+        val title: String,
+        val url: String,
+        val id: Long? = null,
+        val addToHome: Boolean = false,
+    )
 
     private var pageContextTarget by mutableStateOf<PageContextTarget?>(null)
     private val pageContextMenu = PageContextMenuController({ it === webViewOrNull }) { target ->
@@ -462,6 +492,9 @@ class MainActivity : ComponentActivity(),
             override fun isAlive() = page.alive
             override fun onNavigation(url: String) { updatePopupDocument(page, url) }
             override fun onStarted(url: String) {
+                // A background popup/opener can navigate while another tab owns the screen;
+                // its reader DOM is gone even though the foreground onPageStarted never fires.
+                readerTabs.remove(page.tabId)
                 downloadRequests.startDocument(page.tabId)
                 // The popup’s old document is going away with its blob: addresses, so a
                 // transfer reading one of them has to end here just as it does for the main frame.
@@ -545,6 +578,8 @@ class MainActivity : ComponentActivity(),
             if (page.view !== webViewOrNull) disposePopupPage(page)
         }
         recentViews.clear()
+        // Parked views are where reader DOMs live; none of those documents survives this call.
+        readerTabs.clear()
     }
     private fun pruneResidentTabs() {
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
@@ -552,8 +587,12 @@ class MainActivity : ComponentActivity(),
         popupPages.retain(tabManager.tabs.map { it.id }.toSet()).forEach(::disposePopupPage)
     }
 
-    /** Frees the least recently parked page. False when there was nothing left to free. */
-    private fun evictOldestParkedPage(): Boolean = recentViews.evictOldest()
+    /** Frees the least recently parked page and clears the reader state that lived in it. */
+    private fun evictOldestParkedPage(): Boolean {
+        val evictedId = recentViews.evictOldestId() ?: return false
+        readerTabs.remove(evictedId)
+        return true
+    }
 
     /**
      * Creates an instance, evicting parked pages oldest-first if the allocator is out of
@@ -762,7 +801,7 @@ class MainActivity : ComponentActivity(),
         // Register the fallback before Compose, including when restoring open settings.
         setUpBackHandling()
         setContent {
-            MyBrowserTheme(themeMode = browserPreferences.theme) {
+            PureBrowserTheme(themeMode = browserPreferences.theme) {
                 val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -801,7 +840,7 @@ class MainActivity : ComponentActivity(),
                 }
                 val cleanupState by privacy.cleanupState.collectAsState()
                 if (cleanupState == com.mybrowser.privacy.PrivacyCleanupBarrier.State.FAILED) {
-                    androidx.compose.material3.AlertDialog(
+                    BrowserAlertDialog(
                         onDismissRequest = {},
                         title = { Text(getString(R.string.privacy_cleanup_title)) },
                         text = { Text(getString(R.string.privacy_cleanup_failed)) },
@@ -905,7 +944,7 @@ class MainActivity : ComponentActivity(),
                     onMenu = { if (sheet == null) openSheet(Sheet.MENU) },
                     onScanQr = { openSheet(Sheet.QR_SCANNER) },
                     onTabs = {
-                        tabManager.captureCurrentThumbnail(webView, 200, 300)
+                        captureCurrentThumbnail()
                         openSheet(Sheet.TABS)
                     },
                     tabCount = tabManager.count,
@@ -927,6 +966,7 @@ class MainActivity : ComponentActivity(),
                     onOpenHomeShortcut = { shortcut -> navigator.navigate(shortcut.url) },
                     onSaveHomeShortcut = ::saveHomeShortcut,
                     onRemoveHomeShortcut = ::removeHomeShortcut,
+                    onAddHomeShortcut = { openBookmarkEditor(addToHome = true) },
                     onFindQueryChange = { query ->
                         if (query.isEmpty()) {
                             webView.clearMatches()
@@ -947,6 +987,8 @@ class MainActivity : ComponentActivity(),
                     onPickerCancel = ::stopElementPicker,
                     isIncognito = privacy.isIncognito,
                     hasPrivateIsolation = privacy.hasRealIsolation,
+                    isReaderActive = readerActive,
+                    onToggleReader = ::toggleReaderMode,
                     onRetryPage = ::retryFailedPage,
                     onNewTab = { createNewTab() },
                     bottomAddressBar = browserPreferences.bottomAddressBar,
@@ -972,6 +1014,7 @@ class MainActivity : ComponentActivity(),
                     onOmnibarSearch = { query -> navigator.navigate(searchEngine.buildSearchUrl(query)) },
                     certificateError = hasCertificateWarning,
                     snackbarHostState = snackbarHostState,
+                    suppressSnackbar = sheet != null,
                 )
 
                 BrowserSheetHost(sheetNavigation, snackbarHostState = snackbarHostState) { entry ->
@@ -998,7 +1041,10 @@ class MainActivity : ComponentActivity(),
                             siteTitle = state.pageTitle?.takeIf { it.isNotBlank() }
                                 ?: UrlUtils.hostOf(state.currentUrl).orEmpty(),
                             siteHost = UrlUtils.hostOf(state.currentUrl).orEmpty(),
-                            isSecure = state.currentUrl.startsWith("https://") && !hasCertificateWarning,
+                            securityLevel = SecurityChecker.getSecurityLevel(state.currentUrl, hasCertificateWarning),
+                            isReaderActive = readerActive,
+                            isTranslateActive = translationSessionActive || translationPageTranslated,
+                            onToggleReader = { sheetAction(entry, ::toggleReaderMode) },
                             onSharePage = { if (UrlUtils.isHttpUrl(state.currentUrl)) shareUrl(state.currentUrl) },
                             onBlockElement = {
                                 sheetAction(entry) {
@@ -1071,9 +1117,15 @@ class MainActivity : ComponentActivity(),
                             },
                             onNewTab = { sheetAction(entry, ::createNewTab) },
                             onCloseAll = { sheetAction(entry, ::closeAllTabs) },
-                            onCloseOthers = {
-                                tabManager.closeOtherTabs()
+                            onCloseOthers = { keepId ->
+                                val wasCurrent = tabManager.currentTab?.id == keepId
+                                tabManager.closeOtherTabs(keepId)
+                                pruneReaderTabs()
                                 pruneResidentTabs()
+                                if (!wasCurrent) {
+                                    loadCurrentTab()
+                                    refreshTranslationState()
+                                }
                                 persistNormalSession()
                             },
                             onDismiss = { dismissSheet(entry) },
@@ -1316,7 +1368,6 @@ class MainActivity : ComponentActivity(),
                             onScanQr = { sheetNavigation.push(entry, Sheet.QR_SCANNER) },
                             onOpenDeveloperTools = { sheetNavigation.push(entry, Sheet.DEVELOPER_TOOLS) },
                             onClearData = { sheetAction(entry) { showClearData = true } },
-                            onOpenReader = { sheetAction(entry, ::toggleReaderMode) },
                             onPrintPage = { sheetAction(entry, ::printCurrentPage) },
                             onDismiss = { dismissSheet(entry) },
                         )
@@ -1359,6 +1410,7 @@ class MainActivity : ComponentActivity(),
                     BookmarkEditDialog(
                         initialTitle = draft.title,
                         initialUrl = draft.url,
+                        initialAddToHome = draft.addToHome,
                         onSave = ::saveBookmark,
                         isEditing = draft.id != null,
                         onDismiss = {
@@ -1449,7 +1501,7 @@ class MainActivity : ComponentActivity(),
                 settingsExportFeedback.result?.let { result ->
                     val truncated = result.omittedBookmarks > 0 || result.omittedHistory > 0
                     val skipped = result.skippedGroups.map(::settingsGroupName)
-                    androidx.compose.material3.AlertDialog(
+                    BrowserAlertDialog(
                         onDismissRequest = { settingsExportFeedback.dismiss() },
                         title = { Text(getString(R.string.settings_exported)) },
                         text = {
@@ -2159,6 +2211,7 @@ class MainActivity : ComponentActivity(),
         cancelPendingSslError()
         if (navigationReadiness.awaitScripts { loadCurrentTab(); refreshTranslationState() }) return
         val tab = tabManager.currentTab ?: return
+        pruneReaderTabs()
         // Translation state belongs to one tab. Park a snapshot before clearing the native
         // queue; returning to the tab can then resume the same JS observers instead of losing
         // in-flight paragraphs or pretending the page was never translated.
@@ -2185,6 +2238,9 @@ class MainActivity : ComponentActivity(),
         hasVideo = false
         rememberedVideo = null
         if (oldId != null && oldId != tab.id) {
+            // Invalidate a reader extraction that was still in flight for the old document;
+            // tab switches without a page start would otherwise let it land on a parked tab.
+            ReaderMode.onPageStarted()
             val previousFailure = state.pageFailure
             val previousPageFailed = previousFailure != null
             state.pageFailure = null
@@ -2208,7 +2264,11 @@ class MainActivity : ComponentActivity(),
                         suspendPage(old)
                         recentViews.put(oldId, ParkedPage(old, priorSettings, priorFiltering))
                     }
-                    else -> { removeMediaPlaybackTracker(old); pool.discard(old) }
+                    else -> {
+                        readerTabs.remove(oldId)
+                        removeMediaPlaybackTracker(old)
+                        pool.discard(old)
+                    }
                 }
                 webViewOrNull = liveTarget?.view ?: parked?.view ?: acquireFreshPage()
                 viewOwnerId = tab.id
@@ -2250,6 +2310,9 @@ class MainActivity : ComponentActivity(),
             }
         }
         viewOwnerId = tab.id
+        // This tab has no parked or popup view here, so any reader DOM it had is gone. Clear
+        // before restoring/loading; restoreState may not emit onPageStarted on every provider.
+        readerTabs.remove(tab.id)
         // WebView.restoreState is only supported before the instance builds history.
         // Reusing a loaded instance loses restored navigation entries on older providers.
         if (tab.savedState != null && webView.copyBackForwardList().size > 0) {
@@ -2290,8 +2353,34 @@ class MainActivity : ComponentActivity(),
     private fun saveCurrentTab() {
         if (readyWebViewTabId != tabManager.currentTab?.id) return
         tabManager.saveCurrentState(webView)
-        // Update thumbnail
-        tabManager.captureCurrentThumbnail(webView, 200, 300)
+    }
+
+    /**
+     * Captures the visible page with PixelCopy, because a hardware-accelerated WebView does not
+     * render its contents into a software Canvas. The bitmap is stored on the tab that was
+     * current when the capture started, so a fast switch cannot write it to the wrong tab.
+     */
+    private fun captureCurrentThumbnail() {
+        val tab = tabManager.currentTab ?: return
+        val view = webViewOrNull ?: return
+        if (sheet != null || view.width <= 0 || view.height <= 0) return
+        val location = IntArray(2)
+        view.getLocationInWindow(location)
+        val source = Rect(
+            location[0],
+            location[1],
+            location[0] + view.width,
+            location[1] + view.height,
+        )
+        val raw = Bitmap.createBitmap(source.width(), source.height(), Bitmap.Config.ARGB_8888)
+        PixelCopy.request(window, source, raw, { result ->
+            if (result == PixelCopy.SUCCESS) {
+                val targetHeight = (360L * raw.height / raw.width).toInt().coerceIn(1, 540)
+                tab.thumbnail = Bitmap.createScaledBitmap(raw, 360, targetHeight, true)
+                tabManager.notifyChanged()
+            }
+            raw.recycle()
+        }, Handler(Looper.getMainLooper()))
     }
 
     private fun createNewTab() {
@@ -2312,6 +2401,7 @@ class MainActivity : ComponentActivity(),
         tabManager.switchToIndex(index)
         loadCurrentTab()
         refreshTranslationState()
+        webViewOrNull?.post { captureCurrentThumbnail() }
     }
 
     private fun closeTab(index: Int) {
@@ -2323,6 +2413,7 @@ class MainActivity : ComponentActivity(),
         }
         val wasCurrent = index == tabManager.currentIndex
         tabManager.closeTab(index)
+        pruneReaderTabs()
         pruneResidentTabs()
         if (wasCurrent) {
             webView.stopLoading()
@@ -2338,6 +2429,7 @@ class MainActivity : ComponentActivity(),
         clearResidentTabs()
         downloadRequests.resetTransientState()
         tabManager.clearAllTabs()
+        pruneReaderTabs()
         webView.stopLoading()
         loadCurrentTab()
         refreshTranslationState()
@@ -2617,14 +2709,14 @@ class MainActivity : ComponentActivity(),
     private fun loadHistory() = historyLibrary.refresh()
 
     /** Opens the editor with the URL and title currently shown by the WebView. */
-    private fun openBookmarkEditor() {
+    private fun openBookmarkEditor(addToHome: Boolean = false) {
         val url = state.currentUrl.takeUnless { it == ABOUT_BLANK }.orEmpty()
         val title = state.pageTitle?.trim().orEmpty()
             .ifBlank { webView.title?.trim().orEmpty() }
             .ifBlank { UrlUtils.hostOf(url).orEmpty() }
             .ifBlank { url }
 
-        bookmarkDraft = BookmarkDraft(title = title, url = url)
+        bookmarkDraft = BookmarkDraft(title = title, url = url, addToHome = addToHome)
         // The editor is a separate modal surface. Dismiss the menu first so two modal windows
         // never compete for focus or leave the sheet's scrim above the text fields.
         sheetNavigation.clear()
@@ -2965,6 +3057,9 @@ class MainActivity : ComponentActivity(),
         }
         mediaResponseHandoff.retain(tabManager.currentTab?.mediaNavigation)
         ReaderMode.onPageStarted()
+        // Clear the tab that owns the view that navigated, not whichever tab happens to be
+        // selected: tab switching updates the index before the new view is attached.
+        (viewOwnerId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
         translationJob?.cancel()
         translationScrollJob?.cancel()
         translationGeneration++
@@ -3038,6 +3133,7 @@ class MainActivity : ComponentActivity(),
     override fun onPageCommitVisible(url: String) {
         state.onPageCommitVisible(url)
         cosmeticRuntimes[webView]?.onPageCommitVisible(url)
+        captureCurrentThumbnail()
     }
 
     override fun onPageFinished(url: String, canGoBack: Boolean, canGoForward: Boolean) {
@@ -3122,12 +3218,19 @@ class MainActivity : ComponentActivity(),
 
     private fun toggleReaderMode() {
         val view = webViewOrNull ?: return
+        val ownerTabId = viewOwnerId ?: tabManager.currentTab?.id ?: return
         ReaderMode.toggle(view, isDarkUi()) { outcome ->
-            toast(getString(when (outcome) {
-                ReaderMode.Outcome.ENTERED -> R.string.reader_entered
-                ReaderMode.Outcome.EXITED -> R.string.reader_exited
-                ReaderMode.Outcome.UNSUPPORTED -> R.string.reader_unavailable
-            }))
+            // The callback is asynchronous and the user may have switched tabs or navigated
+            // meanwhile. Record the result against the tab that owns the view, but only toast
+            // and drive the visible chrome while that exact view is still the foreground one.
+            setReaderActiveFor(ownerTabId, outcome == ReaderMode.Outcome.ENTERED)
+            if (view === webViewOrNull && tabManager.currentTab?.id == ownerTabId) {
+                toast(getString(when (outcome) {
+                    ReaderMode.Outcome.ENTERED -> R.string.reader_entered
+                    ReaderMode.Outcome.EXITED -> R.string.reader_exited
+                    ReaderMode.Outcome.UNSUPPORTED -> R.string.reader_unavailable
+                }))
+            }
         }
     }
 
@@ -3311,7 +3414,7 @@ class MainActivity : ComponentActivity(),
         // currently visible tab. It is still safe to discard that corpse.
         if (webViewOrNull !== webView) {
             popupPages.idOf { it.view === webView }?.let { popupPages.remove(it)?.alive = false }
-            recentViews.removeWhere { it.view === webView }
+            recentViews.removeWhere { it.view === webView }.forEach { readerTabs.remove(it) }
             removeMediaPlaybackTracker(webView)
             pool.discard(webView)
             return
@@ -3321,6 +3424,7 @@ class MainActivity : ComponentActivity(),
         // replacement.
         val lastUrl = state.currentUrl
         popupPages.idOf { it.view === webView }?.let { popupPages.remove(it)?.alive = false }
+        (viewOwnerId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
         readyWebViewTabId = null
         cancelWebsitePermissions()
         leaveFullscreen()

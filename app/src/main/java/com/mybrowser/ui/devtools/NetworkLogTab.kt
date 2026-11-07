@@ -22,6 +22,7 @@ import com.mybrowser.devtools.EnhancedCaptureState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.localizedResources
 
 @Composable
@@ -42,8 +43,8 @@ internal fun NetworkLogTab(
     var counts by remember { mutableStateOf<Map<NetworkCategory, Int>>(emptyMap()) }
     val listState = rememberLazyListState()
     var previousFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    val labels = NetworkCategory.entries.associateWith { resources.getString(it.label) }
-    val outcomes = NetworkOutcome.entries.associateWith { resources.getString(it.label) }
+    val labels = remember(resources.configuration) { NetworkCategory.entries.associateWith { resources.getString(it.label) } }
+    val outcomes = remember(resources.configuration) { NetworkOutcome.entries.associateWith { resources.getString(it.label) } }
     LaunchedEffect(query) { delay(150); appliedQuery = query }
     LaunchedEffect(entries, appliedQuery, category, outcome, resources.configuration) {
         val result = withContext(Dispatchers.Default) {
@@ -86,7 +87,7 @@ internal fun NetworkLogTab(
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
                 TextButton(onClick = { statusMenu = true }) { Text(outcomes.getValue(outcome)) }
-                DropdownMenu(statusMenu, { statusMenu = false }) {
+                BrowserDropdownMenu(statusMenu, { statusMenu = false }) {
                     NetworkOutcome.entries.forEach { item ->
                         DropdownMenuItem(text = { Text(outcomes.getValue(item)) }, onClick = { outcome = item; statusMenu = false })
                     }

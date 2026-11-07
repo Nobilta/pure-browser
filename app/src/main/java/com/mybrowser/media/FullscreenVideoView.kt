@@ -29,8 +29,9 @@ import androidx.core.view.WindowInsetsCompat
 import com.mybrowser.R
 import com.mybrowser.core.PlaybackSpeed
 import com.mybrowser.core.VideoFit
+import com.mybrowser.data.ThemeMode
 import com.mybrowser.data.VideoPreferences
-import com.mybrowser.ui.theme.MyBrowserTheme
+import com.mybrowser.ui.theme.PureBrowserTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -110,7 +111,7 @@ class FullscreenVideoView(
         gestures.visibility = GONE
         addView(controlsHost, LayoutParams(-1, -1))
         controlsHost.setContent {
-            MyBrowserTheme(darkTheme = true) {
+            PureBrowserTheme(themeMode = ThemeMode.DARK) {
                 val position = if (seeking) seekPosition(progress) else state.position
                 PlayerControls(
                     state = PlayerControlsState(

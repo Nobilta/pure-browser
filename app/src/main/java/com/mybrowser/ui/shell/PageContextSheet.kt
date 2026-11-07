@@ -45,16 +45,16 @@ fun PageContextSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp))
             target.linkUrl?.let { link ->
-                BrowserActionRow(R.drawable.ic_add, stringResource(R.string.context_open_new_tab)) { onOpen(link, false) }
-                BrowserActionRow(R.drawable.ic_tabs, stringResource(R.string.context_open_background)) { onOpen(link, true) }
-                BrowserActionRow(R.drawable.ic_copy, stringResource(R.string.context_copy_link)) { onCopy(link) }
-                BrowserActionRow(R.drawable.ic_share, stringResource(R.string.context_share_link)) { onShare(link) }
+                BrowserActionRow(R.drawable.ic_ui_add, stringResource(R.string.context_open_new_tab)) { onOpen(link, false) }
+                BrowserActionRow(R.drawable.ic_ui_tabs, stringResource(R.string.context_open_background)) { onOpen(link, true) }
+                BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_link)) { onCopy(link) }
+                BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_link)) { onShare(link) }
             }
             target.imageUrl?.let { image ->
                 if (target.linkUrl != null) HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                BrowserActionRow(R.drawable.ic_open_in_new, stringResource(R.string.context_open_image)) { onOpen(image, false) }
-                BrowserActionRow(R.drawable.ic_download, stringResource(R.string.context_save_image)) { onSaveImage(image) }
-                BrowserActionRow(R.drawable.ic_copy, stringResource(R.string.context_copy_image_link)) { onCopy(image) }
+                BrowserActionRow(R.drawable.ic_ui_open_in_new, stringResource(R.string.context_open_image)) { onOpen(image, false) }
+                BrowserActionRow(R.drawable.ic_ui_download, stringResource(R.string.context_save_image)) { onSaveImage(image) }
+                BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_image_link)) { onCopy(image) }
             }
             // One address, so one set of block rows: see PageContextTarget.blockAddress for why the
             // image wins when the press was on one that is also a link.
@@ -64,13 +64,13 @@ fun PageContextSheet(
             if (addressRule != null || hostRule != null || target.imageUrl != null) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 addressRule?.let { rule ->
-                    BrowserActionRow(R.drawable.ic_block, stringResource(R.string.context_block_address), rule) { onBlockResource(rule) }
+                    BrowserActionRow(R.drawable.ic_ui_block, stringResource(R.string.context_block_address), rule) { onBlockResource(rule) }
                 }
                 hostRule?.let { rule ->
-                    BrowserActionRow(R.drawable.ic_shield, stringResource(R.string.context_block_host), rule) { onBlockHost(rule) }
+                    BrowserActionRow(R.drawable.ic_ui_shield, stringResource(R.string.context_block_host), rule) { onBlockHost(rule) }
                 }
                 target.imageUrl?.let { image ->
-                    BrowserActionRow(R.drawable.ic_close, stringResource(R.string.context_hide_this_page), resourceName(image)) { onHideHere(image) }
+                    BrowserActionRow(R.drawable.ic_ui_close, stringResource(R.string.context_hide_this_page), resourceName(image)) { onHideHere(image) }
                 }
             }
         }

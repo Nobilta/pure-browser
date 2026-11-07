@@ -1,6 +1,5 @@
 package com.mybrowser.ui.shell
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,9 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -40,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 /**
  * The activity's feedback state, so a dialog-hosted sheet can show the same snackbar.
@@ -60,6 +58,8 @@ internal data class FeedbackMessage(
 ) : SnackbarVisuals {
     override val withDismissAction: Boolean get() = false
     override val duration: SnackbarDuration
+        // Ordinary messages use Short here and are capped to 2 s by SwipeDismissSnackbarHost;
+        // action-bearing messages keep the full 10 s window.
         get() = if (actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short
 }
 
@@ -135,7 +135,16 @@ fun SwipeDismissSnackbarHost(
 ) {
     var offsetX by remember(hostState) { mutableFloatStateOf(0f) }
     val current = hostState.currentSnackbarData
-    LaunchedEffect(current) { offsetX = 0f }
+    LaunchedEffect(current) {
+        offsetX = 0f
+        val data = current ?: return@LaunchedEffect
+        // Material 3 only offers 4 s (Short) and 10 s (Long). Ordinary feedback is kept to
+        // 2 s here; action-bearing messages keep their 10 s window so undo stays reachable.
+        if (data.visuals.actionLabel == null) {
+            delay(2_000)
+            if (hostState.currentSnackbarData === data) data.dismiss()
+        }
+    }
     val threshold = with(LocalDensity.current) { 80.dp.toPx() }
     Box(
         modifier = modifier.pointerInput(hostState, current) {
@@ -165,33 +174,26 @@ fun SwipeDismissSnackbarHost(
 }
 
 /**
- * The app's snackbar, styled as a floating message rather than Material's full-width bar.
+ * The app's snackbar: an inverse-surface pill with no shadow and no outline.
  *
- * Material's default snackbar uses `inverseSurface` and fills the width, which on a phone reads
- * as a black slab across the page — the shape, not the mechanism, was what looked wrong. This
- * keeps the snackbar (actions, TalkBack, one queue) and narrows it to a pill that wraps its text:
- * a light surface over a light page, black in the dark theme, with enough elevation and an
- * outline to stay legible above the toolbar. Both the plain message and the one with an action
- * keep the same pill: the action adds a button and a second line, never a different shape.
+ * It is separated from the page by contrast, not by elevation: `inverseSurface` is deep navy on a
+ * light theme and bright white on a dark one (14.5:1 against its content colour), so the message
+ * reads as a deliberate overlay while the zero-shadow rule keeps the surface hierarchy honest.
+ * The stadium shape clamps to half the height, so a plain message and a taller action-bearing one
+ * stay the same component.
  */
 @Composable
 private fun BrowserSnackbar(data: SnackbarData, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    val dark = colors.surface.luminance() < 0.5f
     val action = data.visuals.actionLabel
     val important = (data.visuals as? FeedbackMessage)?.important == true
-    // One shape for both: a stadium clamps to half the height, so a plain message and a taller
-    // action-bearing one read as the same component rather than two different notifications.
-    val shape = CircleShape
-    val container = if (dark) Color.Black else colors.surfaceContainerHighest
-    val outline = if (dark) colors.outlineVariant.copy(alpha = 0.55f) else colors.outlineVariant
     Surface(
-        modifier = modifier.widthIn(max = 560.dp).border(1.dp, outline, shape),
-        shape = shape,
-        color = container,
-        contentColor = colors.onSurface,
+        modifier = modifier.widthIn(max = 560.dp),
+        shape = CircleShape,
+        color = colors.inverseSurface,
+        contentColor = colors.inverseOnSurface,
         tonalElevation = 0.dp,
-        shadowElevation = 6.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             // The action button used to add its own 40dp minimum, which made the undo message
@@ -218,7 +220,7 @@ private fun BrowserSnackbar(data: SnackbarData, modifier: Modifier = Modifier) {
                     onClick = { data.performAction() },
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    Text(action, color = colors.primary)
+                    Text(action, color = colors.inversePrimary)
                 }
             }
         }

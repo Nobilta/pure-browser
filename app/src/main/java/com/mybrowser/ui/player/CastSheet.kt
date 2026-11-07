@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -149,7 +150,11 @@ fun CastSheet(
             }
 
             item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -199,7 +204,7 @@ fun CastSheet(
 /** Fullscreen playback supplies its own anchored surface and never opens a dialog. */
 @Composable
 private fun CastContainer(embedded: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    if (embedded) content() else BrowserBottomSheet(onDismissRequest = onDismiss) {
+    if (embedded) content() else BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         BrowserSheetHeader(stringResource(R.string.menu_cast), onBack = onDismiss)
         Box(Modifier.weight(1f, fill = false)) { content() }
     }
@@ -235,7 +240,7 @@ private fun MediaRow(
     ) {
         Icon(
             painter = painterResource(
-                if (isSelected) R.drawable.ic_radio_checked else R.drawable.ic_radio_unchecked,
+                if (isSelected) R.drawable.ic_ui_radio_checked else R.drawable.ic_ui_radio_unchecked,
             ),
             contentDescription = null,
             tint = if (isSelected) {
@@ -318,28 +323,32 @@ private fun DeviceRow(
     onClick: () -> Unit,
 ) {
     val textResources = localizedResources()
-    val color =
+    val labelColor =
         if (enabled) MaterialTheme.colorScheme.onSurface
         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    val iconColor =
+        if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = 48.dp)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            painter = painterResource(R.drawable.ic_tv),
+            painter = painterResource(R.drawable.ic_ui_monitor),
             contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(24.dp),
+            tint = iconColor,
+            modifier = Modifier.size(22.dp),
         )
-        Spacer(Modifier.width(20.dp))
+        Spacer(Modifier.width(16.dp))
         Text(
             text = device.displayName(textResources),
             style = MaterialTheme.typography.bodyLarge,
-            color = color,
+            color = labelColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
