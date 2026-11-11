@@ -1,3 +1,12 @@
+## 0.22.0 正式发布验证（2026-11-11）
+
+被测产物：`PureBrowser-v0.22.0-release.apk`（versionCode 81），本地签名 Release。
+
+- 自动化：`./build-and-test.sh --release` 通过：快速检查、Android JVM 单测、Rust clippy、Android Lint、R8、APK 签名与 16 KiB zipalign 校验。
+- 构建产物：5,419,345 bytes，SHA-256 `0d9fc5a8d8b00e4d9310bf78adb4fab428a9be27dacfce52b4f029d8d95e2ab8`。
+- 设备回归：Android 14 / API 34 模拟器（emulator-5554）安装上述签名包，运行 `validation/update-sources-regression.py` 三项通过：Gitee 主源检查、注入 Gitee 限流后 GitHub 回退成功、两边均限流时显示失败；更新偏好已恢复。
+- 未验证：实体真机、真实升级安装、其他 Android/WebView 版本；传输故障和包元数据校验由 JVM 测试覆盖。
+
 ## 0.21.0 双源更新本地测试包（2026-11-11，未发布）
 
 被测产物：`app/build/outputs/apk/release/app-release.apk`，本地签名 Release；版本仍为 0.21.0 / versionCode 80，包含工作区既有未提交改动。
