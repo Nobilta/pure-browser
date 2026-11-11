@@ -84,8 +84,8 @@ internal fun SettingsNote(text: String) {
  */
 @Composable
 internal fun SettingsGroupCard(
-    title: String? = null,
     modifier: Modifier = Modifier,
+    title: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -100,8 +100,8 @@ internal fun SettingsDivider(inset: Dp = 16.dp) = BrowserGroupDivider(inset)
 internal fun SettingsPage(
     title: String,
     onBack: () -> Unit,
-    actions: @Composable RowScope.() -> Unit = {},
     modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {

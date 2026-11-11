@@ -28,8 +28,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         translateAll(listOf(text), target).single()
 
     /**
-     * Translates in provider-appropriate batches. MyMemory is deliberately single-short-text only:
-     * its free endpoint has a small request cap and is not suitable for full-page translation.
+     * Splits and batches text within each provider's per-request character and URL limits.
      */
     suspend fun translateAll(
         texts: List<String>,
@@ -100,7 +99,7 @@ class TranslationClient(private val settings: TranslationSettings) {
      * returned; a provider that changes or drops a marker is rejected instead of silently
      * shifting translations between text nodes.
      */
-    private suspend fun translateBatched(
+    internal suspend fun translateBatched(
         texts: List<String>,
         target: String,
         maxTextChars: Int,
@@ -110,8 +109,7 @@ class TranslationClient(private val settings: TranslationSettings) {
         autoSourceOf: ((String) -> String)? = null,
         onProgress: (Int, Int) -> Unit,
     ): List<String> {
-        if (texts.isEmpty()) return emptyList()
-        data class Piece(val item: Int, val part: Int, val text: String, val source: String?)
+        data class Piece(val item: Int, val part: Int, val text: String, val bytes: Int, val source: String?)
 
         val parts = List(texts.size) { ArrayList<String>() }
         val pieces = ArrayList<Piece>()
@@ -119,7 +117,8 @@ class TranslationClient(private val settings: TranslationSettings) {
             if (text.isBlank()) return@forEachIndexed
             splitForUrl(text, maxTextChars, maxTextBytes).forEachIndexed { part, chunk ->
                 parts[item] += ""
-                pieces += Piece(item, part, chunk, autoSourceOf?.invoke(chunk))
+                pieces += Piece(item, part, chunk,
+                    if (maxTextBytes == null) 0 else encode(chunk).length, autoSourceOf?.invoke(chunk))
             }
         }
         if (pieces.isEmpty()) return texts.map { "" }
@@ -127,15 +126,21 @@ class TranslationClient(private val settings: TranslationSettings) {
         val chunks = ArrayList<List<Piece>>()
         var current = ArrayList<Piece>()
         var currentChars = 0
+        var currentBytes = 0
         for (piece in pieces) {
             val extra = piece.text.length + MARKER_OVERHEAD
+            val separatorBytes = if (current.isEmpty() || maxTextBytes == null) 0
+                else encode(marker(current.lastIndex)).length
             val sourceChanged = current.isNotEmpty() && autoSourceOf != null &&
                 current.first().source != piece.source
-            if (current.isNotEmpty() && (currentChars + extra > maxChunkChars || sourceChanged)) {
+            if (current.isNotEmpty() && (currentChars + extra > maxChunkChars || sourceChanged ||
+                    (maxTextBytes != null && currentBytes + separatorBytes + piece.bytes > maxTextBytes))) {
                 chunks += current
                 current = ArrayList()
                 currentChars = 0
+                currentBytes = 0
             }
+            currentBytes += piece.bytes + if (current.isEmpty()) 0 else separatorBytes
             current += piece
             currentChars += extra
         }
@@ -148,7 +153,7 @@ class TranslationClient(private val settings: TranslationSettings) {
             } else {
                 val request = buildString {
                     chunk.forEachIndexed { index, piece ->
-                        if (index > 0) append("\n[[[").append(index - 1).append("]]]\n")
+                        if (index > 0) append(marker(index - 1))
                         append(piece.text)
                     }
                 }
@@ -466,6 +471,8 @@ class TranslationClient(private val settings: TranslationSettings) {
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+    private fun marker(index: Int): String = "\n[[[$index]]]\n"
 
     private fun myMemoryTarget(target: String): String = when (target) {
         "zh-CN", "zh-TW" -> target

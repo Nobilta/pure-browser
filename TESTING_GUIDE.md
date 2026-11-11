@@ -4,6 +4,19 @@
 
 ## 自动检查
 
+网页实时摄像头回归：启动 `python3 validation/qa-server.py`，在带前后摄像头的模拟器运行
+`python3 validation/realtime-camera-regression.py --serial emulator-5554 --package com.mybrowser.debug`。
+覆盖授权后不点击网页即可开始预览、视频时间和帧数持续增加、前置→后置→前置切换、默认摄像头选择记录，
+以及普通媒体遵循页面自动播放逻辑、拒绝摄像头授权仍不能采集。它验证 `getUserMedia`，
+不代替 e签宝真实活体流程或真机验证。
+
+相机上传回归：启动 `python3 validation/qa-server.py`，再运行
+`python3 validation/capture-regression.py --serial emulator-5554 --package com.mybrowser.debug --output validation/results/capture`，
+覆盖拍照／录像文件回传、权限拒绝、取消和页面切换。
+
+证书警告回归：安装待测 APK 后运行 `python3 validation/security-regression.py --serial emulator-5554`，
+调试包加 `--package com.mybrowser.debug`。脚本使用本地自签名证书，检查允许访问后、刷新和再次访问时的危险连接提示。
+
 广告闪现回归：安装待测 APK 后运行 `python3 validation/cosmetic-flash-regression.py --serial emulator-5554`。
 脚本仅用于可 root 的本地模拟器，临时设置测试订阅与站点偏好，结束后恢复；自带 8878 端口服务器，
 使用模拟器宿主地址 `10.0.2.2`，避免 EasyList 对 localhost 的通用隐藏例外干扰结果。
@@ -29,7 +42,27 @@
 包含三语言资源校验、Python 发布工具测试、Node 协议测试、Rust fmt/test 和 Android/Robolectric 单元测试。
 发布工具测试覆盖 CI 运行选择、GitHub CLI 路径、版本递增、签名失败和验证记录的版本边界；不调用真实发布接口。
 Android 测试会构建 host JNI，Node 使用内置测试运行器。
+更新仓库测试使用注入的 HTTP 连接覆盖 Gitee 优先、GitHub 回退、来源缓存、独立限流、下载中断后同版本重下，
+以及非法清单、错误摘要／签名、取消和本地文件失败不会换源。PackageManager 元数据使用 Robolectric，不能代替真实安装验证。
+签名包的更新来源回归运行 `python3 validation/update-sources-regression.py --serial emulator-5554`。
+脚本只用于已安装正式包、允许 root 的专用模拟器；实际访问两个平台，临时设置来源限流以触发自动切换，
+检查更新面板和成功来源缓存，结束后恢复更新偏好。不下载或安装新版，换源传输及校验由 JVM 测试覆盖。
 脚本先用 `npm ci --prefix validation` 安装锁定的 DOM 测试依赖。单独运行 Node 回归时也先执行该命令。
+翻译批处理单测检查合并后的中文、emoji 和分隔标记总编码长度；使用内存中的回显回调，不消耗线上额度。
+`TranslationControllerTest` 驱动真实 JS 回执解码与协程调度，覆盖停止后迟到的结果、驻留标签恢复、
+同 URL 重载、异步模式查询跨文档返回及连续查询取消时的快照保留；
+`BrowserPageHostTest` 覆盖配置 OOM 的释放顺序，以及弹窗交接期间关闭宿主。
+真实 WebView 翻译回归运行
+`python3 validation/translation-regression.py --serial emulator-5554 --package com.mybrowser.debug --output validation/results/translation`。
+脚本在专用模拟器使用本机 LibreTranslate 协议桩，临时写入调试包翻译偏好并在结束后恢复，
+覆盖替换／双语模式、动态段落、滚动、恢复原文、慢请求期间切换标签及导航隔离，不消耗线上翻译额度。
+此回归验证客户端协议与页面生命周期，不验证外部提供者的服务质量。
+用户脚本存储测试通过暂停写锁复现旧无痕请求跨会话排队；历史导入测试用 SQLite 拒绝触发器验证整组回滚。
+缩略图改动需运行 `resident-regression.py` 并目视检查标签图片；位图分配量可按目标像素计算，
+模拟器上的耗时不能代替真机帧率测量。
+UI 回归里的无痕入口按 `menu_incognito_short` / `menu_incognito_exit_short` 资源解析当前文案，
+标签卡片操作通过长按打开，避免继续依赖已移除的菜单文案或独立操作按钮。
+资源辅助同时读取数量资源的默认形式和 `name/one`、`name/other`，便于检查英文单复数。
 翻译 DOM 回归用 jsdom 覆盖段落拆分/合并、动态排除节点、源版本校验和失败重试；布局尺寸由夹具提供，
 不代表真实 WebView 的布局与滚动验证。
 其中还覆盖根编辑区过滤、移除后重新插入段落的懒加载观察器，以及动态文本更新的字符预算。
@@ -37,6 +70,9 @@ Android 测试会构建 host JNI，Node 使用内置测试运行器。
 下载存储测试覆盖记录数量/字符预算、损坏快照和 Cookie 不落盘，调度器测试继续验证迁移、隐私与并发续传。
 修改这些边界后，设备回归应包含 `navigation-recovery`、`private-lifecycle`、`resident`、`download`、
 `blob-download`；设置公共控件改动应运行 `settings-back` 和 `settings`。
+单独运行 `settings-back-regression.py`、`settings-regression.py` 和 `locale-regression.py` 时，
+可加 `--package com.mybrowser.debug` 检查调试包。
+设置持久化通过重新打开选项页并检查选中状态验证，不依赖分类列表的副标题。
 调用同一 JNI 库的测试应使用相同的 Robolectric runner 和 `@Config`，避免 JVM 类加载器之间重复加载原生库。
 字符表固定使用 OpenJDK 26.0.2 的 BMP 分类（含该版本补丁），不会随 Android/JDK 自动变化：
 用对应 JDK 运行 `python3 rust/tools/generate-java-char-tables.py --check` 对比所有 65,536 个值，
@@ -89,8 +125,9 @@ adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser
 
 ## 开发者工具回归
 
-`developer-tools-regression.py` 覆盖控制台、网络轻量日志、元素引导和存储，
-并沿用原来的横竖屏、隐藏后重开和外部 VIEW 用例。此脚本使用静态页面服务，可通过 `--port 8877`
+`developer-tools-regression.py` 覆盖控制台、网页日志与执行结果长按复制后的整条文本粘贴一致性、网络轻量日志、元素引导和存储，
+并沿用原来的横竖屏、隐藏后重开和外部 VIEW 用例。调试包可加 `--package com.mybrowser.debug`。
+此脚本使用静态页面服务，可通过 `--port 8877`
 连接另开的 `python3 -m http.server 8877 --bind 127.0.0.1 --directory validation`，
 与增强采集服务并行运行，避免带查询参数的静态页面被错误地返回 404。增强采集另有本地夹具：
 

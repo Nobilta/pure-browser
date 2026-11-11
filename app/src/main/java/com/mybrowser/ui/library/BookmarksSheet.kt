@@ -1,5 +1,6 @@
 package com.mybrowser.ui.library
 
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -313,7 +314,7 @@ fun BookmarkImportDialog(data: com.mybrowser.data.BookmarkImport, busy: Boolean,
         title = { Text(stringResource(R.string.bookmarks_import)) },
         text = { Column {
             Text(stringResource(R.string.bookmarks_import_preview, data.entries.size, data.skipped))
-            Text(stringResource(R.string.bookmarks_folder_count, data.folders.size))
+            Text(pluralStringResource(R.plurals.bookmarks_folder_count, data.folders.size, data.folders.size))
         } },
         confirmButton = { TextButton(onClick = onConfirm, enabled = !busy) { Text(stringResource(R.string.bookmarks_import)) } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.action_cancel)) } })
@@ -331,10 +332,10 @@ fun BookmarkExportDialog(result: com.mybrowser.data.BookmarkExportResult, onDism
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (result.unsupported > 0) {
-                        Text(stringResource(R.string.bookmarks_export_unsupported, result.unsupported))
+                        Text(pluralStringResource(R.plurals.bookmarks_export_unsupported, result.unsupported, result.unsupported))
                     }
                     if (result.omitted > 0) {
-                        Text(stringResource(R.string.bookmarks_exported_partial, result.count, result.omitted))
+                        Text(pluralStringResource(R.plurals.bookmarks_exported_partial, result.count, result.count, result.omitted))
                     }
                 }
             }

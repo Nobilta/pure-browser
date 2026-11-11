@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import com.mybrowser.ui.theme.BrowserColors
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mybrowser.security.SecurityChecker
@@ -313,19 +314,29 @@ fun SSLErrorDialog(
         title = {
             Text(
                 text = textResources.getString(R.string.ui_ssl_certificate_verification_failed),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = textResources.getString(R.string.ui_website_b7aba5, url),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = BrowserColors.recessedWell,
+                ) {
+                    Text(
+                        text = textResources.getString(R.string.ui_website_b7aba5, url),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
 
                 Surface(
+                    modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.small,
                     color = BrowserColors.recessedWell,
                 ) {
@@ -376,7 +387,7 @@ fun SSLErrorDialog(
                 shape = CircleShape,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
-                Text(textResources.getString(R.string.ui_go_back_to_safety))
+                Text(textResources.getString(R.string.ui_go_back_to_safety), textAlign = TextAlign.Center)
             }
         },
         dismissButton = {
@@ -387,6 +398,7 @@ fun SSLErrorDialog(
                 Text(
                     text = textResources.getString(R.string.ui_continue_anyway_unsafe),
                     color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
                 )
             }
         }

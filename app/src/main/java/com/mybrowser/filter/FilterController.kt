@@ -103,16 +103,13 @@ class FilterController(
     /** Re-evaluate with the current loaded lists. Called only when a user asks for details. */
     fun explain(url: String, document: String, type: ResourceType): Explanation {
         val sources = lock.read { activeSources }
-        val engine = checkNotNull(NativeFilter.createOrNull()) { "Filter engine unavailable" }
         var blocking: Pair<String, String>? = null
         var exception: Pair<String, String>? = null
-        try {
-            for ((name, text) in sources) {
-                val (hit, allow) = engine.explainList(text, url, document, type)
-                if (blocking == null && hit != null) blocking = name to hit
-                if (exception == null && allow != null) exception = name to allow
-            }
-        } finally { engine.close() }
+        for ((name, text) in sources) {
+            val (hit, allow) = NativeFilter.explainList(text, url, document, type)
+            if (blocking == null && hit != null) blocking = name to hit
+            if (exception == null && allow != null) exception = name to allow
+        }
         return Explanation(blocking, exception)
     }
 
@@ -200,21 +197,23 @@ class FilterController(
             return null
         }
         val next = NativeFilter.createOrNull() ?: return null
-        var count = 0
-        lists.forEachIndexed { index, rules ->
-            if (rules.isNotBlank()) {
-                val added = next.addList(rules)
-                // The native side refuses oversize or unparseable lists with -1; swallowing
-                // that would leave the engine silently short with no trace in a bug report.
-                if (added < 0) android.util.Log.w(
-                    "FilterController",
-                    "Refused filter list ${names.getOrNull(index) ?: "List ${index + 1}"}",
-                )
-                count = added.coerceAtLeast(count)
+        try {
+            var count = 0
+            lists.forEachIndexed { index, rules ->
+                if (rules.isNotBlank()) {
+                    val added = next.addList(rules)
+                    if (added < 0) android.util.Log.w(
+                        "FilterController",
+                        "Refused filter list ${names.getOrNull(index) ?: "List ${index + 1}"}",
+                    )
+                    count = added.coerceAtLeast(count)
+                }
             }
+            return next to count
+        } catch (error: Throwable) {
+            next.close()
+            throw error
         }
-
-        return next to count
     }
 
     companion object {

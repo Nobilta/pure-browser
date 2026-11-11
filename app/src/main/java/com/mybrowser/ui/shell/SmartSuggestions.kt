@@ -80,10 +80,10 @@ fun SmartSuggestions(
     suggestionProvider: SearchSuggestionProvider?,
     onSuggestionAction: (SuggestionAction) -> Unit,
     onFillSuggestion: (String) -> Unit,
+    modifier: Modifier = Modifier,
     isIncognito: Boolean = false,
     hasComposingText: Boolean = false,
     maxHeight: androidx.compose.ui.unit.Dp = 400.dp,
-    modifier: Modifier = Modifier
 ) {
     val textResources = localizedResources()
     // Each source updates independently so local rows never wait on the network.

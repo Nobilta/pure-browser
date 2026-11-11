@@ -1,5 +1,6 @@
 package com.mybrowser.ui.devtools
 
+import androidx.compose.ui.res.pluralStringResource
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -547,7 +548,7 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             state.root?.let {
-                Text(stringResource(R.string.dev_dom_child_count, it.childCount),
+                Text(pluralStringResource(R.plurals.dev_dom_child_count, it.childCount, it.childCount),
                     Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } ?: Spacer(Modifier.weight(1f))

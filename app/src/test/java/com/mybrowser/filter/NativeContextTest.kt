@@ -23,7 +23,7 @@ class NativeContextTest {
                     repeat(512) { index ->
                         val page = listOf("https://www.example.co.uk/", "https://www.example.com/", "https://alice.github.io/")[index % 3] + "?doc=$worker-$index"
                         for (url in listOf("https://cdn.example.co.uk/a.js", "https://cdn.example.com/a.js", "https://bob.github.io/a.js")) {
-                            val expected = engine.explainList(rules, url, page, ResourceType.SCRIPT)
+                            val expected = NativeFilter.explainList(rules, url, page, ResourceType.SCRIPT)
                                 .let { (block, allow) -> block != null && allow == null }
                             assertEquals(expected, engine.shouldBlock(url, page, ResourceType.SCRIPT))
                         }
@@ -46,7 +46,7 @@ class NativeContextTest {
             val text = "||ads.example^\$script\n@@||ads.example/safe.js\$script\nexample.com##.ad\n||ads.example^\$redirect=noopjs"
             engine.addList(text)
             assertEquals(1, engine.unsupportedRuleCount)
-            val hit = engine.explainList(text, "https://ads.example/safe.js", "https://example.com", ResourceType.SCRIPT)
+            val hit = NativeFilter.explainList(text, "https://ads.example/safe.js", "https://example.com", ResourceType.SCRIPT)
             assertEquals("||ads.example^\$script", hit.first)
             assertEquals("@@||ads.example/safe.js\$script", hit.second)
             assertFalse(engine.shouldBlock("https://ads.example/safe.js", "https://example.com", ResourceType.SCRIPT))

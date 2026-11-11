@@ -24,6 +24,7 @@ def main():
     assert a.serial.startswith('emulator-'), 'Use a dedicated test emulator'
     ux.ADB = ['adb', '-s', a.serial]
     ux.PACKAGE = a.package
+    private_descriptions = ux.resource_labels('private_isolated') | ux.resource_labels('private_shared')
     a.output.mkdir(parents=True, exist_ok=True)
     key = 'lifecycle-' + str(time.time_ns())
     base = 'http://127.0.0.1:8875/'
@@ -88,7 +89,7 @@ def main():
             record('Enabled background playback survives Home and return', before=first['currentTime'], after=after['currentTime'])
             ux.media_dispatch('pause')
             wait(lambda s: s['paused'])
-            ux.menu_item('Enter incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_short"])
             player()
             ux.tap('Play fullscreen')
             wait(lambda s: s['fullscreen'] and not s['paused'])
@@ -108,13 +109,13 @@ def main():
             record('Private Home pauses video even with background playback enabled; system Play cannot resume it')
             ux.launch()
             ux.adb('shell', 'input', 'keyevent', '4')
-            ux.menu_item('Exit incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
             player()
             background(False)
             player()
         else:
             private_page()
-            ux.menu_item('Enter incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_short"])
             private_page()
             wait(lambda s: s['ready'] == 'complete')
             ux.tap('Store private marker')
@@ -130,25 +131,24 @@ def main():
             ux.adb('shell', 'input', 'keyevent', '4')
             ux.expect('Private lifecycle fixture')
             root, _ = ux.nodes()
-            assert any('Incognito' in n.get('text', '') or '无痕' in n.get('text', '')
-                       or '無痕' in n.get('text', '') for n in root.iter('node'))
+            assert any(n.get('content-desc') in private_descriptions for n in root.iter('node'))
             record('Activity recreation retains the private session and its storage; removed window entry stays absent',
                    oldDocument=before['token'], newDocument=after['token'],
                    configuration='night mode')
-            ux.menu_item('Exit incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
             private_page()
             normal = wait(lambda s: s['token'] != after['token'] and s['ready'] == 'complete')
             assert normal['cookie'] != key and normal['local'] != key, normal
             record('Returning to normal browsing never exposes the private marker')
-            ux.menu_item('Enter incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_short"])
             private_page()
             fresh = wait(lambda s: s['token'] != normal['token'] and s['ready'] == 'complete')
             assert fresh['cookie'] != key and fresh['local'] != key, fresh
             root, _ = ux.nodes()
-            assert any('Incognito' in n.get('text', '') or '无痕' in n.get('text', '')
-                       or '無痕' in n.get('text', '') for n in root.iter('node')), 'New session was not private'
+            assert any(n.get('content-desc') in private_descriptions
+                       for n in root.iter('node')), 'New session was not private'
             record('A new private session cannot recover the closed session marker')
-            ux.menu_item('Exit incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
         result['passed'] = True
     except Exception as error:
         result['error'] = repr(error)

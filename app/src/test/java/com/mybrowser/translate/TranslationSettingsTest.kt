@@ -29,21 +29,19 @@ class TranslationSettingsTest {
     fun `built-in providers are configured and can translate a whole page`() {
         val myMemory = TranslationSettings(provider = TranslationProvider.MYMEMORY)
         assertTrue(myMemory.configured)
-        assertTrue(myMemory.supportsFullPage)
         val google = TranslationSettings(provider = TranslationProvider.GOOGLE)
         assertTrue(google.configured)
-        assertTrue(google.supportsFullPage)
     }
 
     @Test
     fun `cloud providers require their own credential or endpoint`() {
         assertFalse(TranslationSettings(provider = TranslationProvider.AZURE).configured)
-        assertTrue(TranslationSettings(provider = TranslationProvider.AZURE, azureKey = "key").supportsFullPage)
+        assertTrue(TranslationSettings(provider = TranslationProvider.AZURE, azureKey = "key").configured)
         assertFalse(TranslationSettings(provider = TranslationProvider.DEEPL).configured)
-        assertTrue(TranslationSettings(provider = TranslationProvider.DEEPL, deeplKey = "key:fx").supportsFullPage)
+        assertTrue(TranslationSettings(provider = TranslationProvider.DEEPL, deeplKey = "key:fx").configured)
         assertFalse(TranslationSettings(provider = TranslationProvider.LIBRETRANSLATE).configured)
         assertTrue(TranslationSettings(provider = TranslationProvider.LIBRETRANSLATE,
-            libreEndpoint = "https://translate.example.com").supportsFullPage)
+            libreEndpoint = "https://translate.example.com").configured)
     }
 
     @Test

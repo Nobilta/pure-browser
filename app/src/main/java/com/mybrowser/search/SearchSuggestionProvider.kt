@@ -1,5 +1,6 @@
 package com.mybrowser.search
 
+import androidx.core.net.toUri
 import android.net.Uri
 import com.mybrowser.core.RedirectPolicy
 import com.mybrowser.core.TextDownloader
@@ -104,7 +105,7 @@ class SearchSuggestionProvider internal constructor(
             val percentCount = clean.windowed(2, partialWindows = true).count { it == "%s" }
             if (braceCount + percentCount != 1) return false
             val probe = clean.replace("{query}", "query").replace("%s", "query")
-            val parsed = runCatching { Uri.parse(probe) }.getOrNull() ?: return false
+            val parsed = runCatching { probe.toUri() }.getOrNull() ?: return false
             val scheme = parsed.scheme?.lowercase() ?: return false
             return scheme == "https" && !parsed.host.isNullOrBlank()
         }

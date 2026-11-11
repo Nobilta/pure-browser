@@ -66,9 +66,9 @@ object WebViewConfig {
         s.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
 
         // --- Media ---
-        // Requiring a gesture blocks autoplay. This is both the polite default and what
-        // stops a background tab from making noise.
-        s.mediaPlaybackRequiresUserGesture = true
+        // Follow the page's playback requests, including live camera previews.
+        // Capture consent and background-tab suspension are handled separately.
+        s.mediaPlaybackRequiresUserGesture = false
 
         // --- Storage and cache ---
         s.cacheMode = WebSettings.LOAD_DEFAULT

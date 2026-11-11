@@ -270,12 +270,12 @@ private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<Console
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(entries, key = { "log-${it.id}" }, contentType = { "log" }) { entry ->
-                    Text(remember(entry, resources) { formatConsoleEntry(entry, resources) },
+                    SelectableText(remember(entry, resources) { formatConsoleEntry(entry, resources) },
                         fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
                         color = consoleColor(entry.level), modifier = Modifier.padding(vertical = 2.dp))
                 }
                 items(evaluations, key = { "eval-${it.id}" }, contentType = { "evaluation" }) { line ->
-                    Text(line.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                    SelectableText(line.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(vertical = 2.dp))
                 }
             }

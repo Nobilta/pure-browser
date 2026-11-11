@@ -13,8 +13,10 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--serial", required=True)
+parser.add_argument("--package", default="com.mybrowser")
 args = parser.parse_args()
 ux.ADB = ["adb", "-s", args.serial]
+ux.PACKAGE = args.package
 sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
 assert int(sdk) >= 33, "App language overrides require Android 13 or later"
 output = ROOT / "results"
@@ -24,7 +26,7 @@ checks = []
 ux.adb("reverse", "tcp:8875", "tcp:8875")
 ux.adb("shell", "am", "force-stop", ux.PACKAGE)
 ux.launch("http://127.0.0.1:8875/browser-ux.html")
-ux.open_settings(ux.resource_strings("values")["ui_video_playback"])
+ux.open_settings(ux.resource_strings("values")["settings_media"])
 try:
     for locale, folder in (("zh-Hans", "values-zh"), ("zh-Hant", "values-b+zh+Hant"), ("en", "values")):
         ux.adb("shell", "cmd", "locale", "set-app-locales", ux.PACKAGE, "--user", "0", "--locales", locale)

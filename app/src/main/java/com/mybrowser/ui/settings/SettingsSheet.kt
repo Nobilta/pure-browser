@@ -238,7 +238,7 @@ fun SettingsSheet(
                                     animate = paneChanged, direction = 1f, travel = !twoPane)) {
                                 when (category) {
                                     SettingsCategory.BROWSING -> {
-                                        SettingsGroupCard(textResources.getString(R.string.ui_startup)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_startup)) {
                                             SettingsItem(textResources.getString(R.string.cd_home), if (currentHomepageMode == HomepageMode.NAVIGATION) textResources.getString(R.string.ui_shortcuts_homepage) else currentHomepage,
                                                 { openPicker("home") }, R.drawable.ic_ui_home)
                                             SettingsDivider()
@@ -249,7 +249,7 @@ fun SettingsSheet(
                                                 onChange = onRestoreLastSessionChange,
                                             )
                                         }
-                                        SettingsGroupCard(textResources.getString(R.string.ui_search_and_system)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_search_and_system)) {
                                             SettingsItem(textResources.getString(R.string.ui_search_engine), currentSearchEngine.displayName(textResources), { openPicker("search") }, R.drawable.ic_ui_search)
                                             SettingsDivider()
                                             SettingsToggle(
@@ -271,7 +271,7 @@ fun SettingsSheet(
                                         }
                                     }
                                     SettingsCategory.APPEARANCE -> {
-                                        SettingsGroupCard(textResources.getString(R.string.ui_appearance)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_appearance)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.browser_fullscreen),
                                                 summary = textResources.getString(R.string.browser_fullscreen_summary),
@@ -297,7 +297,7 @@ fun SettingsSheet(
                                         }
                                     }
                                     SettingsCategory.PRIVACY -> {
-                                        SettingsGroupCard(textResources.getString(R.string.ui_incognito_browsing)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_incognito_browsing)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_incognito_browsing),
                                                 summary = textResources.getString(R.string.ui_incognito_persistent_summary),
@@ -308,7 +308,7 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
                                                 { showSystemLogin = true }, R.drawable.ic_ui_lock)
                                         }
-                                        SettingsGroupCard(textResources.getString(R.string.settings_sites_and_data)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.settings_sites_and_data)) {
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_ui_tools)
                                             SettingsDivider()
                                             SettingsItem(textResources.getString(R.string.menu_clear_data), textResources.getString(R.string.ui_confirm_before_clearing_cache_cookies_and_history), onClearData, R.drawable.ic_ui_delete)
@@ -319,7 +319,7 @@ fun SettingsSheet(
                                         }
                                     }
                                     SettingsCategory.EXTENSIONS -> {
-                                        SettingsGroupCard(textResources.getString(R.string.ui_content_filtering)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_content_filtering)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_ad_filtering),
                                                 summary = textResources.getString(R.string.ui_block_requests_matching_built_in_and_custom_filter),
@@ -337,7 +337,7 @@ fun SettingsSheet(
                                     }
                                     SettingsCategory.VIDEO -> {
                                         val video = preferences.video
-                                        SettingsGroupCard(textResources.getString(R.string.ui_video_playback)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_video_playback)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.automatic_pip),
                                                 summary = textResources.getString(R.string.automatic_pip_summary),
@@ -352,7 +352,7 @@ fun SettingsSheet(
                                                 onChange = { updateVideo(video.copy(backgroundPlayback = it)) },
                                             )
                                         }
-                                        SettingsGroupCard(textResources.getString(R.string.ui_fullscreen_experience)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_fullscreen_experience)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_enhanced_video_controls),
                                                 summary = textResources.getString(R.string.ui_playback_seeking_speed_and_lock_controls_switch_to),
@@ -367,7 +367,7 @@ fun SettingsSheet(
                                                 onChange = { updateVideo(video.copy(landscapeFullscreen = it)) },
                                             )
                                         }
-                                        SettingsGroupCard(textResources.getString(R.string.ui_fullscreen_gestures)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.ui_fullscreen_gestures)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_brightness_and_volume_gestures),
                                                 summary = textResources.getString(R.string.ui_swipe_vertically_on_the_left_for_brightness_and),
@@ -392,7 +392,7 @@ fun SettingsSheet(
                                             SettingsItem(textResources.getString(R.string.ui_hold_speed), PlaybackSpeed.label(video.boostRate), { openPicker("boost") }, R.drawable.ic_ui_media)
                                             SettingsNote(textResources.getString(R.string.ui_tap_to_show_or_hide_controls_double_tap))
                                         }
-                                        SettingsGroupCard(textResources.getString(R.string.menu_playback_speed)) {
+                                        SettingsGroupCard(title = textResources.getString(R.string.menu_playback_speed)) {
                                             SettingsToggle(
                                                 title = textResources.getString(R.string.ui_remember_playback_speed),
                                                 summary = textResources.getString(R.string.ui_use_the_selected_speed_for_future_videos_temporary),
@@ -802,7 +802,7 @@ private fun HomepageSettings(
     var showDialog by remember { mutableStateOf(false) }
 
     SettingsPage(title = textResources.getString(R.string.cd_home), onBack = onBack) {
-        SettingsGroupCard(textResources.getString(R.string.ui_homepage_style)) {
+        SettingsGroupCard(title = textResources.getString(R.string.ui_homepage_style)) {
             SettingsRadioItem(
                 title = textResources.getString(R.string.ui_shortcuts_homepage),
                 subtitle = textResources.getString(R.string.ui_show_shortcuts_to_favorite_sites),

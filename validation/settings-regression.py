@@ -13,8 +13,10 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--serial", required=True)
+parser.add_argument("--package", default="com.mybrowser")
 args = parser.parse_args()
 ux.ADB = ["adb", "-s", args.serial]
+ux.PACKAGE = args.package
 sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
 output = ROOT / "results"
 output.mkdir(exist_ok=True)
@@ -24,6 +26,13 @@ checks = []
 def record(name):
     checks.append(name)
     print("PASS:", name, flush=True)
+
+
+def expect_selected(label):
+    root, _ = ux.nodes(await_labels=[label])
+    assert any((node.get("selected") == "true" or node.get("checked") == "true")
+               and ux.match(node, label) is not None for node in root.iter("node")), \
+        "Option is not selected: " + label
 
 
 def screenshot(name):
@@ -57,7 +66,9 @@ try:
     ux.tap("搜索引擎")
     ux.tap("Google")
     ux.expect("启动时恢复上次网页")
-    ux.expect("Google")
+    ux.tap("搜索引擎")
+    expect_selected("Google")
+    back()
     record("search selection returns to the browsing category")
     back()
     ux.tap("外观")
@@ -67,9 +78,9 @@ try:
     screenshot("dark")
     restart()
     ux.open_settings("外观")
-    ux.expect("深色")
-    record("theme selection survives a process restart")
     ux.tap("应用主题")
+    expect_selected("深色")
+    record("theme selection survives a process restart")
     ux.tap("浅色")
     screenshot("light")
     ux.tap("应用主题")

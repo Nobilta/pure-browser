@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realtime camera preview</title>
+<style>body{font:18px sans-serif;margin:16px}video{display:block;width:100%;max-height:60vh;background:#ddd}pre{white-space:pre-wrap}</style>
+<h1>Realtime camera preview</h1>
+<video autoplay playsinline></video>
+<button id="front">Front camera</button><button id="rear">Rear camera</button>
+<pre id="status">Waiting for capture consent</pre>
+<script>
+const params = new URLSearchParams(location.search);
+const video = document.querySelector('video');
+const key = params.get('case');
+let stream, timer, generation = 0;
+const report = data => {
+  document.querySelector('#status').textContent = JSON.stringify(data, null, 2);
+  fetch('/__state?case=' + encodeURIComponent(key), {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+  });
+};
+function capture(facing) {
+  generation++;
+  clearInterval(timer);
+  if (stream) stream.getTracks().forEach(track => track.stop());
+  navigator.mediaDevices.getUserMedia({
+    audio: true, video: facing === 'default' ? true : {facingMode: {exact: facing}}
+  }).then(value => {
+    stream = value;
+    video.srcObject = stream;
+    const track = stream.getVideoTracks()[0];
+    const sample = () => report({
+      kind:'camera', generation, paused:video.paused, time:video.currentTime,
+      readyState:video.readyState, width:video.videoWidth, height:video.videoHeight,
+      frames:video.getVideoPlaybackQuality().totalVideoFrames,
+      trackState:track.readyState, muted:track.muted, facing:track.getSettings().facingMode
+    });
+    timer = setInterval(sample, 500);
+    sample();
+  }, error => report({kind:'capture-error', name:error.name, message:error.message}));
+}
+document.querySelector('#front').onclick = () => capture('user');
+document.querySelector('#rear').onclick = () => capture('environment');
+window.addEventListener('pagehide', () => {
+  clearInterval(timer);
+  if (stream) stream.getTracks().forEach(track => track.stop());
+}, {once:true});
+if (params.get('mode') === 'ordinary') {
+  document.querySelectorAll('button').forEach(button => button.hidden = true);
+  video.src = '/player-sample.mp4';
+  video.play().then(
+    () => report({kind:'ordinary', result:'playing'}),
+    error => report({kind:'ordinary', result:error.name})
+  );
+} else capture(params.get('facing') || 'user');
+</script>
+</html>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify certificate-warning UI on a signed APK using a local, untrusted TLS fixture."""
+"""Verify certificate-warning UI using a local, untrusted TLS fixture."""
 import argparse
 import http.server
 import importlib.util
@@ -20,10 +20,14 @@ spec.loader.exec_module(ux)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
+    parser.add_argument("--package", default="com.mybrowser")
     args = parser.parse_args()
     if not args.serial.startswith("emulator-"):
         raise SystemExit("This regression is for local emulators only")
     ux.ADB = ["adb", "-s", args.serial]
+    ux.PACKAGE = args.package
+    strings = ux.resource_strings("values")
+    warning = strings["ui_dangerous_connection"]
     sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
     output = ROOT / "results"
     output.mkdir(exist_ok=True)
@@ -81,25 +85,27 @@ def main():
                 ux.adb("reverse", "tcp:8877", "tcp:8877")
                 ux.adb("shell", "am", "force-stop", ux.PACKAGE)
                 ux.launch("https://127.0.0.1:8877/first")
+                ux.expect("Continue anyway (unsafe)", timeout=20)
+                snapshot("warning")
                 ux.tap("Continue anyway (unsafe)", timeout=20)
                 loaded()
-                ux.expect("SSL certificate verification failed")
+                ux.expect(warning)
                 snapshot("overridden")
                 record("explicit TLS override keeps a certificate-warning indicator")
-                ux.tap("SSL certificate verification failed")
-                ux.expect("Dangerous connection")
-                ux.expect("Secure connection", present=False)
+                ux.tap(warning)
+                ux.expect(warning)
+                ux.expect(strings["ui_secure_connection"], present=False)
                 snapshot("details")
                 ux.adb("shell", "input", "keyevent", "4")
                 record("site information reports the certificate error instead of a secure connection")
                 ux.tap("Refresh")
                 loaded()
-                ux.expect("SSL certificate verification failed")
+                ux.expect(warning)
                 record("reload preserves the warning even when WebView caches the SSL override")
                 ux.launch("about:blank")
                 ux.launch("https://127.0.0.1:8877/second")
                 loaded()
-                ux.expect("SSL certificate verification failed")
+                ux.expect(warning)
                 snapshot("revisited")
                 record("returning to another path on the same origin preserves the warning")
             finally:

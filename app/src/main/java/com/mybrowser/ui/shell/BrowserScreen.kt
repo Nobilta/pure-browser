@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.runtime.mutableIntStateOf
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -161,7 +162,7 @@ fun BrowserScreen(
     // Revealed chrome is shown in full: the scroll-collapse flag must not eat it.
     val chromeShown = !isVideoFullscreen && (!isBrowserFullscreen || state.isChromeRevealed)
     val chromeForced = immersiveActive && state.isChromeRevealed
-    var bottomChromeHeightPx by remember { mutableStateOf(0) }
+    var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
     LaunchedEffect(immersiveActive) { state.onImmersiveFullscreenChanged(immersiveActive) }
 
     // While immersive, back first leaves the revealed state (closing the find bar if it

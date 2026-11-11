@@ -10,11 +10,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * The update path is the one place the app installs code, and it is also the part the device
- * regression cannot reach — `TESTING_GUIDE` records that the emulator stage does not download
- * or install a release. These cover the two pure functions that decide whether a manifest is
- * even considered, so a regression in the allow-list or the signer comparison is caught here
- * rather than by shipping a bad update.
+ * Metadata and URL validation. UpdateRepositoryTransferTest covers source selection,
+ * interrupted transfers, cancellation, and package verification through the repository.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -115,6 +112,8 @@ class UpdateRepositoryTest {
     @Test
     fun onlyTheAppsOwnHttpsHostsAreSafeToFetch() {
         val safe = listOf(
+            "https://gitee.com/Nobilta/pure-browser/releases/download/v0.13/a.apk",
+            "https://foruda.gitee.com/attach/1/a.apk",
             "https://github.com/Nobilta/pure-browser/releases/download/v0.13/a.apk",
             "https://release-assets.githubusercontent.com/github-production-release-asset/1/2",
             "https://objects.githubusercontent.com/x",
@@ -126,6 +125,8 @@ class UpdateRepositoryTest {
             "https://evil.example/a.apk",
             // A host that merely ends with an allowed name must not pass.
             "https://github.com.evil.example/a.apk",
+            "https://gitee.com.evil.example/a.apk",
+            "https://foruda.gitee.com.evil.example/a.apk",
             // Credentials in the authority are a classic way to disguise the real host.
             "https://github.com@evil.example/a.apk",
             "https://user:pass@github.com/a.apk",

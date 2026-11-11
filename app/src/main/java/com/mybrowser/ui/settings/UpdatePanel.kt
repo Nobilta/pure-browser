@@ -1,7 +1,7 @@
 package com.mybrowser.ui.settings
 
+import androidx.core.net.toUri
 import android.content.Intent
-import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -129,7 +129,7 @@ internal fun UpdatePanel(
                     if (item.notes.isNotBlank()) Text(item.notes, style = MaterialTheme.typography.bodySmall)
                 }
                 TextButton(onClick = {
-                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdateRepository.RELEASES))) }
+                    try { context.startActivity(Intent(Intent.ACTION_VIEW, (release?.source?.releases ?: UpdateRepository.RELEASES).toUri())) }
                     catch (_: Exception) { message = R.string.update_network_error }
                 }) { Text(stringResource(R.string.update_release_page)) }
             }
@@ -150,7 +150,7 @@ internal fun UpdatePanel(
                             allowed = false
                             message = permissionMessage(installAfterDownload)
                             try { authorization.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                Uri.parse("package:${context.packageName}"))) }
+                                "package:${context.packageName}".toUri())) }
                             catch (_: Exception) { message = permissionMessage(installAfterDownload) }
                         }
                         else -> install(file, item)

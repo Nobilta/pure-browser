@@ -3,6 +3,9 @@ package com.mybrowser.userscript
 import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.sync.Mutex
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
@@ -35,6 +38,23 @@ class UserScriptStoreTest {
         assertFalse(reopened.enabled)
     }
 
+    @Test fun queuedPrivateWriteCannotEnterTheNextSession() = runBlocking {
+        val id = store.install(source, null).metadata.id
+        store.beginPrivateSession()
+        val mutexField = UserScriptStore::class.java.getDeclaredField("mutex").apply { isAccessible = true }
+        val mutex = mutexField.get(store) as Mutex
+        mutex.lock()
+        val pending = async(start = CoroutineStart.UNDISPATCHED) {
+            store.changeValue(id, "set", "oldSession", "secret", session = store.privateSession)
+        }
+        store.endPrivateSession()
+        store.beginPrivateSession()
+        mutex.unlock()
+        assertFalse(pending.await())
+        assertEquals("{}", store.valuesFor(id, private = true))
+        assertFalse(File(context.filesDir, "userscripts/$id.values.json").exists())
+    }
+
     @Test fun replacementPreservesValuesAndEnableState() = runBlocking {
         val script = store.install(source, null)
         assertTrue(store.changeValue(script.metadata.id, "set", "count", 17))
@@ -48,7 +68,7 @@ class UserScriptStoreTest {
     @Test fun removingInAPrivateSessionDropsItsValues() = runBlocking {
         val script = store.install(source, null)
         store.beginPrivateSession()
-        assertTrue(store.changeValue(script.metadata.id, "set", "count", 41, private = true))
+        assertTrue(store.changeValue(script.metadata.id, "set", "count", 41, session = store.privateSession))
         assertEquals(41, JSONObject(store.valuesFor(script.metadata.id, private = true)).getInt("count"))
         store.remove(script.metadata.id)
         // The script is gone, so the session map must not still hold state for its id: reinstalling
@@ -106,7 +126,7 @@ class UserScriptStoreTest {
         val id = store.install(source, null).metadata.id
         // A private session's write is accepted, but it must not reach the saved values: the whole
         // point is that the next normal session cannot read what a script wrote while private.
-        assertTrue(store.changeValue(id, "set", "seen", "private", private = true))
+        assertTrue(store.changeValue(id, "set", "seen", "private", session = store.privateSession))
         assertEquals("private", JSONObject(store.valuesFor(id, private = true)).getString("seen"))
         assertEquals("{ }".replace(" ", ""), store.valuesFor(id, private = false))
         assertFalse(File(context.filesDir, "userscripts/$id.values.json").exists())
@@ -118,12 +138,12 @@ class UserScriptStoreTest {
 
     @Test fun endingAPrivateSessionDropsItsValues() = runBlocking {
         val id = store.install(source, null).metadata.id
-        assertTrue(store.changeValue(id, "set", "token", "abc", private = true))
+        assertTrue(store.changeValue(id, "set", "token", "abc", session = store.privateSession))
         store.endPrivateSession()
         assertEquals("{}", store.valuesFor(id, private = true))
         // And the normal values were never involved in the first place.
         assertTrue(store.changeValue(id, "set", "kept", "normal"))
-        assertTrue(store.changeValue(id, "set", "gone", "private", private = true))
+        assertTrue(store.changeValue(id, "set", "gone", "private", session = store.privateSession))
         store.beginPrivateSession()
         assertEquals("normal", JSONObject(store.valuesFor(id, private = false)).getString("kept"))
         assertEquals("{}", store.valuesFor(id, private = true))
@@ -135,7 +155,7 @@ class UserScriptStoreTest {
         // The runtime caches one injected program per script and only rebuilds when its inputs
         // change. A private write changes the values but leaves every script equal, so the store has
         // to raise its own signal or the next document keeps the value from before the write.
-        assertTrue(store.changeValue(id, "set", "seen", "private", private = true))
+        assertTrue(store.changeValue(id, "set", "seen", "private", session = store.privateSession))
         assertEquals(before + 1, store.programs.value)
         // Starting or ending a session changes them too, in the direction of "nothing is stored".
         store.endPrivateSession()
@@ -151,12 +171,12 @@ class UserScriptStoreTest {
     @Test fun privateWritesRespectTheSameGrantsAndLimits() = runBlocking {
         val id = store.install(source, null).metadata.id
         store.setEnabled(id, false)
-        assertFalse(store.changeValue(id, "set", "k", "v", private = true))
+        assertFalse(store.changeValue(id, "set", "k", "v", session = store.privateSession))
         store.setEnabled(id, true)
-        assertFalse(store.changeValue(id, "set", "k".repeat(257), "v", private = true))
-        assertFalse(store.changeValue(id, "set", "large", "x".repeat(UserScriptStore.MAX_VALUES_BYTES), private = true))
+        assertFalse(store.changeValue(id, "set", "k".repeat(257), "v", session = store.privateSession))
+        assertFalse(store.changeValue(id, "set", "large", "x".repeat(UserScriptStore.MAX_VALUES_BYTES), session = store.privateSession))
         store.install(source.replace("// @grant GM_setValue\n", ""), null)
-        assertFalse(store.changeValue(id, "set", "k", "v", private = true))
+        assertFalse(store.changeValue(id, "set", "k", "v", session = store.privateSession))
     }
 
     @Test fun prototypeKeysAreOrdinaryJsonData() = runBlocking {
@@ -176,7 +196,7 @@ class UserScriptStoreTest {
         // the session map: the file and the script object the next normal session would read are
         // both untouched, which is the boundary the whole change is about.
         assertEquals("{}", store.valuesFor(id, private = true))
-        assertTrue(store.changeValue(id, "set", "count", 7, private = true))
+        assertTrue(store.changeValue(id, "set", "count", 7, session = store.privateSession))
         assertEquals(7, JSONObject(store.valuesFor(id, private = true)).getInt("count"))
         assertEquals(3, JSONObject(store.valuesFor(id, private = false)).getInt("count"))
     }
@@ -185,12 +205,12 @@ class UserScriptStoreTest {
         val script = store.install(source, null)
         val id = script.metadata.id
         store.beginPrivateSession()
-        assertTrue(store.changeValue(id, "set", "count", 7, private = true))
+        assertTrue(store.changeValue(id, "set", "count", 7, session = store.privateSession))
         assertEquals("""{"count":7}""", JSONObject(store.valuesFor(id, private = true)).getInt("count").let { """{"count":$it}""" })
         store.endPrivateSession()
         assertTrue(store.valuesFor(id, private = true).contains("{}"))
         // And the normal session's own value is untouched by any of it.
-        assertTrue(store.changeValue(id, "set", "count", 3, private = false))
+        assertTrue(store.changeValue(id, "set", "count", 3))
         assertTrue(store.valuesFor(id, private = false).contains("3"))
     }
 

@@ -14,11 +14,13 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--serial", required=True)
+parser.add_argument("--package", default="com.mybrowser")
 # Edge-gesture round trips alternate direction, so two cycles cover both directions once.
 # Pass a larger value for a stress run; the suite runner lowers this for the release matrix.
 parser.add_argument("--cycles", type=int, default=2)
 args = parser.parse_args()
 ux.ADB = ["adb", "-s", args.serial]
+ux.PACKAGE = args.package
 sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
 case = "api" + sdk + "-settings-back-" + str(int(time.time()))
 output = ROOT / "results"
@@ -86,11 +88,11 @@ def browser_root():
     windows, _ = ux.window_nodes()
     assert not any(node.get("resource-id") in ("settings_root", "settings_detail")
                    for node in windows.iter("node")), "Retired settings content remains over the browser"
-    count = len(re.findall(r"Window #\d+ Window\{[^}\n]*com\.mybrowser/com\.mybrowser\.MainActivity",
+    count = len(re.findall(r"Window #\d+ Window\{[^}\n]*" + re.escape(ux.PACKAGE) + r"/com\.mybrowser\.MainActivity",
                            ux.adb("shell", "dumpsys", "window", "windows")))
     assert count == 1, "A retired dialog still owns browser input"
     activity = ux.adb("shell", "dumpsys", "activity", "activities")
-    assert re.search(r"(?:mResumedActivity|topResumedActivity)[^\n]*com\.mybrowser/", activity), \
+    assert re.search(r"(?:mResumedActivity|topResumedActivity)[^\n]*" + re.escape(ux.PACKAGE) + "/", activity), \
         "Back from the menu exited the browser"
 
 

@@ -32,14 +32,6 @@ data class TranslationSettings(
     val libreEndpoint: String = "",
     val libreKey: String = "",
 ) {
-    val supportsFullPage: Boolean
-        get() = when (provider) {
-            TranslationProvider.MYMEMORY, TranslationProvider.GOOGLE -> true
-            TranslationProvider.AZURE -> azureKey.isNotBlank()
-            TranslationProvider.DEEPL -> deeplKey.isNotBlank()
-            TranslationProvider.LIBRETRANSLATE -> libreEndpoint.trim().startsWith("http")
-        }
-
     val configured: Boolean
         get() = when (provider) {
             TranslationProvider.MYMEMORY, TranslationProvider.GOOGLE -> true

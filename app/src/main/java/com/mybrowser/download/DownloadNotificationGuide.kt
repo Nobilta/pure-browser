@@ -1,5 +1,6 @@
 package com.mybrowser.download
 
+import androidx.core.content.edit
 import android.app.Activity
 import android.app.NotificationManager
 import android.content.Context
@@ -65,7 +66,7 @@ object DownloadNotificationGuide {
                 .getBoolean("requested", false)
             val asked = prefs.getBoolean(KEY_ASKED, false) || legacyAsked
             if (legacyAsked && !prefs.getBoolean(KEY_ASKED, false)) {
-                prefs.edit().putBoolean(KEY_ASKED, true).apply()
+                prefs.edit { putBoolean(KEY_ASKED, true) }
             }
             val rationale = activity.shouldShowRequestPermissionRationale(
                 android.Manifest.permission.POST_NOTIFICATIONS)
@@ -84,7 +85,7 @@ object DownloadNotificationGuide {
     /** Records that the system permission dialog was launched from the settings row. */
     fun markPermissionRequested(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_ASKED, true).apply()
+            .edit { putBoolean(KEY_ASKED, true) }
     }
 
     fun appSettingsIntent(context: Context): Intent = Intent(

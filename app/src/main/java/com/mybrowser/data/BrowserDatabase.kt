@@ -1,5 +1,6 @@
 package com.mybrowser.data
 
+import androidx.core.net.toUri
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
@@ -90,7 +91,7 @@ class BrowserDatabase private constructor(context: Context) : SQLiteOpenHelper(
             db.execSQL("ALTER TABLE $table ADD COLUMN host TEXT NOT NULL DEFAULT ''")
             db.query(table, arrayOf("id", "url"), null, null, null, null, null).use { rows ->
                 while (rows.moveToNext()) db.execSQL("UPDATE $table SET host = ? WHERE id = ?",
-                    arrayOf(SearchKey.host(rows.getString(1)), rows.getLong(0)))
+                    arrayOf<Any>(SearchKey.host(rows.getString(1)), rows.getLong(0)))
             }
             db.execSQL("CREATE INDEX idx_${table}_host ON $table(host COLLATE NOCASE)")
             db.execSQL("CREATE INDEX idx_${table}_title ON $table(title COLLATE NOCASE)")
@@ -169,7 +170,7 @@ internal object SqlLike {
 }
 
 internal object SearchKey {
-    fun host(url: String): String = runCatching { android.net.Uri.parse(url).host.orEmpty()
+    fun host(url: String): String = runCatching { url.toUri().host.orEmpty()
         .lowercase(java.util.Locale.ROOT).removePrefix("www.").trimEnd('.') }.getOrDefault("")
     fun input(query: String): String = query.trim().lowercase(java.util.Locale.ROOT)
         .removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/')

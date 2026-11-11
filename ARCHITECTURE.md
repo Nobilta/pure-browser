@@ -30,6 +30,8 @@ Kotlin 源码位于 [app/src/main/java/com/mybrowser](app/src/main/java/com/mybr
 `url_utils` 还负责书签导入和源码词法高亮；高亮通过一次有界 JNI 调用返回 UTF-16 区间，Kotlin 负责文本分块与展示。
 `media` 使用 Compose 渲染全屏控件，因此它也依赖部分 UI 组件。
 `core/BundledScripts` 按 APK 资源名共享不变的脚本文本，多个 WebView 复用同一份字符串，不保留 Activity。
+原生库缺失在加载入口处理，JNI 返回的拒绝结果按接口契约处理，不把任意异常吞成正常统计。
+过滤命中说明直接调用无状态 JNI 入口，无需分配空引擎；引擎读写锁和释放所有权仍由 `FilterController` 管理。
 
 ## 状态与异步回调
 
@@ -45,15 +47,18 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 `ui/shell/PageNavigator` 集中地址/搜索跳转、加载/刷新、历史菜单及外部传入链接的标签选择，
 每次操作通过访问器取得当前 WebView 和标签管理器，避免保留切换前的页面或 Profile。
 `core/NavigationReadiness` 管理隐私清理和脚本初始化两个等待点；各等待点保留最新请求，
-协程跟随 Activity 生命周期，切换 Profile 时取消旧脚本导航。Activity 负责页面清理、站点配置、
-权限、媒体以及 WebView 的创建和释放，所有主动页面加载都经过上述协调器。
+协程跟随 Activity 生命周期，切换 Profile 时取消旧脚本导航。Activity 协调站点配置、权限、媒体和界面回调，
+所有主动页面加载都经过上述协调器。
 
-`MainActivity` 管理当前页面，`RecentTabStore` 保存普通后台页面：离开时暂停媒体，重新访问时取回原 WebView。
+`core/BrowserPageHost` 持有当前 WebView、标签归属、`WebViewPool` 和每个页面的运行时；
+脚本、样式过滤、媒体追踪、元素选择、Blob 下载和开发者工具通道在首次加载前集中安装，
+文档切换、后台停放和实例释放都通过宿主通知。Activity 保留站点策略、Android clients 和 UI 回调。
+宿主中的 `RecentTabStore` 保存普通后台页面：离开时暂停媒体，重新访问时取回原 WebView。
 收到内存压力时按最早停放顺序回收，`TRIM_MEMORY_COMPLETE` 清空普通驻留页并终止后台窗口组，
 保留标签 URL 供再次访问时重载；`UI_HIDDEN` 本身不触发回收。
-`WebViewPool` 由 Activity 持有，直接使用该 Activity 创建实例，避免 Autofill 在初始化时绑定到 Application；
+`WebViewPool` 直接使用所属 Activity 创建实例，避免 Autofill 在初始化时绑定到 Application；
 实例不跨 Activity 复用，销毁宿主时统一清理，待交接的原生窗口在 Chromium 消费 transport 后销毁。
-新实例配置失败时，先清理媒体追踪器和脚本运行时，再从实例管理器丢弃。
+新实例配置失败时，宿主先关闭已经创建的通道，再从实例管理器丢弃；通道在安装前登记，覆盖安装中途失败的情况。
 `PageAcquisition` 统一分配失败清理和内存不足重试，`MediaTrackerRegistry` 管理每个 WebView 的媒体追踪器。
 `PopupWebViewClient` 让后台窗口继续网络与导航，同时将 UI 回调与前台隔离；
 停放和待销毁页面统一使用 `core/ParkedWebViewClient` 拒绝导航与新请求，并处理渲染进程退出回调。
@@ -62,13 +67,24 @@ WebView、文档、弹层和媒体操作都有自己的实例或代次标识，�
 原页面最后一个弹窗关闭后，若尚未回到原页面，继续保留以完成回调请求。
 `TabManager` 保存当前会话的来源关系和访问顺序：返回先消费网页历史，再关闭子标签，
 优先回到来源页或最近存活标签；关系不跨普通/无痕管理器，也不持久化。
+标签缩略图由 PixelCopy 直接缩放到 360×至多 540 像素，避免全屏临时位图和二次缩放；
+回调只更新仍属于原标签管理器的标签，关闭或退出无痕后丢弃迟到的图片。
 同标签跨文档历史由 WebView 管理，`WebViewConfig.applyBackForwardCache` 按能力探测启用普通页缓存、
 无痕关闭；开关可用不代表文档一定保留，测试应核对文档身份和表单状态，不能只检查 URL 或滚动位置。
+
+## 翻译
+
+`translate/TranslationController` 持有整页与选中文本的翻译状态、视口队列、网络任务、重试和标签快照，
+通过 `Host` 读取当前 WebView、标签和文档代次，并发送用户提示。Activity 只传递导航、滚动、标签切换和界面操作。
+`PageTranslator` 负责与页面脚本通信及结果解码，`TranslationClient` 负责提供者协议、请求大小和批量网络翻译。
+停止、导航和标签切换共用任务清理路径；取消时递增会话代次，旧任务即使返回也不能更新新会话。
+驻留标签恢复会读取页面实际模式，并在回调后重新核对 WebView、标签、URL 和文档代次，
+被取消的查询不会消耗快照，相同 URL 的新文档不会继承旧快照。进入视口的内容继续由页面侧观察器按需调度。
 
 ## 开发者工具
 
 开发者工具按 WebView（即标签页）持有一个 `devtools/DevToolsSession`，`DevToolsController`
-在 `configure(view)` 时挂载、在 `removeMediaPlaybackTracker` 或实例销毁时关闭。会话默认关闭，
+通过 `BrowserPageHost.install` 挂载、在 `BrowserPageHost.detach` 时关闭。会话默认关闭，
 增强状态只存在内存中；新 WebView 不会继承其他标签页或上次启动的采集数据。
 `NetworkLogStore`、`NetworkDetailStore`、`DomReader`、`SourceReader` 和 `StorageReader` 都由会话持有，
 因此切换标签页看到的是该标签页自己的记录，关闭面板只取消可见性和批量发布，不停止采集。
@@ -106,6 +122,8 @@ Cookies 先走 `CookieManagerCompat.getCookieInfo()`，Local／Session Storage �
 路由 key 恢复滚动与分类，每次 `Presentation` 提供新的回调身份。
 `SettingsSheet` 组织设置分类、搜索和选项页；`SettingsComponents` 提供共用页面容器、开关、
 单选行、入口行、分组文字及搜索定位高亮，站点设置也复用开关控件。
+带数量的文案使用 Android `plurals` 与 `pluralStringResource` / `getQuantityString`，
+多个独立数量使用标签式文案；Compose 中的资源访问观察当前语言配置，语言切换后重新解析。
 `BrowserSheetHost` 在菜单路径内保留一个 `BrowserSheetWindow`，切换时只替换内容；
 当前页面拥有返回处理，旧页面释放只能清理自己的回调，嵌套选项和确认窗口停用父级返回。
 书签与下载的多选行共用 `libraryItemSelection`：整行接收点击和长按，选择模式下提供复选框角色与状态，
@@ -223,6 +241,9 @@ Compose 1.9.4 有 `Modifier.preferredFrameRate`（底层是 API 35 的 `View.set
 
 ## 媒体与投屏
 
+`WebViewConfig` 在创建 WebView 时关闭额外的媒体播放手势限制，沿用网页自身的播放逻辑。
+摄像头与麦克风仍经过网站许可和 Android 授权；后台页面的暂停继续由宿主生命周期处理。
+
 增强播放控制网页已经加载的 `<video>`，沿用 WebView 解码、网络凭据和音频焦点；
 应用额外申请音频焦点可能抢占 Chromium 并使视频暂停，因此只管理系统媒体入口和生命周期。
 `playback-probe.js` 负责逐 frame 观察和命令确认，`MediaPlaybackTracker` 校验 frame、视频身份及交接代次。
@@ -273,6 +294,8 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 用户脚本在网页环境运行，原生存储桥不等于隔离执行环境；无痕模式下因此只把脚本 **GM 值**放进会话内存
 （`UserScriptStore` 的 private 映射），进入与退出都清空，其余部分与普通模式完全相同。
 "无痕不执行脚本"曾是默认行为，改成执行之后，可能泄漏的就是脚本自己写下的数据，边界因此划在这里。
+存储桥在接受请求时捕获 `PrivateSession`，切换会话替换整个存储对象；排队或正在写入的旧请求
+只能触及旧对象，不能污染新会话。注入变更通知使用原子 StateFlow 更新，避免主线程切换与 IO 写入互相覆盖。
 清理入口只有一处：`BrowserSessionState.beginPrivateSession/endPrivateSession` 同时负责脚本值，
 所以手动切换、冷启动直接进无痕、Activity 销毁（关掉最后一个浏览器窗口但进程仍在）走的是同一条边界，
 调用方不再各自记得清理。注入内容的变化由 `UserScriptStore.programs` 这个版本号通知运行时：
@@ -311,7 +334,10 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 Cookie 仅驻留内存，并且只向原 origin 发送；系统文件打开统一交给 Android 处理。
 HTTP 客户端的重定向规则集中在 `core/RedirectPolicy`（跳数上限、禁止降级到 http），
 更新器保留自己的遍历，因为它逐跳复核主机白名单并映射为类型化失败。
-应用更新单独校验 GitHub 下载地址、文件摘要、包名、版本、SDK、ABI 和签名；
+应用更新优先 Gitee、失败后 GitHub，每个来源只尝试一次。Gitee 先解析最新正式发行版的标签，
+再读取该标签的 `update.json`；GitHub 使用 latest 附件入口。五分钟缓存同时保存清单和成功来源，限流等待按来源记录。
+下载从检查成功的来源开始，换源时截断临时文件并重置进度，仍使用同版本、同摘要；本地写入失败、取消和校验失败不换源。
+更新器逐跳校验两个平台及其附件域名，并检查文件摘要、包名、版本、SDK、ABI 和签名；
 更新 APK 与相机输出使用不同的 FileProvider 组件类及目录，避免 URI 授权混用。
 Gradle 和独立 Rust 构建共用 [rust/build.sh](rust/build.sh)，NDK 由
 [resolve-android-ndk.sh](rust/resolve-android-ndk.sh) 解析。JNI 库从源码生成，依赖版本和校验值由 lockfile、

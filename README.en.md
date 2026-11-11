@@ -15,10 +15,10 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 
 ## Core features
 
-- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting; every source in the cast list offers actions to open it in a new tab or download it. Playback and attachment downloads preserve the original media request’s referrer information when available, and redirects follow the server’s referrer policy. Basic HTTP authentication retains the source referrer; certificate confirmation and single-use attachment downloads are supported.
+- **Enhanced video player**: supports playback speed, brightness and volume gestures, picture-in-picture, background playback and DLNA casting. Web media follows the page's autoplay behavior; camera and microphone access still require permission. Every source in the cast list offers actions to open it in a new tab or download it. Playback and attachment downloads preserve the original media request’s referrer information when available, and redirects follow the server’s referrer policy. Basic HTTP authentication retains the source referrer; certificate confirmation and single-use attachment downloads are supported.
 - **Page translation**: full-page bilingual translation and selected-text translation; includes a built-in no-login service and supports custom translation APIs.
 - **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
-- **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with system Back to exit, selectable detail text and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.
+- **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with system Back to exit, selectable console output and detail text, and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.
 - **Ad blocking and userscripts**: built-in filter rules, custom subscriptions and userscript installation; supported WebViews apply element-hiding rules early to reduce ad flashes.
 - **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export; bookmarks show cached website icons and can be reordered with left-side handles after long-pressing to select.
 - **Reader mode and printing**: one-tap reflow of the body into reader mode; print pages or save them as PDF from the system print sheet.
@@ -26,7 +26,7 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Immersive fullscreen**: hides the system bars and toolbar so the page fills the screen.
 - **Offline QR scanning**: scan QR codes with the camera or an image, without an internet connection.
 - **Personalisation**: customise the home page, address bar position, theme and three interface languages; set a per-site browser identity; settings can be exported to a file and imported on another device.
-- **Privacy controls**: built-in incognito browsing, per-site permissions and browsing data cleanup.
+- **Privacy controls**: built-in incognito browsing, per-site permissions and browsing data cleanup. Incognito userscript storage is isolated by session. Certificate errors show a risk warning with returning to safety as the primary action.
 
 ## Screenshots
 
@@ -50,9 +50,17 @@ See the [feature guide](FEATURES.md) for details, website compatibility and inco
 2. Open the APK. If prompted, allow app installs from the source you used to download it.
 3. Follow the Android installation prompts.
 
+> **Download failing on some networks?**
+> GitHub serves release assets from `release-assets.githubusercontent.com`, which can time out or stall at 0%
+> on some networks. Use the Gitee mirror for the same release instead:
+> <https://gitee.com/Nobilta/pure-browser/releases>
+> If Gitee is unavailable too, prefix the GitHub download URL with `https://ghproxy.net/` as a fallback.
+> Verify the file against `SHA256SUMS` from the same release (`sha256sum -c SHA256SUMS`).
+
 To upgrade, install the new version over the existing app to keep your bookmarks and settings.
 **You do not need to uninstall first.** The app also checks for updates at startup; you can turn this off
 or check manually in **Settings → About**.
+In-app updates prefer Gitee and automatically fall back to GitHub when the network or service is unavailable, for both checks and downloads. There is no source selection to configure.
 
 See the [changelog](CHANGELOG.md) for changes in each version.
 
@@ -77,8 +85,8 @@ Quick checks include release tooling tests; `--release` also signs and verifies 
 After pushing to `main` and passing CI, use `release/publish.sh` to create a GitHub Release draft,
 review it, then publish it manually as latest.
 
-The [architecture guide](ARCHITECTURE.md) introduces the codebase, including the boundaries between page navigation,
-download record storage and shared settings components.
+The [architecture guide](ARCHITECTURE.md) introduces the codebase, including the boundaries between page hosting,
+navigation, translation scheduling, download record storage and shared settings components.
 
 ## Feedback and contributions
 

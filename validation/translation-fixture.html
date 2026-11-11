@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Translation fixture</title>
+<style>
+body { font: 20px sans-serif; margin: 150px 24px 60px; line-height: 1.6; }
+nav { position: fixed; top: 0; left: 0; right: 0; background: white; padding: 8px; z-index: 100; }
+button { padding: 10px; margin: 3px; }
+#spacer { height: 1400px; }
+</style>
+<nav translate="no">
+<button onclick="add()">Add paragraph</button>
+<button onclick="change()">Change paragraph</button>
+<button onclick="document.querySelector('#later').scrollIntoView()">Scroll down</button>
+<button onclick="window.scrollTo(0,0)">Scroll top</button>
+<button onclick="location.search = '?page=' + encodeURIComponent(page) + '&visit=next'">Next document</button>
+</nav>
+<article>
+<p id="first">The first paragraph is ready for translation.</p>
+<div id="added"></div>
+<div id="spacer"></div>
+<p id="later">The last paragraph becomes visible after scrolling.</p>
+</article>
+<script>
+const page = new URL(location.href).searchParams.get('page');
+const token = String(Math.random());
+document.title = 'Translation ' + page;
+function add() {
+  const p = document.createElement('p'); p.id = 'dynamic';
+  p.textContent = 'A newly inserted paragraph needs translation.';
+  document.querySelector('#added').append(p);
+}
+function change() { document.querySelector('#first').textContent = 'The first paragraph has changed.'; }
+function translations() {
+  return Array.from(document.querySelectorAll('pure-translation-block')).map(node =>
+    (node.shadowRoot || node).textContent);
+}
+setInterval(() => fetch('/state', { method:'POST', headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({page,token,ready:document.readyState,first:document.querySelector('#first').textContent,
+    dynamic:document.querySelector('#dynamic')?.textContent || '',later:document.querySelector('#later').textContent,
+    comparison:translations(),scroll:scrollY,viewportWidth:innerWidth,
+    controls:Object.fromEntries(Array.from(document.querySelectorAll('nav button')).map(button =>
+      [button.textContent,button.getBoundingClientRect().toJSON()]))}) }).catch(() => {}), 200);
+</script>

@@ -78,12 +78,13 @@ def run(serial, scenarios=None):
 
     private = False
     ux.launch()
-    if any(n.get('text') in ux.resource_labels('incognito_badge') for n in ux.nodes()[0].iter('node')):
-        ux.menu_item('Exit incognito mode')
+    private_descriptions = ux.resource_labels('private_isolated') | ux.resource_labels('private_shared')
+    if any(n.get('content-desc') in private_descriptions for n in ux.nodes()[0].iter('node')):
+        ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
     try:
         for name, private_mode in scenarios or (('direct', False), ('redirect', False), ('direct', True)):
             if private_mode:
-                ux.menu_item('Enter incognito mode')
+                ux.menu_item(ux._translations[0]["menu_incognito_short"])
                 private = True
             case = name + '-' + str(time.time_ns())
             source = BASE + 'cast-referrer-fixture.html?case=' + case
@@ -146,7 +147,7 @@ def run(serial, scenarios=None):
                 ux.expect('Cast referrer fixture')
                 record('Back after media reload returns to the original page')
             if private:
-                ux.menu_item('Exit incognito mode')
+                ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
                 private = False
     except Exception as error:
         result['error'] = str(error)
