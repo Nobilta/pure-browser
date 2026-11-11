@@ -298,7 +298,7 @@ class Regression:
         before_private = self.wait(lambda s: s["ready"] == "complete" and s["domReady"] != ""
                                    and (legacy or s["storageCount"] > 0))
         baseline = before_private["storageCount"]
-        ux.menu_item("进入无痕模式")
+        ux.menu_item(ux._translations[0]["menu_incognito_short"])
         self.page()
         # Scripts run in incognito too. What must not cross the boundary is their own stored data:
         # a private session starts from no GM values (so the storage fixture counts its first visit
@@ -307,7 +307,7 @@ class Regression:
         private = self.wait(lambda s: s["ready"] == "complete" and s["domReady"] != ""
                             and s["storageCount"] == (0 if legacy else 1))
         self.record("incognito runs user scripts against a session-only GM store", visits=private["storageCount"])
-        ux.menu_item("退出无痕模式")
+        ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
         self.page()
         self.wait(lambda s: s["domReady"] != "")
         if not legacy:

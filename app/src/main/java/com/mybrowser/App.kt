@@ -1,5 +1,6 @@
 package com.mybrowser
 
+import androidx.core.content.edit
 import android.app.Application
 import android.os.StrictMode
 import android.webkit.WebView
@@ -147,7 +148,7 @@ class App : Application() {
         // Drop the removed closed-tab archive when upgrading from an older release.
         deleteSharedPreferences("recently_closed_tabs")
         // The incognito screenshot guard is gone; drop the choice it stored.
-        getSharedPreferences("browser_preferences", MODE_PRIVATE).edit().remove("protect_private_screens").apply()
+        getSharedPreferences("browser_preferences", MODE_PRIVATE).edit { remove("protect_private_screens") }
         // Captures from a process that died have no surviving WebView consumer.
         java.io.File(cacheDir, "web-capture").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
 

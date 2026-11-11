@@ -1,6 +1,6 @@
 # 发布指南
 
-发布由维护者在本机签名，再上传 GitHub Release。
+发布由维护者在本机签名，再将同一套发行附件上传 GitHub 和 Gitee。
 开发环境见[贡献指南](CONTRIBUTING.md#开发环境)，设备回归见[测试指南](TESTING_GUIDE.md)。
 
 ## CI 与本地分工
@@ -72,7 +72,10 @@ keyPassword=填写私钥密码
    版本并留档，内容不进发布页，也不进应用内的更新提示。
    草稿包含签名 APK、`update.json` 和 `SHA256SUMS`，标签为 `v` 加版本名。
 6. 在 GitHub Releases 打开该草稿，核对目标提交、说明和三个附件，再点击 **Publish release** 并设为 **latest**。
-   草稿和预发布版不进入应用稳定更新入口。应用读取 latest 的 `update.json`，因此只上传 APK 不构成完整发布。
+   草稿和预发布版不进入应用稳定更新入口，因此只上传 APK 不构成完整发布。
+7. 将同一标签的正式发行版及原样生成的 APK、`update.json`、`SHA256SUMS` 同步到 Gitee，核对附件校验值后再对外通知。
+   应用优先查询 Gitee 的最新正式发行版并读取该标签的清单，网络失败时才回退 GitHub；两边不能各自重建 APK。
+   仅同步 Git 仓库不会同步发行附件。Gitee 可访问但版本落后时不会触发故障回退，发布时须确保两边版本一致。
 
 无需另建自动发布 workflow 或预先推送同名 tag；脚本把本次 HEAD 指定为 Release 的目标提交。
 如果已有同名草稿，先核对或处理该草稿再重试，脚本不会静默覆盖已存在的 Release。

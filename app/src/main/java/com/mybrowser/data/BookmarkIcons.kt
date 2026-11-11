@@ -1,5 +1,6 @@
 package com.mybrowser.data
 
+import androidx.core.graphics.scale
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -26,7 +27,7 @@ object BookmarkIcons {
         runCatching {
             val dir = directory(context).apply { mkdirs() }
             val file = File(dir, key(url))
-            val scaled = Bitmap.createScaledBitmap(icon, 64, 64, true)
+            val scaled = icon.scale(64, 64)
             try { file.outputStream().use { scaled.compress(Bitmap.CompressFormat.PNG, 100, it) } }
             finally { if (scaled !== icon) scaled.recycle() }
             // Cache can be rebuilt when a bookmark is visited again.

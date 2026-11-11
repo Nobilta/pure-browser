@@ -1,5 +1,6 @@
 package com.mybrowser.ui.menu
 
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -644,7 +645,7 @@ private fun MenuRow(
 private fun userScriptSubtitle(status: UserScriptStatus?): String =
     status?.running?.takeIf { it.isNotEmpty() }
         ?.let { running ->
-            stringResource(R.string.script_status_running_count, running.size, running.joinToString(", "))
+            pluralStringResource(R.plurals.script_status_running_count, running.size, running.size, running.joinToString(", "))
         }
         .orEmpty()
 

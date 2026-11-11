@@ -19,12 +19,12 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
 
     /** Number of network rules currently loaded. */
     val ruleCount: Int
-        get() = if (handle == 0L) 0 else runCatching { nativeRuleCount(handle) }.getOrDefault(0)
+        get() = if (handle == 0L) 0 else nativeRuleCount(handle)
 
     val cosmeticRuleCount: Int
-        get() = if (handle == 0L) 0 else runCatching { nativeCosmeticRuleCount(handle) }.getOrDefault(0)
+        get() = if (handle == 0L) 0 else nativeCosmeticRuleCount(handle)
     val unsupportedRuleCount: Int
-        get() = if (handle == 0L) 0 else runCatching { nativeUnsupportedCount(handle) }.getOrDefault(0)
+        get() = if (handle == 0L) 0 else nativeUnsupportedCount(handle)
 
     /**
      * Rules dropped because a rule set was full.
@@ -34,10 +34,10 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
      * the unsupported count is syntax the engine does not implement.
      */
     val refusedRuleCount: Int
-        get() = if (handle == 0L) 0 else runCatching { nativeRefusedCount(handle) }.getOrDefault(0)
+        get() = if (handle == 0L) 0 else nativeRefusedCount(handle)
 
     fun cosmeticCss(url: String): String = if (handle == 0L) "" else
-        runCatching { nativeCosmeticCss(handle, url).orEmpty() }.getOrDefault("")
+        nativeCosmeticCss(handle, url).orEmpty()
 
     /**
      * Parses [text] as an EasyList-syntax filter list and adds its network rules.
@@ -47,7 +47,7 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
      */
     fun addList(text: String): Int {
         if (handle == 0L) return -1
-        return runCatching { nativeAddList(handle, text) }.getOrDefault(-1)
+        return nativeAddList(handle, text)
     }
 
     /**
@@ -58,22 +58,16 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
      */
     fun shouldBlock(requestUrl: String, documentUrl: String, type: ResourceType): Boolean {
         if (handle == 0L || requestUrl.length > 8192 || documentUrl.length > 8192) return false
-        // Subresource hot path: a page calls this hundreds of times. The library is loaded in
-        // the companion and the handle is checked above; a Result allocation per request would
-        // only buy a swallowed OutOfMemoryError.
+        // The library is checked at creation and the handle is checked above. Native errors
+        // must not be silently reported as an ordinary "allow" decision.
         return nativeShouldBlock(handle, requestUrl, documentUrl, type.ordinal)
-    }
-
-    fun explainList(text: String, requestUrl: String, documentUrl: String, type: ResourceType): Pair<String?, String?> {
-        val lines = nativeExplainList(text, requestUrl, documentUrl, type.ordinal).orEmpty().split('\n', limit = 2)
-        return lines.getOrNull(0)?.takeIf { it.isNotBlank() } to lines.getOrNull(1)?.takeIf { it.isNotBlank() }
     }
 
     /** Frees the native engine. Subsequent calls are no-ops that allow every request. */
     override fun close() {
         val h = handle
         handle = 0L
-        if (h != 0L) runCatching { nativeFree(h) }
+        if (h != 0L) nativeFree(h)
     }
 
     companion object {
@@ -93,12 +87,19 @@ class NativeFilter private constructor(private var handle: Long) : Closeable {
         /** Creates an empty engine, or null if the native library is missing. */
         fun createOrNull(): NativeFilter? {
             if (!isAvailable) return null
-            val handle = runCatching { nativeNew() }.getOrDefault(0L)
+            val handle = nativeNew()
             if (handle == 0L) {
                 Log.w(TAG, "nativeNew returned a null handle")
                 return null
             }
             return NativeFilter(handle)
+        }
+
+        /** Explanation parses its input directly; it does not use a live engine handle. */
+        fun explainList(text: String, requestUrl: String, documentUrl: String, type: ResourceType): Pair<String?, String?> {
+            check(isAvailable) { "Filter engine unavailable" }
+            val lines = nativeExplainList(text, requestUrl, documentUrl, type.ordinal).orEmpty().split('\n', limit = 2)
+            return lines.getOrNull(0)?.takeIf { it.isNotBlank() } to lines.getOrNull(1)?.takeIf { it.isNotBlank() }
         }
 
         /**

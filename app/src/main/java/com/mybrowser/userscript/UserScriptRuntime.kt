@@ -106,13 +106,13 @@ class UserScriptRuntime(
                 // Read here, not inside the coroutine: a private session can be left between the
                 // message being accepted and the write running, and re-reading the mode then would
                 // route a private script's value to the file the next normal session reads.
-                val private = isPrivate()
+                val session = if (isPrivate()) store.privateSession else null
                 inFlight++
                 scope.launch {
                     try {
                         val ok = runCatching {
                             store.changeValue(id, data.optString("operation"), data.optString("key"), data.opt("value"),
-                                private = private)
+                                session = session)
                         }.getOrDefault(false)
                         if (!closed) reply(reply, id, requestId, ok)
                     } finally {

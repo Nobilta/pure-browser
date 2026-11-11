@@ -369,7 +369,9 @@
     <string name="menu_block_element">封鎖元素</string>
     <string name="picker_title">封鎖元素</string>
     <string name="picker_hint">點按頁面上要封鎖的元素</string>
-    <string name="picker_matches">符合 %1$d 個</string>
+    <plurals name="picker_matches">
+        <item quantity="other">符合 %1$d 個</item>
+    </plurals>
     <string name="picker_parent">選中外層的元素</string>
     <string name="picker_child">選回裡面的元素</string>
     <string name="picker_block_site">在本站封鎖</string>
@@ -430,7 +432,9 @@
     <string name="filter_user_rule_element_added_all">已在所有網站封鎖。可在「廣告過濾設定 → 我的規則」裡刪除。</string>
     <string name="script_title">使用者腳本</string>
     <string name="script_settings_summary">匯入、啟用和管理相容的使用者腳本</string>
-    <string name="script_status_running_count">本頁正在執行 %1$d 個腳本：%2$s</string>
+    <plurals name="script_status_running_count">
+        <item quantity="other">本頁正在執行 %1$d 個腳本：%2$s</item>
+    </plurals>
     <string name="script_runs_here">在本頁執行</string>
     <string name="script_not_here">不適用於本頁</string>
     <string name="script_status_no_page">開啟網頁後可看到哪些指令碼適用。</string>
@@ -515,8 +519,12 @@
     <string name="bookmarks_import_preview">匯入 %1$d 個網頁書籤？已略過 %2$d 個無效或重複項目。現有書籤會保留。</string>
     <string name="bookmarks_imported">已匯入 %1$d 個書籤，略過 %2$d 個重複或無效項目</string>
     <string name="bookmarks_exported">已匯出 %1$d 個書籤</string>
-    <string name="bookmarks_exported_partial">已匯出 %1$d 個書籤；%2$d 個因上限省略。</string>
-    <string name="bookmarks_export_unsupported">已略過 %1$d 個非網頁書籤。</string>
+    <plurals name="bookmarks_exported_partial">
+        <item quantity="other">已匯出 %1$d 個書籤；%2$d 個因上限省略。</item>
+    </plurals>
+    <plurals name="bookmarks_export_unsupported">
+        <item quantity="other">已略過 %1$d 個非網頁書籤。</item>
+    </plurals>
     <string name="bookmarks_transfer_failed">無法讀寫書籤檔案。請使用 UTF-8 HTML，檔案不超過 8 MiB、書籤不超過 5,000 個。</string>
     <string name="cast_status_unavailable">裝置暫未回報播放狀態</string>
     <string name="cast_remote_playing">裝置正在播放</string>
@@ -593,7 +601,9 @@
     <string name="download_confirm_source">來源</string>
     <string name="download_confirm_size_unknown">大小未知</string>
     <string name="download_confirm_destination">儲存到：%1$s</string>
-    <string name="download_requests_intercepted">已攔截 %1$d 個連續下載請求，可在下載管理中查看。</string>
+    <plurals name="download_requests_intercepted">
+        <item quantity="other">已攔截 %1$d 個連續下載請求，可在下載管理中查看。</item>
+    </plurals>
     <string name="download_page_file_failed">無法儲存網頁產生的這個檔案</string>
     <string name="download_page_file_unavailable">網頁在儲存前已釋放該檔案</string>
     <string name="download_file">下載</string>
@@ -624,7 +634,9 @@
     <string name="bookmarks_select">選取書籤</string>
     <string name="bookmarks_root">書籤根目錄</string>
     <string name="bookmarks_selected">已選 %1$d 項</string>
-    <string name="bookmarks_deleted">已刪除 %1$d 個書籤</string>
+    <plurals name="bookmarks_deleted">
+        <item quantity="other">已刪除 %1$d 個書籤</item>
+    </plurals>
     <string name="bookmarks_restored">已恢復書籤</string>
     <string name="bookmarks_move">移動</string>
     <string name="bookmarks_move_to">移動至資料夾</string>
@@ -634,7 +646,9 @@
     <string name="bookmarks_folder_name">資料夾名稱</string>
     <string name="bookmarks_delete_selected">刪除所選書籤？</string>
     <string name="bookmarks_remove_folder_note">移除此資料夾，並將內容移至上一層；保留所有書籤。</string>
-    <string name="bookmarks_folder_count">%1$d 個資料夾，將保留階層結構。</string>
+    <plurals name="bookmarks_folder_count">
+        <item quantity="other">%1$d 個資料夾，將保留階層結構。</item>
+    </plurals>
     <string name="capture_failed">無法開啟相機或檔案選擇器，請重新選取本機檔案。</string>
     <string name="tabs_all_groups">全部群組</string>
     <string name="tabs_group">分頁群組</string>
@@ -693,9 +707,13 @@
     <string name="dev_network_failed">失敗</string>
     <string name="dev_network_search">搜尋請求</string>
     <string name="dev_network_count">%1$d / %2$d 筆請求</string>
-    <string name="dev_source_summary">HTML · %1$d 個字元</string>
+    <plurals name="dev_source_summary">
+        <item quantity="other">HTML · %1$d 個字元</item>
+    </plurals>
     <string name="dev_source_refresh">重新整理原始碼</string>
-    <string name="dev_source_truncated_notice">網頁原始碼較長，顯示前 %1$d 個字元。</string>
+    <plurals name="dev_source_truncated_notice">
+        <item quantity="other">網頁原始碼較長，顯示前 %1$d 個字元。</item>
+    </plurals>
     <string name="qr_scan">掃描 QR Code</string>
     <string name="qr_pick_image">從圖片辨識</string>
     <string name="qr_permission_summary">使用相機掃描 QR Code，也可以選擇圖片辨識。</string>
@@ -713,13 +731,13 @@
     <string name="qr_retry">重試</string>
     <string name="update_title">應用程式更新</string>
     <string name="update_check">檢查更新</string>
-    <string name="update_intro">檢查 GitHub 官方發佈版本。下載和安裝均需你確認。</string>
+    <string name="update_intro">檢查官方發佈版本。下載和安裝均需你確認。</string>
     <string name="update_current">目前版本：%1$s</string>
     <string name="update_available">版本 %1$s · %2$s MiB</string>
     <string name="update_checking">正在檢查官方版本…</string>
     <string name="update_latest">目前已是最新版本。</string>
     <string name="update_no_release">暫未提供可安裝的公開正式版本。</string>
-    <string name="update_rate_limit">GitHub 限制了請求或拒絕存取，請稍後再試。</string>
+    <string name="update_rate_limit">更新服務限制了請求或拒絕存取，請稍後再試。</string>
     <string name="update_incompatible">此更新與目前應用程式或裝置不相容。</string>
     <string name="update_invalid">更新資訊或安裝套件驗證失敗，已阻止安裝。</string>
     <string name="update_file_error">無法儲存更新，請檢查剩餘儲存空間。</string>
@@ -735,11 +753,11 @@
     <string name="update_allow_source">允許安裝</string>
     <string name="update_install">安裝</string>
     <string name="update_auto_check">啟動時自動檢查更新</string>
-    <string name="update_auto_check_summary">啟動時檢查 GitHub 更新，僅提示新版本。</string>
+    <string name="update_auto_check_summary">啟動時檢查官方更新，僅提示新版本。</string>
     <string name="update_prompt_body">發現新版本。下載並校驗後會開啟系統安裝程式完成安裝。</string>
     <string name="update_now">更新</string>
     <string name="update_permission_needed_auto">請在系統設定中允許此來源安裝，返回後會自動繼續安裝。</string>
-    <string name="update_release_page">檢視 GitHub 發佈頁</string>
+    <string name="update_release_page">檢視發佈頁</string>
     <string name="site_storage_unreadable">無法讀取網站設定，重設前將暫停儲存。</string>
     <string name="site_repair">重設所有網站設定</string>
     <string name="site_repair_confirm">重設所有網站的權限和顯示偏好？書籤、歷史和網站資料將保留。</string>
@@ -749,8 +767,12 @@
     <string name="settings_export_failed">導出失敗</string>
     <string name="settings_import">導入設置</string>
     <string name="settings_import_summary">應用本瀏覽器導出的設置文件；應用前會先預覽變更</string>
-    <string name="settings_imported">已導入 %1$d 個設置分組</string>
-    <string name="settings_import_partial">已導入 %1$d 個分組；失敗：%2$s</string>
+    <plurals name="settings_imported">
+        <item quantity="other">已導入 %1$d 個設置分組</item>
+    </plurals>
+    <plurals name="settings_import_partial">
+        <item quantity="other">已導入 %1$d 個分組；失敗：%2$s</item>
+    </plurals>
     <string name="settings_import_invalid">不是有效的設置文件</string>
     <string name="settings_import_apply">應用設置</string>
     <string name="settings_import_source_version">由版本 %1$s 導出</string>
@@ -777,7 +799,9 @@
     <string name="download_confirm_size">大小：%1$s</string>
     <string name="download_blocked_budget">此頁面已達到自動確認次數上限，可在這裡手動下載</string>
     <string name="download_blocked_existing">已有相同工作。點擊可查看；工作完成後可下載新副本，舊檔案會保留。</string>
-    <string name="download_blocked_overflow">另有 %1$d 次請求未儲存（最多保留 5 條）。請移除一條記錄，再回網頁重新觸發下載。</string>
+    <plurals name="download_blocked_overflow">
+        <item quantity="other">另有 %1$d 次請求未儲存（最多保留 5 條）。請移除一條記錄，再回網頁重新觸發下載。</item>
+    </plurals>
     <string name="browser_fullscreen_exit_unsaved">本次已退出全螢幕，但無法儲存偏好，下次啟動可能仍開啟</string>
     <string name="download_copy_title">儲存新副本？</string>
     <string name="download_copy_note">此連結已有已完成的下載。繼續將儲存新副本，保留原有檔案。</string>
@@ -910,7 +934,9 @@
     <string name="dev_dom_empty">目前文件沒有元素樹。</string>
     <string name="dev_dom_stale">這個 DOM 節點已失效，請重新整理 DOM。</string>
     <string name="dev_dom_more_children">載入更多子節點</string>
-    <string name="dev_dom_child_count">%1$d 個子節點</string>
+    <plurals name="dev_dom_child_count">
+        <item quantity="other">%1$d 個子節點</item>
+    </plurals>
     <string name="dev_dom_search">搜尋節點</string>
     <string name="dev_dom_search_empty">沒有符合的節點</string>
     <string name="dev_dom_copy_html">複製節點 HTML</string>
@@ -956,7 +982,9 @@
     <string name="dev_storage_value_load_more">載入更多</string>
     <string name="dev_storage_json_format">格式化 JSON</string>
     <string name="dev_storage_json_raw">原文</string>
-    <string name="dev_storage_total">%1$d 項</string>
+    <plurals name="dev_storage_total">
+        <item quantity="other">%1$d 項</item>
+    </plurals>
     <string name="dev_storage_truncated">已載入 %1$d 項</string>
     <string name="dev_reason_size_limit">超過 256 KiB 預覽上限</string>
     <string name="dev_reason_time_limit">超過 8 秒讀取上限</string>
@@ -981,7 +1009,9 @@
     <string name="dev_query_encoded">編碼：%1$s</string>
     <string name="dev_network_status_source">狀態碼</string>
     <string name="dev_network_record_gone">這個要求已不在目前文件的記錄中。</string>
-    <string name="dev_body_chars">%1$d 個字元</string>
+    <plurals name="dev_body_chars">
+        <item quantity="other">%1$d 個字元</item>
+    </plurals>
     <string name="dev_network_cancelled">已取消</string>
     <string name="dev_source_read_failed">無法讀取目前 DOM 原始碼，請重新整理 DOM 後再試。</string>
     <string name="dev_enhanced_off">增強擷取：未開啟</string>

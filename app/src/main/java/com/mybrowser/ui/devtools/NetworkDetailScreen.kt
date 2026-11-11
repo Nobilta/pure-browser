@@ -239,7 +239,7 @@ private fun BodyHeader(
     ) {
         if (body.text.isNotEmpty()) CopyButton(body.text, stringResource(R.string.dev_copy_captured))
         BodyStateLine(body)
-        val context = LocalResources.current
+        val resources = LocalResources.current
         if (body.contentType.isNotBlank() || body.bytes > 0) {
             Text(
                 buildString {
@@ -250,7 +250,7 @@ private fun BodyHeader(
                     }
                     if (body.text.isNotEmpty()) {
                         if (isNotEmpty()) append(" · ")
-                        append(context.getString(R.string.dev_body_chars, body.text.length))
+                        append(resources.getQuantityString(R.plurals.dev_body_chars, body.text.length, body.text.length))
                     }
                 },
                 style = MaterialTheme.typography.labelSmall,

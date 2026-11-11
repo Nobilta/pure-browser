@@ -1,5 +1,6 @@
 package com.mybrowser.update
 
+import androidx.core.content.edit
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -24,8 +25,16 @@ class UpdateRepository internal constructor(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val app = context.applicationContext
+    enum class Source(val releases: String) {
+        GITEE(RELEASES), GITHUB("$REPOSITORY/releases");
+
+        fun asset(tag: String, name: String) = "$releases/download/$tag/$name"
+        val retryKey get() = "retry_after_$name"
+    }
     data class Release(val versionCode: Long, val versionName: String, val notes: String,
-        val minSdk: Int, val abi: String, val name: String, val url: String, val size: Long, val sha256: String)
+        val minSdk: Int, val abi: String, val name: String, val size: Long, val sha256: String, val source: Source) {
+        val url get() = source.asset("v$versionName", name)
+    }
     enum class Problem { NETWORK, NO_RELEASE, RATE_LIMIT, INVALID, INCOMPATIBLE, FILE, VERIFICATION }
     class Failure(val problem: Problem) : IOException(problem.name)
 
@@ -39,17 +48,31 @@ class UpdateRepository internal constructor(
     suspend fun check(): Release? = withContext(Dispatchers.IO) { checkLock.withLock {
         if (!supported) throw Failure(Problem.INCOMPATIBLE)
         try {
-            if (preferences.getLong("retry_after", 0) > now()) throw Failure(Problem.RATE_LIMIT)
             val age = now() - preferences.getLong("checked_at", 0)
-            val cached = age in 0 until CACHE_MS
-            val manifestText = if (cached) preferences.getString("manifest", null) else null
-            // GitHub's latest-release asset redirect excludes drafts/prereleases without
-            // spending the shared 60 requests/hour anonymous REST API budget.
-            val manifest = JSONObject(manifestText ?: text(MANIFEST, 128 * 1024))
-            val release = parse(manifest, Build.SUPPORTED_ABIS.toList(), Build.VERSION.SDK_INT)
-            if (manifestText == null) {
-                preferences.edit().putString("manifest", manifest.toString())
-                    .putLong("checked_at", now()).remove("retry_after").apply()
+            val source = Source.entries.find { it.name == preferences.getString("source", null) }
+            val manifestText = if (age in 0 until CACHE_MS) preferences.getString("manifest", null) else null
+            val release = if (manifestText != null && source != null) {
+                parse(JSONObject(manifestText), Build.SUPPORTED_ABIS.toList(), Build.VERSION.SDK_INT, source)
+            } else withFallback(Source.GITEE) { selected ->
+                // Gitee has no latest/download asset redirect. Resolve its stable tag first.
+                val tag = if (selected == Source.GITEE) {
+                    val latest = JSONObject(text(selected, GITEE_LATEST))
+                    if (latest.getBoolean("prerelease")) throw Failure(Problem.NO_RELEASE)
+                    latest.getString("tag_name").also {
+                        if (!it.startsWith("v") || !versionPattern.matches(it.drop(1))) throw Failure(Problem.INVALID)
+                    }
+                } else null
+                val url = if (tag != null) selected.asset(tag, "update.json") else MANIFEST
+                val manifest = JSONObject(text(selected, url))
+                val release = parse(manifest, Build.SUPPORTED_ABIS.toList(), Build.VERSION.SDK_INT, selected)
+                if (tag != null && tag != "v${release.versionName}") throw Failure(Problem.INVALID)
+                preferences.edit {
+                    putString("manifest", manifest.toString())
+                    putString("source", selected.name)
+                    putLong("checked_at", now())
+                    remove(selected.retryKey)
+                }
+                release
             }
             if (release.versionCode <= currentCode) null else release
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
@@ -75,29 +98,37 @@ class UpdateRepository internal constructor(
                 catch (_: Exception) { if (!apk.delete()) throw Failure(Problem.FILE) }
             }
             val temporary = File.createTempFile("download-", ".part", folder).also { part = it }
-            request(release.url) { connection ->
-                val reported = connection.contentLengthLong
-                if (reported >= 0 && reported != release.size) throw Failure(Problem.VERIFICATION)
-                val digest = MessageDigest.getInstance("SHA-256")
-                var written = 0L
-                connection.inputStream.use { input -> temporary.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var lastProgress = 0L
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        written += read
-                        if (written > release.size) throw Failure(Problem.VERIFICATION)
-                        output.write(buffer, 0, read)
-                        digest.update(buffer, 0, read)
-                        if (written - lastProgress >= 128 * 1024 || written == release.size) {
-                            progress(written); lastProgress = written
+            withFallback(release.source) { source ->
+                progress(0)
+                // Opening the same temporary file truncates an interrupted source's bytes.
+                temporary.outputStream().use { output ->
+                    request(source, source.asset("v${release.versionName}", release.name)) { connection ->
+                        val reported = connection.contentLengthLong
+                        if (reported >= 0 && reported != release.size) throw Failure(Problem.VERIFICATION)
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        var written = 0L
+                        connection.inputStream.use { input ->
+                            val buffer = ByteArray(64 * 1024)
+                            var lastProgress = 0L
+                            while (true) {
+                                coroutineContext.ensureActive()
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                written += read
+                                if (written > release.size) throw Failure(Problem.VERIFICATION)
+                                try { output.write(buffer, 0, read) }
+                                catch (_: IOException) { throw Failure(Problem.FILE) }
+                                digest.update(buffer, 0, read)
+                                if (written - lastProgress >= 128 * 1024 || written == release.size) {
+                                    progress(written); lastProgress = written
+                                }
+                            }
                         }
+                        if (written < release.size) throw Failure(Problem.NETWORK)
+                        if (Hex.encode(digest.digest()) != release.sha256) throw Failure(Problem.VERIFICATION)
                     }
                     output.fd.sync()
-                } }
-                if (written != release.size || Hex.encode(digest.digest()) != release.sha256) throw Failure(Problem.VERIFICATION)
+                }
             }
             coroutineContext.ensureActive()
             verifyPackage(temporary, release)
@@ -105,7 +136,7 @@ class UpdateRepository internal constructor(
             apk
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: Failure) { throw e }
-        catch (e: java.io.FileNotFoundException) { throw Failure(Problem.FILE) }
+        catch (e: IOException) { throw Failure(Problem.FILE) }
         catch (e: Exception) { throw Failure(Problem.NETWORK) }
         finally { part?.delete() }
     } }
@@ -147,7 +178,16 @@ class UpdateRepository internal constructor(
         }
     }
 
-    private suspend fun text(url: String, limit: Int): String = request(url) { connection ->
+    private suspend fun <T> withFallback(preferred: Source, action: suspend (Source) -> T): T {
+        try { return action(preferred) }
+        catch (e: Failure) {
+            if (e.problem !in setOf(Problem.NETWORK, Problem.NO_RELEASE, Problem.RATE_LIMIT)) throw e
+        }
+        return action(if (preferred == Source.GITEE) Source.GITHUB else Source.GITEE)
+    }
+
+    private suspend fun text(source: Source, url: String): String = request(source, url) { connection ->
+        val limit = 128 * 1024
         if (connection.contentLengthLong > limit) throw Failure(Problem.INVALID)
         connection.inputStream.use { input ->
             val bytes = java.io.ByteArrayOutputStream()
@@ -163,51 +203,57 @@ class UpdateRepository internal constructor(
         }
     }
 
-    private suspend fun <T> request(url: String, read: suspend (HttpURLConnection) -> T): T {
-        var current = url
-        repeat(6) { hop ->
-            coroutineContext.ensureActive()
-            if (!safeUrl(current)) throw Failure(Problem.INVALID)
-            val connection = openConnection(current)
-            try {
-                connection.instanceFollowRedirects = false
-                connection.useCaches = false
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 20_000
-                connection.setRequestProperty("User-Agent", "PureBrowser-Updater")
-                connection.setRequestProperty("Accept-Encoding", "identity")
-                when (connection.responseCode) {
-                    200 -> return read(connection)
-                    301, 302, 303, 307, 308 -> {
-                        if (hop == 5) throw Failure(Problem.NETWORK)
-                        current = URI(current).resolve(connection.getHeaderField("Location") ?: throw Failure(Problem.NETWORK)).toString()
+    private suspend fun <T> request(source: Source, url: String, read: suspend (HttpURLConnection) -> T): T {
+        if (preferences.getLong(source.retryKey, 0) > now()) throw Failure(Problem.RATE_LIMIT)
+        try {
+            var current = url
+            repeat(6) { hop ->
+                coroutineContext.ensureActive()
+                if (!safeUrl(current)) throw Failure(Problem.INVALID)
+                val connection = openConnection(current)
+                try {
+                    connection.instanceFollowRedirects = false
+                    connection.useCaches = false
+                    connection.connectTimeout = 5_000
+                    connection.readTimeout = 10_000
+                    connection.setRequestProperty("User-Agent", "PureBrowser-Updater")
+                    connection.setRequestProperty("Accept-Encoding", "identity")
+                    when (connection.responseCode) {
+                        200 -> return read(connection)
+                        301, 302, 303, 307, 308 -> {
+                            if (hop == 5) throw Failure(Problem.NETWORK)
+                            current = URI(current).resolve(connection.getHeaderField("Location") ?: throw Failure(Problem.NETWORK)).toString()
+                        }
+                        404 -> throw Failure(Problem.NO_RELEASE)
+                        403, 429 -> {
+                            val seconds = connection.getHeaderField("Retry-After")?.toLongOrNull()
+                            val reset = connection.getHeaderField("X-RateLimit-Reset")?.toLongOrNull()
+                            val delay = (seconds?.coerceIn(60, 86_400)?.times(1000)
+                                ?: reset?.let { it.coerceAtMost(Long.MAX_VALUE / 1000) * 1000 - now() }
+                                ?: 15 * 60_000L).coerceIn(60_000L, 24 * 60 * 60_000L)
+                            preferences.edit { putLong(source.retryKey, now() + delay) }
+                            throw Failure(Problem.RATE_LIMIT)
+                        }
+                        else -> throw Failure(Problem.NETWORK)
                     }
-                    404 -> throw Failure(Problem.NO_RELEASE)
-                    403, 429 -> {
-                        val seconds = connection.getHeaderField("Retry-After")?.toLongOrNull()
-                        val reset = connection.getHeaderField("X-RateLimit-Reset")?.toLongOrNull()
-                        val delay = (seconds?.coerceIn(60, 86_400)?.times(1000)
-                            ?: reset?.let { it.coerceAtMost(Long.MAX_VALUE / 1000) * 1000 - now() }
-                            ?: 15 * 60_000L).coerceIn(60_000L, 24 * 60 * 60_000L)
-                        preferences.edit().putLong("retry_after", now() + delay).apply()
-                        throw Failure(Problem.RATE_LIMIT)
-                    }
-                    else -> throw Failure(Problem.NETWORK)
-                }
-            } finally { connection.disconnect() }
-        }
-        throw Failure(Problem.NETWORK)
+                } finally { connection.disconnect() }
+            }
+            throw Failure(Problem.NETWORK)
+        } catch (e: Failure) { throw e }
+        catch (_: IOException) { throw Failure(Problem.NETWORK) }
     }
 
     companion object {
         const val PACKAGE = "com.mybrowser"
         const val REPOSITORY = "https://github.com/Nobilta/pure-browser"
-        const val RELEASES = "$REPOSITORY/releases"
-        const val MANIFEST = "$RELEASES/latest/download/update.json"
+        const val RELEASES = "https://gitee.com/Nobilta/pure-browser/releases"
+        const val MANIFEST = "$REPOSITORY/releases/latest/download/update.json"
+        internal const val GITEE_LATEST = "https://gitee.com/api/v5/repos/Nobilta/pure-browser/releases/latest"
         private const val CACHE_MS = 5 * 60_000L
         private val checkLock = Mutex()
         private val downloadLock = Mutex()
-        private val hosts = setOf("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
+        private val hosts = setOf("gitee.com", "foruda.gitee.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
+        private val versionPattern = Regex("[0-9A-Za-z][0-9A-Za-z.+_-]{0,99}")
         internal fun safeUrl(value: String): Boolean = runCatching {
             val uri = URI(value)
             uri.scheme == "https" && uri.host in hosts && uri.rawUserInfo == null &&
@@ -220,14 +266,14 @@ class UpdateRepository internal constructor(
             else -> throw Failure(Problem.INVALID)
         }
 
-        internal fun parse(manifest: JSONObject, abis: List<String>, sdk: Int): Release {
+        internal fun parse(manifest: JSONObject, abis: List<String>, sdk: Int, source: Source = Source.GITEE): Release {
             if (integer(manifest, "schemaVersion") != 1L || manifest.getString("packageName") != PACKAGE ||
                 manifest.optString("channel") != "stable")
                 throw Failure(Problem.INVALID)
             val version = integer(manifest, "versionCode")
             val versionName = manifest.getString("versionName")
             val minSdk = integer(manifest, "minSdk")
-            if (version !in 1..2_100_000_000L || !versionName.matches(Regex("[0-9A-Za-z][0-9A-Za-z.+_-]{0,99}")) ||
+            if (version !in 1..2_100_000_000L || !versionPattern.matches(versionName) ||
                 minSdk !in 1..Int.MAX_VALUE.toLong())
                 throw Failure(Problem.INVALID)
             if (minSdk > sdk) throw Failure(Problem.INCOMPATIBLE)
@@ -242,8 +288,7 @@ class UpdateRepository internal constructor(
             if (!name.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,150}\\.apk")) || size !in 1..(128L * 1024 * 1024) ||
                 !hash.matches(Regex("[a-f0-9]{64}"))) throw Failure(Problem.INVALID)
             // Never accept an arbitrary server URL from update metadata.
-            val url = "$RELEASES/download/v$versionName/$name"
-            return Release(version, versionName, manifest.optString("releaseNotes").take(12_000), minSdk.toInt(), abi, name, url, size, hash)
+            return Release(version, versionName, manifest.optString("releaseNotes").take(12_000), minSdk.toInt(), abi, name, size, hash, source)
         }
     }
 }

@@ -42,12 +42,12 @@ def main():
             ux.expect('Open system settings'); (a.output / 'login-capabilities.xml').write_text(ux.nodes()[1], encoding="utf-8")
             ux.tap('Close'); page()
             record('System login capability and provider requirements are visible in settings')
-            ux.menu_item('Enter incognito mode'); since = time.time(); page()
+            ux.menu_item(ux._translations[0]["menu_incognito_short"]); since = time.time(); page()
             private = wait(lambda s: s['ready'] == 'complete', since)
             ux.tap('Start passkey request'); rejected = wait(lambda s: s['outcome'] not in ['ready', 'requesting'], since)
             assert rejected['outcome'] != 'unexpected-credential'
             record('Private page credential request is unavailable or rejected', result=rejected, capability=private)
-            ux.menu_item('Exit incognito mode'); page()
+            ux.menu_item(ux._translations[0]["menu_incognito_exit_short"]); page()
         installed = ux.adb('shell', 'pm', 'path', a.package).partition(':')[2].strip()
         (a.output / 'result.json').write_text(json.dumps({'passed': True, 'checks': checks,
             'apkSha256': ux.adb('shell', 'sha256sum', installed).split()[0],

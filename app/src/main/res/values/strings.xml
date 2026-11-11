@@ -350,7 +350,7 @@
     <string name="ui_release_to_seek">%1$s / %2$s</string>
     <string name="ui_player_buffering">Buffering</string>
     <string name="ui_player_network_speed">%1$s/s</string>
-    <string name="ui_selected_count">%1$d selected</string>
+    <string name="ui_selected_count">Selected: %1$d</string>
     <string name="ui_select_downloads">Select downloads</string>
     <string name="ui_current_playback_speed">Current speed</string>
     <string name="ui_video">Video</string>
@@ -369,7 +369,10 @@
     <string name="menu_block_element">Block element</string>
     <string name="picker_title">Block element</string>
     <string name="picker_hint">Tap the element to block</string>
-    <string name="picker_matches">%1$d matches</string>
+    <plurals name="picker_matches">
+        <item quantity="one">%1$d match</item>
+        <item quantity="other">%1$d matches</item>
+    </plurals>
     <string name="picker_parent">Select the surrounding element</string>
     <string name="picker_child">Select back inside the element</string>
     <string name="picker_block_site">Block on this site</string>
@@ -431,7 +434,10 @@
     <string name="filter_user_rule_element_added_all">Blocked on every site. Remove it in Ad filter settings, under My rules.</string>
     <string name="script_title">User scripts</string>
     <string name="script_settings_summary">Import, enable and manage compatible user scripts</string>
-    <string name="script_status_running_count">Running on this page: %1$d scripts (%2$s)</string>
+    <plurals name="script_status_running_count">
+        <item quantity="one">Running on this page: %1$d script (%2$s)</item>
+        <item quantity="other">Running on this page: %1$d scripts (%2$s)</item>
+    </plurals>
     <string name="script_runs_here">Runs on this page</string>
     <string name="script_not_here">Not for this page</string>
     <string name="script_status_no_page">Open a web page to see which scripts apply.</string>
@@ -516,8 +522,14 @@
     <string name="bookmarks_import_preview">Web bookmarks to import: %1$d. Invalid or duplicate entries skipped: %2$d. Existing bookmarks will be kept.</string>
     <string name="bookmarks_imported">Bookmarks imported: %1$d; duplicates or invalid entries skipped: %2$d</string>
     <string name="bookmarks_exported">Bookmarks exported: %1$d</string>
-    <string name="bookmarks_exported_partial">Exported %1$d bookmarks; %2$d omitted at the size limit.</string>
-    <string name="bookmarks_export_unsupported">Skipped %1$d non-web bookmarks.</string>
+    <plurals name="bookmarks_exported_partial">
+        <item quantity="one">Exported %1$d bookmark; %2$d omitted at the size limit.</item>
+        <item quantity="other">Exported %1$d bookmarks; %2$d omitted at the size limit.</item>
+    </plurals>
+    <plurals name="bookmarks_export_unsupported">
+        <item quantity="one">Skipped %1$d non-web bookmark.</item>
+        <item quantity="other">Skipped %1$d non-web bookmarks.</item>
+    </plurals>
     <string name="bookmarks_transfer_failed">Unable to read or write the bookmarks file. Use UTF-8 HTML, up to 8 MiB and 5,000 bookmarks.</string>
     <string name="cast_status_unavailable">The device has not reported playback status</string>
     <string name="cast_remote_playing">Device is playing</string>
@@ -594,7 +606,10 @@
     <string name="download_confirm_source">From</string>
     <string name="download_confirm_size_unknown">Size unknown</string>
     <string name="download_confirm_destination">Save to: %1$s</string>
-    <string name="download_requests_intercepted">%1$d download request(s) intercepted. Review them in the downloads manager.</string>
+    <plurals name="download_requests_intercepted">
+        <item quantity="one">%1$d download request intercepted. Review it in the downloads manager.</item>
+        <item quantity="other">%1$d download requests intercepted. Review them in the downloads manager.</item>
+    </plurals>
     <!-- A file the page built in memory rather than serving from an address. -->
     <string name="download_page_file_failed">This page-generated file could not be saved</string>
     <string name="download_page_file_unavailable">The page released this file before it could be saved</string>
@@ -625,8 +640,11 @@
     <string name="bookmarks_new_folder">New folder</string>
     <string name="bookmarks_select">Select bookmarks</string>
     <string name="bookmarks_root">All folders</string>
-    <string name="bookmarks_selected">%1$d selected</string>
-    <string name="bookmarks_deleted">%1$d bookmarks deleted</string>
+    <string name="bookmarks_selected">Selected: %1$d</string>
+    <plurals name="bookmarks_deleted">
+        <item quantity="one">%1$d bookmark deleted</item>
+        <item quantity="other">%1$d bookmarks deleted</item>
+    </plurals>
     <string name="bookmarks_restored">Bookmarks restored</string>
     <string name="bookmarks_move">Move</string>
     <string name="bookmarks_move_to">Move to folder</string>
@@ -636,7 +654,10 @@
     <string name="bookmarks_folder_name">Folder name</string>
     <string name="bookmarks_delete_selected">Delete selected bookmarks?</string>
     <string name="bookmarks_remove_folder_note">Remove this folder and move its contents to its parent folder. Bookmarks will be kept.</string>
-    <string name="bookmarks_folder_count">%1$d folders; hierarchy will be preserved.</string>
+    <plurals name="bookmarks_folder_count">
+        <item quantity="one">%1$d folder; hierarchy will be preserved.</item>
+        <item quantity="other">%1$d folders; hierarchy will be preserved.</item>
+    </plurals>
     <string name="capture_failed">Unable to open the camera or file picker. You can choose a file from the device instead.</string>
     <string name="tabs_all_groups">All groups</string>
     <string name="tabs_group">Tab group</string>
@@ -694,10 +715,16 @@
     <string name="dev_network_blocked">Blocked</string>
     <string name="dev_network_failed">Failed</string>
     <string name="dev_network_search">Search requests</string>
-    <string name="dev_network_count">%1$d / %2$d requests</string>
-    <string name="dev_source_summary">HTML · %1$d characters</string>
+    <string name="dev_network_count">Requests: %1$d / %2$d</string>
+    <plurals name="dev_source_summary">
+        <item quantity="one">HTML · %1$d character</item>
+        <item quantity="other">HTML · %1$d characters</item>
+    </plurals>
     <string name="dev_source_refresh">Refresh source</string>
-    <string name="dev_source_truncated_notice">This page is long. Showing the first %1$d characters.</string>
+    <plurals name="dev_source_truncated_notice">
+        <item quantity="one">This page is long. Showing the first %1$d character.</item>
+        <item quantity="other">This page is long. Showing the first %1$d characters.</item>
+    </plurals>
     <string name="qr_scan">Scan QR code</string>
     <string name="qr_pick_image">Choose image</string>
     <string name="qr_permission_summary">Use the camera to scan a QR code, or choose an image.</string>
@@ -715,13 +742,13 @@
     <string name="qr_retry">Try again</string>
     <string name="update_title">App update</string>
     <string name="update_check">Check for updates</string>
-    <string name="update_intro">Check official GitHub releases. Downloads and installation require your confirmation.</string>
+    <string name="update_intro">Check official releases. Downloads and installation require your confirmation.</string>
     <string name="update_current">Installed version: %1$s</string>
     <string name="update_available">Version %1$s · %2$s MiB</string>
     <string name="update_checking">Checking official releases…</string>
     <string name="update_latest">This version is up to date.</string>
     <string name="update_no_release">No installable public release is available yet.</string>
-    <string name="update_rate_limit">GitHub is limiting requests or denying access. Please try again later.</string>
+    <string name="update_rate_limit">The update service has limited requests or denied access. Please try again later.</string>
     <string name="update_incompatible">This update is not compatible with this app or device.</string>
     <string name="update_invalid">Update metadata or package verification failed. Installation was blocked.</string>
     <string name="update_file_error">Cannot save the update. Check available storage.</string>
@@ -737,11 +764,11 @@
     <string name="update_allow_source">Allow installation</string>
     <string name="update_install">Install</string>
     <string name="update_auto_check">Check for updates on startup</string>
-    <string name="update_auto_check_summary">Checks GitHub at launch; only newer versions prompt.</string>
+    <string name="update_auto_check_summary">Check for official updates at startup and only notify you of new versions.</string>
     <string name="update_prompt_body">A newer version is available. It is downloaded and verified, then the system installer opens.</string>
     <string name="update_now">Update</string>
     <string name="update_permission_needed_auto">Allow installs from this source in system settings. Installation continues automatically when you return.</string>
-    <string name="update_release_page">View GitHub releases</string>
+    <string name="update_release_page">View release page</string>
     <string name="site_storage_unreadable">Website settings could not be read. Saving is paused until you reset them.</string>
     <string name="site_repair">Reset all website settings</string>
     <string name="site_repair_confirm">Reset all website permissions and display preferences? Bookmarks, history and website data will be kept.</string>
@@ -751,8 +778,14 @@
     <string name="settings_export_failed">Export failed</string>
     <string name="settings_import">Import settings</string>
     <string name="settings_import_summary">Apply a settings file exported by this browser; review the changes before applying</string>
-    <string name="settings_imported">Imported %1$d setting groups</string>
-    <string name="settings_import_partial">Imported %1$d groups; failed: %2$s</string>
+    <plurals name="settings_imported">
+        <item quantity="one">Imported %1$d setting group</item>
+        <item quantity="other">Imported %1$d setting groups</item>
+    </plurals>
+    <plurals name="settings_import_partial">
+        <item quantity="one">Imported %1$d group; failed: %2$s</item>
+        <item quantity="other">Imported %1$d groups; failed: %2$s</item>
+    </plurals>
     <string name="settings_import_invalid">Not a valid settings file</string>
     <string name="settings_import_apply">Apply settings</string>
     <string name="settings_import_source_version">Exported by version %1$s</string>
@@ -760,9 +793,9 @@
     <string name="settings_import_groups">Groups: %1$s</string>
     <string name="settings_import_incognito_on_note">Incognito mode will be switched on; the next cold start opens a private session</string>
     <string name="settings_import_incognito_off_note">Incognito mode will be switched off; current private tabs will be closed</string>
-    <string name="settings_import_engines_note">Custom search engines: importing %1$d, replacing %2$d existing</string>
-    <string name="settings_import_subscriptions_note">Custom filter subscriptions: importing %1$d, replacing %2$d existing; missing rules for enabled lists will download after import</string>
-    <string name="settings_import_rules_note">My rules: importing %1$d, replacing %2$d written here</string>
+    <string name="settings_import_engines_note">Custom search engines — incoming: %1$d; existing to replace: %2$d</string>
+    <string name="settings_import_subscriptions_note">Custom filter subscriptions — incoming: %1$d; existing to replace: %2$d. Missing rules for enabled lists will download after import.</string>
+    <string name="settings_import_rules_note">My rules — incoming: %1$d; existing to replace: %2$d</string>
     <string name="settings_import_sites_note">Site preferences: importing %1$d of %2$d; unlisted sites return to defaults, permissions are untouched</string>
     <string name="settings_import_unknown_builtins_note">Ignoring unknown built-in subscriptions: %1$s</string>
     <string name="settings_import_directory_note">The file suggests a custom download directory; without a local grant the system Downloads folder is used</string>
@@ -779,7 +812,10 @@
     <string name="download_confirm_size">Size: %1$s</string>
     <string name="download_blocked_budget">Automatic confirmations are limited for this page. You can request this download here.</string>
     <string name="download_blocked_existing">A task already exists. Request again to view it, or download a new copy after it finishes. The old file is kept.</string>
-    <string name="download_blocked_overflow">%1$d additional requests were not saved (at most 5 are kept). Remove an entry, then trigger the download again on the page.</string>
+    <plurals name="download_blocked_overflow">
+        <item quantity="one">%1$d additional request was not saved (at most 5 are kept). Remove an entry, then trigger the download again on the page.</item>
+        <item quantity="other">%1$d additional requests were not saved (at most 5 are kept). Remove an entry, then trigger the download again on the page.</item>
+    </plurals>
     <string name="browser_fullscreen_exit_unsaved">Exited fullscreen for this session. Could not save the preference for next launch.</string>
     <string name="download_copy_title">Save a new copy?</string>
     <string name="download_copy_note">This link has a completed download. A new copy will be saved; the existing file will be kept.</string>
@@ -788,11 +824,11 @@
     <string name="download_existing_paused">This download is paused. Continue it in Downloads.</string>
     <string name="filter_pending_download">No rules downloaded yet; update to activate this list</string>
     <string name="settings_import_filter_updates">First rule downloads: %1$d. Check progress in filtering settings.</string>
-    <string name="settings_import_bookmarks_note">Bookmarks: importing %1$d, %2$d already here; existing addresses are kept</string>
-    <string name="settings_import_history_note">History: importing %1$d entries, %2$d already here; the later visit is kept</string>
-    <string name="settings_import_library_added">Added %1$d bookmarks and %2$d history entries</string>
+    <string name="settings_import_bookmarks_note">Bookmarks — incoming: %1$d; already here: %2$d. Existing addresses are kept.</string>
+    <string name="settings_import_history_note">History entries — incoming: %1$d; already here: %2$d. The later visit is kept.</string>
+    <string name="settings_import_library_added">Added — bookmarks: %1$d; history entries: %2$d</string>
     <string name="settings_export_skipped_groups">Unreadable groups were left out: %1$s</string>
-    <string name="settings_export_truncated">File limit reached: %1$d bookmarks and %2$d history entries were left out</string>
+    <string name="settings_export_truncated">File limit reached. Omitted — bookmarks: %1$d; history entries: %2$d</string>
     <string name="site_permission_not_remembered">Your choice applies this time, but could not be remembered. Check or reset website settings.</string>
     <string name="privacy_cleanup_title">Private data cleanup</string>
     <string name="privacy_cleanup_failed">Private data could not be cleared. Browsing is paused until cleanup succeeds. Retry or exit the browser.</string>
@@ -912,7 +948,10 @@
     <string name="dev_dom_empty">This document has no element tree.</string>
     <string name="dev_dom_stale">This DOM node is no longer valid. Refresh DOM.</string>
     <string name="dev_dom_more_children">Load more children</string>
-    <string name="dev_dom_child_count">%1$d children</string>
+    <plurals name="dev_dom_child_count">
+        <item quantity="one">%1$d child</item>
+        <item quantity="other">%1$d children</item>
+    </plurals>
     <string name="dev_dom_search">Search nodes</string>
     <string name="dev_dom_search_empty">No matching nodes</string>
     <string name="dev_dom_copy_html">Copy node HTML</string>
@@ -954,12 +993,15 @@
     <string name="dev_storage_cookie_fallback">Cookie attributes are unavailable on this WebView; only names and values are shown.</string>
     <string name="dev_storage_origin">Origin: %1$s</string>
     <string name="dev_storage_copy_all">Copy full value</string>
-    <string name="dev_storage_value_truncated">Showing the first %1$d characters; the value has %2$d characters.</string>
+    <string name="dev_storage_value_truncated">Characters shown: %1$d of %2$d.</string>
     <string name="dev_storage_value_load_more">Load more</string>
     <string name="dev_storage_json_format">Format JSON</string>
     <string name="dev_storage_json_raw">Raw</string>
-    <string name="dev_storage_total">%1$d items</string>
-    <string name="dev_storage_truncated">%1$d loaded</string>
+    <plurals name="dev_storage_total">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+    <string name="dev_storage_truncated">Loaded: %1$d</string>
     <string name="dev_reason_size_limit">Exceeded the 256 KiB preview limit</string>
     <string name="dev_reason_time_limit">Exceeded the 8 second read limit</string>
     <string name="dev_reason_stream">Streaming response (SSE or infinite stream) is not buffered</string>
@@ -983,7 +1025,10 @@
     <string name="dev_query_encoded">Encoded: %1$s</string>
     <string name="dev_network_status_source">Status code</string>
     <string name="dev_network_record_gone">This request is no longer in the current document\'s log.</string>
-    <string name="dev_body_chars">%1$d characters</string>
+    <plurals name="dev_body_chars">
+        <item quantity="one">%1$d character</item>
+        <item quantity="other">%1$d characters</item>
+    </plurals>
     <string name="dev_network_cancelled">Cancelled</string>
     <string name="dev_source_read_failed">Could not read the current DOM source. Refresh DOM and try again.</string>
     <string name="dev_enhanced_off">Capture off</string>

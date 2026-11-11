@@ -15,10 +15,12 @@ ux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--serial', required=True)
+parser.add_argument('--package', default='com.mybrowser')
 parser.add_argument('--port', type=int, default=8875, help='Local static fixture server port')
 args = parser.parse_args()
 assert args.serial.startswith('emulator-'), 'Use a local test emulator'
 ux.ADB = ['adb', '-s', args.serial]
+ux.PACKAGE = args.package
 sdk = ux.adb('shell', 'getprop', 'ro.build.version.sdk')
 stem = ROOT / 'results' / ('api' + sdk + '-devtools')
 apk = ux.adb('shell', 'pm', 'path', ux.PACKAGE).partition(':')[2].strip()
@@ -79,6 +81,33 @@ def back():
     time.sleep(.5)
 
 
+def copy_console_entry(fragment):
+    root, _ = ux.nodes()
+    node = next(node for node in root.iter('node') if ux.visible(node)
+                and node.get('class') == 'android.widget.TextView' and fragment in node.get('text', ''))
+    expected = node.get('text')
+    x1, y1, x2, y2 = ux.bounds(node)
+    x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+    ux.adb('shell', 'input', 'swipe', x, y, x, y, '1200')
+    # Android's floating text toolbar is a separate accessibility window.
+    for label in ('Select all', 'Copy'):
+        root, _ = ux.window_nodes()
+        action = ux.match(root, label)
+        assert action is not None, 'Text selection action missing: ' + label
+        ux.tap_node(action)
+        time.sleep(.3)
+    # Dismiss the system clipboard preview outside the bottom input area.
+    ux.tap('Console')
+    enter('')
+    ux.adb('shell', 'input', 'keyevent', '279')  # Paste into the visible console field.
+    root, _ = ux.nodes()
+    field = next(node for node in root.iter('node') if ux.visible(node)
+                 and node.get('class') == 'android.widget.EditText')
+    assert field.get('text') == expected, 'Clipboard does not match the complete console entry'
+    enter('')
+    back()
+
+
 def open_devtools():
     """The row lives inside the menu's More tools page, not the top-level sheet."""
     ux.menu_item('More tools')
@@ -131,6 +160,8 @@ try:
     ux.tap('Run')
     wait_text('6*7\n42')
     record('console draft survives tab changes and JavaScript execution returns 42')
+    copy_console_entry('6*7\n42')
+    record('console execution results support long-press selection and clipboard copy')
     ux.tap('Elements')
     ux.expect('Enable capture above to view DOM and source.')
     snapshot('elements-guide')
@@ -173,6 +204,8 @@ try:
     wait_text('pure-audit-hidden')
     snapshot('reopened-console')
     record('console messages recorded with diagnostics closed appear after reopening')
+    copy_console_entry('pure-audit-hidden')
+    record('webpage console logs support long-press selection and clipboard copy')
     for cycle in range(3):
         orient('1')
         enter('10+10')

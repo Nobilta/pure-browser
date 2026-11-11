@@ -65,11 +65,11 @@ fun BrowserToolbar(
     onTabs: () -> Unit,
     tabCount: Int,
     onMenu: () -> Unit,
+    modifier: Modifier = Modifier,
     isIncognito: Boolean = false,
     onNewTab: () -> Unit = onTabs,
     swipeTabs: Boolean = false,
     onSwitchTab: (Int) -> Unit = {},
-    modifier: Modifier = Modifier,
     /** The dock already draws its own divider above the address bar. */
     bottomAddressBar: Boolean = false,
 ) {

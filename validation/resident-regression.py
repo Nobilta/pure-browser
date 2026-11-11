@@ -77,9 +77,10 @@ def main():
         # retain the same document even when its list position changes.
         tabs()
         root,_=ux.nodes()
-        row=next(n for n in root.iter('node') if ux.match(n,'Resident A') is not None and
-                 ux.match(n,'Item actions') is not None and len(list(n.iter('node')))<30)
-        ux.tap_node(ux.match(row,'Item actions')); ux.tap('Tab group'); ux.tap('Group name')
+        x1, y1, x2, y2 = ux.bounds(ux.match(root, 'Resident A'))
+        x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+        ux.adb('shell', 'input', 'swipe', x, y, x, y, '1200')
+        ux.tap('Tab group'); ux.tap('Group name')
         focused_editor()
         ux.adb('shell','input','text','QAgroup'); ux.adb('shell','input','keyevent','4'); ux.tap('Confirm')
         ux.expect('QAgroup')

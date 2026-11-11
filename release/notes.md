@@ -1,3 +1,24 @@
+## 0.21.0 双源更新本地测试包（2026-11-11，未发布）
+
+被测产物：`app/build/outputs/apk/release/app-release.apk`，本地签名 Release；版本仍为 0.21.0 / versionCode 80，包含工作区既有未提交改动。
+
+- 自动化：快速检查、814 项 Android JVM 单测（含 16 项更新仓库测试）、Rust clippy、Android Lint（0 错误、15 警告）、R8、APK 签名与 16 KiB zipalign 校验通过。
+- 更新测试：覆盖 Gitee 优先及 CDN 跳转、GitHub 回退、来源缓存和独立限流、同版本中断重下，以及非法清单、摘要／签名错误、取消和本地文件失败不会换源。
+- 设备回归：Android 14 / API 34 模拟器安装上述签名包，实际从 Gitee 检查更新；注入 Gitee 限流后实际从 GitHub 检查成功；两边均限流时显示失败。三项检查通过，更新偏好已恢复。
+- 未验证：实体真机及真实升级安装；传输故障和包元数据校验使用注入连接与 Robolectric，设备回归仅检查来源切换与更新界面。
+
+产物大小、校验值和详细结果保存在 `validation/results/update-sources/`。
+
+## 0.21.0 摄像头预览与控制台复制本地测试包（2026-11-11，未发布）
+
+被测产物：此前的 `app/build/outputs/apk/release/app-release.apk` 本地签名 Release（已由上方双源更新测试包替换）；版本为 0.21.0 / versionCode 80，包含当时工作区其他既有未提交改动，不是下方的历史正式包。
+
+- 自动化：快速检查、803 项 Android JVM 单测、Rust clippy、Android Lint（0 错误、15 警告）、R8、APK 签名与 16 KiB zipalign 校验通过。
+- 设备回归：Android 14 / API 34 / WebView 113.0.5672.136 模拟器安装上述签名包，摄像头 7 项、开发者工具 15 项检查通过。覆盖授权后自动预览、前置→后置→前置及持续出帧、默认摄像头记录、拒绝授权、普通媒体自动播放，以及网页日志和执行结果的长按复制与整条粘贴一致性、横竖屏与面板导航。
+- 未验证：实体真机、e签宝真实活体流程、其他 Android/WebView 版本；不保证网页未指定采集方向时默认选择前置。
+
+产物大小、校验值和详细结果保存在 `validation/results/realtime-camera-release/` 与 `validation/results/api34-devtools.json`。
+
 ## 0.21.0 正式发布验证范围
 
 被测产物：`PureBrowser-v0.21.0-release.apk`（versionCode 80），公开正式版。

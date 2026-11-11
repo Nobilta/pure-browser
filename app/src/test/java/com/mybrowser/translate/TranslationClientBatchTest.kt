@@ -1,10 +1,31 @@
 package com.mybrowser.translate
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranslationClientBatchTest {
+    @Test
+    fun `combined Chinese nodes stay within the encoded URL budget`() = runBlocking {
+        assertBoundedBatch(listOf("中".repeat(600), "文".repeat(100)))
+    }
+
+    @Test
+    fun `URL budget includes separators and preserves split emoji text`() = runBlocking {
+        assertBoundedBatch(List(30) { "文".repeat(25) } + "😀".repeat(900) + "")
+    }
+
+    private suspend fun assertBoundedBatch(texts: List<String>) {
+        val requests = mutableListOf<String>()
+        val client = TranslationClient(TranslationSettings(provider = TranslationProvider.GOOGLE))
+        val output = client.translateBatched(texts, "en", 1_800, 1_900, 6_000,
+            translateOne = { text, _ -> requests += text; text }, onProgress = { _, _ -> })
+        assertTrue("Encoded request sizes: ${requests.map { java.net.URLEncoder.encode(it, "UTF-8").length }}",
+            requests.all { java.net.URLEncoder.encode(it, "UTF-8").length <= 6_000 })
+        assertEquals(texts.map { it.replace(" ", "") }, output.map { it.replace(" ", "") })
+    }
+
     @Test
     fun `long text is split at a boundary and never inside a surrogate pair`() {
         val text = "short words that should wrap cleanly ".repeat(30)

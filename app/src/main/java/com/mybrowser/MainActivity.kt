@@ -1,5 +1,7 @@
 package com.mybrowser
 
+import androidx.core.content.edit
+import androidx.core.graphics.createBitmap
 import com.mybrowser.core.observedReferer
 
 import com.mybrowser.R
@@ -20,7 +22,6 @@ import android.content.ClipboardManager
 import android.content.ComponentCallbacks2
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.Rect
 import android.net.Uri
 import android.net.http.SslError
@@ -35,12 +36,6 @@ import android.view.MenuItem
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
-import com.mybrowser.translate.PageTranslator
-import com.mybrowser.translate.TranslationClient
-import com.mybrowser.translate.TranslationPageItem
-import com.mybrowser.translate.TranslationPageMode
-import com.mybrowser.translate.TranslationSettings
-import com.mybrowser.translate.TranslationSettingsRepository
 import com.mybrowser.ui.translate.TranslationResultDialog
 import com.mybrowser.ui.translate.TranslationSheetMode
 import com.mybrowser.ui.translate.TranslationSheet
@@ -78,7 +73,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -92,15 +86,12 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,7 +118,6 @@ import com.mybrowser.ui.shell.PageNavigator
 import com.mybrowser.ui.shell.PageNavigator.Companion.intentNavigationText
 import com.mybrowser.core.UrlUtils
 import com.mybrowser.core.classifyResourceType
-import com.mybrowser.core.WebViewPool
 import com.mybrowser.core.WebViewConfig
 import com.mybrowser.core.ParkedWebViewClient
 import com.mybrowser.core.DefaultBrowser
@@ -140,10 +130,8 @@ import com.mybrowser.filter.FilterController
 import com.mybrowser.filter.FilterSubscriptions
 import com.mybrowser.filter.PageHide
 import com.mybrowser.userscript.UserScriptStore
-import com.mybrowser.userscript.UserScriptRuntime
 import com.mybrowser.media.MediaCandidateStore
 import com.mybrowser.media.MediaPlaybackTracker
-import com.mybrowser.media.MediaTrackerRegistry
 import com.mybrowser.media.FullscreenVideoView
 import com.mybrowser.data.BrowserPreferences
 import com.mybrowser.data.ThemeMode
@@ -199,7 +187,6 @@ import com.mybrowser.ui.shell.PageContextSheet
 import com.mybrowser.ui.theme.PureBrowserTheme
 import com.mybrowser.ui.shell.Dialogs
 import java.io.ByteArrayInputStream
-import java.util.WeakHashMap
 import com.mybrowser.ui.devtools.DeveloperTools
 import com.mybrowser.ui.devtools.FilterExplanationDialog
 import com.mybrowser.ui.library.BookmarkLibrary
@@ -211,13 +198,13 @@ import com.mybrowser.ui.shell.SecurityInfoDialog
 /**
  * Hosts the browser.
  *
- * The division of labour after the Compose migration: this class owns everything
- * imperative — the pooled WebView, its clients, fullscreen video, intents, lifecycle —
- * and pushes what the UI draws into [BrowserState]. Compose reads that state and never
- * touches the WebView except to attach it.
+ * Coordinates navigation, permissions, media, intents and Compose presentation.
+ * BrowserPageHost owns WebViews and their document channels; TranslationController
+ * owns translation state and asynchronous work. Compose reads [BrowserState] and
+ * attaches the current page without taking over its lifecycle.
  *
- * [webView] is snapshot state rather than a plain field on purpose. When the renderer
- * dies and the pool hands over a replacement, assigning it here is the entire fix: the
+ * The page host exposes snapshot state. When the renderer dies and the pool hands
+ * over a replacement, assigning it to the host updates the UI: the
  * assignment recomposes [BrowserScreen], whose holder reconciliation swaps the instance
  * in. No view manipulation at this level.
  */
@@ -226,7 +213,7 @@ class MainActivity : ComponentActivity(),
     BrowserChromeClient.Listener,
     com.mybrowser.media.BrowserMediaSession.Owner {
 
-    private lateinit var pool: WebViewPool
+    private lateinit var pages: com.mybrowser.core.BrowserPageHost
     private lateinit var sessionState: com.mybrowser.tabs.BrowserSessionState
     private val dialogs = Dialogs()
     private val rendererRecovery = RendererRecovery()
@@ -241,8 +228,6 @@ class MainActivity : ComponentActivity(),
     private lateinit var filter: FilterController
     private lateinit var customFilter: FilterSubscriptions
     private lateinit var userScripts: UserScriptStore
-    private val scriptRuntimes = WeakHashMap<WebView, UserScriptRuntime>()
-    private val cosmeticRuntimes = WeakHashMap<WebView, com.mybrowser.filter.CosmeticFilterRuntime>()
     private lateinit var privacy: PrivacyMode
     private val dataCleaner by lazy { BrowsingDataCleaner(this) }
     private var showClearData by mutableStateOf(false)
@@ -272,13 +257,6 @@ class MainActivity : ComponentActivity(),
     private var downloadSettings by mutableStateOf(DownloadSettings())
     private lateinit var preferencesRepository: BrowserPreferencesRepository
     private var browserPreferences by mutableStateOf(BrowserPreferences())
-    private lateinit var translationSettingsRepository: TranslationSettingsRepository
-    private var translationSettings by mutableStateOf(TranslationSettings())
-    private lateinit var pageTranslator: PageTranslator
-    private var translationBusy by mutableStateOf(false)
-    private var translationProgress by mutableIntStateOf(0)
-    private var translationPageTranslated by mutableStateOf(false)
-    private var translationSessionActive by mutableStateOf(false)
     /**
      * Reader mode lives inside one WebView's document, not in the Activity.
      *
@@ -299,41 +277,19 @@ class MainActivity : ComponentActivity(),
         val live = tabManager.tabs.mapTo(HashSet()) { it.id }
         readerTabs.keys.retainAll(live)
     }
-    private var translationComplete by mutableStateOf(false)
-    private var translationClosing by mutableStateOf(false)
     private var showWelcome by mutableStateOf(false)
-    private var translationError by mutableStateOf<String?>(null)
-    private var translationSelectionOriginal by mutableStateOf<String?>(null)
-    private var translationSelectionTranslated by mutableStateOf<String?>(null)
-    private var translationSelectionBusy by mutableStateOf(false)
-    private var translationSelectionError by mutableStateOf<String?>(null)
-    private var translationJob: Job? = null
-    private var translationScrollJob: Job? = null
-    private var translationPollJob: Job? = null
-    private var translationGeneration = 0
-    private var translationAppliedMode: TranslationPageMode? = null
-    private var translationPending = linkedMapOf<Int, TranslationPageItem>()
-    private var translationHasPending by mutableStateOf(false)
-    private var translationTotalChars = 0
-    private var translationDoneChars = 0
-    private var translationScrollPending = false
-    private var translationRetryAt = 0L
-    private var translationErrorReported = false
-    private data class TranslationTabSnapshot(
-        val url: String,
-        val mode: TranslationPageMode,
-        val pageTranslated: Boolean,
-        val sessionActive: Boolean,
-        val complete: Boolean,
-        val pending: LinkedHashMap<Int, TranslationPageItem>,
-        val totalChars: Int,
-        val doneChars: Int,
-        val progress: Int,
-    )
-    private val translationTabSnapshots = mutableMapOf<String, TranslationTabSnapshot>()
-    private var translationSelectionJob: Job? = null
-    private var selectionCaptureJob: Job? = null
-    private var translationStateJob: Job? = null
+    private val translation by lazy {
+        com.mybrowser.translate.TranslationController(this, lifecycleScope,
+            object : com.mybrowser.translate.TranslationController.Host {
+                override val view get() = pages.current
+                override val url get() = state.currentUrl
+                override val documentEpoch get() = permissionEpoch
+                override val ownerTabId get() = pages.ownerTabId
+                override val selectedTabId get() = tabManager.currentTab?.id
+                override val panelVisible get() = sheet == Sheet.TRANSLATION
+                override fun message(text: String) { toast(text) }
+            })
+    }
     private var showFilterSettings by mutableStateOf(false)
     private var showUserScripts by mutableStateOf(false)
     private lateinit var normalSites: SiteSettingsRepository
@@ -379,7 +335,7 @@ class MainActivity : ComponentActivity(),
                 customFilter.initialize()
                 filter.awaitReady()
             },
-            refreshScripts = { webViewOrNull?.let { scriptRuntimes[it]?.refresh() } },
+            refreshScripts = { pages.current?.let { pages.scriptsFor(it)?.refresh() } },
         )
     }
     private val navigator by lazy {
@@ -407,12 +363,9 @@ class MainActivity : ComponentActivity(),
 
     /** Video candidates for the current page; cleared on every main-frame navigation. */
     private val media = MediaCandidateStore()
-    private val mediaTrackers = MediaTrackerRegistry()
     private var mediaProbeJob: Job? = null
     private var hasVideo by mutableStateOf(false)
     private val consoleLogs = ConsoleLogStore()
-    /** One enhanced-capture session per live WebView; never persisted across starts. */
-    private lateinit var devTools: com.mybrowser.devtools.DevToolsController
     private val cast: CastController get() = (application as App).castController
 
     private val sheetNavigation = BrowserSheetNavigation()
@@ -430,7 +383,7 @@ class MainActivity : ComponentActivity(),
     )
 
     private var pageContextTarget by mutableStateOf<PageContextTarget?>(null)
-    private val pageContextMenu = PageContextMenuController({ it === webViewOrNull }) { target ->
+    private val pageContextMenu = PageContextMenuController({ it === pages.current }) { target ->
         if (fullscreenView == null) {
             sheetNavigation.clear()
             pageContextTarget = target
@@ -450,22 +403,12 @@ class MainActivity : ComponentActivity(),
     private var searchEngine by mutableStateOf(SearchEngine.BAIDU)
     private var availableSearchEngines by mutableStateOf<List<SearchEngine>>(emptyList())
 
-    /**
-     * Nullable behind the scenes because a snapshot state needs an initial value and the
-     * real instance cannot exist until the pool does, but never observed as null: the
-     * assignment in onCreate happens before setContent, so nothing can read it early.
-     * The accessor asserts that rather than letting a null leak into the UI.
-     */
-    private var webViewOrNull: WebView? by mutableStateOf(null)
     /** In-app feedback; ships to BrowserScreen so the host sits above the toolbar. */
     private val snackbarHostState = SnackbarHostState()
 
     private val feedbackQueue = FeedbackQueue()
     private var feedbackDraining = false
     private var clearHistoryOnNextFinish = false
-    private var readyWebViewTabId: String? = null
-    private var viewOwnerId: String? = null
-    private data class ParkedPage(val view: WebView, val settings: SiteSettings, val filtering: Boolean)
     private class PopupPage(val tabId: String, val view: WebView, document: WorkerDocument) {
         @Volatile var alive = true
         @Volatile var document = document
@@ -475,19 +418,17 @@ class MainActivity : ComponentActivity(),
         var clearHistory = false
     }
     private val popupPages = com.mybrowser.tabs.PopupSessionStore<PopupPage>()
-    private val pendingPopupTransfers = mutableMapOf<WebView, AutoCloseable>()
 
     private fun disposePopupPage(page: PopupPage) {
         page.alive = false
-        removeMediaPlaybackTracker(page.view)
-        pool.discard(page.view)
+        pages.discard(page.view)
     }
 
     /** HTTP and document state continue while only foreground UI/media ownership is suspended. */
     private fun backgroundPopupPage(page: PopupPage) {
         val view = page.view
         (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
-        mediaTrackers.trackerOf(view)?.let { it.pauseAll(); it.setSuspended(true) }
+        pages.media.trackerOf(view)?.let { it.pauseAll(); it.setSuspended(true) }
         view.webViewClient = com.mybrowser.core.PopupWebViewClient(object : com.mybrowser.core.PopupWebViewClient.Listener {
             override fun isAlive() = page.alive
             override fun onNavigation(url: String) { updatePopupDocument(page, url) }
@@ -498,9 +439,7 @@ class MainActivity : ComponentActivity(),
                 downloadRequests.startDocument(page.tabId)
                 // The popup’s old document is going away with its blob: addresses, so a
                 // transfer reading one of them has to end here just as it does for the main frame.
-                pageFileDownloads[view]?.onDocumentChanged()
-                scriptRuntimes[view]?.onDocumentChanged(url)
-                cosmeticRuntimes[view]?.onDocumentChanged(url)
+                pages.onDocumentChanged(view, url)
                 page.loading = true
                 page.failure = null
                 page.certificateError = false
@@ -516,8 +455,7 @@ class MainActivity : ComponentActivity(),
                 if (settings.desktop) WebViewConfig.applyDesktopViewport(view, settings.desktopWidth)
                 if (!privacy.isIncognito && page.failure == null) addToHistory(url, view.title ?: url)
                 // Cleared at the start of the load; see the main frame path.
-                scriptRuntimes[view]?.onPageFinished(url)
-                cosmeticRuntimes[view]?.refresh(url)
+                pages.onPageFinished(view, url)
             }
             override fun onError(url: String, code: Int, description: String) {
                 if (url != page.document.url) return
@@ -550,71 +488,32 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun stopDepartingPage() {
-        if (popupPages[viewOwnerId]?.view !== webViewOrNull) webViewOrNull?.stopLoading()
-    }
-
-    private fun suspendPage(view: WebView) {
-        (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
-        mediaTrackers.trackerOf(view)?.setSuspended(true)
-        view.onPause()
-        view.webViewClient = ParkedWebViewClient { gone -> onRenderProcessGone(gone, true) }
-        (view.parent as? ViewGroup)?.removeView(view)
-    }
-    /**
-     * Parked pages, one per tab the user actually opened. Retention follows the tab count
-     * rather than a fixed slot count, so memory is bounded by eviction instead: the oldest
-     * page goes first when the allocator runs out or the system reports pressure.
-     */
-    private val recentViews by lazy {
-        com.mybrowser.tabs.RecentTabStore<ParkedPage> { page ->
-            removeMediaPlaybackTracker(page.view)
-            pool.discard(page.view)
-        }
+        if (popupPages[pages.ownerTabId]?.view !== pages.current) pages.current?.stopLoading()
     }
 
     private fun clearResidentTabs() {
         popupPages.clear().forEach { page ->
             page.alive = false
-            if (page.view !== webViewOrNull) disposePopupPage(page)
+            if (page.view !== pages.current) disposePopupPage(page)
         }
-        recentViews.clear()
+        pages.parked.clear()
         // Parked views are where reader DOMs live; none of those documents survives this call.
         readerTabs.clear()
     }
     private fun pruneResidentTabs() {
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
-        recentViews.retain(normalTabManager.tabs.map { it.id }.toSet())
+        pages.parked.retain(normalTabManager.tabs.map { it.id }.toSet())
         popupPages.retain(tabManager.tabs.map { it.id }.toSet()).forEach(::disposePopupPage)
     }
 
     /** Frees the least recently parked page and clears the reader state that lived in it. */
     private fun evictOldestParkedPage(): Boolean {
-        val evictedId = recentViews.evictOldestId() ?: return false
+        val evictedId = pages.parked.evictOldestId() ?: return false
         readerTabs.remove(evictedId)
         return true
     }
 
-    /**
-     * Creates an instance, evicting parked pages oldest-first if the allocator is out of
-     * memory. Unbounded retention needs this backstop: without it, opening one page too many
-     * would crash instead of dropping the page the user is least likely to return to.
-     *
-     * Configuration runs after the pool has taken ownership, so a failure there has to hand the
-     * instance back: it would otherwise sit in the pool attached to nothing and leak exactly the
-     * memory this retry is trying to free.
-     */
-    private fun acquireFreshPage(): WebView = com.mybrowser.core.acquireWithMemoryRecovery(
-        create = { pool.acquireFresh() },
-        configure = ::configure,
-        discard = ::discardFailedPage,
-        evict = ::evictOldestParkedPage,
-    )
-
-    /** Releases a half-configured instance; its trackers and script runtime die with it. */
-    private fun discardFailedPage(view: WebView) {
-        removeMediaPlaybackTracker(view)
-        pool.discard(view)
-    }
+    private fun acquireFreshPage(): WebView = pages.acquire(::configure, ::evictOldestParkedPage)
 
     /**
      * A worker-thread-safe copy for shouldInterceptRequest. Reading Compose snapshot state
@@ -637,7 +536,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private val webView: WebView
-        get() = checkNotNull(webViewOrNull) { "WebView read before onCreate acquired it" }
+        get() = checkNotNull(pages.current) { "WebView read before onCreate acquired it" }
 
     /** Fullscreen video state. */
     private var fullscreenView by mutableStateOf<FullscreenVideoView?>(null)
@@ -693,8 +592,7 @@ class MainActivity : ComponentActivity(),
         val app = application as App
         sessionState = androidx.lifecycle.ViewModelProvider(this)[com.mybrowser.tabs.BrowserSessionState::class.java]
         app.prepareWebEngine()
-        pool = WebViewPool(this)
-        devTools = com.mybrowser.devtools.DevToolsController()
+        pages = com.mybrowser.core.BrowserPageHost(this, ::onPageReleased)
         filter = app.filterController
         customFilter = app.filterSubscriptions
         userScripts = app.userScripts
@@ -702,9 +600,6 @@ class MainActivity : ComponentActivity(),
         normalSites = app.siteSettings
         preferencesRepository = BrowserPreferencesRepository(this)
         browserPreferences = loadBrowserPreferences()
-        translationSettingsRepository = TranslationSettingsRepository(this)
-        translationSettings = translationSettingsRepository.load()
-        pageTranslator = PageTranslator(this)
         showWelcome = !getSharedPreferences("onboarding", MODE_PRIVATE).getBoolean("welcome_seen", false)
         downloadNotificationsEnabled = com.mybrowser.download.DownloadNotificationGuide.isEnabled(this)
         // A persisted incognito wish applies only on a fresh process. An Activity
@@ -788,11 +683,11 @@ class MainActivity : ComponentActivity(),
         // The process owns the check and the offer; this Activity only displays it (see App).
         (application as App).checkForStartupUpdate()
         pipController = com.mybrowser.media.PictureInPictureController(this,
-            { webViewOrNull?.let(mediaTrackers::trackerOf) }, { !privacy.isIncognito }, { fullscreenView },
+            { pages.current?.let(pages.media::trackerOf) }, { !privacy.isIncognito }, { fullscreenView },
             { browserPreferences.video.automaticPip })
         downloadHandler = app.downloadHandler
 
-        webViewOrNull = acquireFreshPage()
+        pages.current = acquireFreshPage()
         // Always materialize the restored tab first. An explicit VIEW/SEND can then open its
         // destination in a new tab without overwriting the page the user left behind, and an
         // external protocol or userscript import cannot leave the restored tab unloaded.
@@ -820,22 +715,14 @@ class MainActivity : ComponentActivity(),
                         onDismiss = ::dismissWelcome,
                     )
                 }
-                translationSelectionOriginal?.let { original ->
+                translation.selectionOriginal?.let { original ->
                     TranslationResultDialog(
                         original = original,
-                        translated = translationSelectionTranslated,
-                        busy = translationSelectionBusy,
-                        error = translationSelectionError,
+                        translated = translation.selectionTranslated,
+                        busy = translation.selectionBusy,
+                        error = translation.selectionError,
                         onCopy = { copyToClipboard(it) },
-                        onDismiss = {
-                            // Closing wins over a slow or stuck provider request. Clearing the
-                            // state first prevents a late response from reopening the dialog.
-                            translationSelectionJob?.cancel()
-                            translationSelectionOriginal = null
-                            translationSelectionTranslated = null
-                            translationSelectionError = null
-                            translationSelectionBusy = false
-                        },
+                        onDismiss = translation::dismissSelection,
                     )
                 }
                 val cleanupState by privacy.cleanupState.collectAsState()
@@ -921,7 +808,7 @@ class MainActivity : ComponentActivity(),
                 androidx.compose.runtime.DisposableEffect(activeSheet) {
                     cast.setVisible(activeSheet == Sheet.CAST)
                     onDispose {
-                        devTools.sessionFor(webViewOrNull)?.setNetworkVisible(false)
+                        pages.devTools.sessionFor(pages.current)?.setNetworkVisible(false)
                         consoleLogs.setVisible(false)
                         if (activeSheet == Sheet.CAST) { cast.setVisible(false); cast.cancel() }
                     }
@@ -949,14 +836,14 @@ class MainActivity : ComponentActivity(),
                     },
                     tabCount = tabManager.count,
                     isVideoFullscreen = fullscreenView != null,
-                    translationVisible = !translationClosing &&
-                        (translationSessionActive || translationPageTranslated || translationHasPending),
-                    translationTranslating = translationSessionActive && !translationComplete,
-                    onStopTranslation = ::stopPageTranslation,
-                    onRestoreTranslation = ::restoreTranslatedPage,
+                    translationVisible = !translation.closing &&
+                        (translation.sessionActive || translation.pageTranslated || translation.hasPending),
+                    translationTranslating = translation.sessionActive && !translation.complete,
+                    onStopTranslation = translation::restore,
+                    onRestoreTranslation = translation::restore,
                     mediaCount = mediaSnapshot.count,
                     onCast = {
-                        mediaTrackers.trackerOf(webView)?.probe()
+                        pages.media.trackerOf(webView)?.probe()
                         openSheet(Sheet.CAST)
                         cast.search()
                     },
@@ -981,8 +868,8 @@ class MainActivity : ComponentActivity(),
                         state.hideFindBar()
                     },
                     elementPicker = elementPicker,
-                    onPickerParent = { pickerOwner?.let { view -> elementPickers[view]?.step(towardsParent = true) } },
-                    onPickerChild = { pickerOwner?.let { view -> elementPickers[view]?.step(towardsParent = false) } },
+                    onPickerParent = { pickerOwner?.let { view -> pages.pickerFor(view)?.step(towardsParent = true) } },
+                    onPickerChild = { pickerOwner?.let { view -> pages.pickerFor(view)?.step(towardsParent = false) } },
                     onPickerBlock = ::blockPickedElement,
                     onPickerCancel = ::stopElementPicker,
                     isIncognito = privacy.isIncognito,
@@ -1043,7 +930,7 @@ class MainActivity : ComponentActivity(),
                             siteHost = UrlUtils.hostOf(state.currentUrl).orEmpty(),
                             securityLevel = SecurityChecker.getSecurityLevel(state.currentUrl, hasCertificateWarning),
                             isReaderActive = readerActive,
-                            isTranslateActive = translationSessionActive || translationPageTranslated,
+                            isTranslateActive = translation.sessionActive || translation.pageTranslated,
                             onToggleReader = { sheetAction(entry, ::toggleReaderMode) },
                             onSharePage = { if (UrlUtils.isHttpUrl(state.currentUrl)) shareUrl(state.currentUrl) },
                             onBlockElement = {
@@ -1065,13 +952,13 @@ class MainActivity : ComponentActivity(),
                             },
                             onOpenFind = { sheetAction(entry) { state.showFindBar() } },
                             onOpenTranslation = {
-                                if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translationError = null
+                                if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translation.clearError()
                             },
                             onOpenMoreTools = { sheetNavigation.push(entry, Sheet.MORE_TOOLS) },
                             runningScriptCount = currentUserScriptStatus()?.running?.size ?: 0,
                             onOpenMedia = {
                                 if (sheetNavigation.push(entry, Sheet.CAST)) {
-                                    mediaTrackers.trackerOf(webView)?.probe()
+                                    pages.media.trackerOf(webView)?.probe()
                                     cast.search()
                                 }
                             },
@@ -1124,7 +1011,7 @@ class MainActivity : ComponentActivity(),
                                 pruneResidentTabs()
                                 if (!wasCurrent) {
                                     loadCurrentTab()
-                                    refreshTranslationState()
+                                    translation.refresh()
                                 }
                                 persistNormalSession()
                             },
@@ -1278,7 +1165,7 @@ class MainActivity : ComponentActivity(),
                             onManageUserScripts = { showUserScripts = true },
                             onManageSites = { showManagedSites = true },
                             onOpenTranslation = {
-                                if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translationError = null
+                                if (sheetNavigation.push(entry, Sheet.TRANSLATION)) translation.clearError()
                             },
                             downloadSettings = downloadSettings,
                             onUseSystemDownloadDirectory = {
@@ -1334,18 +1221,15 @@ class MainActivity : ComponentActivity(),
                         Sheet.TRANSLATION -> TranslationSheet(
                             mode = if (sheetNavigation.routes.dropLast(1).any { it.destination == Sheet.SETTINGS })
                                 TranslationSheetMode.SETTINGS else TranslationSheetMode.PAGE,
-                            settings = translationSettings,
-                            busy = translationBusy || (translationSessionActive && !translationComplete),
-                            progress = translationProgress,
-                            pageTranslated = translationPageTranslated,
-                            error = translationError,
-                            onSettingsChange = {
-                                translationSettings = it
-                                translationSettingsRepository.save(it)
-                            },
-                            onTranslatePage = ::translateCurrentPage,
-                            onRestorePage = ::restoreTranslatedPage,
-                            onCancel = ::cancelPageTranslation,
+                            settings = translation.settings,
+                            busy = translation.busy || (translation.sessionActive && !translation.complete),
+                            progress = translation.progress,
+                            pageTranslated = translation.pageTranslated,
+                            error = translation.errorMessage,
+                            onSettingsChange = translation::updateSettings,
+                            onTranslatePage = translation::translatePage,
+                            onRestorePage = translation::restore,
+                            onCancel = translation::restore,
                             onDismiss = {
                                 val fromSettings = sheetNavigation.routes.dropLast(1)
                                     .any { it.destination == Sheet.SETTINGS }
@@ -1379,8 +1263,8 @@ class MainActivity : ComponentActivity(),
                             // The panel only controls publishing; capture keeps running when it closes.
                             val consoleEntries by consoleLogs.entries.collectAsState()
                             com.mybrowser.ui.devtools.DeveloperTools(
-                                webView = webViewOrNull,
-                                devTools = devTools,
+                                webView = pages.current,
+                                devTools = pages.devTools,
                                 consoleEntries = consoleEntries,
                                 onClearConsole = consoleLogs::clear,
                                 onReloadPage = { navigator.reload() },
@@ -1560,7 +1444,7 @@ class MainActivity : ComponentActivity(),
                 // half an hour into the same video. Only that video's own position is handed over:
                 // the page can offer several candidates, and seeking a different one to where another
                 // is playing would skip its content or run past its end.
-                val signal = mediaTrackers.trackerOf(webView)?.current
+                val signal = pages.media.trackerOf(webView)?.current
                 val playing = candidate.url == mediaSnapshot.playingCandidateUrl
                 cast.cast(candidate, device,
                     if (playing) cast.startPositionFor(signal?.position ?: 0.0, signal?.duration ?: 0.0) else null,
@@ -1601,7 +1485,7 @@ class MainActivity : ComponentActivity(),
             onTemporaryFilteringChange = {
                 temporaryFilterOrigins = if (origin in temporaryFilterOrigins) temporaryFilterOrigins - origin
                     else (temporaryFilterOrigins + origin).toList().takeLast(128).toSet()
-                cosmeticRuntimes.values.forEach { it.excludedOrigins = temporaryFilterOrigins }
+                pages.setExcludedOrigins(temporaryFilterOrigins)
                 if (SiteOrigin.of(state.currentUrl) == origin) {
                     workerDocument = documentFor(state.currentUrl)
                     navigator.reload()
@@ -1637,7 +1521,7 @@ class MainActivity : ComponentActivity(),
         ) {
             isDefaultBrowser = DefaultBrowser.isDefault(this)
         }
-        fileChooser = com.mybrowser.core.WebFileChooser(this, { webViewOrNull to permissionEpoch }) {
+        fileChooser = com.mybrowser.core.WebFileChooser(this, { pages.current to permissionEpoch }) {
             toast(getString(R.string.capture_failed))
         }
         runtimePermissionLauncher = registerForActivityResult(
@@ -1698,20 +1582,20 @@ class MainActivity : ComponentActivity(),
         view.webChromeClient = BrowserChromeClient(this, view)
         pageContextMenu.attach(view)
         view.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-            if (webViewOrNull === view) {
+            if (pages.current === view) {
                 state.onPageScroll(scrollY, oldScrollY, resources.displayMetrics.density)
-                onTranslationScroll()
+                translation.onScroll()
             }
         }
 
         view.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
-            if (webViewOrNull !== view) return@setDownloadListener
+            if (pages.current !== view) return@setDownloadListener
             if (onUserScriptUrl(url)) return@setDownloadListener
             // A blob: address is a file the page is holding in its own memory. Nothing can fetch it and
             // its name means nothing outside the document that made it, so the page is asked what it
             // has; the ordinary confirmation follows from that answer instead of from this callback.
             if (url.startsWith(BLOB_SCHEME) &&
-                pageFileDownloads[view]?.inspect(url, state.currentUrl, mimeType) == true
+                pages.filesFor(view)?.inspect(url, state.currentUrl, mimeType) == true
             ) {
                 return@setDownloadListener
             }
@@ -1721,7 +1605,7 @@ class MainActivity : ComponentActivity(),
 
         // Find in page listener
         view.setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
-            if (isDoneCounting && webViewOrNull === view) {
+            if (isDoneCounting && pages.current === view) {
                 state.onFindResultUpdate(activeMatchOrdinal + 1, numberOfMatches)
             }
         }
@@ -1738,37 +1622,9 @@ class MainActivity : ComponentActivity(),
         // Apply desktop mode setting
         applySiteSettings(view, state.currentUrl)
 
-        cosmeticRuntimes.remove(view)?.close()
-        cosmeticRuntimes[view] = com.mybrowser.filter.CosmeticFilterRuntime(view, filter, activeSites).also {
-            it.excludedOrigins = temporaryFilterOrigins
-            it.install()
-        }
-        installMediaPlaybackTracker(view)
-        // Same reason as the media probe and the script runtime above: the message channel is
-        // attached while the WebView is being configured, which is always before anything has
-        // loaded. See ElementPicker.install for what attaching it later costs.
-        //
-        // Replaced rather than overwritten, like the script runtime below: if this WebView is ever
-        // configured a second time the old picker still holds a live listener, and install() is
-        // per instance — leaving it in place would attach a second listener and let one message
-        // report twice. dispose() drops the old listener before the new one is created.
-        elementPickers.remove(view)?.dispose()
-        elementPickers[view] = ElementPicker(view).also { it.install() }
-        // Same attachment rules as the picker above. The page half is loaded with the same channel
-        // so that a blob: download in the very first document is already covered.
-        pageFileDownloads.remove(view)?.close()
-        pageFileDownloads[view] = com.mybrowser.download.PageFileDownload(view)
-            .also { it.listener = pageFileListener; it.install(); it.startScript() }
-        scriptRuntimes.remove(view)?.close()
-        scriptRuntimes[view] = UserScriptRuntime(view, userScripts, lifecycleScope,
-            isPrivate = { privacy.isIncognito }, isCurrent = { webViewOrNull === view }).also { it.install() }
-        // Attach last: the session only registers its bridge when the user enables capture.
-        devTools.attach(view)
-    }
-
-    /** Installs one media probe per pooled WebView and replaces stale Activity callbacks. */
-    private fun installMediaPlaybackTracker(view: WebView) {
-        mediaTrackers.install(view) { tracked, tracker, signal -> applyMediaSignal(tracked, tracker, signal) }
+        pages.install(view, lifecycleScope, userScripts, filter, activeSites,
+            isPrivate = { privacy.isIncognito }, excludedOrigins = temporaryFilterOrigins,
+            fileListener = pageFileListener, onMediaSignal = ::applyMediaSignal)
     }
 
     /** What one probe signal means here: media store, system session, fullscreen host, speed. */
@@ -1780,7 +1636,7 @@ class MainActivity : ComponentActivity(),
         runOnUiThread {
             // A popup installs its tracker before the previous tab is released.
             // Disposing that other WebView must not invalidate this view's signals.
-            if (webViewOrNull !== view || mediaTrackers.trackerOf(view) !== tracker) {
+            if (pages.current !== view || pages.media.trackerOf(view) !== tracker) {
                 return@runOnUiThread
             }
             hasVideo = signal.hasVideo
@@ -1795,45 +1651,35 @@ class MainActivity : ComponentActivity(),
                 signal.identity != rememberedVideo
             ) {
                 rememberedVideo = signal.identity
-                mediaTrackers.trackerOf(view)?.setPlaybackRate(preferences.preferredSpeed)
+                pages.media.trackerOf(view)?.setPlaybackRate(preferences.preferredSpeed)
             }
         }
     }
 
-    private fun removeMediaPlaybackTracker(view: WebView) {
+    private fun onPageReleased(view: WebView) {
         popupPages.idOf { it.view === view }?.let { popupPages.remove(it)?.alive = false }
-        if (::devTools.isInitialized) devTools.detach(view)
-        scriptRuntimes.remove(view)?.close()
-        cosmeticRuntimes.remove(view)?.close()
-        if (webViewOrNull === view) {
+        if (pages.current === view) {
             systemMedia.detach(this)
             leaveFullscreen()
             rememberedVideo = null
             hasVideo = false
         }
-        mediaTrackers.remove(view)?.close()
-        // Everything above is one WebView's helpers; the picker's channel is one of them, and a
-        // pick running on it has nothing left to report to.
-        elementPickers.remove(view)?.dispose()
         if (pickerOwner === view) {
             pickerOwner = null
             elementPicker = null
         }
-        // A transfer still running on this channel has nowhere left to write: the task is failed and
-        // its partial file removed, exactly as a cancel does.
-        pageFileDownloads.remove(view)?.close()
     }
 
     private fun applyPlaybackSpeed(speed: Float) {
-        val view = webViewOrNull
-        val tracker = view?.let(mediaTrackers::trackerOf)
+        val view = pages.current
+        val tracker = view?.let(pages.media::trackerOf)
         if (view == null || tracker == null) {
             toast(getString(R.string.playback_speed_failed))
             return
         }
         tracker.setPlaybackRate(speed) { applied ->
             runOnUiThread {
-                if (webViewOrNull !== view || mediaTrackers.trackerOf(view) !== tracker) return@runOnUiThread
+                if (pages.current !== view || pages.media.trackerOf(view) !== tracker) return@runOnUiThread
                 if (applied) {
                     rememberPlaybackSpeed(speed)
                     val host = fullscreenView
@@ -1867,18 +1713,18 @@ class MainActivity : ComponentActivity(),
             }
         }
         if (capabilities.size != request.resources.size) { request.deny(); return }
-        val view = webViewOrNull
+        val view = pages.current
         val epoch = permissionEpoch
         websitePermissions.request(request, request.origin.toString(), capabilities, privacy.isIncognito, activeSites,
-            isCurrent = { !isFinishing && !isDestroyed && webViewOrNull === view && permissionEpoch == epoch },
+            isCurrent = { !isFinishing && !isDestroyed && pages.current === view && permissionEpoch == epoch },
             reply = { allowed -> if (allowed) request.grant(request.resources) else request.deny() })
     }
 
     private fun handleGeolocationRequest(origin: String, callback: GeolocationPermissions.Callback) {
-        val view = webViewOrNull
+        val view = pages.current
         val epoch = permissionEpoch
         websitePermissions.request("geolocation", origin, listOf(SiteCapability.LOCATION), privacy.isIncognito, activeSites,
-            isCurrent = { !isFinishing && !isDestroyed && webViewOrNull === view && permissionEpoch == epoch },
+            isCurrent = { !isFinishing && !isDestroyed && pages.current === view && permissionEpoch == epoch },
             reply = { allowed -> callback.invoke(origin, allowed, false) })
         // WebView must ask our gate every time; its own remembered grant would bypass
         // later revocation in the website settings screen.
@@ -1925,7 +1771,7 @@ class MainActivity : ComponentActivity(),
             repository.repair()
             if (repository === activeSites) {
                 cancelWebsitePermissions()
-                webViewOrNull?.let { applySiteSettings(it, state.currentUrl) }
+                pages.current?.let { applySiteSettings(it, state.currentUrl) }
                 navigator.reload()
             }
         }
@@ -2004,20 +1850,14 @@ class MainActivity : ComponentActivity(),
     private fun createPopupTab(isUserGesture: Boolean): WebView? {
         if (privacy.isTransitioning) return null
         if (!isUserGesture || !tabManager.canCreateTab) return null
-        val old = webViewOrNull ?: return null
+        val old = pages.current ?: return null
         val openerId = tabManager.currentTab?.id ?: return null
         saveCurrentTab()
         val openerClearHistory = clearHistoryOnNextFinish
         // Chromium rejects a popup transport whose target has ever navigated, including
         // about:blank used when returning an old instance to the pool.
         val popup = runCatching { acquireFreshPage() }.getOrNull() ?: return null
-        mediaTrackers.trackerOf(popup)?.prepareForPopup()
-        scriptRuntimes[popup]?.prepareForPopup()
-        cosmeticRuntimes[popup]?.prepareForPopup()
-        // A document-start registration does not survive the popup content replacement Chromium
-        // performs on this WebView, so the page half is dropped here and reinstalled in
-        // onPopupContentsAttached — the same window the media probe and script runtime use.
-        pageFileDownloads[popup]?.prepareForPopup()
+        pages.prepareForPopup(popup)
         cancelWebsitePermissions()
         cancelPendingSslError()
         dismissPageContext()
@@ -2027,9 +1867,9 @@ class MainActivity : ComponentActivity(),
         media.clear(); hasVideo = false; rememberedVideo = null
         tabManager.createTab(openerTabId = openerId)
         exitConfirmation.reset()
-        viewOwnerId = tabManager.currentTab?.id
-        viewOwnerId?.let(downloadRequests::selectTab)
-        readyWebViewTabId = null
+        pages.ownerTabId = tabManager.currentTab?.id
+        pages.ownerTabId?.let(downloadRequests::selectTab)
+        pages.readyTabId = null
         clearHistoryOnNextFinish = true
         val opener = popupPages[openerId] ?: PopupPage(openerId, old, workerDocument)
         opener.document = documentFor(state.currentUrl)
@@ -2037,11 +1877,11 @@ class MainActivity : ComponentActivity(),
         opener.loading = state.isLoading
         opener.failure = state.pageFailure
         opener.certificateError = currentCertificateError
-        val child = PopupPage(checkNotNull(viewOwnerId), popup, documentFor(ABOUT_BLANK))
+        val child = PopupPage(checkNotNull(pages.ownerTabId), popup, documentFor(ABOUT_BLANK))
         child.clearHistory = true
         popupPages.connect(openerId, opener, child.tabId, child)
-        pendingPopupTransfers[popup] = pool.holdForPopup(old, popup)
-        webViewOrNull = popup
+        pages.holdForPopup(old, popup)
+        pages.current = popup
         backgroundPopupPage(opener)
         state.onPageStarted(ABOUT_BLANK)
         state.onTitleChanged("")
@@ -2117,8 +1957,8 @@ class MainActivity : ComponentActivity(),
         navigationReadiness.cancelScripts()
         clearResidentTabs()
         temporaryFilterOrigins = emptySet()
-        cosmeticRuntimes.values.forEach { it.excludedOrigins = emptySet() }
-        viewOwnerId = null
+        pages.setExcludedOrigins(emptySet())
+        pages.ownerTabId = null
         cancelWebsitePermissions()
         showSiteOrigin = null
         showManagedSites = false
@@ -2131,7 +1971,7 @@ class MainActivity : ComponentActivity(),
         // BrowserSessionState scopes private downloads on every session start/end,
         // including a persisted private startup and closing/reopening this window.
         // Do not retain a private session's certificate choices in the normal session.
-        webViewOrNull?.clearSslPreferences()
+        pages.current?.clearSslPreferences()
         certificateWarnings.clear()
         (application as App).mediaAccessSession.clear()
         currentCertificateError = false
@@ -2140,17 +1980,17 @@ class MainActivity : ComponentActivity(),
         // Save current tab state before switching
         saveCurrentTab()
 
-        webViewOrNull?.let { old ->
-            removeMediaPlaybackTracker(old)
+        pages.current?.let { old ->
+            pages.detach(old)
             old.webViewClient = ParkedWebViewClient.Detached
             old.webChromeClient = null
             (old.parent as? ViewGroup)?.removeView(old)
             if (!entering) privacy.wipeInstanceState(old)
             // Discarded, not returned to the pool: a profile-bound instance must never be
             // handed to a later normal session, and discard also fixes pool bookkeeping.
-            pool.discard(old)
+            pages.discard(old)
         }
-        webViewOrNull = null
+        pages.current = null
 
         // Switch to the other tab manager. The incognito stack is discarded on exit;
         // no URL, thumbnail or saved WebView bundle survives the session.
@@ -2176,7 +2016,7 @@ class MainActivity : ComponentActivity(),
 
         // A profile-bound WebView must be completely unused before attachment. Never
         // borrow an idle normal-profile instance for a mode transition.
-        webViewOrNull = acquireFreshPage()
+        pages.current = acquireFreshPage()
         if (!entering) {
             loadCurrentTab()
             lifecycleScope.launch {
@@ -2205,27 +2045,21 @@ class MainActivity : ComponentActivity(),
      */
     private fun loadCurrentTab() {
         mediaResponseHandoff.close()
-        if (navigationReadiness.awaitPrivacy { loadCurrentTab(); refreshTranslationState() }) return
+        if (navigationReadiness.awaitPrivacy { loadCurrentTab(); translation.refresh() }) return
         systemMedia.detach(this)
         cancelWebsitePermissions()
         cancelPendingSslError()
-        if (navigationReadiness.awaitScripts { loadCurrentTab(); refreshTranslationState() }) return
+        if (navigationReadiness.awaitScripts { loadCurrentTab(); translation.refresh() }) return
         val tab = tabManager.currentTab ?: return
         pruneReaderTabs()
-        // Translation state belongs to one tab. Park a snapshot before clearing the native
-        // queue; returning to the tab can then resume the same JS observers instead of losing
-        // in-flight paragraphs or pretending the page was never translated.
-        val leavingTabId = viewOwnerId
-        if (leavingTabId != null && leavingTabId != tab.id) saveTranslationForTab(leavingTabId)
-        detachTranslationSession()
-        translationTabSnapshots.keys.retainAll(tabManager.tabs.mapTo(HashSet()) { it.id })
+        translation.onTabChanging(tab.id, tabManager.tabs.mapTo(HashSet()) { it.id })
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
         downloadRequests.selectTab(tab.id)
-        val oldId = viewOwnerId
-        val wasReady = readyWebViewTabId
+        val oldId = pages.ownerTabId
+        val wasReady = pages.readyTabId
         val priorSettings = activeSites.get(state.currentUrl)
         val priorFiltering = workerDocument.filtering && filter.enabled.value
-        readyWebViewTabId = null
+        pages.readyTabId = null
         dismissPageContext()
         // The pick belongs to the page it was started on, and that page is about to stop being the
         // one on screen. Stopping it here rather than when the next pick starts is what keeps a
@@ -2244,12 +2078,12 @@ class MainActivity : ComponentActivity(),
             val previousFailure = state.pageFailure
             val previousPageFailed = previousFailure != null
             state.pageFailure = null
-            webViewOrNull?.let { old ->
+            pages.current?.let { old ->
                 val liveOld = popupPages[oldId]?.takeIf { it.view === old }
                 val liveTarget = popupPages[tab.id]
                 val keep = liveOld == null && !privacy.isIncognito && wasReady == oldId && !previousPageFailed &&
                     !state.isLoading && normalTabManager.tabs.any { it.id == oldId }
-                val parked = if (!privacy.isIncognito) recentViews.take(tab.id) else null
+                val parked = if (!privacy.isIncognito) pages.parked.take(tab.id) else null
                 when {
                     liveOld != null -> {
                         liveOld.document = documentFor(state.currentUrl)
@@ -2261,17 +2095,16 @@ class MainActivity : ComponentActivity(),
                     }
                     keep -> {
                         old.stopLoading()
-                        suspendPage(old)
-                        recentViews.put(oldId, ParkedPage(old, priorSettings, priorFiltering))
+                        pages.suspend(old) { onRenderProcessGone(it, true) }
+                        pages.parked.put(oldId, com.mybrowser.core.BrowserPageHost.ParkedPage(old, priorSettings, priorFiltering))
                     }
                     else -> {
                         readerTabs.remove(oldId)
-                        removeMediaPlaybackTracker(old)
-                        pool.discard(old)
+                        pages.discard(old)
                     }
                 }
-                webViewOrNull = liveTarget?.view ?: parked?.view ?: acquireFreshPage()
-                viewOwnerId = tab.id
+                pages.current = liveTarget?.view ?: parked?.view ?: acquireFreshPage()
+                pages.ownerTabId = tab.id
                 if (liveTarget != null) {
                     attachForegroundWebView(webView)
                     val url = liveTarget.document.url
@@ -2282,7 +2115,7 @@ class MainActivity : ComponentActivity(),
                     state.pageFailure = liveTarget.failure
                     if (!liveTarget.loading) {
                         state.onPageFinished(url, webView.canGoBack(), webView.canGoForward())
-                        readyWebViewTabId = tab.id.takeIf { liveTarget.failure == null }
+                        pages.readyTabId = tab.id.takeIf { liveTarget.failure == null }
                     }
                     state.onTitleChanged(webView.title ?: tab.title)
                     refreshBookmarkStatus(url)
@@ -2299,7 +2132,7 @@ class MainActivity : ComponentActivity(),
                         navigator.reload()
                     } else {
                         clearHistoryOnNextFinish = false
-                        readyWebViewTabId = tab.id
+                        pages.readyTabId = tab.id
                         state.onPageFinished(tab.url, webView.canGoBack(), webView.canGoForward())
                         state.onTitleChanged(webView.title ?: tab.title)
                         refreshBookmarkStatus(tab.url)
@@ -2309,7 +2142,7 @@ class MainActivity : ComponentActivity(),
                 }
             }
         }
-        viewOwnerId = tab.id
+        pages.ownerTabId = tab.id
         // This tab has no parked or popup view here, so any reader DOM it had is gone. Clear
         // before restoring/loading; restoreState may not emit onPageStarted on every provider.
         readerTabs.remove(tab.id)
@@ -2317,11 +2150,10 @@ class MainActivity : ComponentActivity(),
         // Reusing a loaded instance loses restored navigation entries on older providers.
         if (tab.savedState != null && webView.copyBackForwardList().size > 0) {
             val old = webView
-            removeMediaPlaybackTracker(old)
-            pool.discard(old)
-            webViewOrNull = acquireFreshPage()
+            pages.discard(old)
+            pages.current = acquireFreshPage()
         }
-        webViewOrNull?.let { mediaTrackers.trackerOf(it)?.reset() }
+        pages.current?.let { pages.media.trackerOf(it)?.reset() }
         applySiteSettings(webView, tab.url)
         val restored = tabManager.loadCurrentState(webView)
         clearHistoryOnNextFinish = !restored
@@ -2344,14 +2176,14 @@ class MainActivity : ComponentActivity(),
         view.webViewClient = BrowserWebViewClient(this)
         view.webChromeClient = BrowserChromeClient(this, view)
         view.onResume()
-        mediaTrackers.trackerOf(view)?.setSuspended(false)
+        pages.media.trackerOf(view)?.setSuspended(false)
     }
 
     /**
      * Saves the current WebView state into the current tab before switching away.
      */
     private fun saveCurrentTab() {
-        if (readyWebViewTabId != tabManager.currentTab?.id) return
+        if (pages.readyTabId != tabManager.currentTab?.id) return
         tabManager.saveCurrentState(webView)
     }
 
@@ -2362,7 +2194,7 @@ class MainActivity : ComponentActivity(),
      */
     private fun captureCurrentThumbnail() {
         val tab = tabManager.currentTab ?: return
-        val view = webViewOrNull ?: return
+        val view = pages.current ?: return
         if (sheet != null || view.width <= 0 || view.height <= 0) return
         val location = IntArray(2)
         view.getLocationInWindow(location)
@@ -2372,14 +2204,16 @@ class MainActivity : ComponentActivity(),
             location[0] + view.width,
             location[1] + view.height,
         )
-        val raw = Bitmap.createBitmap(source.width(), source.height(), Bitmap.Config.ARGB_8888)
-        PixelCopy.request(window, source, raw, { result ->
-            if (result == PixelCopy.SUCCESS) {
-                val targetHeight = (360L * raw.height / raw.width).toInt().coerceIn(1, 540)
-                tab.thumbnail = Bitmap.createScaledBitmap(raw, 360, targetHeight, true)
-                tabManager.notifyChanged()
-            }
-            raw.recycle()
+        val targetHeight = (360L * source.height() / source.width()).toInt().coerceIn(1, 540)
+        // PixelCopy scales directly into the destination; a full-screen intermediate can cost
+        // more than 10 MiB and an extra bitmap resize on every capture.
+        val thumbnail = createBitmap(360, targetHeight)
+        val owner = tabManager
+        PixelCopy.request(window, source, thumbnail, { result ->
+            if (result == PixelCopy.SUCCESS && tab in owner.tabs) {
+                tab.thumbnail = thumbnail
+                owner.notifyChanged()
+            } else thumbnail.recycle()
         }, Handler(Looper.getMainLooper()))
     }
 
@@ -2400,8 +2234,8 @@ class MainActivity : ComponentActivity(),
         stopDepartingPage()
         tabManager.switchToIndex(index)
         loadCurrentTab()
-        refreshTranslationState()
-        webViewOrNull?.post { captureCurrentThumbnail() }
+        translation.refresh()
+        pages.current?.post { captureCurrentThumbnail() }
     }
 
     private fun closeTab(index: Int) {
@@ -2409,7 +2243,7 @@ class MainActivity : ComponentActivity(),
         exitConfirmation.reset()
         popupPages.remove(tabManager.tabs[index].id)?.let { page ->
             page.alive = false
-            if (page.view !== webViewOrNull) disposePopupPage(page)
+            if (page.view !== pages.current) disposePopupPage(page)
         }
         val wasCurrent = index == tabManager.currentIndex
         tabManager.closeTab(index)
@@ -2418,9 +2252,9 @@ class MainActivity : ComponentActivity(),
         if (wasCurrent) {
             webView.stopLoading()
             loadCurrentTab()
-            refreshTranslationState()
+            translation.refresh()
         } else {
-            viewOwnerId?.let { popupPages.releaseIfUnlinked(it)?.alive = false }
+            pages.ownerTabId?.let { popupPages.releaseIfUnlinked(it)?.alive = false }
         }
         persistNormalSession()
     }
@@ -2432,7 +2266,7 @@ class MainActivity : ComponentActivity(),
         pruneReaderTabs()
         webView.stopLoading()
         loadCurrentTab()
-        refreshTranslationState()
+        translation.refresh()
         persistNormalSession()
     }
 
@@ -2552,7 +2386,7 @@ class MainActivity : ComponentActivity(),
      */
     private fun startPageFile(id: Long, offer: com.mybrowser.download.PageFileOffer): Boolean {
         val source = pageFileSourceFor(offer) ?: return false
-        if (!source.isOwnedBy(webViewOrNull)) {
+        if (!source.isOwnedBy(pages.current)) {
             // The tab changed between the confirmation and this start. Nothing has been handed over
             // yet, and a background document's blob address is not the one the user confirmed.
             return false
@@ -2595,7 +2429,7 @@ class MainActivity : ComponentActivity(),
      * assumed to be the one on screen; a background tab's channel can legitimately answer.
      */
     private fun pageFileSourceFor(offer: com.mybrowser.download.PageFileOffer): com.mybrowser.download.PageFileDownload? =
-        pageFileDownloads.values.firstOrNull { it.owns(offer.url) }
+        pages.fileOwner(offer.url)
 
     /**
      * A page built a file in memory and clicked a link to it.
@@ -2674,8 +2508,8 @@ class MainActivity : ComponentActivity(),
                 if (result.firstNotice) {
                     // Notify for the first interception and first overflow only;
                     // subsequent events update the sheet without a toast flood.
-                    toast(if (downloadRequests.overflow.value > 0) getString(R.string.download_blocked_overflow, downloadRequests.overflow.value)
-                        else getString(R.string.download_requests_intercepted, result.blockedCount))
+                    toast(if (downloadRequests.overflow.value > 0) resources.getQuantityString(R.plurals.download_blocked_overflow, downloadRequests.overflow.value, downloadRequests.overflow.value)
+                        else resources.getQuantityString(R.plurals.download_requests_intercepted, result.blockedCount, result.blockedCount))
                 }
         }
     }
@@ -2872,7 +2706,7 @@ class MainActivity : ComponentActivity(),
         }) {
             refreshBookmarkStatus(state.currentUrl)
             loadBookmarks()
-            snackbar(getString(R.string.bookmarks_deleted, removed.size), getString(R.string.action_undo)) {
+            snackbar(resources.getQuantityString(R.plurals.bookmarks_deleted, removed.size, removed.size), getString(R.string.action_undo)) {
                 updateLibrary({
                     removed.forEach { bookmark ->
                         check(bookmarkManager.restoreBookmark(bookmark) != -1L) {
@@ -2980,7 +2814,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun resetPageForDataRemoval() {
-        readyWebViewTabId = null
+        pages.readyTabId = null
         clearResidentTabs()
         downloadRequests.resetTransientState()
         cancelWebsitePermissions()
@@ -2988,10 +2822,9 @@ class MainActivity : ComponentActivity(),
         currentCertificateError = false
         leaveFullscreen()
         val old = webView
-        removeMediaPlaybackTracker(old)
-        pool.discard(old)
+        pages.discard(old)
         tabManager.currentTab?.apply { savedState = null; url = ABOUT_BLANK; title = "" }
-        webViewOrNull = acquireFreshPage()
+        pages.current = acquireFreshPage()
         state.pageFailure = null
         state.onPageStarted(ABOUT_BLANK)
         navigator.load(ABOUT_BLANK)
@@ -3025,7 +2858,7 @@ class MainActivity : ComponentActivity(),
 
     // --- BrowserWebViewClient.Listener ---
 
-    override fun isCurrentWebView(view: WebView): Boolean = webViewOrNull === view
+    override fun isCurrentWebView(view: WebView): Boolean = pages.current === view
 
     override fun onMainFrameNavigation(request: WebResourceRequest): Boolean {
         val url = request.url.toString()
@@ -3059,40 +2892,15 @@ class MainActivity : ComponentActivity(),
         ReaderMode.onPageStarted()
         // Clear the tab that owns the view that navigated, not whichever tab happens to be
         // selected: tab switching updates the index before the new view is attached.
-        (viewOwnerId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
-        translationJob?.cancel()
-        translationScrollJob?.cancel()
-        translationGeneration++
-        translationSelectionJob?.cancel()
-        selectionCaptureJob?.cancel()
-        translationStateJob?.cancel()
-        translationPollJob?.cancel()
-        translationBusy = false
-        translationPending.clear()
-        translationHasPending = false
-        translationScrollPending = false
-        translationAppliedMode = null
-        translationTotalChars = 0
-        translationDoneChars = 0
-        translationProgress = 0
-        translationPageTranslated = false
-        translationSessionActive = false
-        translationComplete = false
-        translationClosing = false
-        translationError = null
-        translationRetryAt = 0L
-        translationErrorReported = false
-        translationSelectionOriginal = null
-        translationSelectionTranslated = null
-        translationSelectionBusy = false
-        translationSelectionError = null
+        (pages.ownerTabId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
+        translation.onPageStarted()
         systemMedia.detach(this)
-        viewOwnerId = tabManager.currentTab?.id
+        pages.ownerTabId = tabManager.currentTab?.id
         cancelWebsitePermissions()
         applySiteSettings(webView, url)
         cancelPendingSslError()
         currentCertificateError = false
-        readyWebViewTabId = null
+        pages.readyTabId = null
         dismissPageContext()
         leaveFullscreen()
         rememberedVideo = null
@@ -3102,25 +2910,18 @@ class MainActivity : ComponentActivity(),
         stopElementPicker()
         state.onPageStarted(url)
         applyMediaRequestFailure()
-        devTools.sessionFor(webViewOrNull)?.onDocumentStarted(url)
+        pages.devTools.sessionFor(pages.current)?.onDocumentStarted(url)
         consoleLogs.clear()
         mediaProbeJob?.cancel()
-        webViewOrNull?.let { mediaTrackers.trackerOf(it)?.reset() }
+        pages.current?.let { pages.media.trackerOf(it)?.reset() }
         // Per-page counters. Both are scoped to the document, so a new main frame resets
         // them; subresources of the same page keep accumulating.
         media.clear()
         filter.resetPageCount()
         // A new document invalidates the old one's download answers: pending
         // confirmations and per-page rejections die here, confirmed tasks keep running.
-        viewOwnerId?.let { downloadRequests.selectTab(it); downloadRequests.startDocument(it) }
-        // A blob: address and the question asked about it belong to the document that produced them,
-        // so an answer that arrives after this navigation is not about anything on screen.
-        pageFileDownloads[webView]?.onDocumentChanged()
-        // The status describes the document on screen. It is cleared here, at the start of the
-        // load, rather than at its end: clearing it immediately before repopulating it left the
-        // previous page's scripts named in the menu for the whole of the next page's load.
-        scriptRuntimes[webView]?.onDocumentChanged(url)
-        cosmeticRuntimes[webView]?.onDocumentChanged(url)
+        pages.ownerTabId?.let { downloadRequests.selectTab(it); downloadRequests.startDocument(it) }
+        pages.onDocumentChanged(webView, url)
         // Update current tab URL
         tabManager.currentTab?.url = url
         tabManager.notifyChanged()
@@ -3132,7 +2933,7 @@ class MainActivity : ComponentActivity(),
 
     override fun onPageCommitVisible(url: String) {
         state.onPageCommitVisible(url)
-        cosmeticRuntimes[webView]?.onPageCommitVisible(url)
+        pages.cosmeticFor(webView)?.onPageCommitVisible(url)
         captureCurrentThumbnail()
     }
 
@@ -3144,7 +2945,7 @@ class MainActivity : ComponentActivity(),
         // current are already filtered by BrowserWebViewClient; this comparison only rejects a
         // finish for a URL the view itself has already left.
         if (url != webView.url) return
-        readyWebViewTabId = tabManager.currentTab?.id?.takeIf { state.pageFailure == null }
+        pages.readyTabId = tabManager.currentTab?.id?.takeIf { state.pageFailure == null }
         workerDocument = documentFor(url)
         val resetHistory = clearHistoryOnNextFinish
         if (resetHistory) {
@@ -3153,7 +2954,7 @@ class MainActivity : ComponentActivity(),
         }
         state.onPageFinished(url, !resetHistory && canGoBack, !resetHistory && canGoForward)
         state.onTitleChanged(webView.title)
-        devTools.sessionFor(webViewOrNull)?.onPageFinished(url)
+        pages.devTools.sessionFor(pages.current)?.onPageFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView, activeSites.get(url).desktopWidth)
         // Update current tab URL and title
         tabManager.currentTab?.let { tab ->
@@ -3173,8 +2974,7 @@ class MainActivity : ComponentActivity(),
         // The status was cleared when this load started; this is what fills it in from the
         // registrations that existed then. Calling onDocumentChanged here as well would retake the
         // snapshot after any registration made during the load, crediting a script that never ran.
-        scriptRuntimes[webView]?.onPageFinished(url)
-        cosmeticRuntimes[webView]?.refresh(url)
+        pages.onPageFinished(webView, url)
     }
 
     override fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {
@@ -3190,8 +2990,8 @@ class MainActivity : ComponentActivity(),
 
     private fun startPlayingVideoDetection() {
         mediaProbeJob?.cancel()
-        val view = webViewOrNull ?: return
-        val tracker = mediaTrackers.trackerOf(view) ?: return
+        val view = pages.current ?: return
+        val tracker = pages.media.trackerOf(view) ?: return
 
         // Probe once after the load even when the bridge is available. This covers a player
         // that was already playing before its first event listener was attached.
@@ -3200,7 +3000,7 @@ class MainActivity : ComponentActivity(),
 
         val pageUrl = state.currentUrl
         mediaProbeJob = lifecycleScope.launch {
-            while (isActive && webViewOrNull === view && state.currentUrl == pageUrl) {
+            while (isActive && pages.current === view && state.currentUrl == pageUrl) {
                 if (fullscreenView == null && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) tracker.probe()
                 delay(MEDIA_PROBE_INTERVAL_MS)
             }
@@ -3210,21 +3010,21 @@ class MainActivity : ComponentActivity(),
     override fun onPageError(url: String, code: Int, description: String) {
         if (url != state.currentUrl) return
         state.onPageError()
-        devTools.sessionFor(webViewOrNull)?.onPageError(url, code, description)
+        pages.devTools.sessionFor(pages.current)?.onPageError(url, code, description)
         // ERROR_UNKNOWN with an empty description is what a cancelled navigation looks
         // like; a toast for it would fire on every fast tap.
         if (description.isNotEmpty()) state.pageFailure = PageFailure(url, PageFailureKind.NETWORK, "$code: $description")
     }
 
     private fun toggleReaderMode() {
-        val view = webViewOrNull ?: return
-        val ownerTabId = viewOwnerId ?: tabManager.currentTab?.id ?: return
+        val view = pages.current ?: return
+        val ownerTabId = pages.ownerTabId ?: tabManager.currentTab?.id ?: return
         ReaderMode.toggle(view, isDarkUi()) { outcome ->
             // The callback is asynchronous and the user may have switched tabs or navigated
             // meanwhile. Record the result against the tab that owns the view, but only toast
             // and drive the visible chrome while that exact view is still the foreground one.
             setReaderActiveFor(ownerTabId, outcome == ReaderMode.Outcome.ENTERED)
-            if (view === webViewOrNull && tabManager.currentTab?.id == ownerTabId) {
+            if (view === pages.current && tabManager.currentTab?.id == ownerTabId) {
                 toast(getString(when (outcome) {
                     ReaderMode.Outcome.ENTERED -> R.string.reader_entered
                     ReaderMode.Outcome.EXITED -> R.string.reader_exited
@@ -3244,7 +3044,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun printCurrentPage() {
-        val view = webViewOrNull ?: return
+        val view = pages.current ?: return
         val job = state.pageTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.app_name)
         if (!PagePrinter.print(this, view, job)) toast(getString(R.string.print_unavailable))
     }
@@ -3334,7 +3134,7 @@ class MainActivity : ComponentActivity(),
 
     override fun onHttpAuthRequest(handler: HttpAuthHandler, host: String, realm: String) {
         val navigation = tabManager.currentTab?.mediaNavigation
-        val loginUrl = state.currentUrl.takeIf { android.net.Uri.parse(it).host.equals(host, true) }
+        val loginUrl = state.currentUrl.takeIf { it.toUri().host.equals(host, true) }
         val challengeUrl = navigation?.loadId?.access?.challengeUrl()
         dialogs.credentials(
             this,
@@ -3385,7 +3185,7 @@ class MainActivity : ComponentActivity(),
             element.load();
             return true;
         })($encoded)"""
-        val view = webViewOrNull
+        val view = pages.current
         if (view == null) done(false)
         else view.evaluateJavascript(script) { result -> done(result == "true") }
     }
@@ -3406,17 +3206,15 @@ class MainActivity : ComponentActivity(),
     override fun onRenderProcessGone(webView: WebView, crashed: Boolean) {
         if (isDestroyed) {
             // Disposal is idempotent, including callbacks after this host was closed.
-            removeMediaPlaybackTracker(webView)
-            pool.discard(webView)
+            pages.discard(webView)
             return
         }
         // A late callback from a view that has already been detached must not replace the
         // currently visible tab. It is still safe to discard that corpse.
-        if (webViewOrNull !== webView) {
+        if (pages.current !== webView) {
             popupPages.idOf { it.view === webView }?.let { popupPages.remove(it)?.alive = false }
-            recentViews.removeWhere { it.view === webView }.forEach { readerTabs.remove(it) }
-            removeMediaPlaybackTracker(webView)
-            pool.discard(webView)
+            pages.parked.removeWhere { it.view === webView }.forEach { readerTabs.remove(it) }
+            pages.discard(webView)
             return
         }
         // The instance is dead. Replacing the state value is the whole fix: it recomposes
@@ -3424,13 +3222,12 @@ class MainActivity : ComponentActivity(),
         // replacement.
         val lastUrl = state.currentUrl
         popupPages.idOf { it.view === webView }?.let { popupPages.remove(it)?.alive = false }
-        (viewOwnerId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
-        readyWebViewTabId = null
+        (pages.ownerTabId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
+        pages.readyTabId = null
         cancelWebsitePermissions()
         leaveFullscreen()
-        removeMediaPlaybackTracker(webView)
-        pool.discard(webView)
-        webViewOrNull = acquireFreshPage()
+        pages.discard(webView)
+        pages.current = acquireFreshPage()
         if (lastUrl != ABOUT_BLANK && rendererRecovery.shouldReload(tabManager.currentTab?.id.orEmpty(), SystemClock.elapsedRealtime())) {
             navigator.load(lastUrl)
         } else if (lastUrl != ABOUT_BLANK) {
@@ -3449,7 +3246,7 @@ class MainActivity : ComponentActivity(),
         val mediaGeneration = media.pageGeneration
         val document = workerDocument
         val resourceType = classifyResourceType(request)
-        val session = devTools.sessionFor(view)
+        val session = pages.devTools.sessionFor(view)
         val requestId = session?.recordNativeRequest(request, document.url, resourceType)
         val documentUrl = document.url
 
@@ -3461,7 +3258,7 @@ class MainActivity : ComponentActivity(),
         MediaSniffer.inspect(request, documentUrl)?.let { media.add(it, mediaGeneration) }
         val stillActive = {
             val current = workerDocument
-            webViewOrNull === view && document.mediaNavigation?.loadId?.cancelled == false &&
+            pages.current === view && document.mediaNavigation?.loadId?.cancelled == false &&
                 current.mediaNavigation?.loadId === document.mediaNavigation?.loadId
         }
         mediaResponseHandoff.take(request, document.mediaNavigation)?.let { return it }
@@ -3527,7 +3324,7 @@ class MainActivity : ComponentActivity(),
         state.onPageError()
         state.pageFailure = PageFailure(state.currentUrl, PageFailureKind.NETWORK, details)
         if (failure.kind == com.mybrowser.media.MediaRequestInterceptor.FailureKind.CERTIFICATE) currentCertificateError = true
-        readyWebViewTabId = null
+        pages.readyTabId = null
     }
 
     override fun onNetworkHttpError(
@@ -3537,7 +3334,7 @@ class MainActivity : ComponentActivity(),
         reasonPhrase: String?,
         responseHeaders: Map<String, String>?,
     ) {
-        devTools.sessionFor(view)?.recordNativeHttpError(request, statusCode, reasonPhrase, responseHeaders)
+        pages.devTools.sessionFor(view)?.recordNativeHttpError(request, statusCode, reasonPhrase, responseHeaders)
     }
 
     override fun onNetworkResourceError(
@@ -3546,7 +3343,7 @@ class MainActivity : ComponentActivity(),
         code: Int,
         description: String,
     ) {
-        devTools.sessionFor(view)?.recordNativeResourceError(request, code, description)
+        pages.devTools.sessionFor(view)?.recordNativeResourceError(request, code, description)
     }
 
     // --- BrowserChromeClient.Listener ---
@@ -3611,7 +3408,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onEnterFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
-        val tracker = webViewOrNull?.let(mediaTrackers::trackerOf)
+        val tracker = pages.current?.let(pages.media::trackerOf)
         if (fullscreenView != null || tracker == null) {
             callback.onCustomViewHidden()
             return
@@ -3700,16 +3497,7 @@ class MainActivity : ComponentActivity(),
         createPopupTab(isUserGesture)
 
     override fun onPopupContentsAttached(view: WebView, opener: WebView) {
-        try {
-            if (!isDestroyed && !isFinishing && pool.owns(view)) {
-                mediaTrackers.trackerOf(view)?.onPopupContentsAttached()
-                scriptRuntimes[view]?.onPopupContentsAttached()
-                cosmeticRuntimes[view]?.onPopupContentsAttached()
-                pageFileDownloads[view]?.onPopupContentsAttached()
-            }
-        } finally {
-            pendingPopupTransfers.remove(view)?.close()
-        }
+        pages.onPopupContentsAttached(view, attach = !isDestroyed && !isFinishing)
     }
 
     override fun onBackgroundTitleChanged(view: WebView, title: String?) {
@@ -3721,7 +3509,7 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onCloseWindow(window: WebView) {
-        if (window === webViewOrNull) onCloseWindow()
+        if (window === pages.current) onCloseWindow()
         else {
             val id = popupPages.idOf { it.alive && it.view === window } ?: return
             closeTab(tabManager.tabs.indexOfFirst { it.id == id })
@@ -3760,8 +3548,8 @@ class MainActivity : ComponentActivity(),
         mediaProbeJob?.cancel()
         mediaProbeJob = null
         media.clear()
-        webViewOrNull?.let { view ->
-            mediaTrackers.trackerOf(view)?.reset()
+        pages.current?.let { view ->
+            pages.media.trackerOf(view)?.reset()
             view.stopLoading()
         }
     }
@@ -4044,27 +3832,27 @@ class MainActivity : ComponentActivity(),
     override fun setPlaying(playing: Boolean) {
         if (playing && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) &&
             !isInPictureInPictureMode && (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)) return
-        webViewOrNull?.let { view ->
+        pages.current?.let { view ->
             (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden =
                 playing && browserPreferences.video.backgroundPlayback && !privacy.isIncognito
-            if (playing) mediaTrackers.trackerOf(view)?.setSuspended(false)
-            if (playing) mediaTrackers.trackerOf(view)?.setPlaying(true) else mediaTrackers.trackerOf(view)?.pauseAll()
+            if (playing) pages.media.trackerOf(view)?.setSuspended(false)
+            if (playing) pages.media.trackerOf(view)?.setPlaying(true) else pages.media.trackerOf(view)?.pauseAll()
         }
     }
 
-    override fun seek(positionMs: Long) { webViewOrNull?.let { mediaTrackers.trackerOf(it)?.seekTo(positionMs / 1000.0) } }
+    override fun seek(positionMs: Long) { pages.current?.let { pages.media.trackerOf(it)?.seekTo(positionMs / 1000.0) } }
     override fun openIntent(): Intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     override fun onUserLeaveHint() {
         if (android.os.Build.VERSION.SDK_INT < 31 && ::pipController.isInitialized && browserPreferences.video.automaticPip &&
-            webViewOrNull?.let { mediaTrackers.trackerOf(it)?.current?.isPlaying } == true) pipController.enter()
+            pages.current?.let { pages.media.trackerOf(it)?.current?.isPlaying } == true) pipController.enter()
         super.onUserLeaveHint()
     }
 
-    override fun onPictureInPictureModeChanged(active: Boolean, configuration: android.content.res.Configuration) {
-        super.onPictureInPictureModeChanged(active, configuration)
-        if (::pipController.isInitialized) pipController.modeChanged(active)
-        if (active) pictureInPictureSession = true
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (::pipController.isInitialized) pipController.modeChanged(isInPictureInPictureMode)
+        if (isInPictureInPictureMode) pictureInPictureSession = true
         else if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
             pictureInPictureSession = false
         } else if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
@@ -4074,7 +3862,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun stopHiddenMedia() {
-        webViewOrNull?.let { mediaTrackers.trackerOf(it)?.setSuspended(true); it.onPause() }
+        pages.current?.let { pages.media.trackerOf(it)?.setSuspended(true); it.onPause() }
         systemMedia.detach(this)
     }
 
@@ -4099,8 +3887,8 @@ class MainActivity : ComponentActivity(),
 
     private fun persistNormalSession() {
         if (!::normalTabManager.isInitialized) return
-        if (!privacy.isIncognito && readyWebViewTabId == normalTabManager.currentTab?.id) {
-            webViewOrNull?.let { normalTabManager.saveCurrentState(it) }
+        if (!privacy.isIncognito && pages.readyTabId == normalTabManager.currentTab?.id) {
+            pages.current?.let { normalTabManager.saveCurrentState(it) }
         }
         if (restoreLastSession) normalTabManager.saveMetadata(this, NORMAL_TABS_PREFS)
         else normalTabManager.clearMetadata(this, NORMAL_TABS_PREFS)
@@ -4109,7 +3897,7 @@ class MainActivity : ComponentActivity(),
     private fun exitBrowser() {
         sheetNavigation.clear()
         persistNormalSession()
-        webViewOrNull?.let {
+        pages.current?.let {
             it.stopLoading()
             it.onPause()
         }
@@ -4151,7 +3939,7 @@ class MainActivity : ComponentActivity(),
     @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (!::pool.isInitialized) return
+        if (!::pages.isInitialized) return
         // Retention follows the tab count, so pressure is what bounds it. Each signal frees the
         // page parked longest ago rather than all of them: an ordinary window switch should cost
         // one page, not the whole session. Only the last level before the process is killed drops
@@ -4166,11 +3954,11 @@ class MainActivity : ComponentActivity(),
 
     /** Extreme pressure may end window communication, but keeps tabs/URLs recoverable. */
     private fun releaseBackgroundWindowsForMemory() {
-        recentViews.clear()
+        pages.parked.clear()
         val released = popupPages.clear()
         released.forEach { page ->
             page.alive = false
-            if (page.view !== webViewOrNull) {
+            if (page.view !== pages.current) {
                 // Do not allocate a large WebView state bundle while under memory pressure.
                 tabManager.tabs.firstOrNull { it.id == page.tabId }?.let { tab ->
                     tab.url = page.document.url
@@ -4180,7 +3968,7 @@ class MainActivity : ComponentActivity(),
                 disposePopupPage(page)
             }
         }
-        if (released.any { it.view !== webViewOrNull }) {
+        if (released.any { it.view !== pages.current }) {
             tabManager.notifyChanged()
             persistNormalSession()
         }
@@ -4206,8 +3994,8 @@ class MainActivity : ComponentActivity(),
             downloadNotificationsEnabled = com.mybrowser.download.DownloadNotificationGuide.isEnabled(this)
         }
         downloadHandler.resumeInterrupted()
-        webViewOrNull?.onResume()
-        webViewOrNull?.let { mediaTrackers.trackerOf(it)?.setSuspended(false) }
+        pages.current?.onResume()
+        pages.current?.let { pages.media.trackerOf(it)?.setSuspended(false) }
     }
 
     override fun onDestroy() {
@@ -4222,7 +4010,6 @@ class MainActivity : ComponentActivity(),
         dismissPageContext()
         mediaProbeJob?.cancel()
         mediaProbeJob = null
-        if (::devTools.isInitialized) devTools.close()
         leaveFullscreen()
         if (::fileChooser.isInitialized) fileChooser.close()
         cancelWebsitePermissions()
@@ -4234,9 +4021,7 @@ class MainActivity : ComponentActivity(),
         persistNormalSession()
 
         // The pool defers native teardown only until pending Chromium transports finish.
-        webViewOrNull?.let(::removeMediaPlaybackTracker)
-        if (::pool.isInitialized) pool.close()
-        webViewOrNull = null
+        if (::pages.isInitialized) pages.close()
 
         // ViewModel clears tab resources and private storage only when this window ends.
         // The bookmark and history repositories are process-scoped (App.bookmarks); closing
@@ -4350,7 +4135,7 @@ class MainActivity : ComponentActivity(),
         loadHistory()
         refreshBookmarkStatus(state.currentUrl)
         if ("sites" in result.applied) {
-            webViewOrNull?.let { applySiteSettings(it, state.currentUrl) }
+            pages.current?.let { applySiteSettings(it, state.currentUrl) }
         }
         lifecycleScope.launch(Dispatchers.IO) {
             val shortcuts = homeRepository.loadShortcuts()
@@ -4362,7 +4147,7 @@ class MainActivity : ComponentActivity(),
         }
         if (result.failed.isEmpty()) {
             toast(
-                getString(R.string.settings_imported, result.applied.size) +
+                resources.getQuantityString(R.plurals.settings_imported, result.applied.size, result.applied.size) +
                     if (result.pendingFilterUpdates > 0) {
                         "\n" + getString(R.string.settings_import_filter_updates, result.pendingFilterUpdates)
                     } else "",
@@ -4379,7 +4164,7 @@ class MainActivity : ComponentActivity(),
         } else {
             // Name the failing groups: a count alone cannot tell the user what to re-check.
             val names = result.failed.map(::settingsGroupName).joinToString("、")
-            toast(getString(R.string.settings_import_partial, result.applied.size, names))
+            toast(resources.getQuantityString(R.plurals.settings_import_partial, result.applied.size, result.applied.size, names))
         }
     }
 
@@ -4509,7 +4294,7 @@ class MainActivity : ComponentActivity(),
      * that is the point of this action rather than a limitation, and the message says so.
      */
     private fun hideImageForNow(url: String) {
-        val target = webViewOrNull ?: return
+        val target = pages.current ?: return
         // evaluateJavascript runs against whatever document the WebView holds when the script is
         // executed, and that is asynchronous. A navigation started in between would hide the image
         // at this address in the *new* page — a document the user asked nothing about — so the
@@ -4534,7 +4319,7 @@ class MainActivity : ComponentActivity(),
      */
     private fun isSameDocument(view: WebView, epoch: Long, url: String?): Boolean =
         !isFinishing && !isDestroyed && permissionEpoch == epoch &&
-            webViewOrNull === view && view.url == url
+            pages.current === view && view.url == url
 
     /**
      * The picker for the WebView it was started on, and what it has to say for itself.
@@ -4545,20 +4330,8 @@ class MainActivity : ComponentActivity(),
     private var elementPicker by mutableStateOf<ElementPickerState?>(null)
     private var pickerOwner: WebView? = null
 
-    /** One message channel per pooled WebView, installed in [configure] and dropped with it. */
-    private val elementPickers = mutableMapOf<WebView, ElementPicker>()
-
-    /**
-     * The page-file channel per pooled WebView, installed in [configure] and dropped with it.
-     *
-     * It is the same kind of attachment as the picker's, for the same reason: a listener added to a
-     * document that has already settled has taken the process down inside `libwebviewchromium`, so
-     * it has to exist before the first load.
-     */
-    private val pageFileDownloads = mutableMapOf<WebView, com.mybrowser.download.PageFileDownload>()
-
     /** Null for a WebView that was never configured, which is what [ElementPicker.start] refuses. */
-    private fun pickerFor(view: WebView): ElementPicker? = elementPickers[view]
+    private fun pickerFor(view: WebView): ElementPicker? = pages.pickerFor(view)
 
     /**
      * What the userscript layer is doing for the page on screen, as Compose state.
@@ -4569,19 +4342,19 @@ class MainActivity : ComponentActivity(),
      * update, and it used to leave the sheet showing the state before the tap. Collecting the flow
      * makes the runtime's own publications the thing that recomposes.
      *
-     * The WebView is read through [webViewOrNull], which is Compose state, so the answer also
+     * The WebView is read through [pages.current], which is Compose state, so the answer also
      * follows a tab switch to a runtime that was not the one last read.
      */
     @androidx.compose.runtime.Composable
     private fun currentUserScriptStatus(): com.mybrowser.userscript.UserScriptStatus? {
-        val view = webViewOrNull ?: return null
-        val runtime = scriptRuntimes[view] ?: return null
+        val view = pages.current ?: return null
+        val runtime = pages.scriptsFor(view) ?: return null
         return runtime.status.collectAsState().value
     }
 
     /** Starts a pick: the page outlines what a finger is over, and the bar writes the rule. */
     private fun startElementPicker(accent: Int, bottomInset: Int) {
-        val target = webViewOrNull ?: return
+        val target = pages.current ?: return
         if (elementPicker != null) return
         pickerOwner = target
         val started = pickerFor(target)?.start(
@@ -4608,7 +4381,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun stopElementPicker() {
-        pickerOwner?.let { elementPickers[it]?.stop() }
+        pickerOwner?.let { pages.pickerFor(it)?.stop() }
         elementPicker = null
     }
 
@@ -4622,7 +4395,7 @@ class MainActivity : ComponentActivity(),
      */
     private fun blockPickedElement(allSites: Boolean) {
         val chosen = elementPicker as? ElementPickerState.Chosen ?: return
-        val target = webViewOrNull ?: return
+        val target = pages.current ?: return
         // The rule is written asynchronously, and the element it hides belongs to this document.
         // Navigating in between would apply the selector to the page that replaced it.
         val epoch = permissionEpoch
@@ -4662,712 +4435,21 @@ class MainActivity : ComponentActivity(),
      */
     override fun onActionModeStarted(mode: ActionMode) {
         super.onActionModeStarted(mode)
-        val view = webViewOrNull ?: return
+        val view = pages.current ?: return
         if (!view.hasFocus() || !UrlUtils.isHttpUrl(state.currentUrl)) return
         mode.menu.removeItem(TRANSLATE_SELECTION_ACTION_ID)
         val item = mode.menu.add(Menu.NONE, TRANSLATE_SELECTION_ACTION_ID, Menu.NONE,
             getString(R.string.translate_selection))
         item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
         item.setOnMenuItemClickListener {
-            translateSelectionFromActionMode(mode)
+            translation.translateSelection(mode)
             true
-        }
-    }
-
-    private fun saveTranslationForTab(tabId: String) {
-        val mode = translationAppliedMode ?: return
-        if (!translationSessionActive && !translationPageTranslated && translationPending.isEmpty()) return
-        translationTabSnapshots[tabId] = TranslationTabSnapshot(
-            url = state.currentUrl,
-            mode = mode,
-            pageTranslated = translationPageTranslated,
-            sessionActive = translationSessionActive,
-            complete = translationComplete,
-            pending = LinkedHashMap(translationPending),
-            totalChars = translationTotalChars,
-            doneChars = translationDoneChars,
-            progress = translationProgress,
-        )
-    }
-
-    private fun startComparisonResume(view: WebView, tabId: String) {
-        if (viewOwnerId != tabId || tabManager.currentTab?.id != tabId) return
-        translationJob?.cancel()
-        translationScrollJob?.cancel()
-        translationGeneration++
-        val generation = translationGeneration
-        val pageUrl = state.currentUrl
-        val pageGeneration = permissionEpoch
-        translationSessionActive = true
-        translationComplete = false
-        translationBusy = true
-        translationHasPending = true
-        translationClosing = false
-        translationAppliedMode = TranslationPageMode.COMPARE
-        translationJob = lifecycleScope.launch {
-            try {
-                runComparisonTranslationLoop(view, pageUrl, pageGeneration, generation)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                translationBusy = false
-                translationSessionActive = false
-                translationComplete = false
-                translationHasPending = true
-                reportPageTranslationError(error)
-            } finally {
-                if (translationGeneration == generation) translationBusy = false
-            }
-        }
-    }
-
-    private fun restoreTranslationSnapshot(view: WebView, tabId: String, snapshot: TranslationTabSnapshot) {
-        translationPending.clear()
-        translationPending.putAll(snapshot.pending)
-        translationTotalChars = snapshot.totalChars
-        translationDoneChars = snapshot.doneChars
-        translationProgress = snapshot.progress
-        translationPageTranslated = snapshot.pageTranslated
-        translationSessionActive = snapshot.sessionActive
-        translationComplete = snapshot.complete
-        translationHasPending = snapshot.pending.isNotEmpty() || !snapshot.complete
-        translationAppliedMode = snapshot.mode
-        translationClosing = false
-        translationError = null
-        translationBusy = false
-        when {
-            snapshot.mode == TranslationPageMode.COMPARE && snapshot.sessionActive ->
-                startComparisonResume(view, tabId)
-            snapshot.mode == TranslationPageMode.REPLACE && snapshot.sessionActive -> {
-                translationSessionActive = true
-                startReplacePolling(view, state.currentUrl, permissionEpoch, translationGeneration)
-                if (translationPending.isNotEmpty()) startVisibleTranslationJob()
-            }
-        }
-    }
-
-    private fun refreshTranslationState() {
-        val view = webViewOrNull ?: run {
-            translationPageTranslated = false
-            translationSessionActive = false
-            translationComplete = false
-            return
-        }
-        val tabId = tabManager.currentTab?.id ?: run {
-            translationPageTranslated = false
-            translationSessionActive = false
-            translationComplete = false
-            return
-        }
-        translationStateJob?.cancel()
-        translationStateJob = lifecycleScope.launch {
-            if (webViewOrNull !== view || viewOwnerId != tabId || tabManager.currentTab?.id != tabId ||
-                translationSessionActive
-            ) return@launch
-            val snapshot = translationTabSnapshots[tabId]
-            if (snapshot != null && snapshot.url == state.currentUrl) {
-                val liveMode = runCatching { pageTranslator.translatedMode(view) }.getOrNull()
-                // A restored WebView may reload the document and lose the JS observer state.
-                // Never resume a comparison loop against a page that no longer has one.
-                val snapshotValid = when (snapshot.mode) {
-                    TranslationPageMode.COMPARE -> liveMode == TranslationPageMode.COMPARE
-                    TranslationPageMode.REPLACE -> liveMode == TranslationPageMode.REPLACE
-                }
-                if (snapshotValid) {
-                    restoreTranslationSnapshot(view, tabId, snapshot)
-                    return@launch
-                }
-                translationTabSnapshots.remove(tabId)
-            }
-            if (snapshot != null) translationTabSnapshots.remove(tabId)
-            val mode = runCatching { pageTranslator.translatedMode(view) }.getOrNull()
-            if (webViewOrNull === view && viewOwnerId == tabId && tabManager.currentTab?.id == tabId &&
-                !translationSessionActive
-            ) {
-                translationPageTranslated = mode != null
-                translationAppliedMode = mode
-                translationComplete = mode != null
-            }
-        }
-    }
-
-    /**
-     * WebView owns the selection while ActionMode is alive. Read it before finishing the mode;
-     * finishing first clears the DOM selection and the async read then returns an empty string.
-     */
-    private fun translateSelectionFromActionMode(mode: ActionMode) {
-        val view = webViewOrNull ?: run {
-            runCatching { mode.finish() }
-            return
-        }
-        selectionCaptureJob?.cancel()
-        selectionCaptureJob = lifecycleScope.launch {
-            val text = runCatching { pageTranslator.selection(view) }.getOrDefault("")
-            runCatching { mode.finish() }
-            if (webViewOrNull !== view) return@launch
-            startSelectionTranslation(text)
-        }
-    }
-
-    /** Starts the result panel from text captured by the native selection action. */
-    private fun startSelectionTranslation(text: String) {
-        if (text.isBlank()) {
-            toast(getString(R.string.translate_selection_empty))
-            return
-        }
-        translationSelectionJob?.cancel()
-        translationSelectionOriginal = text
-        translationSelectionTranslated = null
-        translationSelectionError = null
-        translationSelectionBusy = true
-        translationSelectionJob = lifecycleScope.launch {
-            try {
-                translationSelectionTranslated = TranslationClient(translationSettings)
-                    .translate(text, translationSettings.targetLanguage)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                translationSelectionError = error.message ?: getString(R.string.translate_error, "")
-            } finally {
-                translationSelectionBusy = false
-            }
-        }
-    }
-
-    private fun detachTranslationSession() {
-        translationJob?.cancel()
-        translationScrollJob?.cancel()
-        translationPollJob?.cancel()
-        translationStateJob?.cancel()
-        translationGeneration++
-        translationPending.clear()
-        translationHasPending = false
-        translationScrollPending = false
-        translationBusy = false
-        translationProgress = 0
-        translationTotalChars = 0
-        translationDoneChars = 0
-        translationPageTranslated = false
-        translationSessionActive = false
-        translationComplete = false
-        translationClosing = false
-        translationAppliedMode = null
-        translationError = null
-        translationRetryAt = 0L
-        translationErrorReported = false
-    }
-
-    private fun translateCurrentPage(): Boolean {
-        if (translationBusy || translationPageTranslated || translationSessionActive) return false
-        val view = webViewOrNull ?: return false
-        if (!UrlUtils.isHttpUrl(state.currentUrl)) {
-            translationError = getString(R.string.translate_no_text)
-            return false
-        }
-        val settings = translationSettings
-        if (!settings.configured) {
-            translationError = getString(R.string.translate_not_configured)
-            return false
-        }
-        if (!settings.supportsFullPage) {
-            translationError = getString(R.string.translate_mymemory_note)
-            return false
-        }
-        translationError = null
-        translationErrorReported = false
-        translationRetryAt = 0L
-        translationClosing = false
-        translationJob?.cancel()
-        translationScrollJob?.cancel()
-        translationPollJob?.cancel()
-        translationStateJob?.cancel()
-        translationPending.clear()
-        translationHasPending = false
-        translationBusy = true
-        translationProgress = 0
-        translationPageTranslated = false
-        translationSessionActive = true
-        translationComplete = false
-        translationTotalChars = 0
-        translationDoneChars = 0
-        translationScrollPending = false
-        val mode = settings.pageMode
-        translationAppliedMode = mode
-        val pageUrl = state.currentUrl
-        val pageGeneration = permissionEpoch
-        val generation = ++translationGeneration
-        translationJob = lifecycleScope.launch {
-            try {
-                if (mode == TranslationPageMode.COMPARE) {
-                    val session = pageTranslator.startComparison(view)
-                    if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
-                        translationGeneration != generation
-                    ) return@launch
-                    if (session.totalGroups == 0) {
-                        translationError = getString(R.string.translate_no_text)
-                        translationSessionActive = false
-                        return@launch
-                    }
-                    translationTotalChars = session.totalCharacters.coerceAtLeast(1)
-                    translationHasPending = true
-                    if (session.truncated) toast(getString(R.string.translate_truncated))
-                    runComparisonTranslationLoop(view, pageUrl, pageGeneration, generation)
-                } else {
-                    val page = pageTranslator.collect(view)
-                    if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
-                        translationGeneration != generation
-                    ) return@launch
-                    if (page.items.isEmpty()) {
-                        translationError = getString(R.string.translate_no_text)
-                        translationSessionActive = false
-                        return@launch
-                    }
-                    translationTotalChars = page.totalCharacters.coerceAtLeast(1)
-                    page.items.forEach { translationPending[it.id] = it }
-                    translationHasPending = translationPending.isNotEmpty()
-                    if (page.truncated) toast(getString(R.string.translate_truncated))
-                    startReplacePolling(view, pageUrl, pageGeneration, generation)
-                    translateVisiblePageItems(view, pageUrl, pageGeneration, generation, allowFallback = true)
-                }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                translationBusy = false
-                translationComplete = false
-                if (mode == TranslationPageMode.REPLACE && translationPageTranslated) {
-                    // The initial viewport pass can contain several batches. A failure after
-                    // the first one used to cancel the poll and stop the session, unlike the
-                    // same failure from a scroll-triggered batch. Keep the watcher alive and
-                    // use the same 2-second backoff.
-                    translationHasPending = translationPending.isNotEmpty()
-                    translationRetryAt = SystemClock.uptimeMillis() + 2_000
-                } else {
-                    translationPollJob?.cancel()
-                    translationSessionActive = false
-                    if (!translationPageTranslated) {
-                        translationPending.clear()
-                        translationHasPending = false
-                        translationAppliedMode = null
-                        translationClosing = true
-                        runCatching {
-                            if (mode == TranslationPageMode.COMPARE) pageTranslator.restoreComparison(view)
-                            else pageTranslator.restore(view)
-                        }
-                    } else {
-                        translationHasPending = true
-                    }
-                }
-                reportPageTranslationError(error)
-            } finally {
-                if (translationGeneration == generation) {
-                    translationBusy = false
-                    if (mode == TranslationPageMode.REPLACE) {
-                        updateReplaceSessionComplete()
-                        if (!translationPageTranslated && !translationHasPending) {
-                            translationSessionActive = false
-                            translationComplete = false
-                            translationAppliedMode = null
-                        }
-                        queueVisibleTranslationAfterBatch()
-                    } else if (!translationPageTranslated && !translationHasPending) {
-                        translationSessionActive = false
-                        translationComplete = false
-                        translationAppliedMode = null
-                    }
-                }
-            }
-        }
-        return true
-    }
-
-    /**
-     * Hcfy-style comparison loop. JS owns the IntersectionObserver/MutationObserver and only
-     * marks groups ready when they enter the viewport. Native takes those groups serially,
-     * applies each batch back into its paragraph, and keeps polling at a low rate once the
-     * current page is complete so dynamically inserted content can resume the session.
-     */
-    private suspend fun runComparisonTranslationLoop(
-        view: WebView,
-        pageUrl: String,
-        pageGeneration: Long,
-        generation: Int,
-    ) {
-        val settings = translationSettings
-        while (currentCoroutineContext().isActive) {
-            if (!translationSessionActive ||
-                webViewOrNull !== view || state.currentUrl != pageUrl ||
-                permissionEpoch != pageGeneration || translationGeneration != generation
-            ) break
-            val batch = pageTranslator.takeReady(view)
-            updateComparisonMetrics(batch)
-            if (batch.items.isEmpty()) {
-                translationBusy = false
-                translationHasPending = !batch.complete
-                translationComplete = batch.complete
-                if (batch.complete) delay(800) else delay(180)
-                continue
-            }
-            val ids = batch.items.map { it.id }
-            translationComplete = false
-            translationHasPending = true
-            translationBusy = true
-            try {
-                val translated = TranslationClient(settings).translateAll(
-                    batch.items.map { it.text },
-                    settings.targetLanguage,
-                )
-                if (webViewOrNull !== view || state.currentUrl != pageUrl ||
-                    permissionEpoch != pageGeneration || translationGeneration != generation
-                ) break
-                val appliedCount = pageTranslator.applyComparison(
-                    view,
-                    batch.items.zip(translated) { item, text -> item.id to text },
-                    settings.targetLanguage,
-                )
-                translationPageTranslated = translationPageTranslated || appliedCount > 0
-                updateComparisonMetrics(pageTranslator.comparisonStatus(view))
-                translationBusy = false
-                translationError = null
-                translationErrorReported = false
-                delay(60)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                // The batch has already left JS's ready queue. Put it back before unwinding so a
-                // tab switch cannot strand these paragraphs in pending=true forever.
-                withContext(NonCancellable) {
-                    runCatching { pageTranslator.requeueComparison(view, ids) }
-                }
-                throw cancelled
-            } catch (error: Exception) {
-                translationBusy = false
-                translationComplete = false
-                if (translationPageTranslated) {
-                    runCatching { pageTranslator.requeueComparison(view, ids) }
-                    translationHasPending = true
-                    reportPageTranslationError(error)
-                    // Keep the session alive: the requeued groups are retried after a pause
-                    // instead of leaving a page that is half translated, with both the sheet
-                    // and the scroll path refusing to continue.
-                    delay(2_000)
-                    continue
-                }
-                runCatching { pageTranslator.restoreComparison(view) }
-                translationSessionActive = false
-                translationHasPending = false
-                translationAppliedMode = null
-                translationClosing = true
-                reportPageTranslationError(error)
-                return
-            }
-        }
-    }
-
-    private fun updateComparisonMetrics(batch: com.mybrowser.translate.TranslationComparisonBatch) {
-        translationTotalChars = batch.totalCharacters.coerceAtLeast(1)
-        translationDoneChars = batch.doneCharacters
-        translationProgress = if (batch.totalCharacters > 0) {
-            (batch.doneCharacters * 100 / batch.totalCharacters).coerceIn(0, 100)
-        } else 0
-        translationHasPending = !batch.complete
-        translationComplete = batch.complete
-    }
-
-    private fun updateReplaceSessionComplete() {
-        if (translationAppliedMode == TranslationPageMode.REPLACE &&
-            translationPageTranslated && translationPending.isEmpty()
-        ) {
-            translationComplete = true
-            translationHasPending = false
-            translationProgress = 100
-        }
-    }
-
-    /**
-     * Replacement mode keeps a lightweight rescan alive while a session is active. This covers
-     * nested scroll containers and text/style mutations that the old top-level scroll listener
-     * could not see; the JS side returns only new or changed text nodes.
-     */
-    private fun startReplacePolling(
-        view: WebView,
-        pageUrl: String,
-        pageGeneration: Long,
-        generation: Int,
-    ) {
-        translationPollJob?.cancel()
-        translationPollJob = lifecycleScope.launch {
-            while (isActive) {
-                delay(if (translationComplete) 800 else 350)
-                if (!translationSessionActive ||
-                    translationAppliedMode != TranslationPageMode.REPLACE ||
-                    translationGeneration != generation ||
-                    webViewOrNull !== view || state.currentUrl != pageUrl ||
-                    permissionEpoch != pageGeneration
-                ) break
-                val updated = runCatching { pageTranslator.collectNewReplace(view) }.getOrNull()
-                if (updated != null) {
-                    updated.updatePending(translationPending)
-                    if (updated.items.isNotEmpty()) {
-                        translationHasPending = true
-                        translationComplete = false
-                    }
-                    translationTotalChars = updated.totalCharacters.coerceAtLeast(1)
-                    translationHasPending = translationPending.isNotEmpty()
-                }
-                val now = SystemClock.uptimeMillis()
-                val visible = if (translationJob?.isActive != true && !translationBusy &&
-                    translationPending.isNotEmpty() && now >= translationRetryAt
-                ) {
-                    runCatching { pageTranslator.visibleIds(view, TranslationPageMode.REPLACE) }
-                        .getOrDefault(emptySet())
-                } else {
-                    emptySet()
-                }
-                val hasVisiblePending = visible.any { translationPending.containsKey(it) }
-                if (hasVisiblePending) {
-                    startVisibleTranslationJob()
-                }
-                if (translationPending.isEmpty() && !translationBusy) {
-                    updateReplaceSessionComplete()
-                    // Keep watching after the last batch: user-opened panels and infinite
-                    // scroll can add text later. Only Stop/navigation ends this loop.
-                }
-            }
-        }
-    }
-
-    private fun stopPageTranslation() {
-        restoreTranslatedPage()
-    }
-
-    private fun reportPageTranslationError(error: Exception) {
-        val message = error.message ?: ""
-        translationError = message
-        // The sheet is normally dismissed once a page translation starts, so an error must
-        // also be visible from the page-level floating control. Retries keep the error text
-        // but do not repeat the toast every retry.
-        if (!translationErrorReported && sheet != Sheet.TRANSLATION) {
-            toast(getString(R.string.translate_error, message))
-        }
-        translationErrorReported = true
-    }
-
-    /**
-     * Translates only the text blocks near the viewport, then returns. Scrolling asks for the
-     * next viewport; the whole page is never translated in one blocking pass.
-     */
-    private suspend fun translateVisiblePageItems(
-        view: WebView,
-        pageUrl: String,
-        pageGeneration: Long,
-        generation: Int,
-        modeOverride: TranslationPageMode? = null,
-        allowFallback: Boolean = false,
-    ): Int {
-        val mode = modeOverride ?: translationAppliedMode ?: return 0
-        val settings = translationSettings
-        var applied = 0
-        while (true) {
-            currentCoroutineContext().ensureActive()
-            if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
-                translationGeneration != generation
-            ) break
-            val visible = runCatching { pageTranslator.visibleIds(view, mode) }.getOrDefault(emptySet())
-            // A page can start with a full-screen hero and no text inside the prefetch window.
-            // Translate a small first batch anyway so the page control appears and a later
-            // scroll can continue, instead of leaving the session with no visible work.
-            val candidates = if (allowFallback && visible.isEmpty() && applied == 0) {
-                translationPending.values.take(24)
-            } else {
-                translationPending.values.filter { it.id in visible }
-            }
-            val batch = ArrayList<TranslationPageItem>()
-            var batchChars = 0
-            for (item in candidates) {
-                if (batch.isNotEmpty() && (batch.size >= 24 || batchChars + item.text.length > 6000)) break
-                batch += item
-                batchChars += item.text.length
-                if (batch.size >= 24) break
-            }
-            if (batch.isEmpty()) break
-            batch.forEach { translationPending.remove(it.id) }
-            translationHasPending = translationPending.isNotEmpty()
-            try {
-                val translated = TranslationClient(settings).translateAll(
-                    batch.map { it.text },
-                    settings.targetLanguage,
-                )
-                if (webViewOrNull !== view || state.currentUrl != pageUrl || permissionEpoch != pageGeneration ||
-                    translationGeneration != generation
-                ) break
-                val pairs = batch.zip(translated) { item, text -> item.id to text }
-                val appliedCount = if (mode == TranslationPageMode.COMPARE) {
-                    pageTranslator.applyComparison(view, pairs, settings.targetLanguage)
-                } else {
-                    pageTranslator.apply(
-                        view,
-                        batch.zip(translated) { item, text -> Triple(item.id, item.version, text) },
-                    )
-                }
-                if (mode == TranslationPageMode.REPLACE) {
-                    // Rejected results may be the first batch. Collect their replacements
-                    // before completion logic can mistake the temporarily empty native queue
-                    // for an ended session and stop the watcher.
-                    val fresh = pageTranslator.collectNewReplace(view)
-                    fresh.updatePending(translationPending)
-                    translationHasPending = translationPending.isNotEmpty()
-                }
-                translationPageTranslated = translationPageTranslated || appliedCount > 0
-                if (appliedCount > 0) translationDoneChars += batchChars
-                translationProgress = if (translationTotalChars > 0) {
-                    (translationDoneChars * 100 / translationTotalChars).coerceIn(0, 100)
-                } else 0
-                translationRetryAt = 0L
-                translationErrorReported = false
-                translationError = null
-                applied += appliedCount
-            } catch (error: Exception) {
-                // Let JS requeue the current revision, including on tab-switch cancellation.
-                // The original batch may now refer to an excluded node or an older revision.
-                withContext(NonCancellable) {
-                    runCatching { pageTranslator.requeueReplace(view, batch) }
-                    if (webViewOrNull === view && state.currentUrl == pageUrl &&
-                        translationGeneration == generation
-                    ) {
-                        val fresh = runCatching { pageTranslator.collectNewReplace(view) }.getOrNull()
-                        if (fresh != null && webViewOrNull === view && state.currentUrl == pageUrl &&
-                            translationGeneration == generation && permissionEpoch == pageGeneration
-                        ) {
-                            fresh.updatePending(translationPending)
-                            translationHasPending = translationPending.isNotEmpty()
-                        }
-                    }
-                }
-                throw error
-            }
-            delay(120)
-        }
-        return applied
-    }
-
-    private fun onTranslationScroll() {
-        if (!translationSessionActive || translationAppliedMode == null || translationPending.isEmpty()) return
-        if (translationJob?.isActive == true) {
-            translationScrollPending = true
-            return
-        }
-        translationScrollJob?.cancel()
-        translationScrollJob = lifecycleScope.launch {
-            delay(180)
-            if (translationJob?.isActive == true) {
-                translationScrollPending = true
-                return@launch
-            }
-            startVisibleTranslationJob()
-        }
-    }
-
-    private fun queueVisibleTranslationAfterBatch() {
-        if (!translationSessionActive || !translationScrollPending || translationPending.isEmpty()) return
-        translationScrollPending = false
-        translationScrollJob?.cancel()
-        translationScrollJob = lifecycleScope.launch {
-            delay(40)
-            startVisibleTranslationJob()
-        }
-    }
-
-    private fun startVisibleTranslationJob() {
-        if (!translationSessionActive) return
-        if (SystemClock.uptimeMillis() < translationRetryAt) return
-        val view = webViewOrNull ?: return
-        val mode = translationAppliedMode ?: return
-        if (translationPending.isEmpty() || translationBusy) return
-        val pageUrl = state.currentUrl
-        val pageGeneration = permissionEpoch
-        val generation = translationGeneration
-        translationBusy = true
-        translationJob = lifecycleScope.launch {
-            try {
-                translateVisiblePageItems(view, pageUrl, pageGeneration, generation, modeOverride = mode)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                translationComplete = false
-                translationHasPending = translationPending.isNotEmpty()
-                translationRetryAt = SystemClock.uptimeMillis() + 2_000
-                reportPageTranslationError(error)
-            } finally {
-                if (translationGeneration == generation) {
-                    translationBusy = false
-                    updateReplaceSessionComplete()
-                    queueVisibleTranslationAfterBatch()
-                }
-            }
-        }
-    }
-
-    private fun cancelPageTranslation() {
-        translationJob?.cancel()
-        translationScrollJob?.cancel()
-        translationPollJob?.cancel()
-        translationStateJob?.cancel()
-        translationPending.clear()
-        translationHasPending = false
-        translationScrollPending = false
-        translationBusy = false
-        translationProgress = 0
-        translationTotalChars = 0
-        translationDoneChars = 0
-        translationError = null
-        if (translationPageTranslated || translationAppliedMode != null || translationSessionActive) {
-            restoreTranslatedPage()
-        } else {
-            translationSessionActive = false
-            translationComplete = false
-        }
-    }
-
-    private fun restoreTranslatedPage() {
-        translationClosing = true
-        viewOwnerId?.let { translationTabSnapshots.remove(it) }
-        val view = webViewOrNull ?: run {
-            translationPageTranslated = false
-            translationSessionActive = false
-            translationComplete = false
-            translationAppliedMode = null
-            translationClosing = false
-            return
-        }
-        translationJob?.cancel()
-        translationScrollJob?.cancel()
-        translationPollJob?.cancel()
-        translationStateJob?.cancel()
-        translationGeneration++
-        translationPending.clear()
-        translationHasPending = false
-        translationScrollPending = false
-        translationBusy = false
-        translationProgress = 0
-        translationTotalChars = 0
-        translationDoneChars = 0
-        translationPageTranslated = false
-        translationSessionActive = false
-        translationComplete = false
-        translationError = null
-        translationRetryAt = 0L
-        translationErrorReported = false
-        val mode = translationAppliedMode
-        translationAppliedMode = null
-        lifecycleScope.launch {
-            runCatching {
-                if (mode == TranslationPageMode.COMPARE) pageTranslator.restoreComparison(view)
-                else pageTranslator.restore(view)
-            }
         }
     }
 
     private fun dismissWelcome() {
         showWelcome = false
-        getSharedPreferences("onboarding", MODE_PRIVATE).edit().putBoolean("welcome_seen", true).apply()
+        getSharedPreferences("onboarding", MODE_PRIVATE).edit { putBoolean("welcome_seen", true) }
     }
 
     private fun copyToClipboard(text: String) {

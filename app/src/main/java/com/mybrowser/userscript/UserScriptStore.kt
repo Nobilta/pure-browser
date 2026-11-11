@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -36,7 +37,11 @@ class UserScriptStore(context: Context) {
      * outlives it. They are keyed by script id in memory, so two private tabs of the same script
      * see the same values while the session lasts, and nothing survives it.
      */
-    private val privateValues = mutableMapOf<String, String>()
+    class PrivateSession internal constructor() {
+        internal val values = mutableMapOf<String, String>()
+    }
+    @Volatile var privateSession = PrivateSession()
+        private set
 
     /**
      * A nonce that advances whenever a script's injected program would differ.
@@ -52,7 +57,7 @@ class UserScriptStore(context: Context) {
 
     /** Raises [programs]; callers that mutate values reach the runtime through this. */
     fun notifyChanged() {
-        programRevision.value = programRevision.value + 1
+        programRevision.update { it + 1 }
     }
 
     /**
@@ -64,12 +69,12 @@ class UserScriptStore(context: Context) {
      * values from before the write.
      */
     fun beginPrivateSession() {
-        synchronized(privateValues) { privateValues.clear() }
+        privateSession = PrivateSession()
         notifyChanged()
     }
 
     fun endPrivateSession() {
-        synchronized(privateValues) { privateValues.clear() }
+        privateSession = PrivateSession()
         notifyChanged()
     }
 
@@ -78,7 +83,7 @@ class UserScriptStore(context: Context) {
      * the private map while browsing privately, the saved script otherwise.
      */
     fun valuesFor(id: String, private: Boolean): String =
-        if (private) synchronized(privateValues) { privateValues[id] } ?: "{}"
+        if (private) privateSession.let { session -> synchronized(session) { session.values[id] } } ?: "{}"
         else _scripts.value.find { it.metadata.id == id }?.values ?: "{}"
 
     suspend fun initialize() = withContext(Dispatchers.IO) {
@@ -168,14 +173,15 @@ class UserScriptStore(context: Context) {
             // A private session’s values live in memory only, so deleting the file does not
             // reach them. Leaving them behind means removing and reinstalling the same script in
             // one session brings the previous state back.
-            if (synchronized(privateValues) { privateValues.remove(id) } != null) notifyChanged()
+            val session = privateSession
+            if (synchronized(session) { session.values.remove(id) } != null) notifyChanged()
         }
     }
 
     /**
      * Native side checks the current grant again, including after a script is disabled.
      *
-     * [private] routes the write to the session map instead of the file. The validation is the same
+     * [session] routes the write to its private map instead of the file. The validation is the same
      * either way — a private session grants a script no more storage than a normal one, it only
      * decides where the result may live.
      */
@@ -184,32 +190,27 @@ class UserScriptStore(context: Context) {
         operation: String,
         key: String,
         value: Any?,
-        private: Boolean = false,
+        session: PrivateSession? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val script = _scripts.value.find { it.metadata.id == id && it.enabled } ?: return@withLock false
             val grant = when (operation) { "set" -> "GM_setValue"; "delete" -> "GM_deleteValue"; else -> return@withLock false }
             if (!script.metadata.grants(grant) || key.length > 256 || key.contains('\u0000')) return@withLock false
-            /*
-             * A private write is one read-modify-write *under the same monitor a session boundary
-             * takes*. The store's own mutex does not cover [beginPrivateSession] — that runs on the
-             * main thread when the mode is entered — so reading the map here and writing it a few
-             * statements later would let a session that ended in between have its values written
-             * back, and the next session would inherit them. Doing all of it inside the monitor is
-             * what makes that impossible rather than merely unlikely.
-             */
-            if (private) {
-                val text = synchronized(privateValues) {
-                    val values = JSONObject(privateValues[id] ?: "{}")
+            // Capture the session before dispatching the request. A queued old write cannot reach
+            // the next session's map, even if rotation happens while this write holds its lock.
+            if (session != null) {
+                val written = synchronized(session) {
+                    if (session !== privateSession) return@synchronized false
+                    val values = JSONObject(session.values[id] ?: "{}")
                     if (operation == "delete") values.remove(key) else values.put(key, value ?: JSONObject.NULL)
-                    if (values.length() > 256) return@synchronized null
+                    if (values.length() > 256) return@synchronized false
                     val encoded = values.toString()
-                    if (encoded.toByteArray().size > MAX_VALUES_BYTES) return@synchronized null
-                    privateValues[id] = encoded
-                    encoded
-                } ?: return@withLock false
-                notifyChanged()
-                return@withLock true
+                    if (encoded.toByteArray().size > MAX_VALUES_BYTES) return@synchronized false
+                    session.values[id] = encoded
+                    true
+                }
+                if (written) notifyChanged()
+                return@withLock written
             }
             val values = JSONObject(script.values)
             if (operation == "delete") values.remove(key) else values.put(key, value ?: JSONObject.NULL)

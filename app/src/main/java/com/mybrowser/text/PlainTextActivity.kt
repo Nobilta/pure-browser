@@ -1,5 +1,6 @@
 package com.mybrowser.text
 
+import androidx.compose.runtime.mutableIntStateOf
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -113,7 +114,7 @@ private fun PlainTextScreen(uri: Uri?, onClose: () -> Unit) {
 
     val ready = content as? TextContent.Ready
     var rendererGone by remember { mutableStateOf(false) }
-    var rendererKey by remember { mutableStateOf(0) }
+    var rendererKey by remember { mutableIntStateOf(0) }
     val destroyedViews = remember { mutableSetOf<WebView>() }
     Scaffold(
         topBar = {

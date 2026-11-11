@@ -1,5 +1,6 @@
 package com.mybrowser.ui.devtools
 
+import androidx.compose.ui.res.pluralStringResource
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -309,7 +310,7 @@ private fun StorageList(
     }
     Column(Modifier.fillMaxSize()) {
         Text(
-            stringResource(R.string.dev_storage_total, snapshot?.total ?: entries.size) +
+            pluralStringResource(R.plurals.dev_storage_total, snapshot?.total ?: entries.size, snapshot?.total ?: entries.size) +
                 if (snapshot?.truncated == true) " · " + stringResource(R.string.dev_storage_truncated, entries.size) else "",
             Modifier.padding(horizontal = 16.dp),
             style = MaterialTheme.typography.labelSmall,

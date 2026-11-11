@@ -1,5 +1,6 @@
 package com.mybrowser.ui.devtools
 
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -29,14 +30,14 @@ internal fun SourceCodeTab(document: SourceDocument?, loading: Boolean, error: S
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(document?.let { stringResource(R.string.dev_source_summary, it.characters) } ?: stringResource(R.string.ui_source),
+            Text(document?.let { pluralStringResource(R.plurals.dev_source_summary, it.characters, it.characters) } ?: stringResource(R.string.ui_source),
                 Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
             BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.dev_source_refresh), !loading) {
                 scope.launch { scroll.scrollToItem(0) }
                 onRefresh()
             }
         }
-        if (document?.truncated == true) Text(stringResource(R.string.dev_source_truncated_notice, document.characters),
+        if (document?.truncated == true) Text(pluralStringResource(R.plurals.dev_source_truncated_notice, document.characters, document.characters),
             Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall,
             color = colors.onSurfaceVariant)
         Surface(Modifier.weight(1f).fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),

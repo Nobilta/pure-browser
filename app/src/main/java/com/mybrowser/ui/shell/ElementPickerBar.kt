@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -115,7 +116,7 @@ internal fun ElementPickerBar(
                         modifier = Modifier.weight(1f).padding(start = 4.dp),
                     )
                     Text(
-                        text = stringResource(R.string.picker_matches, chosen.matchCount),
+                        text = pluralStringResource(R.plurals.picker_matches, chosen.matchCount, chosen.matchCount),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

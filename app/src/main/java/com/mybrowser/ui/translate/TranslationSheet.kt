@@ -290,7 +290,7 @@ private fun ColumnScope.TranslationFields(
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = { if (onTranslatePage()) onDismiss() },
-                enabled = !busy && !pageTranslated && settings.supportsFullPage && settings.configured,
+                enabled = !busy && !pageTranslated && settings.configured,
                 shape = CircleShape,
                 modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
             ) { Text(stringResource(R.string.translate_page), maxLines = 2) }

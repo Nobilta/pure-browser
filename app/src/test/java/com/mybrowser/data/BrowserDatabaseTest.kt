@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -89,6 +90,31 @@ class BrowserDatabaseTest {
         assertEquals(1, entries.size)
         assertEquals("Updated title", entries.single().title)
         assertEquals(2, entries.single().visitCount)
+    }
+
+    @Test
+    fun `failed history insert rolls back the whole import including merged rows`() {
+        history.addHistory("Keep", "https://keep.example")
+        val before = history.getAllHistory()
+        val helper = BrowserDatabase.acquire(RuntimeEnvironment.getApplication())
+        try {
+            helper.writableDatabase.execSQL("""
+                CREATE TRIGGER reject_history BEFORE INSERT ON history
+                WHEN NEW.url = 'https://rejected.example'
+                BEGIN SELECT RAISE(ABORT, 'write rejected'); END
+            """.trimIndent())
+            assertThrows(android.database.sqlite.SQLiteException::class.java) {
+                history.importHistory(listOf(
+                    ImportedHistory("Updated", "https://keep.example", Long.MAX_VALUE, 12),
+                    ImportedHistory("New", "https://new.example", 1000, 1),
+                    ImportedHistory("Rejected", "https://rejected.example", 1000, 1),
+                ))
+            }
+            assertEquals(before, history.getAllHistory())
+        } finally {
+            helper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS reject_history")
+            BrowserDatabase.release(helper)
+        }
     }
 
     @Test

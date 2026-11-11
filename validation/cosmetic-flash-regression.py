@@ -168,9 +168,9 @@ def run(args):
             ux.menu_item('Website settings'); ux.tap('Resume filtering for this site')
             ux.adb('shell', 'input', 'keyevent', '4'); time.sleep(.5)
             case('resuming site filtering')
-            ux.menu_item('Enter incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_short"])
             case('private profile first paint')
-            ux.menu_item('Exit incognito mode')
+            ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
             configure(site_enabled=False); case('site filtering disabled', generic_hidden=False, scoped_hidden=False, network_blocked=False)
             configure(enabled=False); case('global filtering disabled', generic_hidden=False, scoped_hidden=False, network_blocked=False)
     except Exception as error:

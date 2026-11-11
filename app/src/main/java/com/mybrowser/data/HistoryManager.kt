@@ -1,5 +1,6 @@
 package com.mybrowser.data
 
+import androidx.core.database.sqlite.transaction
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
@@ -187,8 +188,7 @@ class HistoryManager(context: Context) {
         check(!closed)
         if (entries.isEmpty()) return 0
         val database = db.writableDatabase
-        database.beginTransaction()
-        try {
+        return database.transaction {
             var inserted = 0
             entries.forEach { entry ->
                 val url = entry.url.trim()
@@ -204,19 +204,17 @@ class HistoryManager(context: Context) {
                         put("visit_time", entry.visitTime)
                         put("visit_count", entry.visitCount)
                     }
-                    if (database.insert("history", null, values) != -1L) inserted++
+                    database.insertOrThrow("history", null, values)
+                    inserted++
                 } else {
                     database.execSQL(
                         "UPDATE history SET visit_time = MAX(visit_time, ?), " +
                             "visit_count = MAX(COALESCE(visit_count, 1), ?) WHERE id = ?",
-                        arrayOf(entry.visitTime, entry.visitCount, existing),
+                        arrayOf<Any>(entry.visitTime, entry.visitCount, existing),
                     )
                 }
             }
-            database.setTransactionSuccessful()
-            return inserted
-        } finally {
-            database.endTransaction()
+            inserted
         }
     }
 

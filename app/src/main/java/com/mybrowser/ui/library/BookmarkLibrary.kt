@@ -1,5 +1,6 @@
 package com.mybrowser.ui.library
 
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -15,7 +16,7 @@ import kotlinx.coroutines.withContext
 /** Folder navigation and mutations have one owner, independent of Activity callbacks. */
 class BookmarkLibrary(private val scope: CoroutineScope, private val repository: BookmarkManager,
     private val onFailure: () -> Unit) {
-    var folderId by mutableStateOf(0L)
+    var folderId by mutableLongStateOf(0L)
         private set
     var folders by mutableStateOf<List<BookmarkFolder>>(emptyList())
         private set

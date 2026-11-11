@@ -111,7 +111,7 @@ private fun Note(text: String) {
 
 @Composable
 private fun groupLabels(summary: ImportPreview): String {
-    val resources = androidx.compose.ui.platform.LocalContext.current.resources
+    val resources = com.mybrowser.ui.shell.localizedResources()
     return summary.groups.joinToString(", ") { id ->
         settingsGroupTitle(id)?.let(resources::getString) ?: id
     }

@@ -44,18 +44,12 @@ def main():
             time.sleep(.3)
 
     def enter_private():
-        ux.menu_item('进入无痕模式')
+        ux.menu_item(ux._translations[0]["menu_incognito_short"])
         time.sleep(1)
         root, raw = ux.nodes()
-        # The banner shows the plain badge when the profile really is isolated and its own
-        # warning when the session degraded to shared storage. Require both halves: the badge
-        # proves private mode is on at all, and the warning's absence proves MULTI_PROFILE was
-        # obtained. Resolve by resource name, since app copy may change.
-        badge = ux.resource_labels('incognito_badge')
-        degraded = ux.resource_labels('private_shared')
-        texts = [n.get('text') for n in root.iter('node')]
-        assert any(text in badge for text in texts), 'The incognito banner is missing'
-        assert not any(text in degraded for text in texts), 'MULTI_PROFILE was not obtained'
+        # The address bar's private icon describes whether MULTI_PROFILE was obtained.
+        isolated = ux.resource_labels('private_isolated')
+        assert any(n.get('content-desc') in isolated for n in root.iter('node')), 'An isolated private profile was not obtained'
         ux.launch(url)
 
     def clear(scope):
@@ -65,13 +59,13 @@ def main():
         time.sleep(1)
 
     def exit_private():
-        ux.menu_item('退出无痕模式')
+        ux.menu_item(ux._translations[0]["menu_incognito_exit_short"])
         ux.launch(url)
 
     ux.launch(url)
     initial, _ = ux.nodes()
-    banner = ux.resource_labels('incognito_badge') | ux.resource_labels('private_shared')
-    if any(n.get('text') in banner for n in initial.iter('node')):
+    private_descriptions = ux.resource_labels('private_isolated') | ux.resource_labels('private_shared')
+    if any(n.get('content-desc') in private_descriptions for n in initial.iter('node')):
         exit_private()
     ux.tap('Write normal storage', timeout=15)
     read_storage('normal', 'normal profile contains synthetic website data')

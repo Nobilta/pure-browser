@@ -30,6 +30,12 @@ def resource_strings(folder):
         if value.startswith('"') and value.endswith('"'):
             value = value[1:-1]
         values[item.get("name")] = value.replace(r"\n", "\n").replace(r"\'", "'").replace(r'\"', '"')
+    for plural in ET.parse(resources).getroot().findall("plurals"):
+        forms = {item.get("quantity"): item.text or "" for item in plural.findall("item")}
+        name = plural.get("name")
+        values[name] = forms["other"]
+        for quantity in ("one", "other"):
+            values[name + "/" + quantity] = forms.get(quantity, forms["other"])
     return values
 
 

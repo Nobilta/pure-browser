@@ -136,7 +136,7 @@ fun DownloadsSheet(
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
                     if (overflowCount > 0) Text(
-                        textResources.getString(R.string.download_blocked_overflow, overflowCount),
+                        textResources.getQuantityString(R.plurals.download_blocked_overflow, overflowCount, overflowCount),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(vertical = 4.dp),
                     )

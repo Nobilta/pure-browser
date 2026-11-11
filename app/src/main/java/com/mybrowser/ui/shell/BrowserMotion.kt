@@ -5,7 +5,6 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
@@ -180,14 +179,6 @@ internal object BrowserMotion {
  */
 @Composable
 internal fun LazyItemScope.userItemMotion(): Modifier = Modifier.animateItem(
-    fadeInSpec = BrowserMotion.itemFadeIn(),
-    placementSpec = BrowserMotion.chromeSpatial(),
-    fadeOutSpec = BrowserMotion.itemFadeOut(),
-)
-
-/** The grid's version of the same motion, for a set of tiles the user adds and removes. */
-@Composable
-internal fun LazyGridItemScope.userItemMotion(): Modifier = Modifier.animateItem(
     fadeInSpec = BrowserMotion.itemFadeIn(),
     placementSpec = BrowserMotion.chromeSpatial(),
     fadeOutSpec = BrowserMotion.itemFadeOut(),
