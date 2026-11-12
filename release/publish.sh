@@ -3,12 +3,20 @@
 set -euo pipefail
 RELEASE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$RELEASE_ROOT"
-if [[ $# != 2 ]]; then
-    echo "Usage: bash release/publish.sh <signed-release.apk> <verification-notes.md>" >&2
+sync_gitee=0
+positional=()
+for argument in "$@"; do
+    case "$argument" in
+        --gitee) sync_gitee=1 ;;
+        *) positional+=("$argument") ;;
+    esac
+done
+if [[ ${#positional[@]} != 2 ]]; then
+    echo "Usage: bash release/publish.sh [--gitee] <signed-release.apk> <verification-notes.md>" >&2
     exit 1
 fi
-release_apk="$1"
-release_notes="$2"
+release_apk="${positional[0]}"
+release_notes="${positional[1]}"
 release_gh="${GH:-gh}"
 [[ -f "$release_notes" ]] || { echo "Verification notes file not found: $release_notes" >&2; exit 1; }
 git diff --quiet
@@ -28,3 +36,6 @@ python3 release/gate.py --repo Nobilta/pure-browser --commit "$release_commit" -
 "$release_gh" release create "$release_tag" "$release_apk" outputs/release/update.json outputs/release/SHA256SUMS \
     --repo Nobilta/pure-browser --target "$release_commit" --title "Pure Browser $release_tag" \
     --notes-file "$release_body" --draft
+if [[ "$sync_gitee" == 1 ]]; then
+    bash release/sync-gitee.sh
+fi

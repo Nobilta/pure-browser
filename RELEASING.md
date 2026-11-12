@@ -73,7 +73,10 @@ keyPassword=填写私钥密码
    草稿包含签名 APK、`update.json` 和 `SHA256SUMS`，标签为 `v` 加版本名。
 6. 在 GitHub Releases 打开该草稿，核对目标提交、说明和三个附件，再点击 **Publish release** 并设为 **latest**。
    草稿和预发布版不进入应用稳定更新入口，因此只上传 APK 不构成完整发布。
-7. 将同一标签的正式发行版及原样生成的 APK、`update.json`、`SHA256SUMS` 同步到 Gitee，核对附件校验值后再对外通知。
+7. 同步 Gitee：GitHub 草稿核对无误并发布后，设置 `GITEE_TOKEN` 运行 `bash release/sync-gitee.sh`；
+   也可在创建草稿时加 `--gitee`（`bash release/publish.sh --gitee <apk> <notes>`）一并同步，但 Gitee
+   发行版没有草稿状态，会先于 GitHub 公开。脚本按 `package-info.json` 的标签复用或创建发行版，上传
+   APK、`update.json`、`SHA256SUMS`，重复运行会跳过已有附件，可安全重跑。
    应用优先查询 Gitee 的最新正式发行版并读取该标签的清单，网络失败时才回退 GitHub；两边不能各自重建 APK。
    仅同步 Git 仓库不会同步发行附件。Gitee 可访问但版本落后时不会触发故障回退，发布时须确保两边版本一致。
 
