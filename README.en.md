@@ -19,14 +19,15 @@ Requires Android 10 or later on an ARM64 device running 64-bit Android.
 - **Page translation**: full-page bilingual translation and selected-text translation; includes a built-in no-login service and supports custom translation APIs.
 - **Local plain text**: opens common text files (`text/plain`, YAML, JSON, XML, Markdown, CSV and similar).
 - **Developer tools**: console, network request details, DOM tree and current-DOM source, Cookies, Local Storage and Session Storage; fullscreen browsing with system Back to exit, selectable console output and detail text, and formatting whitespace hidden by default in the DOM tree. Enhanced capture reloads the current tab; storage is available without it.
-- **Ad blocking and userscripts**: built-in filter rules, custom subscriptions and userscript installation; supported WebViews apply element-hiding rules early to reduce ad flashes.
+- **Ad blocking and userscripts**: EasyList, EasyPrivacy, EasyList China, CJX Annoyance and AdGuard Mobile Ads are enabled by default. Optional app-banner and cookie-notice filters are off by default and available in settings. Supports custom subscriptions and userscript installation; supported WebViews apply element-hiding rules early to reduce ad flashes.
 - **Tabs and bookmarks**: tab groups and search, find in page, bookmark import and export; bookmarks show cached website icons and can be reordered with left-side handles after long-pressing to select.
 - **Reader mode and printing**: one-tap reflow of the body into reader mode; print pages or save them as PDF from the system print sheet.
-- **Downloads**: pause and resume downloads, choose custom folders, and restrict the network used. Interrupted single-use attachments explain their retry limitations; an explicit retry follows normal download recovery rules.
+- **Downloads**: edit the filename and folder before downloading, search and filter tasks, view details, pause or resume selected tasks, and set concurrency and total HTTP speed limits. Interrupted single-use attachments explain their retry limitations; an explicit retry follows normal download recovery rules.
 - **Immersive fullscreen**: hides the system bars and toolbar so the page fills the screen.
 - **Offline QR scanning**: scan QR codes with the camera or an image, without an internet connection.
 - **Personalisation**: customise the home page, address bar position, theme and three interface languages; set a per-site browser identity; settings can be exported to a file and imported on another device.
 - **Privacy controls**: built-in incognito browsing, per-site permissions and browsing data cleanup. Incognito userscript storage is isolated by session. Certificate errors show a risk warning with returning to safety as the primary action.
+- **Passwords and passkeys**: integrates Android autofill and WebAuthn, with a provider picker and current autofill status in settings. Providers retain credentials; private pages disable both features. Passkeys also require a provider that trusts this browser; Google Password Manager requires separate browser approval.
 
 ## Screenshots
 

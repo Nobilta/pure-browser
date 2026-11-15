@@ -4,7 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import java.io.Closeable
 
 /** FIFO within each host, allowing unrelated hosts to progress when one host is full. */
-internal class ConcurrencyBudget(private val total: Int, private val perHost: Int) {
+internal class ConcurrencyBudget(private var total: Int, private var perHost: Int) {
     private val lock = Any()
     private var used = 0
     private val hosts = mutableMapOf<String, Int>()
@@ -18,6 +18,16 @@ internal class ConcurrencyBudget(private val total: Int, private val perHost: In
     }
     private val queue = ArrayDeque<Ticket>()
     init { require(total > 0 && perHost in 1..total) }
+
+    /** Existing leases finish normally when the limit shrinks; queued work uses the new limit. */
+    fun updateLimits(total: Int, perHost: Int) {
+        require(total > 0 && perHost in 1..total)
+        synchronized(lock) {
+            this.total = total
+            this.perHost = perHost
+            dispatch()
+        }
+    }
 
     suspend fun acquire(host: String): Lease {
         val ticket = Ticket(host.lowercase(java.util.Locale.ROOT).trimEnd('.'))

@@ -25,6 +25,17 @@ import java.util.concurrent.Executors
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadDedupTest {
+    @Test fun confirmationOverridesOnlyThisTasksNameAndDestination() = runBlocking {
+        val defaults = DownloadSettingsRepository(context).load()
+        coordinator.submit(request(url()))
+        val target = defaults.copy(destinationMode = DownloadDestinationMode.CUSTOM_DIRECTORY,
+            customTreeUri = "content://test/tree/task", customDirectoryLabel = "Task folder")
+        val outcome = coordinator.confirmPending(filename = " chosen?.bin ", destination = target) as DownloadHandler.EnqueueOutcome.Started
+        val item = handler.downloads.value.single { it.id == outcome.id }
+        assertEquals(FilenameParser.sanitize("chosen?.bin"), item.filename)
+        assertEquals("Task folder", item.destinationLabel)
+        assertEquals(defaults, DownloadSettingsRepository(context).load())
+    }
     @Test fun expiryAfterDownloadWasDisplayedDoesNotAuthorizeANewRequest() = runBlocking {
         val response = DownloadResponse(java.io.ByteArrayInputStream(byteArrayOf(1)), 1)
         assertTrue(coordinator.submit(request(url()).copy(response = response)) is DownloadRequestCoordinator.SubmitResult.Confirm)

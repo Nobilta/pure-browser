@@ -351,13 +351,61 @@ class Regression:
             time.sleep(.25)
         raise AssertionError("Filter update remained busy")
 
+    def bundled_filters(self):
+        defaults = {"CJX Annoyance": True, "AdGuard Mobile Ads": True,
+                    "AdGuard Mobile App Banners": False, "EasyList Cookie": False}
+        self.filter_settings()
+        for name in ["EasyList", "EasyPrivacy", "EasyList China", *defaults]:
+            card = self.card(name)
+            if name in defaults:
+                switch, _ = self.named_switch(card, name)
+                assert switch.get("checked") == str(defaults[name]).lower(), name
+        self.snapshot("bundled-optional-defaults")
+        self.record("seven offline lists present; mobile/CJX enabled, app banners/cookies disabled")
+
+        def probe(hidden):
+            # localhost is exempted from generic hiding in EasyList. Keep telemetry on
+            # host loopback, but load the page via the emulator's host alias.
+            self.since = time.time()
+            self.expected_url = ("http://10.0.2.2:8875/feature-fixture.html?case=" + self.case
+                                 + "&visit=" + str(time.time_ns()))
+            ux.launch(self.expected_url)
+            self.wait(lambda s: s["ready"] == "complete" and s["bundledHidden"] == hidden)
+
+        def toggle(name, enabled):
+            self.filter_idle(name)
+            self.set_switch(name, enabled)
+            self.filter_idle(name)  # The saved switch precedes the native snapshot rebuild.
+
+        probe([True, True, False, False])
+        self.record("default sources hide their real upstream selectors and leave optional notices visible")
+        self.filter_settings()
+        for name in list(defaults)[:2]:
+            toggle(name, False)
+        probe([False, False, False, False])
+        self.record("disabling CJX and Mobile Ads restores their matching elements")
+        self.filter_settings()
+        for name in list(defaults)[:3]:
+            toggle(name, True)
+        probe([True, True, True, False])
+        self.record("app-banner source hides its upstream selector without enabling cookie filtering")
+        self.filter_settings()
+        toggle("EasyList Cookie", True)
+        probe([True, True, True, True])
+        ux.adb("shell", "am", "force-stop", ux.PACKAGE)
+        probe([True, True, True, True])
+        self.record("all sources load together and optional choices survive process restart")
+        self.filter_settings()
+        toggle("AdGuard Mobile App Banners", False)
+        toggle("EasyList Cookie", False)
+        probe([True, True, False, False])
+        self.record("turning optional sources off restores their elements")
+
     def filters(self):
         self.filter_mode("valid")
         self.page()
+        self.bundled_filters()
         self.filter_settings()
-        for name in ["EasyList", "EasyPrivacy", "EasyList China"]:
-            self.card(name)
-        self.record("three bundled mainstream subscriptions are present")
         try:
             self.card("Pure QA")
         except AssertionError:

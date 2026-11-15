@@ -89,6 +89,7 @@ def main():
               ('omnibar', ['omnibar-regression.py', '--output', str(OUT / (prefix + '-omnibar'))]),
               ('private-lifecycle', ['lifecycle-boundaries-regression.py', '--section', 'private', '--output', str(OUT / (prefix + '-private-lifecycle'))]),
               ('download-opening', ['download-opening-regression.py', '--output', str(OUT / (prefix + '-download-opening'))]),
+              ('download-management', ['download-management-regression.py', '--output', str(OUT / (prefix + '-download-management'))]),
               # The sheet's dismissal gesture, and what a mid-flight reversal leaves behind. Both
               # hold real MotionEvents, so they need the device's own input pipeline rather than a
               # state assertion: no other stage covers either.

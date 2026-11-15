@@ -108,6 +108,8 @@ object SettingsBackupCodec {
             downloads.threadCount?.let { group.put("threadCount", it) }
             downloads.unmeteredOnly?.let { group.put("unmeteredOnly", it) }
             downloads.directoryModeHint?.let { group.put("directoryModeHint", it) }
+            downloads.maxConcurrentDownloads?.let { group.put("maxConcurrentDownloads", it) }
+            downloads.speedLimitKib?.let { group.put("speedLimitKib", it) }
             settings.put("downloads", group)
         }
 
@@ -353,6 +355,14 @@ object SettingsBackupCodec {
             throw SettingsBackupException("Unknown directory mode hint: $hint")
         }
         val threads = optionalInt(group, "threadCount")
+        val concurrent = optionalInt(group, "maxConcurrentDownloads")
+        val speed = optionalInt(group, "speedLimitKib")
+        if (concurrent != null && concurrent !in 1..com.mybrowser.download.MAX_CONCURRENT_DOWNLOADS) {
+            throw SettingsBackupException("Download concurrency out of range")
+        }
+        if (speed != null && speed !in 0..com.mybrowser.download.MAX_SPEED_LIMIT_KIB) {
+            throw SettingsBackupException("Download speed limit out of range")
+        }
         if (threads != null && threads !in MIN_DOWNLOAD_THREADS..MAX_DOWNLOAD_THREADS) {
             throw SettingsBackupException("Download thread count out of range")
         }
@@ -360,6 +370,8 @@ object SettingsBackupCodec {
             threadCount = threads,
             unmeteredOnly = optionalBoolean(group, "unmeteredOnly"),
             directoryModeHint = hint,
+            maxConcurrentDownloads = concurrent,
+            speedLimitKib = speed,
         )
     }
 

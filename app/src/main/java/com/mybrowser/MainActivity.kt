@@ -761,7 +761,7 @@ class MainActivity : ComponentActivity(),
                     com.mybrowser.ui.download.DownloadConfirmDialog(
                         request = confirmation.request,
                         isNewCopy = confirmation.isNewCopy,
-                        destinationLabel = downloadSettings.displayDestinationLabel(resources),
+                        settings = downloadSettings,
                         onConfirm = ::confirmDownloadRequest,
                         onCancel = downloadRequests::rejectPending,
                     )
@@ -1182,6 +1182,8 @@ class MainActivity : ComponentActivity(),
                                 toast(getString(R.string.ui_download_connections_set_to, downloadSettings.threadCount))
                             },
                             onDownloadNetworkChange = { downloadSettings = downloadSettingsRepository.setUnmeteredOnly(it) },
+                            onDownloadConcurrencyChange = { downloadSettings = downloadSettingsRepository.setMaxConcurrentDownloads(it) },
+                            onDownloadSpeedLimitChange = { downloadSettings = downloadSettingsRepository.setSpeedLimitKib(it) },
                             downloadNotificationsEnabled = downloadNotificationsEnabled,
                             onDownloadNotifications = ::openDownloadNotificationGuide,
                             preferences = browserPreferences,
@@ -2514,9 +2516,9 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun confirmDownloadRequest(retryResponse: Boolean) {
+    private fun confirmDownloadRequest(retryResponse: Boolean, filename: String, destination: com.mybrowser.download.DownloadSettings) {
         val offer = downloadRequests.pending.value?.request?.pageFile
-        when (val outcome = downloadRequests.confirmPending(retryResponse)) {
+        when (val outcome = downloadRequests.confirmPending(retryResponse, filename, destination)) {
             is com.mybrowser.download.DownloadHandler.EnqueueOutcome.Started -> {
                 if (offer != null && !startPageFile(outcome.id, offer)) {
                     // The bytes could not start moving: fail and drop the task now rather than leave

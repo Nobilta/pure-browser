@@ -43,6 +43,17 @@ class DownloadSettingsTest {
         assertEquals(1, repository.setThreadCount(-5).threadCount)
     }
 
+    @Test fun `transfer policy persists and imports leave absent fields alone`() {
+        repository.setMaxConcurrentDownloads(2)
+        repository.setSpeedLimitKib(512)
+        repository.importSettings(8, null, false)
+        val restored = DownloadSettingsRepository(context).load()
+        assertEquals(2, restored.maxConcurrentDownloads)
+        assertEquals(512, restored.speedLimitKib)
+        assertEquals(5, repository.setMaxConcurrentDownloads(99).maxConcurrentDownloads)
+        assertEquals(0, repository.setSpeedLimitKib(-1).speedLimitKib)
+    }
+
     @Test
     fun `system destination selection does not discard remembered custom label`() {
         context.getSharedPreferences(DownloadSettingsRepository.PREFS_NAME, Context.MODE_PRIVATE)

@@ -721,6 +721,10 @@ mod tests {
             include_str!("../../../app/src/main/assets/filters/easylist.txt"),
             include_str!("../../../app/src/main/assets/filters/easyprivacy.txt"),
             include_str!("../../../app/src/main/assets/filters/easylist-china.txt"),
+            include_str!("../../../app/src/main/assets/filters/cjx-annoyance.txt"),
+            include_str!("../../../app/src/main/assets/filters/adguard-mobile-ads.txt"),
+            include_str!("../../../app/src/main/assets/filters/adguard-mobile-app-banners.txt"),
+            include_str!("../../../app/src/main/assets/filters/easylist-cookie.txt"),
         ] {
             matcher.load(list);
         }

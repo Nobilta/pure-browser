@@ -83,11 +83,126 @@ class FilterSubscriptionsTest {
         failure = false
     }
 
-    @Test fun threeMainstreamSnapshotsWorkOffline() = runBlocking {
+    @Test fun bundledSnapshotsWorkOfflineWithExplicitDefaults() = runBlocking {
         val controller = FilterSubscriptions(context)
         controller.initialize()
-        assertEquals(listOf("EasyList", "EasyPrivacy", "EasyList China"), controller.subscriptions.value.map { it.name })
-        assertTrue(controller.subscriptions.value.all { it.enabled && it.builtIn && it.ruleCount > 1000 && it.error == null })
+        val lists = controller.subscriptions.value
+        assertEquals(listOf("easylist", "easyprivacy", "easylist-china", "cjx-annoyance", "adguard-mobile-ads"),
+            lists.filter { it.enabled }.map { it.id })
+        assertEquals(listOf("adguard-mobile-app-banners", "easylist-cookie"), lists.filterNot { it.enabled }.map { it.id })
+        assertTrue(lists.all { it.builtIn && it.ruleCount > 1000 && it.error == null })
+    }
+
+    @Test fun bundledSwitchesSurviveRestartAndOlderBackupImports() = runBlocking {
+        val controller = FilterSubscriptions(context)
+        controller.initialize()
+        assertTrue(controller.setEnabled("cjx-annoyance", false))
+        assertTrue(controller.setEnabled("easylist-cookie", true))
+        val reopened = FilterSubscriptions(context).also { it.initialize() }
+        assertTrue(reopened.importConfiguration(mapOf("easylist" to false), null).ok)
+        val lists = reopened.subscriptions.value.associateBy { it.id }
+        assertFalse(lists.getValue("easylist").enabled)
+        assertFalse(lists.getValue("cjx-annoyance").enabled)
+        assertTrue(lists.getValue("easylist-cookie").enabled)
+        assertFalse(lists.getValue("adguard-mobile-app-banners").enabled)
+    }
+
+    @Test fun aMissingNewDefaultUsesItsDefaultWithoutChangingExistingChoices() = runBlocking {
+        val prefs = context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+        val prior = JSONArray()
+            .put(JSONObject().put("id", "easylist").put("enabled", false))
+            .put(JSONObject().put("id", "cjx-annoyance").put("enabled", false))
+            .toString()
+        prefs.edit().putString("subscriptions_manifest", prior).commit()
+        val lists = FilterSubscriptions(context).also { it.initialize() }.subscriptions.value.associateBy { it.id }
+        assertFalse(lists.getValue("easylist").enabled)
+        assertFalse(lists.getValue("cjx-annoyance").enabled)
+        assertTrue(lists.getValue("adguard-mobile-ads").enabled)
+        assertFalse(lists.getValue("adguard-mobile-app-banners").enabled)
+        assertFalse(lists.getValue("easylist-cookie").enabled)
+    }
+
+    @Test fun anOldCustomListMatchingANewBuiltInMovesToThatBuiltInIdentity() = runBlocking {
+        val source = FilterSubscriptions.BUILT_INS.first { it.id == "adguard-mobile-ads" }
+        val customId = "1234567890abcdef"
+        val payload = "||fixture-ad.example^\n"
+        val file = File(context.filesDir, "filter_subscriptions")
+        file.mkdirs()
+        file.resolve("$customId-${com.mybrowser.core.TextDownloader.sha256(payload)}.txt").writeText(payload)
+        val manifest = JSONArray().put(JSONObject()
+            .put("id", customId).put("name", "My AdGuard Mobile")
+            .put("url", source.url).put("enabled", false)
+            .put("file", "$customId-${com.mybrowser.core.TextDownloader.sha256(payload)}.txt"))
+        context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
+            .putString("subscriptions_manifest", manifest.toString()).commit()
+        val upgraded = FilterSubscriptions(context).also { it.initialize() }.subscriptions.value
+        assertEquals(FilterSubscriptions.BUILT_INS.size, upgraded.size)
+        val migrated = upgraded.single { it.id == source.id }
+        assertFalse(migrated.enabled)
+        assertNull(migrated.file)
+        assertTrue(migrated.ruleCount > 1000)
+        assertNull(migrated.error)
+    }
+
+    @Test fun newBundledListsPreserveExistingSubscriptionChoices() = runBlocking {
+        val old = FilterSubscriptions(context, builtIns = FilterSubscriptions.BUILT_INS.take(3))
+        old.initialize()
+        assertTrue(old.setEnabled("easyprivacy", false))
+        val upgraded = FilterSubscriptions(context).also { it.initialize() }
+        val lists = upgraded.subscriptions.value.associateBy { it.id }
+        assertFalse(lists.getValue("easyprivacy").enabled)
+        assertTrue(lists.getValue("cjx-annoyance").enabled)
+        assertTrue(lists.getValue("adguard-mobile-ads").enabled)
+        assertFalse(lists.getValue("easylist-cookie").enabled)
+    }
+
+    @Test fun previouslyCustomBundledSourceKeepsItsSwitchWithoutDuplication() = runBlocking {
+        val source = FilterSubscriptions.BUILT_INS.first { it.id == "cjx-annoyance" }
+        val old = controller()
+        assertTrue(old.add("My CJX", source.url))
+        assertTrue(old.setEnabled(old.subscriptions.value.single().id, false))
+        val upgraded = FilterSubscriptions(context).also { it.initialize() }
+        assertEquals(7, upgraded.subscriptions.value.size)
+        val list = upgraded.subscriptions.value.single { it.url == source.url }
+        assertTrue(list.builtIn)
+        assertFalse(list.enabled)
+        assertTrue(list.ruleCount > 1000)
+        assertNull(list.error)
+        assertTrue(upgraded.setEnabled(list.id, true))
+        val reopened = FilterSubscriptions(context).also { it.initialize() }
+        assertEquals(7, reopened.subscriptions.value.size)
+        assertTrue(reopened.subscriptions.value.single { it.id == source.id }.enabled)
+    }
+
+    @Test fun optionalBundledRulesEnterAndLeaveTheEngineWithoutDownloading() = runBlocking {
+        val source = FilterSubscriptions.BUILT_INS.first { it.id == "adguard-mobile-app-banners" }
+        val filter = FilterController(context)
+        try {
+            val lists = FilterSubscriptions(context, filter, builtIns = listOf(source)) { _, _, _ ->
+                error("Packaged rules must work offline")
+            }
+            lists.initialize()
+            assertFalse(filter.cosmeticCss("https://example.org/page").contains("amp-app-banner"))
+            assertTrue(lists.setEnabled(source.id, true))
+            assertTrue(filter.cosmeticCss("https://example.org/page").contains("amp-app-banner"))
+            assertTrue(lists.setEnabled(source.id, false))
+            assertFalse(filter.cosmeticCss("https://example.org/page").contains("amp-app-banner"))
+        } finally { filter.close() }
+    }
+
+    @Test fun allBundledSourcesFitTheRealNativeEngineTogether() = runBlocking {
+        val filter = FilterController(context)
+        try {
+            val lists = FilterSubscriptions(context, filter)
+            lists.initialize()
+            assertTrue(lists.setEnabled("adguard-mobile-app-banners", true))
+            assertTrue(lists.setEnabled("easylist-cookie", true))
+            assertEquals(0, filter.refusedCount.value)
+            val css = filter.cosmeticCss("https://example.org/page")
+            for (selector in listOf("#sign-ad", ".happy-header-mobile", "amp-app-banner", "#a-cookie")) {
+                assertTrue("Missing bundled selector: $selector", css.contains(selector))
+            }
+        } finally { filter.close() }
     }
 
     @Test fun customRulesPersistOutsideCache() = runBlocking {

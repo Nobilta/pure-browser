@@ -51,6 +51,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 代码改动运行 `./build-and-test.sh --quick`，再在本地模拟器上验证受影响的行为。
 交付签名包时直接使用 `--release`：它包含全部快速检查，无需先重复执行 `--quick`。
+同一工作区的 Gradle 命令应串行执行，避免多个进程同时改写编译、测试和 lint 产物。
+本地模拟器可用 `-no-window -no-audio` 隐藏运行；Windows 需要可用的模拟器加速驱动，
+可通过 Android SDK 的官方组件安装，无需为本项目另装 WSL。
 界面、生命周期和 WebView 改动尤其需要实际操作验证；现有阶段、签名包要求和运行方法见[测试指南](TESTING_GUIDE.md)。
 修复缺陷时，优先增加能重现原问题的检查，并说明修复前后的结果。
 发布脚本的门禁测试位于 `release/test_release.py`，已纳入快速检查与三平台 CI；
@@ -87,6 +90,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - WebView 功能使用 `WebViewFeature.isFeatureSupported` 等运行时能力探测；同一 Android 版本可能安装不同能力的 WebView。
 - Rust 提交前通过 `cargo fmt`；CI 和发布检查会以 `-D warnings` 运行 clippy。
 - 验证脚本优先使用 Python 标准库，便于直接运行。
+- 内置规则目录在 `FilterSubscriptions.BUILT_INS`，每个来源显式保留默认开关；新增来源时同步 `FilterListFormat.MAX_LISTS`、离线快照与 APK 内许可证。原生和 CSS 基准应使用同一套默认来源，运行过滤设备阶段验证实际隐藏及恢复。
+  AdGuard 使用官方 Chromium 预编译订阅，不直接加载含平台条件分支的仓库源文件；本引擎不解释这些条件。
 - 新增界面文字同时提供简体中文、繁体中文和英文。`validation/check-localization.py` 会核对资源键和格式化参数。
 - 应用图标的设计源在 `design/app-icon/`（含改动说明），修改时同步 SVG 与 `app/src/main/res/` 中的 XML。
 

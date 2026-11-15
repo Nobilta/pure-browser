@@ -63,6 +63,23 @@ Source URLs, versions and SHA-256 hashes are recorded in the
 [bundled notice](app/src/main/assets/filters/NOTICE.txt).
 That notice and the full license text are included in the APK assets.
 
+## Additional filter lists
+
+Unmodified snapshots retrieved on 2026-11-14 are bundled for offline use:
+
+- [CJX Annoyance](https://github.com/cjx82630/cjxlist), copyright cjx82630,
+  under [LGPL 3.0](app/src/main/assets/filters/LICENSE-LGPL-3.0.txt).
+- [AdGuard Mobile Ads and Mobile App Banners](https://github.com/AdguardTeam/AdGuardFilters),
+  copyright AdGuard Software Ltd. and contributors, under
+  [GPL 3.0](app/src/main/assets/filters/LICENSE-GPL-3.0.txt). The official Chromium
+  subscription builds are used so upstream platform conditions are already resolved.
+- [EasyList Cookie](https://easylist.to/), copyright the EasyList authors,
+  under [Creative Commons Attribution 3.0 Unported](app/src/main/assets/filters/LICENSE-CC-BY-3.0.txt),
+  as specified in the snapshot header.
+
+Original rule headers, license texts and the [source notice](app/src/main/assets/filters/NOTICE.txt)
+are included in the APK. Only syntax supported by the filtering engine is applied.
+
 ## Public Suffix List and IDNA
 
 The `site_identity` Rust crate uses [psl](https://github.com/addr-rs/psl) 2.1.232

@@ -29,3 +29,37 @@ https://github.com/easylist/easylistchina
 
 Only the filtering syntax supported by Pure Browser is applied at runtime.
 The original list contents and attribution headers are retained.
+
+Additional unmodified snapshots retrieved on 2026-11-14:
+
+CJX Annoyance, copyright cjx82630, LGPL-3.0 (LICENSE-LGPL-3.0.txt):
+https://raw.githubusercontent.com/cjx82630/cjxlist/master/cjx-annoyance.txt
+Version 202610011010
+SHA-256 f5afcf694eb62c42bdaa1294915f10a78577d1005c8d7a13b61a4808ccddb528
+Source: https://github.com/cjx82630/cjxlist
+
+AdGuard Mobile Ads, copyright AdGuard Software Ltd. and contributors:
+https://filters.adtidy.org/extension/chromium/filters/11.txt
+Version 2.0.73.45, updated 2026-11-13T14:09:07+00:00
+SHA-256 6532092ff058367076b5e7d696b43439660f4d5e525a7f25892c2034336548cb
+
+AdGuard Mobile App Banners, copyright AdGuard Software Ltd. and contributors:
+https://filters.adtidy.org/extension/chromium/filters/20.txt
+Version 2.0.34.25, updated 2026-11-13T19:08:15+00:00
+SHA-256 48a58233de1c7d6fd62b873dc03a2a7fb339ad3b2c6b087302881f4e8840ce3c
+
+Both AdGuard lists retain their upstream GPL-3.0 notice (LICENSE-GPL-3.0.txt).
+These are the official Chromium subscription builds; platform conditions
+have already been resolved upstream, without modifying the files here.
+Source: https://github.com/AdguardTeam/AdGuardFilters
+
+EasyList Cookie, copyright The EasyList authors:
+https://secure.fanboy.co.nz/fanboy-cookiemonster.txt
+Last modified 2026-11-14 01:25 UTC
+SHA-256 3179bb2ebbd15b4ca6c625e1d0325b6b98a9fea127525a036ff8162d2ecbae9b
+CC-BY-3.0, as stated by this snapshot (LICENSE-CC-BY-3.0.txt).
+Source: https://github.com/easylist/easylist
+
+The GNU GPL-3.0 text is also included for the terms incorporated by LGPL-3.0.
+No rule text has been modified. The upstream URLs supply future updates;
+their supported subset is applied by the existing filtering engine.

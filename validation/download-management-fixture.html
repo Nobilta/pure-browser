@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Download management fixture</title>
+<style>body{font:20px sans-serif;padding:24px}a{display:block;padding:24px 0}</style>
+<a id="quick">Quick file</a>
+<a id="slow-a">Slow file A</a>
+<a id="slow-b">Slow file B</a>
+<script>
+const key = new URLSearchParams(location.search).get('case');
+for (const id of ['quick', 'slow-a', 'slow-b']) {
+  document.getElementById(id).href = (id === 'quick' ? '/download-test.bin' : '/download-resume.bin')
+    + '?case=' + encodeURIComponent(key + '-' + id);
+}
+</script>

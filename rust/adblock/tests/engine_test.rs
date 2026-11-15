@@ -12,6 +12,50 @@ fn engine(rules: &[&str]) -> Engine {
 const DOC: &str = "https://news.example.org/index.html";
 
 #[test]
+fn bundled_supplements_preserve_login_media_and_download_requests() {
+    let sources = [
+        include_str!("../../../app/src/main/assets/filters/easylist.txt"),
+        include_str!("../../../app/src/main/assets/filters/easyprivacy.txt"),
+        include_str!("../../../app/src/main/assets/filters/easylist-china.txt"),
+        include_str!("../../../app/src/main/assets/filters/cjx-annoyance.txt"),
+        include_str!("../../../app/src/main/assets/filters/adguard-mobile-ads.txt"),
+        include_str!("../../../app/src/main/assets/filters/adguard-mobile-app-banners.txt"),
+        include_str!("../../../app/src/main/assets/filters/easylist-cookie.txt"),
+    ];
+    let mut e = Engine::new();
+    for (index, source) in sources.iter().enumerate() {
+        e.add_list(source);
+        if index < 4 {
+            continue;
+        }
+        assert_eq!(e.stats().refused_by_limit, 0);
+        for (url, page, kind) in [
+            ("https://passport.baidu.com/v2/api/?login", "https://www.baidu.com/", ResourceType::XmlHttpRequest),
+            ("https://passport.bilibili.com/x/passport-login/web/login", "https://www.bilibili.com/", ResourceType::XmlHttpRequest),
+            ("https://www.zhihu.com/api/v3/oauth/sign_in", "https://www.zhihu.com/", ResourceType::XmlHttpRequest),
+            ("https://m.youtube.com/youtubei/v1/player", "https://m.youtube.com/", ResourceType::XmlHttpRequest),
+            ("https://media.example.org/live/index.m3u8?token=abc", "https://www.bilibili.com/", ResourceType::Media),
+            ("https://media.example.org/live/segment-001.ts", "https://www.bilibili.com/", ResourceType::Media),
+            ("https://github.com/Nobilta/pure-browser/releases/download/v0.23.0/PureBrowser-v0.23.0-release.apk", DOC, ResourceType::Other),
+        ] {
+            assert!(!e.should_block(url, page, kind), "source {index} blocked {url}");
+        }
+    }
+    let cjx = engine(&[sources[3]]);
+    assert!(cjx.should_block(
+        "https://cir-smart.baidu.com/promo.js",
+        "https://www.baidu.com/",
+        ResourceType::Script
+    ));
+    let mobile = engine(&[sources[4]]);
+    assert!(mobile.should_block(
+        "https://adx-open-service.youku.com/ad",
+        "https://www.youku.com/",
+        ResourceType::XmlHttpRequest
+    ));
+}
+
+#[test]
 fn domain_anchor_matches_subdomain_but_not_suffix_collision() {
     let e = engine(&["||ads.com^"]);
     assert!(e.should_block("https://ads.com/a.js", DOC, ResourceType::Script));

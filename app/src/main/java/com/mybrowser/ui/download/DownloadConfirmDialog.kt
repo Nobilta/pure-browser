@@ -8,8 +8,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.net.toUri
+import android.content.Intent
+import android.widget.Toast
+import com.mybrowser.download.DownloadSettings
+import com.mybrowser.download.DownloadSettingsRepository
+import com.mybrowser.download.DownloadDestinationMode
+import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.components.BrowserTextField
+import com.mybrowser.ui.shell.BrowserDropdownMenu
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -26,21 +44,44 @@ import com.mybrowser.ui.shell.localizedResources
 fun DownloadConfirmDialog(
     request: DownloadRequestCoordinator.Request,
     isNewCopy: Boolean,
-    destinationLabel: String,
-    onConfirm: (retryResponse: Boolean) -> Unit,
+    settings: DownloadSettings,
+    onConfirm: (retryResponse: Boolean, filename: String, destination: DownloadSettings) -> Unit,
     onCancel: () -> Unit,
 ) {
     val textResources = localizedResources()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = remember(context) { DownloadSettingsRepository(context) }
+    var filename by rememberSaveable(request.identity) { mutableStateOf(request.filename) }
+    var mode by rememberSaveable(request.identity) { mutableStateOf(settings.destinationMode) }
+    var treeUri by rememberSaveable(request.identity) { mutableStateOf(settings.customTreeUri) }
+    var treeLabel by rememberSaveable(request.identity) { mutableStateOf(settings.customDirectoryLabel) }
+    var choosingDirectory by remember { mutableStateOf(false) }
+    val destination = settings.copy(destinationMode = mode, customTreeUri = treeUri, customDirectoryLabel = treeLabel)
+    val directoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) scope.launch {
+            val label = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    repository.describeDirectory(uri)
+                }.getOrNull()
+            }
+            if (label != null) {
+                treeUri = uri.toString()
+                treeLabel = label
+                mode = DownloadDestinationMode.CUSTOM_DIRECTORY
+            } else Toast.makeText(context, textResources.getString(R.string.ui_unable_to_use_the_selected_download_folder), Toast.LENGTH_LONG).show()
+        }
+    }
     val responseUnavailable = request.response?.unavailable?.collectAsState()?.value
     BrowserAlertDialog(
         onDismissRequest = onCancel,
         title = { Text(textResources.getString(if (isNewCopy) R.string.download_copy_title else R.string.download_confirm_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = request.filename,
-                    style = MaterialTheme.typography.titleMedium,
-                )
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.download_filename), style = MaterialTheme.typography.labelMedium)
+                BrowserTextField(filename, stringResource(R.string.download_filename), { filename = it.take(127) })
                 if (isNewCopy) {
                     Text(textResources.getString(R.string.download_copy_note), style = MaterialTheme.typography.bodySmall)
                 }
@@ -75,16 +116,36 @@ fun DownloadConfirmDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = textResources.getString(R.string.download_confirm_destination, destinationLabel),
+                    text = textResources.getString(R.string.download_confirm_destination, destination.displayDestinationLabel(textResources)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                androidx.compose.foundation.layout.Box {
+                    BrowserActionPill(stringResource(R.string.download_choose_destination), { choosingDirectory = true })
+                    BrowserDropdownMenu(choosingDirectory, { choosingDirectory = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.ui_system_downloads_folder)) }, onClick = {
+                            mode = DownloadDestinationMode.SYSTEM_DOWNLOADS
+                            choosingDirectory = false
+                        })
+                        if (settings.destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY) DropdownMenuItem(
+                            text = { Text(settings.displayDestinationLabel(textResources)) },
+                            onClick = {
+                                mode = settings.destinationMode; treeUri = settings.customTreeUri; treeLabel = settings.customDirectoryLabel
+                                choosingDirectory = false
+                            },
+                        )
+                        DropdownMenuItem(text = { Text(stringResource(R.string.ui_custom_folder)) }, onClick = {
+                            choosingDirectory = false
+                            directoryPicker.launch(treeUri?.toUri())
+                        })
+                    }
+                }
             }
         },
         confirmButton = {
             // Capture the displayed action; expiry between rendering Download and the tap
             // must not silently authorize a new request.
-            TextButton(onClick = { onConfirm(responseUnavailable != null) }) {
+            TextButton(enabled = filename.isNotBlank(), onClick = { onConfirm(responseUnavailable != null, filename, destination) }) {
                 Text(stringResource(if (responseUnavailable != null) R.string.ui_retry else if (isNewCopy) R.string.download_copy_action else R.string.download_confirm_action))
             }
         },

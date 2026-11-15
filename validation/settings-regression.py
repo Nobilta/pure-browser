@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify categorized settings on the signed app using the shell UI helper."""
 import argparse
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -99,7 +100,62 @@ try:
     record("an external navigation dismisses filter management")
     ux.open_settings("下载设置")
     root, _ = ux.nodes()
-    slider = next(n for n in root.iter("node") if n.get("class") == "android.widget.SeekBar")
+    slider = next(n for n in root.iter("node") if ux.visible(n) and n.get("class") == "android.widget.SeekBar")
+    x1, y1, x2, y2 = ux.bounds(slider)
+    ux.adb("shell", "input", "tap", str(int(x1 + (x2 - x1) * .06)), str((y1 + y2) // 2))
+    ux.expect("Concurrent downloads: 1")
+
+    def speed_row():
+        prefixes = ux.resource_labels("download_speed_limit")
+        for _ in range(5):
+            root, _ = ux.nodes()
+            row = next((n for n in root.iter("node") if ux.visible(n)
+                        and any(n.get("text", "").startswith(p + " · ") for p in prefixes)), None)
+            if row is not None:
+                return row
+            ux.swipe(root, downward=False)
+        raise AssertionError("Download speed setting missing")
+
+    ux.tap_node(speed_row())
+    ux.tap("512 KiB/s")
+    restart()
+    ux.open_settings("下载设置")
+    ux.expect("Concurrent downloads: 1")
+    assert "512 KiB/s" in speed_row().get("text")
+    screenshot("download-limits")
+    record("download concurrency and total speed limit survive a process restart")
+    rate_case = "rate-" + str(time.time_ns())[-10:]
+    ux.launch("http://127.0.0.1:8875/download-management-fixture.html?case=" + rate_case)
+    ux.tap("Quick file")
+    ux.tap("下载")
+    started = time.monotonic()
+    expected = hashlib.sha256(bytes(range(256)) * (6 * 1024 * 1024 // 256)).hexdigest()
+    path = "/sdcard/Download/pure-range-test-" + rate_case + "-quick.bin"
+    while True:
+        check = subprocess.run(ux.ADB + ["shell", "sha256sum", path], capture_output=True, text=True)
+        if check.returncode == 0 and check.stdout.split()[0] == expected:
+            break
+        assert time.monotonic() - started < 45, "Limited download did not produce the expected bytes"
+        time.sleep(.3)
+    elapsed = time.monotonic() - started
+    assert elapsed >= 9, "512 KiB/s limit did not throttle the 6 MiB transfer: " + str(elapsed)
+    record("512 KiB/s limits a real 6 MiB HTTP transfer with correct bytes (%.1f seconds)" % elapsed)
+    restart()
+    ux.open_settings("下载设置")
+    ux.tap_node(speed_row())
+    ux.tap(next(iter(ux.resource_labels("download_speed_unlimited"))))
+    # Return the task limit to the default, then exercise the separate connection slider.
+    back()
+    ux.tap("下载设置")
+    root, _ = ux.nodes()
+    slider = next(n for n in root.iter("node") if ux.visible(n) and n.get("class") == "android.widget.SeekBar")
+    x1, y1, x2, y2 = ux.bounds(slider)
+    ux.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+    ux.expect("Concurrent downloads: 3")
+    ux.swipe(ux.nodes()[0], downward=False)
+    ux.swipe(ux.nodes()[0], downward=False)
+    root, _ = ux.nodes()
+    slider = [n for n in root.iter("node") if ux.visible(n) and n.get("class") == "android.widget.SeekBar"][-1]
     x1, y1, x2, y2 = ux.bounds(slider)
     ux.adb("shell", "input", "tap", str(int(x1 + (x2 - x1) * .06)), str((y1 + y2) // 2))
     time.sleep(.6)
@@ -109,6 +165,8 @@ try:
     ux.expect("16 线程")
     restart()
     ux.open_settings("下载设置")
+    ux.swipe(ux.nodes()[0], downward=False)
+    ux.swipe(ux.nodes()[0], downward=False)
     ux.expect("16 线程")
     record("download connection count survives a process restart")
     screenshot("downloads")

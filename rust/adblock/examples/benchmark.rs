@@ -12,7 +12,13 @@ fn main() {
     let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/main/assets/filters");
     let started = Instant::now();
     let mut engine = Engine::new();
-    for name in ["easylist.txt", "easyprivacy.txt", "easylist-china.txt"] {
+    for name in [
+        "easylist.txt",
+        "easyprivacy.txt",
+        "easylist-china.txt",
+        "cjx-annoyance.txt",
+        "adguard-mobile-ads.txt",
+    ] {
         engine.add_list(&std::fs::read_to_string(assets.join(name)).expect("bundled list"));
     }
     let load_ms = started.elapsed().as_secs_f64() * 1000.0;

@@ -21,6 +21,21 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
+    @Test fun httpRejectionsExposeAnActionableCategoryAndKeepItAfterRestart() = runBlocking {
+        val context = connectedContext()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/denied") { exchange -> exchange.sendResponseHeaders(403, -1); exchange.close() }
+        server.start()
+        val handler = DownloadHandler(context)
+        try {
+            val id = requireNotNull(handler.enqueue("http://127.0.0.1:${server.address.port}/denied", null, null, null))
+            val failed = withTimeout(5000) { handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } } }.single { it.id == id }
+            assertEquals(DownloadFailure.AUTHORIZATION, failed.failure)
+            handler.close()
+            val restored = DownloadMetadataStore(context.getSharedPreferences("downloads", Context.MODE_PRIVATE)).load()
+            assertEquals(DownloadFailure.AUTHORIZATION, restored.entries.single { it.id == id }.failure)
+        } finally { handler.close(); server.stop(0) }
+    }
     @Test fun queuedLiveResponseExpiresWithoutReadingOrBypassingTheHostBudget() = runBlocking {
         val context = connectedContext()
         val handler = DownloadHandler(context)

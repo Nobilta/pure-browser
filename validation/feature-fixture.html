@@ -13,6 +13,10 @@
 <button onclick="document.querySelector('#dialog-result').textContent='Confirm '+confirm('MD3 confirm fixture')">Show confirm</button>
 <button onclick="document.querySelector('#dialog-result').textContent='Prompt '+prompt('MD3 prompt fixture','example')">Show prompt</button>
 <a href="/__auth">HTTP authentication fixture</a><p id="dialog-result">Dialog not answered</p>
+<div id="sign-ad">CJX annoyance marker</div>
+<div class="happy-header-mobile">Mobile ad marker</div>
+<amp-app-banner>Optional app banner marker</amp-app-banner>
+<div id="a-cookie">Optional cookie notice marker</div>
 <script src="/filter-marker.js"></script>
 <script>
 const caseId=new URLSearchParams(location.search).get('case')||'feature';
@@ -23,6 +27,7 @@ function report(){
   resourceText:r.resourceText||'',resourceBytes:Number(r.resourceBytes||0),resourceHeader:r.resourceHeader||'',browserVersion:r.browserVersion||'',
   styleApplied:getComputedStyle(document.querySelector('#script-status')).color==='rgb(20, 100, 60)',
   markerLoaded:window.__pureFilterMarker===true,cosmeticHidden:getComputedStyle(document.querySelector('#pure-filter-unit')).display==='none',
+  bundledHidden:['#sign-ad','.happy-header-mobile','amp-app-banner','#a-cookie'].map(s=>getComputedStyle(document.querySelector(s)).display==='none'),
   dialogResult:document.querySelector('#dialog-result').textContent
  })}).catch(()=>{});
 }

@@ -31,6 +31,16 @@ class SettingsBackupCodecTest {
         assertEquals(fullBackup(), decoded)
     }
 
+    @Test fun downloadTransferLimitsValidateAndOlderBackupsLeaveThemUnset() {
+        val old = edit { root -> root.getJSONObject("settings").getJSONObject("downloads").apply {
+            remove("maxConcurrentDownloads"); remove("speedLimitKib")
+        } }
+        assertNull(SettingsBackupCodec.decode(old).settings.downloads?.maxConcurrentDownloads)
+        assertNull(SettingsBackupCodec.decode(old).settings.downloads?.speedLimitKib)
+        reject(edit { it.getJSONObject("settings").getJSONObject("downloads").put("maxConcurrentDownloads", 0) })
+        reject(edit { it.getJSONObject("settings").getJSONObject("downloads").put("speedLimitKib", -1) })
+    }
+
     @Test fun nullGroupsAndFieldsMeanKeepCurrent() {
         val text = JSONObject()
             .put("format", SettingsBackup.FORMAT_ID)
@@ -419,6 +429,8 @@ class SettingsBackupCodecTest {
                 threadCount = 3,
                 unmeteredOnly = true,
                 directoryModeHint = DownloadDestinationMode.CUSTOM_DIRECTORY.name,
+                maxConcurrentDownloads = 2,
+                speedLimitKib = 512,
             ),
             filtering = BackupFiltering(
                 enabled = false,

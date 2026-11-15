@@ -3,7 +3,9 @@ package com.mybrowser.core
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
@@ -37,7 +39,28 @@ object SystemLoginSupport {
     }
 
     fun autofillEnabled(context: Context) = context.getSystemService(AutofillManager::class.java)?.isEnabled == true
+
+    fun autofillProvider(context: Context): String? {
+        val component = context.getSystemService(AutofillManager::class.java)?.autofillServiceComponentName ?: return null
+        return try {
+            context.packageManager.getApplicationInfo(component.packageName, 0)
+                .loadLabel(context.packageManager).toString()
+        } catch (_: PackageManager.NameNotFoundException) {
+            component.packageName
+        }
+    }
+
+    internal fun settingsIntent(context: Context): Intent = Intent(
+        // Same action used by AndroidX CredentialManager.createSettingsPendingIntent (API 34+).
+        if (Build.VERSION.SDK_INT >= 34) "android.settings.CREDENTIAL_PROVIDER"
+        else Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE
+    ).setData(Uri.parse("package:${context.packageName}"))
+
     fun openSettings(context: Context) {
-        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+        try {
+            context.startActivity(settingsIntent(context))
+        } catch (_: ActivityNotFoundException) {
+            context.startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
     }
 }

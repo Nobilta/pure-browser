@@ -1,5 +1,7 @@
 package com.mybrowser.ui.settings
 
+import androidx.compose.material3.DropdownMenuItem
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -105,6 +107,8 @@ fun SettingsSheet(
     onChooseDownloadDirectory: () -> Unit,
     onDownloadThreadCountChange: (Int) -> Unit,
     onDownloadNetworkChange: (Boolean) -> Unit = {},
+    onDownloadConcurrencyChange: (Int) -> Unit = {},
+    onDownloadSpeedLimitChange: (Int) -> Unit = {},
     downloadNotificationsEnabled: Boolean = true,
     onDownloadNotifications: () -> Unit = {},
     preferences: BrowserPreferences,
@@ -432,7 +436,7 @@ fun SettingsSheet(
                                             DownloadNotificationItem(downloadNotificationsEnabled, onDownloadNotifications)
                                         }
                                         DownloadSettingsSection(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
-                                            onDownloadThreadCountChange)
+                                            onDownloadThreadCountChange, onDownloadConcurrencyChange, onDownloadSpeedLimitChange)
                                     }
                                 }
                                 }
@@ -708,11 +712,17 @@ private fun DownloadSettingsSection(
     onUseSystemDirectory: () -> Unit,
     onChooseDirectory: () -> Unit,
     onThreadCountChange: (Int) -> Unit,
+    onConcurrencyChange: (Int) -> Unit,
+    onSpeedLimitChange: (Int) -> Unit,
 ) {
     val textResources = localizedResources()
     var threadDraft by remember(settings.threadCount) {
         mutableFloatStateOf(settings.threadCount.toFloat())
     }
+    var concurrencyDraft by remember(settings.maxConcurrentDownloads) {
+        mutableFloatStateOf(settings.maxConcurrentDownloads.toFloat())
+    }
+    var speedMenu by remember { mutableStateOf(false) }
 
     // The group heading carries the text the settings search indexes under
     // `ui_download_settings`, so a search hit jumps here and highlights the card.
@@ -747,7 +757,28 @@ private fun DownloadSettingsSection(
         )
     }
 
-    SettingsGroupCard(title = textResources.getString(R.string.ui_download_connections)) {
+    SettingsGroupCard(title = textResources.getString(R.string.download_transfer_policy)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(stringResource(R.string.download_concurrent, concurrencyDraft.roundToInt()), style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.download_concurrent_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Slider(value = concurrencyDraft, onValueChange = { concurrencyDraft = it },
+                onValueChangeFinished = { onConcurrencyChange(concurrencyDraft.roundToInt()) }, valueRange = 1f..5f, steps = 3)
+        }
+        SettingsDivider()
+        Box {
+            SettingsItem(title = stringResource(R.string.download_speed_limit) + " · " +
+                if (settings.speedLimitKib == 0) stringResource(R.string.download_speed_unlimited)
+                    else stringResource(R.string.download_speed_value, settings.speedLimitKib),
+                subtitle = "",
+                onClick = { speedMenu = true })
+            com.mybrowser.ui.shell.BrowserDropdownMenu(speedMenu, { speedMenu = false }) {
+                listOf(0, 128, 512, 1024, 5120, 10240).forEach { limit ->
+                    DropdownMenuItem(text = { Text(if (limit == 0) stringResource(R.string.download_speed_unlimited)
+                        else stringResource(R.string.download_speed_value, limit)) }, onClick = { speedMenu = false; onSpeedLimitChange(limit) })
+                }
+            }
+        }
+        SettingsDivider()
         Row(
             modifier = Modifier
                 .fillMaxWidth()

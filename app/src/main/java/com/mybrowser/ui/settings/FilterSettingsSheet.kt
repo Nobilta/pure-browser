@@ -166,6 +166,11 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
                                 }
                                 Switch(list.enabled, modifier = Modifier.semantics { contentDescription = list.name }, onCheckedChange = null, enabled = !busy)
                             }
+                            FilterSubscriptions.BUILT_INS.firstOrNull { it.id == list.id }
+                                ?.summaryRes?.takeIf { it != 0 }?.let { summary ->
+                                    Text(res.getString(summary), style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             Text(list.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(res.getString(R.string.filter_source_rule_count, list.ruleCount), style = MaterialTheme.typography.bodySmall)
                             Text(if (!list.builtIn && list.file == null) res.getString(R.string.filter_pending_download)

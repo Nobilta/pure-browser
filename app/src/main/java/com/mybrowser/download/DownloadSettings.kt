@@ -28,6 +28,9 @@ data class DownloadSettings(
     val customDirectoryLabel: String? = null,
     val threadCount: Int = DEFAULT_DOWNLOAD_THREADS,
     val unmeteredOnly: Boolean = false,
+    val maxConcurrentDownloads: Int = DEFAULT_CONCURRENT_DOWNLOADS,
+    /** Zero means unlimited; shared across tasks, including their parallel connections. */
+    val speedLimitKib: Int = 0,
 ) {
     val destinationLabel: String
         get() = if (destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY) {
@@ -46,6 +49,19 @@ class DownloadSettingsRepository(context: Context) {
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     val unmeteredOnly: Boolean get() = prefs.getBoolean("unmetered_only", false)
+    val maxConcurrentDownloads: Int get() = prefs.getInt(KEY_CONCURRENT, DEFAULT_CONCURRENT_DOWNLOADS)
+        .coerceIn(1, MAX_CONCURRENT_DOWNLOADS)
+    val speedLimitKib: Int get() = prefs.getInt(KEY_SPEED_LIMIT, 0).coerceIn(0, MAX_SPEED_LIMIT_KIB)
+
+    /** Hold the listener strongly until close; imports and another repository instance also notify it. */
+    internal fun observeTransferPolicy(onChanged: () -> Unit): java.io.Closeable {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == KEY_CONCURRENT || key == KEY_SPEED_LIMIT) onChanged()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onChanged()
+        return java.io.Closeable { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     fun load(): DownloadSettings {
         val treeUri = prefs.getString(KEY_CUSTOM_TREE_URI, null)
@@ -74,6 +90,8 @@ class DownloadSettingsRepository(context: Context) {
 
         return DownloadSettings(
             unmeteredOnly = unmeteredOnly,
+            maxConcurrentDownloads = maxConcurrentDownloads,
+            speedLimitKib = speedLimitKib,
             destinationMode = effectiveMode,
             customTreeUri = treeUri,
             customDirectoryLabel = prefs.getString(KEY_CUSTOM_DIRECTORY_LABEL, null),
@@ -84,11 +102,18 @@ class DownloadSettingsRepository(context: Context) {
     }
 
     /** Imported directory hints never copy or grant access to another device's tree. */
-    fun importSettings(threadCount: Int?, unmeteredOnly: Boolean?, useSystemDirectory: Boolean) {
+    fun importSettings(
+        threadCount: Int?, unmeteredOnly: Boolean?, useSystemDirectory: Boolean,
+        maxConcurrentDownloads: Int? = null, speedLimitKib: Int? = null,
+    ) {
         require(threadCount == null || threadCount in MIN_DOWNLOAD_THREADS..MAX_DOWNLOAD_THREADS)
+        require(maxConcurrentDownloads == null || maxConcurrentDownloads in 1..MAX_CONCURRENT_DOWNLOADS)
+        require(speedLimitKib == null || speedLimitKib in 0..MAX_SPEED_LIMIT_KIB)
         prefs.commitConfirmed(buildMap {
             threadCount?.let { put(KEY_THREAD_COUNT, it) }
             unmeteredOnly?.let { put("unmetered_only", it) }
+            maxConcurrentDownloads?.let { put(KEY_CONCURRENT, it) }
+            speedLimitKib?.let { put(KEY_SPEED_LIMIT, it) }
             if (useSystemDirectory) put(KEY_DESTINATION_MODE, DownloadDestinationMode.SYSTEM_DOWNLOADS.name)
         })
     }
@@ -117,6 +142,16 @@ class DownloadSettingsRepository(context: Context) {
 
     fun setUnmeteredOnly(value: Boolean): DownloadSettings {
         prefs.edit { putBoolean("unmetered_only", value) }
+        return load()
+    }
+
+    fun setMaxConcurrentDownloads(value: Int): DownloadSettings {
+        prefs.edit { putInt(KEY_CONCURRENT, value.coerceIn(1, MAX_CONCURRENT_DOWNLOADS)) }
+        return load()
+    }
+
+    fun setSpeedLimitKib(value: Int): DownloadSettings {
+        prefs.edit { putInt(KEY_SPEED_LIMIT, value.coerceIn(0, MAX_SPEED_LIMIT_KIB)) }
         return load()
     }
 
@@ -158,6 +193,8 @@ class DownloadSettingsRepository(context: Context) {
         private const val KEY_CUSTOM_TREE_URI = "custom_tree_uri"
         private const val KEY_CUSTOM_DIRECTORY_LABEL = "custom_directory_label"
         private const val KEY_THREAD_COUNT = "thread_count"
+        private const val KEY_CONCURRENT = "max_concurrent_downloads"
+        private const val KEY_SPEED_LIMIT = "speed_limit_kib"
         private const val MAX_DIRECTORY_LABEL_LENGTH = 120
 
         fun normalizeThreadCount(value: Int): Int = value.coerceIn(
@@ -170,6 +207,9 @@ class DownloadSettingsRepository(context: Context) {
 const val MIN_DOWNLOAD_THREADS = 1
 const val MAX_DOWNLOAD_THREADS = 16
 const val DEFAULT_DOWNLOAD_THREADS = 4
+const val DEFAULT_CONCURRENT_DOWNLOADS = 3
+const val MAX_CONCURRENT_DOWNLOADS = 5
+const val MAX_SPEED_LIMIT_KIB = 10 * 1024
 
 // Store stable identifiers, not translated fallback names, in download metadata.
 const val SYSTEM_DIRECTORY_LABEL = "@system-downloads"

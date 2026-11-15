@@ -234,6 +234,8 @@ class SettingsTransfer(
                     threadCount = downloads.threadCount,
                     unmeteredOnly = downloads.unmeteredOnly,
                     directoryModeHint = downloads.destinationMode.name,
+                    maxConcurrentDownloads = downloads.maxConcurrentDownloads,
+                    speedLimitKib = downloads.speedLimitKib,
                 ),
                 filtering = if (filteringCorrupt) null else BackupFiltering(
                     enabled = filter.enabled.value,
@@ -514,6 +516,7 @@ class SettingsTransfer(
                 repository.importSettings(
                     downloads.threadCount, downloads.unmeteredOnly,
                     downloads.directoryModeHint == DownloadDestinationMode.SYSTEM_DOWNLOADS.name,
+                    downloads.maxConcurrentDownloads, downloads.speedLimitKib,
                 )
             }.onSuccess { applied += "downloads" }.onFailure { noteFailure("downloads", it) }
         }

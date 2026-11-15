@@ -19,7 +19,8 @@ OUT = ROOT / 'validation/results/cosmetic-benchmark'
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     payloads = [ROOT / 'app/src/main/assets/filters' / name for name in
-                ['easylist.txt', 'easyprivacy.txt', 'easylist-china.txt']]
+                ['easylist.txt', 'easyprivacy.txt', 'easylist-china.txt',
+                 'cjx-annoyance.txt', 'adguard-mobile-ads.txt']]
     hosts = ['https://' + host + '/' for host in
              ['example.com', 'www.youtube.com', 'www.baidu.com', 'www.bilibili.com',
               'www.zhihu.com', 'www.wikipedia.org', 'www.reddit.com', 'www.google.com']]

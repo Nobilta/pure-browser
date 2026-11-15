@@ -66,8 +66,14 @@ class DownloadHandler(context: Context) : Closeable {
     private val settingsRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         DownloadSettingsRepository(appContext)
     }
-    private val engine = HttpDownloadEngine()
+    private val rateLimiter = DownloadRateLimiter()
+    private val engine = HttpDownloadEngine(rateLimiter)
     private val tasks = ConcurrencyBudget(total = 3, perHost = 2)
+    private val settingsObserver = settingsRepository.observeTransferPolicy {
+        val limit = settingsRepository.maxConcurrentDownloads
+        tasks.updateLimits(limit, minOf(2, limit))
+        rateLimiter.setLimit(settingsRepository.speedLimitKib * 1024L)
+    }
     private val destinationWriter = DownloadDestinationWriter(appContext)
     private val metadata = ConcurrentHashMap<Long, DownloadMetadata>()
     private val jobs = ConcurrentHashMap<Long, Job>()
@@ -194,6 +200,8 @@ class DownloadHandler(context: Context) : Closeable {
         pageFile: PageFileOffer? = null,
         response: DownloadResponse? = null,
         retryResponse: Boolean = false,
+        filename: String? = null,
+        destination: DownloadSettings? = null,
     ): EnqueueOutcome {
         if (closed) return EnqueueOutcome.Rejected
         val offer = pageFile
@@ -213,6 +221,7 @@ class DownloadHandler(context: Context) : Closeable {
             MAX_COOKIE_LENGTH,
         )
         val settings = settingsRepository.load()
+        val target = destination ?: settings
         response?.let(::prepareResponse)
         val id = createLocalId()
         val entry = synchronized(taskLock) {
@@ -235,7 +244,7 @@ class DownloadHandler(context: Context) : Closeable {
                 mimeType = safeMime,
                 filename = uniqueFilename(
                     sanitizeFilename(
-                        offer?.name?.takeIf { it.isNotBlank() }
+                        filename?.trim()?.takeIf { it.isNotEmpty() } ?: offer?.name?.takeIf { it.isNotBlank() }
                             ?: FilenameParser.resolve(safeDisposition, cleanUrl, safeMime),
                     ),
                 ),
@@ -256,9 +265,9 @@ class DownloadHandler(context: Context) : Closeable {
                 // and nothing metered to defer: the page already has them.
                 configuredThreadCount = if (offer != null) 1 else settings.threadCount,
                 actualThreadCount = if (offer != null || response != null) 1 else settings.threadCount,
-                destinationMode = settings.destinationMode,
-                customTreeUri = settings.customTreeUri,
-                destinationLabel = settings.destinationLabel,
+                destinationMode = target.destinationMode,
+                customTreeUri = target.customTreeUri,
+                destinationLabel = target.destinationLabel,
             )
             if (offer != null) fromPageTasks.add(id)
             if (response != null && !retryResponse) responses[id] = response
@@ -577,7 +586,8 @@ class DownloadHandler(context: Context) : Closeable {
         synchronized(taskLock) {
             metadata.computeIfPresent(id) { _, current ->
                 if (current.status.active || current.status == DownloadStatus.SAVING)
-                    current.copy(status = DownloadStatus.FAILED) else current
+                    current.copy(status = DownloadStatus.FAILED,
+                        failure = if (reason == "write" || reason == "publish") DownloadFailure.STORAGE else DownloadFailure.SOURCE_UNAVAILABLE) else current
             }
         }
         jobs.remove(id)
@@ -819,6 +829,8 @@ class DownloadHandler(context: Context) : Closeable {
             return when (val outcome = enqueueOrGetExisting(
                 old.url, old.userAgent, old.contentDisposition, old.mimeType, old.referer,
                 isPrivate = old.identity.isPrivate, cookieHeader = cookie, newCopy = true,
+                filename = old.filename,
+                destination = DownloadSettings(old.destinationMode, old.customTreeUri, old.destinationLabel),
             )) {
                 is EnqueueOutcome.Started -> outcome.id
                 is EnqueueOutcome.Existing -> outcome.id
@@ -843,6 +855,7 @@ class DownloadHandler(context: Context) : Closeable {
                     status = DownloadStatus.QUEUED,
                     cookie = cookie,
                     bytesPerSecond = 0,
+                    failure = null,
                     // The handed-over response has been consumed or closed. Retry now owns a
                     // normal HTTP transfer, so it can resume and recover across process death.
                     responseBacked = false,
@@ -982,6 +995,7 @@ class DownloadHandler(context: Context) : Closeable {
     override fun close() {
         if (closed) return
         closed = true
+        settingsObserver.close()
         // A finishing transfer takes taskLock to publish its terminal state, so closing under the
         // same lock keeps the record and the job from disagreeing about the last write.
         synchronized(taskLock) {
@@ -1184,7 +1198,16 @@ class DownloadHandler(context: Context) : Closeable {
             synchronized(taskLock) {
                 metadata.computeIfPresent(id) { _, current ->
                     if (jobs[id] === transferJob && current.status.active)
-                        current.copy(status = DownloadStatus.FAILED) else current
+                        current.copy(status = DownloadStatus.FAILED, failure = when {
+                            current.status == DownloadStatus.SAVING || error is SecurityException -> DownloadFailure.STORAGE
+                            response?.unavailable?.value != null -> DownloadFailure.SOURCE_UNAVAILABLE
+                            error is DownloadHttpException -> when (error.code) {
+                                401, 403 -> DownloadFailure.AUTHORIZATION
+                                404, 410 -> DownloadFailure.NOT_FOUND
+                                else -> DownloadFailure.SERVER
+                            }
+                            else -> DownloadFailure.NETWORK
+                        }) else current
                 }
             }
         } finally {
@@ -1238,6 +1261,7 @@ class DownloadHandler(context: Context) : Closeable {
                 // offered a resume the manager refuses, and must not have its filename read out.
                 showsFilenameInNotification = entry.identity.showsFilenameInNotification,
                 canResume = entry.identity.canResumeIn(sessionIdentity),
+                sourceUrl = entry.url.takeIf { entry.identity.canResumeIn(sessionIdentity) },
             )
         }
     }
@@ -1261,6 +1285,8 @@ class DownloadHandler(context: Context) : Closeable {
         showsFilenameInNotification = entry.identity.showsFilenameInNotification,
         canResume = !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity),
         requiresNewRequest = entry.responseBacked,
+        sourceUrl = entry.url.takeIf { !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity) },
+        failure = entry.failure,
     )
 
     private fun publishSnapshots() = synchronized(metadataLock) {

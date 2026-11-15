@@ -36,7 +36,7 @@ internal data class DownloadPayload(
  * not seekable. The caller publishes the parts to MediaStore or the selected tree only after
  * every byte has been validated.
  */
-internal class HttpDownloadEngine {
+internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter = DownloadRateLimiter()) {
     private val connections = ConcurrencyBudget(total = 8, perHost = 4)
     private val leases = java.util.concurrent.ConcurrentHashMap<HttpURLConnection, ConcurrencyBudget.Lease>()
 
@@ -163,7 +163,7 @@ internal class HttpDownloadEngine {
                 val total = parseContentRangeTotal(contentRange)
                 val returnedRange = parseContentRange(contentRange)
                 val validator = entityValidator(connection)
-                connection.inputStream.use { input -> input.read() }
+                connection.inputStream.use { input -> if (input.read() >= 0) rateLimiter.acquire(1) }
                 RangeProbe(
                     totalBytes = total,
                     supportsRanges = total > 0L && returnedRange == 0L..0L,
@@ -271,6 +271,7 @@ internal class HttpDownloadEngine {
                 if (count < 0) break
                 if (count == 0) continue
                 if (declaredTotal > 0 && downloaded + count > declaredTotal) throw ResumeRejected("Full response exceeded Content-Length")
+                rateLimiter.acquire(count)
                 output.write(buffer, 0, count)
                 downloaded += count
                 val now = System.nanoTime()
@@ -376,6 +377,7 @@ internal class HttpDownloadEngine {
                         if (count == 0) continue
                         written += count
                         if (written > expected) throw ResumeRejected("Range response exceeded request")
+                        rateLimiter.acquire(count)
                         output.write(buffer, 0, count)
                         downloaded.addAndGet(count.toLong())
                         reportProgress()

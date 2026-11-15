@@ -108,6 +108,8 @@ data class BackupDownloads(
     val unmeteredOnly: Boolean? = null,
     /** "SYSTEM_DOWNLOADS" or "CUSTOM_DIRECTORY"; a display hint, never an URI. */
     val directoryModeHint: String? = null,
+    val maxConcurrentDownloads: Int? = null,
+    val speedLimitKib: Int? = null,
 )
 
 data class BackupFiltering(

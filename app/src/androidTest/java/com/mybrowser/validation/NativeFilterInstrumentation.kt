@@ -42,8 +42,8 @@ class NativeFilterInstrumentation : Instrumentation() {
             val rows = JSONArray()
             checkNotNull(NativeFilter.createOrNull()).use { engine ->
                 val started = System.nanoTime()
-                for (file in listOf("easylist.txt", "easyprivacy.txt", "easylist-china.txt")) {
-                    engine.addList(targetContext.assets.open("filters/$file").bufferedReader().use { it.readText() })
+                for (source in com.mybrowser.filter.FilterSubscriptions.BUILT_INS.filter { it.enabledByDefault }) {
+                    check(engine.addList(targetContext.assets.open(source.asset).bufferedReader().use { it.readText() }) >= 0)
                 }
                 val loadMs = (System.nanoTime() - started) / 1e6
                 val cases = listOf(

@@ -4,6 +4,15 @@
 
 ## 自动检查
 
+下载管理交互回归：启动 `python3 validation/qa-server.py`，安装待测签名 APK，运行
+`python3 validation/setup-ui-probe.py emulator-5554`，再运行
+`python3 validation/download-management-regression.py --serial emulator-5554 --output validation/results/download-management`。
+脚本使用专用模拟器，下载本地夹具并核对文件内容，检查文件名编辑、本次 SAF 目录、搜索、来源复制、
+状态筛选、多选暂停与继续及两种删除选择；在 Downloads 中创建专用 `PureDownloadQA` 目录。
+结果和截图写入指定目录并绑定已安装 APK 的 SHA-256。仍需运行 `download`、`downloads`、`blob-download` 和
+`download-opening` 阶段核对分段续传、进程恢复、页面文件和 Android 文件打开行为；`settings` 阶段检查并发、
+限速设置的持久化及实际 HTTP 限速。用实际通过的阶段记录覆盖范围。
+
 网页实时摄像头回归：启动 `python3 validation/qa-server.py`，在带前后摄像头的模拟器运行
 `python3 validation/realtime-camera-regression.py --serial emulator-5554 --package com.mybrowser.debug`。
 覆盖授权后不点击网页即可开始预览、视频时间和帧数持续增加、前置→后置→前置切换、默认摄像头选择记录，
@@ -16,6 +25,13 @@
 
 证书警告回归：安装待测 APK 后运行 `python3 validation/security-regression.py --serial emulator-5554`，
 调试包加 `--package com.mybrowser.debug`。脚本使用本地自签名证书，检查允许访问后、刷新和再次访问时的危险连接提示。
+
+内置来源与更新回归：启动 `python3 validation/qa-server.py`，运行
+`python3 validation/features-regression.py --serial emulator-5554 --section filters`，
+或在签名包回归中选择 `features-filters` 阶段。检查七份离线规则、五开两关的新增默认值、
+CJX／移动广告真实上游选择器、App 引导与 Cookie 提示的独立开关、进程重启及关闭后的元素恢复，
+并检查自定义订阅和更新失败保留旧快照。脚本在专用模拟器改变过滤开关，最后将新增四项恢复默认；
+真实网站的登录、视频和下载兼容性另行验证，不能由本地夹具推断。
 
 广告闪现回归：安装待测 APK 后运行 `python3 validation/cosmetic-flash-regression.py --serial emulator-5554`。
 脚本仅用于可 root 的本地模拟器，临时设置测试订阅与站点偏好，结束后恢复；自带 8878 端口服务器，
@@ -102,6 +118,8 @@ adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser
 ```
 
 两者的结果都在输出的 `report` 里，`"passed":true` 表示通过；失败时同一行会带上 `failure`。
+
+签名包登录入口回归：先运行 QA 服务，再运行 `python3 validation/system-integration-regression.py --serial emulator-5554 --section login --output validation/results/login`。覆盖系统提供方设置跳转、返回后保留状态面板、合成通行密钥请求及无痕拒绝；不等同于真实账号保存/填充或通行密钥注册成功。Android 10–13 的自动填充选择器与不同厂商提供方需在对应设备另测。
 
 设备验证可在 QA 服务打开 `login-lifecycle-fixture.html`：用虚拟账号测试系统 Autofill；
 分别打开回调/跳转弹窗并完成，确认原页面显示 PASS，回调模式的文档标识与表单不变。

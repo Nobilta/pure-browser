@@ -29,8 +29,14 @@ data class DownloadItem(
     val canResume: Boolean = true,
     /** Continuing an interrupted handed-over response needs another HTTP request. */
     val requiresNewRequest: Boolean = false,
+    /** Only a source that is usable in the current session; page files have no fetchable URL. */
+    val sourceUrl: String? = null,
+    val failure: DownloadFailure? = null,
 )
 
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAITING_NETWORK, SAVING;
     val active: Boolean get() = this == DOWNLOADING || this == QUEUED || this == WAITING_NETWORK || this == SAVING
 }
+
+/** Stable, non-sensitive failure categories; exception messages may contain signed URLs. */
+enum class DownloadFailure { AUTHORIZATION, NOT_FOUND, SERVER, NETWORK, STORAGE, SOURCE_UNAVAILABLE }

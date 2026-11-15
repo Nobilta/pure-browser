@@ -15,7 +15,7 @@ object FilterListFormat {
      * the app can actually produce rather than being a round figure. [FilterSubscriptions] holds
      * the two counts this adds up, and `UserRuleStoreTest` asserts the sum.
      */
-    const val MAX_LISTS = 36
+    const val MAX_LISTS = 40
 
     fun validate(text: String): Int {
         if (FilterController.utf8Bytes(text) > MAX_BYTES || text.contains('\u0000')) throw IOException("Invalid filter list")

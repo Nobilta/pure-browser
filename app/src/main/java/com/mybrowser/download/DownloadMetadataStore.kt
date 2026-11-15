@@ -159,6 +159,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                         .take(MAX_DESTINATION_LABEL_LENGTH)
                         .ifBlank { SYSTEM_DIRECTORY_LABEL },
                     destinationUri = obj.optString("destinationUri").takeIf { it.isNotBlank() },
+                    failure = DownloadFailure.entries.firstOrNull { it.name == obj.optString("failure") },
                 )
             }
             if (changed) save(metadata.values)
@@ -213,6 +214,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                 .put("destinationMode", entry.destinationMode.name)
                 .put("customTreeUri", entry.customTreeUri)
                 .put("destinationLabel", entry.destinationLabel)
+                .put("failure", entry.failure?.name)
                 .put("destinationUri", entry.destinationUri).toString()
         }
         prefs.edit { putString(KEY_ENTRIES, json) }

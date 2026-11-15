@@ -34,7 +34,14 @@ class FilterSubscriptions(
         TextDownloader().get(url, FilterListFormat.MAX_BYTES, etag, modified)
     },
 ) {
-    data class Source(val id: String, val name: String, val url: String, val asset: String)
+    data class Source(
+        val id: String,
+        val name: String,
+        val url: String,
+        val asset: String,
+        val enabledByDefault: Boolean = true,
+        @androidx.annotation.StringRes val summaryRes: Int = 0,
+    )
     data class Subscription(
         val id: String,
         val name: String,
@@ -63,7 +70,9 @@ class FilterSubscriptions(
     /** True when hand-written rules exist but were dropped because the blob exceeded its cap. */
     @Volatile var userRulesLoadFailed: Boolean = false
         private set
-    private val _subscriptions = MutableStateFlow(builtIns.map { Subscription(it.id, it.name, it.url, builtIn = true) })
+    private val _subscriptions = MutableStateFlow(builtIns.map {
+        Subscription(it.id, it.name, it.url, builtIn = true, enabled = it.enabledByDefault)
+    })
     private val _busy = MutableStateFlow(false)
     private val _lastError = MutableStateFlow<String?>(null)
     private val _autoUpdate = MutableStateFlow(prefs.getBoolean("auto_update", true))
@@ -169,7 +178,13 @@ class FilterSubscriptions(
             saved.optJSONObject(i)?.let { records[it.optString("id")] = it }
         }
         val loaded = builtIns.map { source ->
-            decode(records.remove(source.id), Subscription(source.id, source.name, source.url, builtIn = true))
+            // A previously custom subscription can become bundled. Keep its switch instead of
+            // enabling a duplicate; an old-id snapshot falls back to the packaged copy below.
+            val record = records.remove(source.id) ?: records.values.firstOrNull {
+                it.optString("url").trim() == source.url
+            }?.also { records.remove(it.optString("id")) }
+            decode(record, Subscription(source.id, source.name, source.url,
+                builtIn = true, enabled = source.enabledByDefault))
         }.toMutableList()
         records.values.take(MAX_CUSTOM_LISTS).forEach { value ->
             val id = value.optString("id")
@@ -253,7 +268,7 @@ class FilterSubscriptions(
     private fun decode(value: JSONObject?, defaults: Subscription): Subscription {
         if (value == null) return defaults
         val filename = value.optString("file").takeIf { SNAPSHOT.matches(it) && File(directory, it).isFile }
-        return defaults.copy(enabled = value.optBoolean("enabled", true), file = filename,
+        return defaults.copy(enabled = value.optBoolean("enabled", defaults.enabled), file = filename,
             updatedAt = value.optLong("updatedAt"), checkedAt = value.optLong("checkedAt"),
             etag = value.optString("etag").takeIf { filename != null && it.isNotBlank() },
             modified = value.optString("modified").takeIf { filename != null && it.isNotBlank() })
@@ -656,6 +671,14 @@ class FilterSubscriptions(
             Source("easylist", "EasyList", "https://easylist.to/easylist/easylist.txt", "filters/easylist.txt"),
             Source("easyprivacy", "EasyPrivacy", "https://easylist.to/easylist/easyprivacy.txt", "filters/easyprivacy.txt"),
             Source("easylist-china", "EasyList China", "https://easylist-downloads.adblockplus.org/easylistchina.txt", "filters/easylist-china.txt"),
+            Source("cjx-annoyance", "CJX Annoyance", "https://raw.githubusercontent.com/cjx82630/cjxlist/master/cjx-annoyance.txt",
+                "filters/cjx-annoyance.txt", summaryRes = R.string.filter_cjx_summary),
+            Source("adguard-mobile-ads", "AdGuard Mobile Ads", "https://filters.adtidy.org/extension/chromium/filters/11.txt",
+                "filters/adguard-mobile-ads.txt", summaryRes = R.string.filter_mobile_ads_summary),
+            Source("adguard-mobile-app-banners", "AdGuard Mobile App Banners", "https://filters.adtidy.org/extension/chromium/filters/20.txt",
+                "filters/adguard-mobile-app-banners.txt", enabledByDefault = false, summaryRes = R.string.filter_app_banners_summary),
+            Source("easylist-cookie", "EasyList Cookie", "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+                "filters/easylist-cookie.txt", enabledByDefault = false, summaryRes = R.string.filter_cookie_summary),
         )
     }
 }

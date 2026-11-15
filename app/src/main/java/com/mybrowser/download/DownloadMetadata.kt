@@ -28,4 +28,5 @@ internal data class DownloadMetadata(
     val customTreeUri: String? = null,
     val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
     val destinationUri: String? = null,
+    val failure: DownloadFailure? = null,
 )
