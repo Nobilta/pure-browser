@@ -231,6 +231,15 @@ def main():
         save('notification-cold-start')
         assert not system_ui()
         record('Tapping a completion notification cold-starts the browser at its downloaded file')
+        key += '-after-focus'
+        page()
+        ux.tap('Download image')
+        confirm_download()
+        completed_file('image', image_hash)
+        downloads()
+        ux.expect(file_name('image'))
+        save('notification-focus-consumed')
+        record('Opening downloads from the menu after a notification shows the newest task')
         result['passed'] = True
     except Exception as error:
         result['error'] = repr(error)

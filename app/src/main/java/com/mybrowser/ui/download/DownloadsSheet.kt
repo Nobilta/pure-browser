@@ -58,6 +58,7 @@ fun DownloadsSheet(
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
     onClearCompleted: (deleteFiles: Boolean) -> Unit = {},
     focusedId: Long? = null,
+    onFocusConsumed: () -> Unit = {},
     blocked: List<DownloadRequestCoordinator.BlockedEntry> = emptyList(),
     overflowCount: Int = 0,
     onUnblockDownload: (String) -> Unit = {},
@@ -76,12 +77,18 @@ fun DownloadsSheet(
         downloads.filter { filter.matches(it.status) && (query.isBlank() || it.filename.contains(query.trim(), ignoreCase = true)) }
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    LaunchedEffect(focusedId) {
-        if (focusedId != null) { query = ""; filter = DownloadFilter.ALL }
-    }
-    LaunchedEffect(focusedId, visible.map { it.id }) {
-        val index = visible.indexOfFirst { it.id == focusedId }
-        if (index >= 0) listState.scrollToItem(index)
+    LaunchedEffect(focusedId, query, filter, visible.map { it.id }) {
+        val target = focusedId ?: return@LaunchedEffect
+        if (query.isNotEmpty() || filter != DownloadFilter.ALL) {
+            query = ""
+            filter = DownloadFilter.ALL
+            return@LaunchedEffect
+        }
+        val index = visible.indexOfFirst { it.id == target }
+        if (index >= 0) {
+            listState.scrollToItem(index)
+            onFocusConsumed()
+        }
     }
     // A record can disappear while it is selected (cancelled, retried, deleted elsewhere).
     LaunchedEffect(visible.map { it.id }) {

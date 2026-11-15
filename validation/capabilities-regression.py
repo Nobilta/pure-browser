@@ -52,7 +52,9 @@ class Regression:
         time.sleep(.5)
 
     def page(self, port=8875):
-        self.url = 'http://127.0.0.1:' + str(port) + '/capabilities-fixture.html?visit=' + str(time.time_ns())
+        # EasyList exempts loopback from generic hiding; site filtering needs a real match.
+        host = '10.0.2.2' if self.section == 'site' else '127.0.0.1'
+        self.url = 'http://' + host + ':' + str(port) + '/capabilities-fixture.html?visit=' + str(time.time_ns())
         # Enable Chromium accessibility before navigation; telemetry observes the
         # requested URL without issuing a second load through the refresh button.
         ux.nodes()
@@ -287,7 +289,7 @@ class Regression:
         ux.adb('push', str(ROOT / fixture), '/sdcard/Download/' + fixture)
         ux.menu_item('书签')
         for attempt in range(2):
-            ux.tap('导入或导出书签')
+            ux.tap_resource('bookmarks_transfer')
             ux.tap('导入书签')
             self.choose_document(fixture)
             ux.expect('Web bookmarks to import: 1. Invalid or duplicate entries skipped: 2. Existing bookmarks will be kept.')
@@ -302,7 +304,7 @@ class Regression:
         self.record('SAF imports a Netscape bookmark file with preview, safe URLs and repeat-import deduplication')
         ux.check_library_selection('Imported & escaped fixture')
         self.record('Bookmark rows expose one checkbox with checked/unchecked state and leave selection on Back')
-        ux.tap('导入或导出书签')
+        ux.tap_resource('bookmarks_transfer')
         ux.tap('导出书签')
         name = 'pure-capability-bookmarks-api' + self.sdk + '-' + str(time.time_ns()) + '.html'
         self.downloads_directory()

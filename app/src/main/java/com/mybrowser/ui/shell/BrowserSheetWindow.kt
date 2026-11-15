@@ -644,7 +644,7 @@ internal fun BrowserBottomSheet(
                     modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
                         .onSizeChanged { surfaceHeight = it.height; if (it.height > 0) measured() }
                         .then(
-                            if (dragHandleOnly) Modifier.nestedScroll(nestedScroll)
+                            if (dragHandleOnly) Modifier
                             else Modifier.nestedScroll(nestedScroll).draggable(
                                 state = draggable,
                                 orientation = Orientation.Vertical,

@@ -10,8 +10,15 @@
 脚本使用专用模拟器，下载本地夹具并核对文件内容，检查文件名编辑、本次 SAF 目录、搜索、来源复制、
 状态筛选、多选暂停与继续及两种删除选择；在 Downloads 中创建专用 `PureDownloadQA` 目录。
 结果和截图写入指定目录并绑定已安装 APK 的 SHA-256。仍需运行 `download`、`downloads`、`blob-download` 和
-`download-opening` 阶段核对分段续传、进程恢复、页面文件和 Android 文件打开行为；`settings` 阶段检查并发、
-限速设置的持久化及实际 HTTP 限速。用实际通过的阶段记录覆盖范围。
+`download-opening` 阶段核对分段续传、进程恢复、页面文件和 Android 文件打开行为；后者还检查完成通知定位后
+新建下载、从菜单重开列表能看到最新任务。`browser` 阶段依据开关的实际选中状态启用会话恢复，再检查重启后的
+弹窗标签。`settings` 阶段检查并发、限速设置的持久化及实际 HTTP 限速。用实际通过的阶段记录覆盖范围。
+
+书签导入导出通过 `bookmarks_transfer` 资源定位「书签操作」菜单，避免依赖旧版按钮名称。
+菜单回归使用当前站点卡片打开网站设置，退出操作按当前「退出」标签定位。
+`site` 阶段检查网站设置内容在顶部、底部反复滑动时不关闭面板，并保持标题和操作栏固定。
+站点过滤夹具使用 `10.0.2.2`，避开 EasyList 对回环地址的通用隐藏例外；权限夹具仍使用 `127.0.0.1`。
+驻留回归先确认分组对话框已提交；旧 WebView 省略弹窗按钮节点时，使用夹具报告的可见按钮坐标注入真实点击。
 
 网页实时摄像头回归：启动 `python3 validation/qa-server.py`，在带前后摄像头的模拟器运行
 `python3 validation/realtime-camera-regression.py --serial emulator-5554 --package com.mybrowser.debug`。

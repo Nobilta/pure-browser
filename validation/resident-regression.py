@@ -36,6 +36,10 @@ def main():
         prefixes = [d['tabs_count'].split('%1$d')[0] for d in ux._translations]
         button = next(n for n in root.iter('node') if ux.visible(n) and any(n.get('content-desc','').startswith(p) for p in prefixes))
         ux.tap_node(button)
+    def fixture_tap(label, target, name='A'):
+        url = base + 'resident-fixture.html?case=' + key + '&name=' + name
+        if name == 'A': url += '#step1'
+        ux.tap_fixture(label, key, target, url)
     def focused_editor(timeout=10):
         # `input text` is delivered to whatever holds focus. tap_node only sleeps 0.5s, which
         # is not enough for a freshly opened dialog to take focus on a software-rendered or
@@ -82,7 +86,10 @@ def main():
         ux.adb('shell', 'input', 'swipe', x, y, x, y, '1200')
         ux.tap('Tab group'); ux.tap('Group name')
         focused_editor()
-        ux.adb('shell','input','text','QAgroup'); ux.adb('shell','input','keyevent','4'); ux.tap('Confirm')
+        ux.adb('shell','input','text','QAgroup')
+        ux.expect('QAgroup')
+        ux.tap('Confirm')
+        ux.expect('Group name', present=False)
         ux.expect('QAgroup')
         checks.append('Tab group can be assigned and selected in the visible tab list')
         ux.adb('shell', 'input', 'keyevent', '4')
@@ -96,16 +103,16 @@ def main():
             return returned
 
         opened = time.time()
-        ux.tap('Open popup child')
+        fixture_tap('Open popup child', 'popup')
         wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
         ux.adb('shell', 'input', 'keyevent', '4')
         unchanged_source()
         checks.append('window.open child closes with system Back and returns to the original DOM, form, SPA and scroll')
 
         opened = time.time()
-        ux.tap('Open link child')
+        fixture_tap('Open link child', 'link')
         wait('Linked', lambda r: r['ready'] == 'complete', since=opened)
-        ux.tap('Navigate within tab')
+        fixture_tap('Navigate within tab', 'next', 'Linked')
         wait('LinkedNext', lambda r: r['ready'] == 'complete', since=opened)
         back_at = time.time()
         ux.adb('shell', 'input', 'keyevent', '4')
@@ -115,21 +122,21 @@ def main():
         checks.append('target=_blank child exhausts its own history before Back returns to the retained opener')
 
         opened = time.time()
-        ux.tap('Open popup child')
+        fixture_tap('Open popup child', 'popup')
         wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
-        ux.tap('Close popup window')
+        fixture_tap('Close popup window', 'close', 'Popup')
         unchanged_source()
         checks.append('window.close returns to the retained opener instead of exiting the browser')
 
         opened = time.time()
-        ux.tap('Open popup child')
+        fixture_tap('Open popup child', 'popup')
         wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
         ux.tap('Back')
         unchanged_source()
         checks.append('Toolbar Back closes a child with no page history and preserves the opener')
 
         opened = time.time()
-        ux.tap('Open popup child')
+        fixture_tap('Open popup child', 'popup')
         wait('Popup', lambda r: r['ready'] == 'complete', since=opened)
         tabs()
         root, _ = ux.nodes()
@@ -150,7 +157,7 @@ def main():
         # provider refuses to cache (unload listeners, no-store) still reload, and then only
         # the platform's scroll restoration applies. Assert whichever contract the run
         # actually produced, so neither can pass silently, and record the delta in result.json.
-        ux.tap('Navigate within tab')
+        fixture_tap('Navigate within tab', 'next')
         same_tab_next = wait('ANext', lambda r: r['ready'] == 'complete', since=time.time())
         assert same_tab_next['name'] == 'ANext', same_tab_next
         same_tab_back_at = time.time()

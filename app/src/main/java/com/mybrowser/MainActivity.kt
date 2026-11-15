@@ -1073,6 +1073,7 @@ class MainActivity : ComponentActivity(),
                         Sheet.DOWNLOADS -> DownloadsSheet(
                             downloads = downloadPresenter.downloads.collectAsState().value,
                             focusedId = downloadFocusId,
+                            onFocusConsumed = { downloadFocusId = null },
                             blocked = downloadRequests.blocked.collectAsState().value,
                             overflowCount = downloadRequests.overflow.collectAsState().value,
                             onUnblockDownload = { identity ->

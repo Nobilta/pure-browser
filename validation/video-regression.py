@@ -250,7 +250,7 @@ class Regression:
             x1, y1, x2, y2 = ux.bounds(play)
             x, y = (x1 + x2) // 2, (y1 + y2) // 2
         else:
-            web = next(n for n in root.iter("node") if n.get("class") == "android.webkit.WebView")
+            web = ux.web_view()
             left, top, right, bottom = ux.bounds(web)
             # Popup frames can be painted and playable while an old provider omits
             # their DOM from accessibility. Use reported geometry for a real touch.

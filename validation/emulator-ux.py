@@ -470,6 +470,8 @@ def close_menu():
 
 
 def menu_item(label):
+    if label in resource_labels('ui_exit_browser'):
+        label = _translations[0]['menu_exit_short']
     root, _ = nodes()
     if not menu_open(root):
         try:
@@ -479,6 +481,14 @@ def menu_item(label):
             # the menu is then open and its button covered, which reads as a missing control.
             if not menu_open(nodes()[0]):
                 raise
+    if label in resource_labels('site_settings'):
+        # The menu opens site settings from its heading/host card.
+        root = expect_menu()
+        card = next(n for n in root.iter('node') if visible(n) and n.get('clickable') == 'true'
+                    and n.get('enabled') == 'true' and sum(c.get('class') == 'android.widget.TextView'
+                        and visible(c) for c in n.iter('node')) >= 2)
+        tap_node(card)
+        return
     # Returning from a child keeps the menu's previous scroll position. The first read of
     # each pass waits for the row on the device, so an already-reachable row costs one
     # connection and only a row that needs scrolling keeps stepping through the list.
@@ -547,6 +557,11 @@ def regress():
         adb("shell", "input", "swipe", str(x), str(start), str(x), str(end), "450")
         time.sleep(.6)
 
+    def restore_switch():
+        root, _ = nodes()
+        return next(n for n in root.iter('node') if n.get('checkable') == 'true'
+                    and match(n, '启动时恢复上次网页') is not None)
+
     # Start this stage with a fresh renderer. Older WebView accessibility trees can
     # retain missing header nodes after the preceding stage rotates its diagnostics UI.
     adb("shell", "am", "force-stop", PACKAGE)
@@ -572,9 +587,9 @@ def regress():
     tap("导航首页")
     adb("shell", "input", "keyevent", "4")
     expect("启动时恢复上次网页")
-    root, _ = nodes()
-    if match(root, "下次启动：主页") is not None:
+    if restore_switch().get('checked') == 'false':
         tap("启动时恢复上次网页")
+    assert restore_switch().get('checked') == 'true', 'Session restore was not enabled'
     tap_resource("cd_back")
     tap_resource("cd_back")
     launch(probe_url)
@@ -591,12 +606,12 @@ def regress():
     inspect(evidence + "restored")
     open_settings("通用")
     tap("启动时恢复上次网页")
-    expect("下次启动：主页")
+    assert restore_switch().get('checked') == 'false', 'Session restore was not disabled'
     tap_resource("cd_back")
     tap_resource("cd_back")
     # Reproduce a task whose surviving root is a system picker after process death.
     menu_item("书签")
-    tap("导入或导出书签")
+    tap_resource("bookmarks_transfer")
     tap("导入书签")
     assert "documentsui" in nodes()[1], "Bookmark file picker did not open"
     adb("shell", "am", "force-stop", PACKAGE)
@@ -615,7 +630,7 @@ def regress():
         time.sleep(.25)
     print("PASS: exit removes the browser task and its orphaned system picker after process death", flush=True)
     launch()
-    expect("常用网站")
+    expect(_translations[0]['home_quick_links'])
     inspect(evidence + "home")
 
 
