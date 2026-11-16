@@ -1,3 +1,22 @@
+## 0.22.1 FTP 与 HLS 下载（2026-11-16 本地构建，未发布）
+
+被测产物：`PureBrowser-v0.22.1-release.apk`（versionCode 83，6 064 976 字节，
+SHA-256 `6c9b57c034bfdaf1f6d164980c9682afa62cbd0ea7daa71d85800095b0c3b1e2`），本地签名 ARM64 Release。
+`./build-and-test.sh --release` 通过：JVM 单测、Lint、R8、签名与 apksigner 校验（v2）。
+
+- 改动：下载的取字节部分抽成 `DownloadTransport`，新增 FTP（被动模式、TYPE I、SIZE/REST 续传）与
+  HLS 合并（最高码率子列表、按序拼接分段、AES-128 解密、`EXT-X-MAP` 前置、按段续传）；
+  `ftp://` 链接与地址栏输入进入同一条下载确认，HLS 结果按 `video/mp2t` 存为 `.ts`。
+- 设备：Android 14 / API 34，`MyBrowser_Pixel7`（`emulator-5554`，`-no-window` 隐藏窗口）。
+  `mybrowser_test` 的 Android 37 系统镜像在本机已缺失，因此改用该 AVD。
+- 覆盖：点击 FTP 链接保存的文件与 FTP 服务端实体 SHA-256 一致（131 072 字节）；点击 HLS 播放列表得到
+  全部分段拼接的 `.ts`（163 840 字节）并核对摘要；两个任务都出现在下载管理；地址栏输入 `ftp://` 同样
+  进入下载确认。设备阶段由 `validation/ftp-hls-regression.py` 记录结果与截图。
+- 自动化：FTP 客户端由脚本化 FTP 服务验证 RETR/SIZE/REST 与断点续传；HLS 单测覆盖主列表选码率、
+  AES-128 解密、`EXT-X-MAP`、失败后按段续传以及命名与 MIME 改写。
+- 未验证：FTPS、主动模式、EPSV、真实公网 FTP 与 NAT/被动端口受限的场景；设备侧未跑 AES-128 与
+  直播列表拒绝（仅单测覆盖）；Android 10–13 与其他 WebView 版本。
+
 ## 0.22.1 本地测试包（2026-11-15，未发布）
 
 被测产物：`PureBrowser-v0.22.1-release.apk`（versionCode 83），本地签名 ARM64 Release。最终包与 `api36-code-review-delivery-suite.json`、`api36-code-review-recheck-suite.json` 和 `api36-code-review-resident-suite.json` 的 APK 摘要一致；大小和摘要见生成的发布附件。

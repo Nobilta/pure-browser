@@ -20,6 +20,16 @@ internal object DownloadValidation {
         return value.takeIf { UrlUtils.isHttpUrl(it, MAX_URL_LENGTH) }
     }
 
+    /** Every address a task may fetch: HTTP for the engine and the playlist, FTP for one stream. */
+    fun validDownloadUrl(raw: String?): String? = validHttpUrl(raw) ?: validFtpUrl(raw)
+
+    fun validFtpUrl(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty() || value.length > MAX_URL_LENGTH) return null
+        if (value.any { it.isWhitespace() || it.isISOControl() }) return null
+        return value.takeIf { FtpTarget.parse(it) != null }
+    }
+
     fun sanitizeFilename(raw: String): String =
         FilenameParser.sanitize(raw, keepExtension = false)
 

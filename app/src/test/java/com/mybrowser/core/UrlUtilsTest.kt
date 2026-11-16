@@ -56,12 +56,17 @@ class UrlUtilsTest {
     }
 
     @Test
+    fun `an ftp address is submitted as itself`() {
+        // The download flow owns FTP, so the omnibar must not turn the address into a search.
+        assertEquals("ftp://example.com/pub/file.bin", normalize("ftp://example.com/pub/file.bin"))
+    }
+
+    @Test
     fun `unsafe internal and numeric unknown schemes become searches`() {
         for (input in listOf(
             "javascript:alert(1)",
             "data:text/html,<h1>x</h1>",
             "file:///sdcard/private.txt",
-            "ftp://example.com/file",
             "evilapp:1234",
         )) {
             assertEquals(

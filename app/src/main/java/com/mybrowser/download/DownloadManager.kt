@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import com.mybrowser.download.DownloadValidation.MAX_USER_AGENT_LENGTH
 import com.mybrowser.download.DownloadValidation.MAX_CONTENT_DISPOSITION_LENGTH
 import com.mybrowser.download.DownloadValidation.PAGE_FILE_PREFIX
+import com.mybrowser.download.DownloadValidation.validDownloadUrl
 import com.mybrowser.download.DownloadValidation.validHttpUrl
 import com.mybrowser.download.DownloadValidation.sanitizeFilename
 import com.mybrowser.download.DownloadValidation.sanitizeHeader
@@ -68,6 +69,8 @@ class DownloadHandler(context: Context) : Closeable {
     }
     private val rateLimiter = DownloadRateLimiter()
     private val engine = HttpDownloadEngine(rateLimiter)
+    private val ftp = FtpDownloadEngine(rateLimiter)
+    private val hls = HlsDownloadEngine(engine)
     private val tasks = ConcurrencyBudget(total = 3, perHost = 2)
     private val settingsObserver = settingsRepository.observeTransferPolicy {
         val limit = settingsRepository.maxConcurrentDownloads
@@ -207,12 +210,16 @@ class DownloadHandler(context: Context) : Closeable {
         val offer = pageFile
         // A page file is recorded under its placeholder address, never under the blob: address the
         // page used. The placeholder is what identifies the record as one after a restart, and what
-        // [validHttpUrl] refuses so nothing can ever try to fetch it.
+        // [validDownloadUrl] refuses so nothing can ever try to fetch it.
         val cleanUrl = if (offer != null) PAGE_FILE_PREFIX + offer.url
-        else validHttpUrl(url) ?: return EnqueueOutcome.Rejected
+        else validDownloadUrl(url) ?: return EnqueueOutcome.Rejected
         val dedupUrl = offer?.let { PAGE_FILE_PREFIX + it.url } ?: cleanUrl.substringBefore('#')
         val safeMime = mimeType?.substringBefore(';')?.let(::sanitizeMime).orEmpty()
             .ifEmpty { "application/octet-stream" }
+        // A playlist URL names the playlist. The saved file is the stream it lists, so both its
+        // extension and its MIME describe the merged bytes instead.
+        val playlist = offer == null && HlsDownloadEngine.handles(cleanUrl, safeMime)
+        val entryMime = if (playlist) HlsDownloadEngine.MIME else safeMime
         val safeUserAgent = sanitizeHeader(userAgent, MAX_USER_AGENT_LENGTH).orEmpty()
         val safeDisposition = sanitizeHeader(contentDisposition, MAX_CONTENT_DISPOSITION_LENGTH)
         val safeReferer = referer?.let(::validHttpUrl)
@@ -241,11 +248,12 @@ class DownloadHandler(context: Context) : Closeable {
                 userAgent = safeUserAgent,
                 cookie = safeCookie,
                 contentDisposition = safeDisposition,
-                mimeType = safeMime,
+                mimeType = entryMime,
                 filename = uniqueFilename(
                     sanitizeFilename(
-                        filename?.trim()?.takeIf { it.isNotEmpty() } ?: offer?.name?.takeIf { it.isNotBlank() }
-                            ?: FilenameParser.resolve(safeDisposition, cleanUrl, safeMime),
+                        (filename?.trim()?.takeIf { it.isNotEmpty() } ?: offer?.name?.takeIf { it.isNotBlank() }
+                            ?: FilenameParser.resolve(safeDisposition, cleanUrl, entryMime))
+                            .let { if (playlist) HlsDownloadEngine.outputName(it) else it },
                     ),
                 ),
                 referer = safeReferer,
@@ -659,11 +667,21 @@ class DownloadHandler(context: Context) : Closeable {
      * first; the started download reports the final name.
      */
     fun previewFilename(url: String, contentDisposition: String?, mimeType: String?): String? {
-        val cleanUrl = validHttpUrl(url) ?: return null
+        val cleanUrl = validDownloadUrl(url) ?: return null
         val safeMime = mimeType?.substringBefore(';')?.let(::sanitizeMime).orEmpty()
             .ifEmpty { "application/octet-stream" }
         val safeDisposition = sanitizeHeader(contentDisposition, MAX_CONTENT_DISPOSITION_LENGTH)
-        return sanitizeFilename(FilenameParser.resolve(safeDisposition, cleanUrl, safeMime))
+        val resolved = FilenameParser.resolve(safeDisposition, cleanUrl, safeMime)
+        return sanitizeFilename(
+            if (HlsDownloadEngine.handles(cleanUrl, safeMime)) HlsDownloadEngine.outputName(resolved) else resolved,
+        )
+    }
+
+    /** The half of a task that fetches [url]; page files never reach it. */
+    private fun transportFor(url: String, mimeType: String): DownloadTransport = when {
+        HlsDownloadEngine.handles(url, mimeType) -> hls
+        url.startsWith("ftp://", ignoreCase = true) -> ftp
+        else -> engine
     }
 
     private fun existingMetadataFor(
@@ -1179,13 +1197,15 @@ class DownloadHandler(context: Context) : Closeable {
                     if (current.status.active) current.copy(status = DownloadStatus.DOWNLOADING) else current
                 }
                 engine.downloadResponse(response, tempDirectory, onProgress)
-            } else retryTransfer(id, entry.unmeteredOnly) { engine.download(
-                url = entry.url,
-                headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
-                requestedThreads = entry.configuredThreadCount,
-                tempDirectory = tempDirectory,
-                onProgress = onProgress,
-            ) }
+            } else retryTransfer(id, entry.unmeteredOnly) {
+                transportFor(entry.url, entry.mimeType).download(
+                    url = entry.url,
+                    headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
+                    requestedThreads = entry.configuredThreadCount,
+                    tempDirectory = tempDirectory,
+                    onProgress = onProgress,
+                )
+            }
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             publishParts(id, payload.parts, payload.totalBytes, payload.actualThreadCount, clearSource = false,
                 owner = transferJob)

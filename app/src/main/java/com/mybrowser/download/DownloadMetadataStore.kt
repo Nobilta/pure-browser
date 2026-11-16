@@ -8,6 +8,7 @@ import com.mybrowser.download.DownloadValidation.MAX_USER_AGENT_LENGTH
 import com.mybrowser.download.DownloadValidation.MAX_CONTENT_DISPOSITION_LENGTH
 import com.mybrowser.download.DownloadValidation.MAX_DESTINATION_LABEL_LENGTH
 import com.mybrowser.download.DownloadValidation.PAGE_FILE_PREFIX
+import com.mybrowser.download.DownloadValidation.validDownloadUrl
 import com.mybrowser.download.DownloadValidation.validHttpUrl
 import com.mybrowser.download.DownloadValidation.sanitizeFilename
 import com.mybrowser.download.DownloadValidation.sanitizeHeader
@@ -92,7 +93,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                 val url = if (rawUrl.startsWith(PAGE_FILE_PREFIX)) {
                     if (rawUrl.length <= MAX_URL_LENGTH + PAGE_FILE_PREFIX.length) rawUrl else continue
                 } else {
-                    validHttpUrl(rawUrl) ?: continue
+                    validDownloadUrl(rawUrl) ?: continue
                 }
                 val filename = sanitizeFilename(obj.optString("filename"))
                 val userAgent = sanitizeHeader(

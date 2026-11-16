@@ -14,6 +14,13 @@
 新建下载、从菜单重开列表能看到最新任务。`browser` 阶段依据开关的实际选中状态启用会话恢复，再检查重启后的
 弹窗标签。`settings` 阶段检查并发、限速设置的持久化及实际 HTTP 限速。用实际通过的阶段记录覆盖范围。
 
+FTP 与 HLS 下载回归：`python3 validation/ftp-hls-server.py` 在 127.0.0.1 上起 HTTP 8878 与只读 FTP
+（2121，被动端口固定 2122，因为 `adb reverse` 只转发已声明的端口），三个端口都要 `adb reverse`；
+再运行 `python3 validation/ftp-hls-regression.py --serial emulator-5554 [--package com.mybrowser.debug]
+--output validation/results/ftp-hls`。脚本点击夹具页上的 FTP 与 HLS 链接、确认下载，并比对落盘文件的
+SHA-256：FTP 必须逐字节等于服务端实体，HLS 必须等于播放列表全部分段的拼接（含 AES-128 分段时同样如此）。
+设备侧只覆盖明文 FTP 与未加密播放列表；AES-128、`EXT-X-MAP`、主列表选码率和续传由 JVM 单测覆盖。
+
 书签导入导出通过 `bookmarks_transfer` 资源定位「书签操作」菜单，避免依赖旧版按钮名称。
 菜单回归使用当前站点卡片打开网站设置，退出操作按当前「退出」标签定位。
 `site` 阶段检查网站设置内容在顶部、底部反复滑动时不关闭面板，并保持标题和操作栏固定。

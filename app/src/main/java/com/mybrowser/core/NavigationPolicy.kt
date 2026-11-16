@@ -10,10 +10,14 @@ import com.mybrowser.search.UrlOrSearch
  * only HTTP(S), `about:` and app hand-offs (`scheme://…`, or a known opaque scheme with a
  * payload) can become a direct navigation. Everything else is converted to a search URL,
  * even if a native helper returns an opaque scheme unchanged after a library upgrade.
+ *
+ * FTP is the third outcome: nothing renders an FTP address, so the submission becomes a download
+ * task instead of a page.
  */
 sealed interface NavigationTarget {
     data class Load(val url: String) : NavigationTarget
     data class External(val url: String) : NavigationTarget
+    data class Download(val url: String) : NavigationTarget
 }
 
 /** Pure URL/search routing shared by the visible action and the imperative WebView host. */
@@ -30,6 +34,9 @@ object NavigationPolicy {
 
             directInput && UrlUtils.isTypedHandoff(normalized) ->
                 NavigationTarget.External(normalized)
+
+            directInput && scheme == "ftp" ->
+                NavigationTarget.Download(normalized)
 
             // Do not trust a native normalizer with an unknown opaque scheme. This second
             // construction is deliberately the safe branch and cannot execute javascript:

@@ -27,6 +27,7 @@ internal class PageNavigator(
     private val prepareNavigation: (String) -> Unit,
     private val importUserScript: (String) -> Boolean,
     private val openExternal: (String) -> Unit,
+    private val startDownload: (String) -> Unit,
     private val openNewTab: (String) -> Unit,
     private val onRequestContextChanged: (String) -> Unit = {},
 ) {
@@ -81,6 +82,7 @@ internal class PageNavigator(
                 }
             }
             is NavigationTarget.External -> openExternal(target.url)
+            is NavigationTarget.Download -> startDownload(target.url)
         }
     }
 
@@ -94,6 +96,7 @@ internal class PageNavigator(
         val manager = tabs()
         when (val target = NavigationPolicy.resolve(text, searchEngine())) {
             is NavigationTarget.External -> openExternal(target.url)
+            is NavigationTarget.Download -> startDownload(target.url)
             is NavigationTarget.Load -> {
                 // At cold start the restored tab's URL is already in the manager while the
                 // WebView is still catching up, so state.currentUrl alone is not enough to

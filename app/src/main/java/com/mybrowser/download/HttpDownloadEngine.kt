@@ -36,11 +36,11 @@ internal data class DownloadPayload(
  * not seekable. The caller publishes the parts to MediaStore or the selected tree only after
  * every byte has been validated.
  */
-internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter = DownloadRateLimiter()) {
+internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter = DownloadRateLimiter()) : DownloadTransport {
     private val connections = ConcurrencyBudget(total = 8, perHost = 4)
     private val leases = java.util.concurrent.ConcurrentHashMap<HttpURLConnection, ConcurrencyBudget.Lease>()
 
-    suspend fun download(
+    override suspend fun download(
         url: String,
         headers: DownloadRequestHeaders,
         requestedThreads: Int,
@@ -231,6 +231,42 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         } catch (error: Exception) {
             if (error is ResumeRejected || DownloadCheckpoint.read(tempDirectory, url) == null) destination.delete()
             throw error
+        } finally {
+            releaseConnection(connection)
+        }
+    }
+
+    /**
+     * One plain GET into [sink], for a transport whose bytes are not a range transfer.
+     *
+     * HLS playlists, keys and segments are fetched here rather than through their own client so they
+     * keep the rules every other HTTP read in the app has: the shared redirect walk, the per-host
+     * connection lease, the request headers, and the global byte budget. The caller owns [sink].
+     */
+    internal suspend fun fetchTo(
+        url: String,
+        headers: DownloadRequestHeaders,
+        sink: java.io.OutputStream,
+    ): Long {
+        val connection = openConnection(url, headers)
+        try {
+            val code = connection.responseCode
+            requireIdentityEncoding(connection)
+            if (code !in 200..299) throw DownloadHttpException(code)
+            var total = 0L
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(BUFFER_SIZE_BYTES)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    rateLimiter.acquire(count)
+                    sink.write(buffer, 0, count)
+                    total += count
+                }
+            }
+            return total
         } finally {
             releaseConnection(connection)
         }

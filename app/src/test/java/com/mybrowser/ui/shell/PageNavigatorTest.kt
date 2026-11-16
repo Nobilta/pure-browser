@@ -63,6 +63,7 @@ class PageNavigatorTest {
         var epoch = 0L
         val prepared = mutableListOf<String>()
         val external = mutableListOf<String>()
+        val downloads = mutableListOf<String>()
         val newTabs = mutableListOf<String>()
         val imports = mutableListOf<String>()
         val navigator = PageNavigator(
@@ -73,6 +74,7 @@ class PageNavigatorTest {
                 url.endsWith(".user.js").also { if (it) imports += url }
             },
             openExternal = { external += it },
+            startDownload = { downloads += it },
             openNewTab = { newTabs += it },
         )
     }
@@ -105,6 +107,22 @@ class PageNavigatorTest {
         assertEquals(before, f.state.currentUrl)
         assertEquals(before, f.tabs.currentTab?.url)
         assertEquals(listOf(before), f.prepared)
+    }
+
+    @Test fun ftpAddressesBecomeDownloadsInsteadOfPages() {
+        val f = Fixture()
+        f.navigator.navigate("https://example.com/page")
+        val before = f.state.currentUrl
+        f.navigator.navigate("ftp://files.example/pub/report.bin")
+        f.navigator.openIncoming("ftp://files.example/pub/other.bin")
+
+        assertEquals(
+            listOf("ftp://files.example/pub/report.bin", "ftp://files.example/pub/other.bin"),
+            f.downloads,
+        )
+        assertEquals(before, f.state.currentUrl)
+        assertEquals(before, f.tabs.currentTab?.url)
+        assertTrue(f.external.isEmpty())
     }
 
     @Test fun incomingLinksReuseHomeButPreserveAnExistingArticle() {

@@ -57,7 +57,10 @@ class NavigationPolicyTest {
     @Test
     fun `blocked scheme cannot be turned into a hand-off`() {
         assertTrue(NavigationPolicy.resolve("file:///sdcard/private.txt", engine) is NavigationTarget.Load)
-        assertTrue(NavigationPolicy.resolve("ftp://example.com/file", engine) is NavigationTarget.Load)
+        // FTP renders nothing and belongs to no other app: the browser fetches it itself.
+        val ftp = NavigationPolicy.resolve("ftp://example.com/file", engine)
+        assertTrue(ftp is NavigationTarget.Download)
+        assertEquals("ftp://example.com/file", (ftp as NavigationTarget.Download).url)
     }
 
     @Test

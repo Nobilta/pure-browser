@@ -353,6 +353,9 @@ class MainActivity : ComponentActivity(),
             },
             importUserScript = ::onUserScriptUrl,
             openExternal = { onExternalUrl(it) },
+            startDownload = { url ->
+                submitDownloadRequest(url, webView.settings.userAgentString, null, null, fromUser = true)
+            },
             openNewTab = { openUrlInNewTab(it) },
             onRequestContextChanged = {
                 workerDocument = documentFor(it)
@@ -2279,6 +2282,10 @@ class MainActivity : ComponentActivity(),
             onExternalUrl(target.url)
             return
         }
+        if (target is NavigationTarget.Download) {
+            submitDownloadRequest(target.url, webView.settings.userAgentString, null, null, fromUser = true)
+            return
+        }
         val loadUrl = (target as? NavigationTarget.Load)?.url ?: url
         if (!UrlUtils.isHttpUrl(loadUrl)) { navigator.navigate(url); return }
         if (!tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); return }
@@ -3057,6 +3064,14 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onExternalNavigation(url: String, hasGesture: Boolean, isMainFrame: Boolean): Boolean {
+        // FTP is the browser's own: another app is not the point of a link to a file, and a page
+        // that navigates there without a tap does not get to start one.
+        if (url.startsWith("ftp://", ignoreCase = true)) {
+            if (hasGesture) submitDownloadRequest(
+                url, webView.settings.userAgentString, null, null, fromUser = true, referer = state.currentUrl,
+            )
+            return true
+        }
         if (!UrlUtils.isExternalHandoff(url)) return true
         // Validate the wrapped intent before asking the user: a file:/javascript: target or a
         // malformed intent:// cannot launch anything, so a consent dialog would only be noise.

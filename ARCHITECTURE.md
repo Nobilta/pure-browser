@@ -326,6 +326,15 @@ WebAuthn 同时依赖 WebView 能力、来源权限和凭据提供方信任，�
 两种来源在取到字节之后共用同一条链路：临时分片落盘、`publishParts` 交给 `DownloadDestinationWriter` 发布、
 原子地把记录改成完成，成败都走同一套清理。区别只在取字节的那一半——引擎按 URL 分段下载，
 页面文件按分片向页面索取——因此任务模型、确认框、下载列表、通知与打开方式都只有一份实现。
+取字节的那一半是一个显式接口（`DownloadTransport`），按地址分派：HTTP 交给 `HttpDownloadEngine`
+（Range 探测、分段、重定向、全局限速），FTP 交给 `FtpDownloadEngine`（PASV 单流、TYPE I、SIZE/REST 续传），
+HLS 交给 `HlsDownloadEngine`（主列表取最高码率、分段顺序拼接、AES-128 解密、`EXT-X-MAP` 初始分段排在最前）。
+三者都在任务自己的临时目录里留下 part 与总长度，之后的发布、校验、通知和打开只有一份实现。
+FTP 与 HLS 没有 Range：FTP 用 part-0 的长度加 REST 续传，HLS 用 `hls.state` 里的段序号与字节数续传，
+播放列表内容变了就整份重来。HLS 的保存名与 MIME 在入队时改写为 `.ts` / `video/mp2t`，
+因为地址命名的是播放列表，而不是取回的视频。FTP 链接与地址栏输入都走同一条下载确认，
+`NavigationPolicy` 的第三个结果是 `Download`：WebView 不渲染 FTP，也不该把它交给别的应用。
+
 失败的那一端因此也要看住：真正停止页面侧传输的是写完最后一块、也唯一能确定失败原因的那条路径
 （它把源从表里取出并 `cancel`），不是事后才发现表里已经空了的清理函数；否则页面会一直以为传输还在进行，
 同一文档里的下一次 Blob 下载会被拒。页面文件只在内存里有意义，因此从不续传，重启清理也不会为它保留临时分片。
