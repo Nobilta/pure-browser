@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reader fixture</title>
+<h1>Reader fixture</h1>
+<p>This page exists so the reader typography bar can be checked on a real WebView: the article
+below is long enough to pass Readability's character threshold, and the image gives the page
+context sheet something to long-press.</p>
+<img src="/fixture-image.png" alt="fixture" width="320">
+<p>Pure Browser renders an article in the live document, so the address bar still points at this
+page. The floating bar should change the size, the line spacing and the paper colour without
+reloading anything.</p>
+<p>Reading on a phone is mostly about two numbers: how large the text is and how much space sits
+between the lines. A third choice, the paper colour, decides whether the page is white, warm, or
+near-black, and it is independent of the app theme so a dark room does not force a dark article
+for someone who prefers paper.</p>
+<p>The fixture keeps every paragraph at a reasonable length so the controls can be judged against
+real text rather than a single line. Lines should wrap evenly and the article should stay centred
+inside the page.</p>
+<p>Typography controls are written through to a preference file. Leaving the reader and entering it
+again, or restarting the app, should preserve the last choice. The same values are handed to the
+controller before Readability runs, so the first paint already has the requested paper instead of
+flashing the default and then changing.</p>
+<p>When the article is long enough, scrolling should remain native: the bar floats above the page
+and does not intercept touches outside its own bounds.</p>
+<p>最后一节是中文，用来确认字号与行距在两种文字下都保持一致，也不会被站点样式覆盖。读者模式
+隐藏原页面而不是销毁它，所以退出后原来的表单、脚本状态和滚动位置都还在。</p>

@@ -88,6 +88,8 @@ internal fun PlayerControls(
     onSpeed: (Float) -> Unit,
     onMirror: () -> Unit,
     onFit: (VideoFit) -> Unit,
+    backgroundPlayback: Boolean,
+    onToggleBackgroundPlayback: (() -> Unit)?,
     castContent: @Composable () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -125,6 +127,13 @@ internal fun PlayerControls(
                     PlayerIcon(R.drawable.ic_ui_pip, stringResource(R.string.picture_in_picture), it)
                 }
                 PlayerIcon(R.drawable.ic_ui_rotate, stringResource(R.string.ui_rotate_screen), onRotate)
+                onToggleBackgroundPlayback?.let { toggle ->
+                    PlayerIcon(
+                        R.drawable.ic_ui_headphones, stringResource(R.string.player_background_audio),
+                        onClick = toggle,
+                        checked = backgroundPlayback,
+                    )
+                }
                 PlayerIcon(
                     R.drawable.ic_ui_more, stringResource(R.string.player_video_menu),
                     onClick = { onMenu(if (state.menu == PlayerMenu.VIDEO) null else PlayerMenu.VIDEO) },
@@ -551,7 +560,21 @@ private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, mo
 }
 
 @Composable
-private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, tint: Color? = null) {
+private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, tint: Color? = null, checked: Boolean? = null) {
+    if (checked != null) {
+        val colors = MaterialTheme.colorScheme
+        Box(
+            Modifier.size(48.dp).clip(CircleShape)
+                .background(if (checked) colors.secondaryContainer else colors.surfaceContainerHigh)
+                .then(if (checked) Modifier.border(1.dp, colors.primary, CircleShape) else Modifier)
+                .toggleable(value = checked, role = Role.Switch, onValueChange = { onClick() }),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(icon), description, Modifier.size(24.dp),
+                tint = if (checked) colors.primary else colors.onSurfaceVariant)
+        }
+        return
+    }
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp),
         colors = IconButtonDefaults.iconButtonColors(
             contentColor = tint ?: MaterialTheme.colorScheme.onSurface,

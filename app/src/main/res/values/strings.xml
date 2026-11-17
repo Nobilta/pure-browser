@@ -87,6 +87,7 @@
     <string name="menu_cast_found">Castable videos found: %1$d</string>
     <string name="menu_cast_no_direct_source">No direct media address detected for this video</string>
     <string name="playback_speed_title">Playback speed</string>
+    <string name="player_background_audio">Background audio</string>
     <string name="player_video_menu">Display</string>
     <string name="player_mirror">Mirror</string>
     <string name="player_fit_natural">Original</string>
@@ -361,6 +362,9 @@
     <string name="context_share_link">Share link</string>
     <string name="context_open_image">Open image</string>
     <string name="context_save_image">Save image</string>
+    <string name="context_share_image">Share image</string>
+    <string name="context_search_image">Search by image</string>
+    <string name="context_share_image_failed">Unable to fetch this image.</string>
     <string name="context_copy_image_link">Copy image link</string>
     <string name="context_opened_background">Opened in background</string>
     <string name="context_block_address">Block this address</string>
@@ -404,6 +408,7 @@
     <string name="action_confirm">Confirm</string>
 
     <!-- Filter subscriptions and user scripts -->
+    <string name="filter_snapshot_unreadable">This filter list snapshot could not be read. Run an update on the list to fetch it again.</string>
     <string name="filter_missing_snapshot">No saved rules. Update this subscription to download them.</string>
     <string name="filter_update_failed">Update failed. The previous rules are still in use.</string>
     <string name="filter_operation_failed">Could not save or download this list. Check the URL, connection, duplicate subscriptions and storage space.</string>
@@ -478,6 +483,14 @@
     <string name="site_user_agent_hint">For example: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
     <string name="site_user_agent_priority">A custom user agent also applies when desktop site is on.</string>
     <string name="site_user_agent_invalid">A user agent cannot contain line breaks or control characters.</string>
+    <string name="reader_line_spacing_value">Line spacing %1$s</string>
+    <string name="reader_paper_value">Paper %1$s</string>
+    <string name="reader_spacing_tight">Tight</string>
+    <string name="reader_spacing_normal">Normal</string>
+    <string name="reader_spacing_loose">Loose</string>
+    <string name="reader_paper_system">Auto</string>
+    <string name="reader_paper_warm">Warm</string>
+    <string name="reader_paper_dark">Night</string>
     <string name="reader_mode">Reader mode</string>
     <string name="reader_entered">Reader mode on. Tap again to exit.</string>
     <string name="reader_exited">Reader mode off</string>
@@ -678,16 +691,6 @@
     <string name="filter_pause_site">Temporarily disable filtering for this site</string>
     <string name="filter_resume_site">Resume filtering for this site</string>
     <string name="filter_explain_failed">Unable to analyze this request. Reload the filter lists and try again.</string>
-    <string name="system_login">Passwords and passkeys</string>
-    <string name="system_login_summary">Passwords are saved and filled by your Android provider. Manage saved passwords in that provider. Password autofill and passkeys are disabled on private pages.</string>
-    <string name="autofill_enabled">System autofill: a provider is enabled. Availability also depends on the website and WebView.</string>
-    <string name="autofill_disabled">System autofill: choose a password/autofill provider in Android settings.</string>
-    <string name="webauthn_supported">This WebView supports browser WebAuthn. Regular pages can request passkeys.</string>
-    <string name="webauthn_origin_unavailable">Android has not granted website-origin access. Passkeys are disabled; system autofill remains available.</string>
-    <string name="webauthn_unsupported">This WebView does not expose browser WebAuthn. Update Android System WebView to check newer support.</string>
-    <string name="webauthn_provider_approval">Passkey login also requires a compatible, trusted credential provider. Google Password Manager requires approval for third-party browsers; enabling this WebView capability alone does not grant access.</string>
-    <string name="autofill_provider">Autofill provider: %1$s</string>
-    <string name="login_provider_settings">Choose login provider</string>
     <string name="system_settings">Open system settings</string>
     <string name="picture_in_picture">Picture in picture</string>
     <string name="automatic_pip">Fullscreen video in picture in picture</string>
@@ -727,6 +730,9 @@
         <item quantity="one">This page is long. Showing the first %1$d character.</item>
         <item quantity="other">This page is long. Showing the first %1$d characters.</item>
     </plurals>
+    <string name="menu_page_qr">Page QR code</string>
+    <string name="qr_encode_title">Scan to open this page</string>
+    <string name="qr_encode_failed">This address is too long to encode as a QR code.</string>
     <string name="qr_scan">Scan QR code</string>
     <string name="qr_pick_image">Choose image</string>
     <string name="qr_permission_summary">Use the camera to scan a QR code, or choose an image.</string>
@@ -1063,12 +1069,13 @@
     <string name="download_open">Open file</string>
     <string name="download_more">More download actions</string>
     <string name="download_details">Download details</string>
-    <string name="download_copy_source">Copy source link</string>
+    <string name="download_copy_source">Copy link</string>
     <string name="download_created">Created: %1$s</string>
     <string name="download_detail_progress">%1$s / %2$s · %3$d connections</string>
     <string name="download_error_authorization">The server denied access. Sign in on the source page and try again.</string>
     <string name="download_error_not_found">The file is no longer available. Get a new link from the source page.</string>
     <string name="download_error_server">The server could not provide the file. Try again later.</string>
+    <string name="download_error_unknown">The download failed. Try again from the source page.</string>
     <string name="download_error_network">The transfer failed. Check the connection and available storage, then retry.</string>
     <string name="download_error_storage">The file could not be saved. Check free space and folder access.</string>
     <string name="download_error_source">The original response or page file is unavailable. Return to the page to download again.</string>
@@ -1077,9 +1084,13 @@
     <string name="download_concurrent_note">New tasks wait when the limit is reached; up to two tasks per website. Running tasks finish if the limit is reduced.</string>
     <string name="download_speed_limit">Total HTTP download speed limit</string>
     <string name="download_speed_unlimited">Unlimited</string>
+    <string name="download_speed_value_mib">%1$d MiB/s</string>
     <string name="download_speed_value">%1$d KiB/s</string>
     <string name="filter_cjx_summary">Chinese-site promotions and annoyances. Turn off if page controls stop working.</string>
     <string name="filter_mobile_ads_summary">Additional mobile ad blocking to complement EasyList.</string>
     <string name="filter_app_banners_summary">Optional: hide prompts to open or install apps. Some website navigation may be affected.</string>
     <string name="filter_cookie_summary">Optional: hide cookie notices. Does not choose consent for you and may affect login or embedded content.</string>
+    <string name="reader_font_smaller">Smaller text</string>
+    <string name="reader_font_larger">Larger text</string>
+    <string name="download_error_unsupported">This stream cannot be saved.</string>
 </resources>

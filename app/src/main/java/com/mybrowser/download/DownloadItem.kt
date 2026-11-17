@@ -39,4 +39,4 @@ enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAIT
 }
 
 /** Stable, non-sensitive failure categories; exception messages may contain signed URLs. */
-enum class DownloadFailure { AUTHORIZATION, NOT_FOUND, SERVER, NETWORK, STORAGE, SOURCE_UNAVAILABLE }
+enum class DownloadFailure { AUTHORIZATION, NOT_FOUND, SERVER, NETWORK, STORAGE, SOURCE_UNAVAILABLE, UNSUPPORTED }

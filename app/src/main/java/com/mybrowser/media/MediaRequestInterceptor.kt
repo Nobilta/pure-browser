@@ -28,8 +28,11 @@ object MediaRequestInterceptor {
                   onNativeNavigation: ((MediaNavigation) -> Boolean)? = null,
                   onFailure: (Failure) -> Unit = {}, network: android.net.Network? = null,
                   isActive: () -> Boolean): WebResourceResponse? {
+        if (navigation == null || navigation.loadId.nativeRequests || request.method != "GET") return null
+        // Every subresource on every page passes through here, so the string is built only for
+        // the tab that is actually playing media.
         val target = request.url.toString()
-        if (navigation == null || navigation.loadId.nativeRequests || request.method != "GET" || !navigation.matches(target)) return null
+        if (!navigation.matches(target)) return null
         val jar = MediaCookies(cookies, if (request.isForMainFrame) navigation.sourcePageUrl else navigation.url,
             request.isForMainFrame, allowThirdPartyCookies)
         val notified = AtomicBoolean(false)

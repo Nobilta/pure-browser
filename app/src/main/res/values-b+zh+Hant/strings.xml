@@ -87,6 +87,7 @@
     <string name="menu_cast_found">發現 %1$d 個可投送視頻</string>
     <string name="menu_cast_no_direct_source">未偵測到此視頻可直接投送的媒體地址</string>
     <string name="playback_speed_title">播放速度</string>
+    <string name="player_background_audio">背景播放音訊</string>
     <string name="player_video_menu">畫面</string>
     <string name="player_mirror">鏡像</string>
     <string name="player_fit_natural">還原</string>
@@ -361,6 +362,9 @@
     <string name="context_share_link">分享連結</string>
     <string name="context_open_image">開啟圖片</string>
     <string name="context_save_image">儲存圖片</string>
+    <string name="context_share_image">分享圖片</string>
+    <string name="context_search_image">以圖搜圖</string>
+    <string name="context_share_image_failed">無法取得這張圖片。</string>
     <string name="context_copy_image_link">複製圖片連結</string>
     <string name="context_opened_background">已在背景開啟</string>
     <string name="context_block_address">封鎖此位址</string>
@@ -402,6 +406,7 @@
     <string name="action_confirm">確定</string>
 
     <!-- Filter subscriptions and user scripts -->
+    <string name="filter_snapshot_unreadable">規則快照讀取失敗，在列表上執行一次更新即可重新取得。</string>
     <string name="filter_missing_snapshot">沒有可用規則，請更新此訂閱。</string>
     <string name="filter_update_failed">更新失敗，繼續使用之前的規則。</string>
     <string name="filter_operation_failed">無法下載或儲存規則，請檢查網址、網路、重複訂閱和儲存空間。</string>
@@ -475,6 +480,14 @@
     <string name="site_user_agent_hint">例如：Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 …</string>
     <string name="site_user_agent_priority">自訂 UA 在開啟桌面版網站時仍然生效。</string>
     <string name="site_user_agent_invalid">UA 不能包含換行或控制字元。</string>
+    <string name="reader_line_spacing_value">行距 %1$s</string>
+    <string name="reader_paper_value">底色 %1$s</string>
+    <string name="reader_spacing_tight">緊湊</string>
+    <string name="reader_spacing_normal">標準</string>
+    <string name="reader_spacing_loose">寬鬆</string>
+    <string name="reader_paper_system">跟隨</string>
+    <string name="reader_paper_warm">暖黃</string>
+    <string name="reader_paper_dark">暗夜</string>
     <string name="reader_mode">閱讀模式</string>
     <string name="reader_entered">已進入閱讀模式，再次點擊可退出</string>
     <string name="reader_exited">已退出閱讀模式</string>
@@ -669,16 +682,6 @@
     <string name="filter_pause_site">本次工作階段暫時停用此網站過濾</string>
     <string name="filter_resume_site">恢復此網站過濾</string>
     <string name="filter_explain_failed">無法分析此請求，請重新載入過濾清單後重試。</string>
-    <string name="system_login">密碼與通行金鑰</string>
-    <string name="system_login_summary">密碼由 Android 提供者儲存和填入，請在該提供者中管理已儲存的密碼。無痕網頁停用密碼自動填入與通行金鑰。</string>
-    <string name="autofill_enabled">系統自動填入：已啟用提供者，實際可用性也取決於網站與 WebView。</string>
-    <string name="autofill_disabled">系統自動填入：請在 Android 設定中選擇密碼或自動填入提供者。</string>
-    <string name="webauthn_supported">此 WebView 支援瀏覽器 WebAuthn，一般網頁可以請求通行金鑰。</string>
-    <string name="webauthn_origin_unavailable">Android 未授予網站來源存取權限，通行金鑰已停用，仍可使用系統自動填入。</string>
-    <string name="webauthn_unsupported">此 WebView 未提供瀏覽器 WebAuthn，可更新 Android System WebView 後檢查。</string>
-    <string name="webauthn_provider_approval">通行金鑰登入也需要相容且信任此瀏覽器的憑證提供者。Google 密碼管理器要求第三方瀏覽器取得接入核准，僅啟用 WebView 能力不會取得存取權限。</string>
-    <string name="autofill_provider">自動填入提供者：%1$s</string>
-    <string name="login_provider_settings">選擇登入提供者</string>
     <string name="system_settings">開啟系統設定</string>
     <string name="picture_in_picture">子母畫面</string>
     <string name="automatic_pip">全螢幕影片自動子母畫面</string>
@@ -716,6 +719,9 @@
     <plurals name="dev_source_truncated_notice">
         <item quantity="other">網頁原始碼較長，顯示前 %1$d 個字元。</item>
     </plurals>
+    <string name="menu_page_qr">頁面二維碼</string>
+    <string name="qr_encode_title">掃碼在其他裝置開啟</string>
+    <string name="qr_encode_failed">位址過長，無法產生二維碼。</string>
     <string name="qr_scan">掃描 QR Code</string>
     <string name="qr_pick_image">從圖片辨識</string>
     <string name="qr_permission_summary">使用相機掃描 QR Code，也可以選擇圖片辨識。</string>
@@ -1046,12 +1052,13 @@
     <string name="download_open">開啟檔案</string>
     <string name="download_more">更多下載操作</string>
     <string name="download_details">下載詳細資訊</string>
-    <string name="download_copy_source">複製來源連結</string>
+    <string name="download_copy_source">複製連結</string>
     <string name="download_created">建立時間：%1$s</string>
     <string name="download_detail_progress">%1$s / %2$s · %3$d 個連線</string>
     <string name="download_error_authorization">伺服器拒絕存取，請回到來源頁面登入後重試。</string>
     <string name="download_error_not_found">檔案已無法取得，請回到來源頁面取得新連結。</string>
     <string name="download_error_server">伺服器未能提供檔案，請稍後重試。</string>
+    <string name="download_error_unknown">下載失敗，請回到來源頁面重試。</string>
     <string name="download_error_network">傳輸失敗，請檢查網路連線和可用儲存空間後重試。</string>
     <string name="download_error_storage">儲存失敗，請檢查剩餘空間和資料夾存取權限。</string>
     <string name="download_error_source">原始回應或頁面檔案已失效，請回到頁面重新下載。</string>
@@ -1060,9 +1067,13 @@
     <string name="download_concurrent_note">達到上限後新工作排隊，同一網站最多兩個工作。調低上限不會中斷執行中的工作。</string>
     <string name="download_speed_limit">HTTP 下載總限速</string>
     <string name="download_speed_unlimited">不限速</string>
+    <string name="download_speed_value_mib">%1$d MiB/s</string>
     <string name="download_speed_value">%1$d KiB/s</string>
     <string name="filter_cjx_summary">補充過濾中文網站推廣與干擾元素；頁面操作異常時可關閉。</string>
     <string name="filter_mobile_ads_summary">補充過濾行動網頁廣告，與 EasyList 搭配使用。</string>
     <string name="filter_app_banners_summary">按需開啟：隱藏開啟或安裝 App 的引導，可能影響部分網站導覽。</string>
     <string name="filter_cookie_summary">按需開啟：隱藏 Cookie 提示，不代替你同意或拒絕，可能影響登入及嵌入內容。</string>
+    <string name="reader_font_smaller">縮小字級</string>
+    <string name="reader_font_larger">放大字級</string>
+    <string name="download_error_unsupported">暫不支援儲存此串流。</string>
 </resources>

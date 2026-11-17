@@ -47,7 +47,7 @@ object ReaderMode {
         generation.onPageStarted()
     }
 
-    fun toggle(webView: WebView, darkTheme: Boolean, onResult: (Outcome) -> Unit) {
+    fun toggle(webView: WebView, style: ReaderStyle, darkTheme: Boolean, onResult: (Outcome) -> Unit) {
         val url = webView.url
         if (url.isNullOrBlank() || !UrlUtils.isHttpUrl(url)) {
             onResult(Outcome.UNSUPPORTED)
@@ -62,13 +62,13 @@ object ReaderMode {
             if (!isCurrent(webView, url, capturedGeneration)) {
                 onResult(Outcome.UNSUPPORTED)
             } else if (marker?.trim() == "true") {
-                send(webView, url, capturedGeneration, darkTheme, controller(webView.context), onResult)
+                send(webView, url, capturedGeneration, style, darkTheme, controller(webView.context), onResult)
             } else {
                 io.launch {
                     val script = full(webView.context)
                     webView.post {
                         if (isCurrent(webView, url, capturedGeneration)) {
-                            send(webView, url, capturedGeneration, darkTheme, script, onResult)
+                            send(webView, url, capturedGeneration, style, darkTheme, script, onResult)
                         } else {
                             onResult(Outcome.UNSUPPORTED)
                         }
@@ -78,10 +78,21 @@ object ReaderMode {
         }
     }
 
+    /** Re-paints an entering reader with the current typography without re-running Readability. */
+    fun applyStyle(webView: WebView, style: ReaderStyle) {
+        webView.evaluateJavascript(
+            "window.__pureReaderApply && window.__pureReaderApply(${styleJson(style)})", null,
+        )
+    }
+
+    private fun styleJson(style: ReaderStyle): String =
+        "{\"size\":${style.size},\"lineHeight\":${style.lineHeight},\"paper\":\"${style.paper.wire}\"}"
+
     private fun send(
         webView: WebView,
         expectedUrl: String,
         generation: Long,
+        style: ReaderStyle,
         darkTheme: Boolean,
         script: String,
         onResult: (Outcome) -> Unit,
@@ -90,7 +101,7 @@ object ReaderMode {
             onResult(Outcome.UNSUPPORTED)
             return
         }
-        val prefix = "window.__pureReaderDark = $darkTheme;\n"
+        val prefix = "window.__pureReaderDark = $darkTheme;\nwindow.__pureReaderStyle = ${styleJson(style)};\n"
         webView.evaluateJavascript(prefix + script) { raw ->
             onResult(
                 when (decodeString(raw)) {

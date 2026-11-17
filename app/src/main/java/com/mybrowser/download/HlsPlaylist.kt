@@ -3,6 +3,8 @@ package com.mybrowser.download
 import java.io.IOException
 import java.net.URI
 
+internal class UnsupportedHlsException(message: String) : IOException(message)
+
 /**
  * The parts of an HLS playlist a download needs, and nothing else.
  *
@@ -13,7 +15,7 @@ import java.net.URI
  */
 internal object HlsPlaylist {
 
-    internal data class Key(val method: String, val uri: String?, val iv: ByteArray?)
+    internal data class Key(val method: String, val uri: String, val iv: ByteArray?)
 
     /** One unit to append to the output: an `#EXT-X-MAP` initialisation segment or a segment. */
     internal data class Item(val uri: String, val key: Key?, val sequence: Long)
@@ -41,15 +43,26 @@ internal object HlsPlaylist {
      * weigh against it, and taking the first would silently save the lowest-quality rendition.
      */
     fun variant(text: String, base: String): String? {
-        var bestBandwidth = -1L
+        // Long.MIN_VALUE, not -1: a variant that omits the (required) BANDWIDTH attribute still
+        // makes this a master playlist, and refusing to pick one would fail the whole download.
+        var bestBandwidth = Long.MIN_VALUE
         var best: String? = null
+        var bestAudio: String? = null
+        var pendingAudio: String? = null
+        val externalAudio = mutableSetOf<String>()
+        val embeddedAudio = mutableSetOf<String>()
         var pendingBandwidth = -1L
         var sawStreamInfo = false
         for (line in text.lineSequence().map(String::trim)) {
             if (line.isEmpty()) continue
+            if (line.startsWith("#EXT-X-MEDIA:") && attribute(line, "TYPE") == "AUDIO") {
+                val groups = if (attribute(line, "URI") == null) embeddedAudio else externalAudio
+                attribute(line, "GROUP-ID")?.let(groups::add)
+            }
             if (line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true)) {
                 sawStreamInfo = true
                 pendingBandwidth = attribute(line, "BANDWIDTH")?.toLongOrNull() ?: -1L
+                pendingAudio = attribute(line, "AUDIO")
                 continue
             }
             if (line.startsWith("#")) continue
@@ -57,8 +70,14 @@ internal object HlsPlaylist {
             if (pendingBandwidth > bestBandwidth) {
                 bestBandwidth = pendingBandwidth
                 best = resolve(base, line)
+                bestAudio = pendingAudio
             }
+            // The URI of one variant ends its declaration; a later bare line is not one.
+            sawStreamInfo = false
             pendingBandwidth = -1L
+        }
+        if (bestAudio in externalAudio && bestAudio !in embeddedAudio) {
+            throw UnsupportedHlsException("Separate HLS audio is not supported")
         }
         return best
     }
@@ -77,13 +96,17 @@ internal object HlsPlaylist {
                     sequence = line.substringAfter(':').trim().toLongOrNull() ?: 0L
                 line.startsWith("#EXT-X-KEY:", ignoreCase = true) ->
                     key = key(line.substringAfter(':'), base)
-                line.startsWith("#EXT-X-MAP:", ignoreCase = true) ->
+                line.startsWith("#EXT-X-MAP:", ignoreCase = true) -> {
+                    if (attribute(line, "BYTERANGE") != null) {
+                        throw UnsupportedHlsException("HLS byte-range maps are not supported")
+                    }
                     pendingInit = attribute(line, "URI")?.let { resolve(base, it) }
                         ?: throw IOException("HLS playlist has an initialization segment without a URI")
+                }
                 // A byte range addresses part of a file; appending the whole file would claim
                 // to have saved a segment it did not.
                 line.startsWith("#EXT-X-BYTERANGE", ignoreCase = true) ->
-                    throw IOException("HLS byte-range playlists are not supported")
+                    throw UnsupportedHlsException("HLS byte-range playlists are not supported")
                 line.startsWith("#EXTINF", ignoreCase = true) -> expectingSegment = true
                 line.equals("#EXT-X-ENDLIST", ignoreCase = true) -> complete = true
                 line.startsWith("#") -> Unit
@@ -99,8 +122,6 @@ internal object HlsPlaylist {
                 }
             }
         }
-        // A map that arrives after the last segment still belongs at the front of the output.
-        if (pendingInit != null) items.add(0, Item(pendingInit, key, 0L))
         if (items.isEmpty()) throw IOException("HLS playlist has no segments")
         return Media(items, complete)
     }
@@ -118,8 +139,9 @@ internal object HlsPlaylist {
 
     fun parseIv(value: String?): ByteArray? {
         val hex = value?.removePrefix("0x")?.removePrefix("0X") ?: return null
-        if (hex.length != 32 || hex.any { it.digitToIntOrNull(16) == null }) return null
-        return ByteArray(16) { index -> hex.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
+        if (hex.length !in 1..32 || hex.any { it.digitToIntOrNull(16) == null }) return null
+        val padded = hex.padStart(32, '0')
+        return ByteArray(16) { index -> padded.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
     }
 
     private fun key(attributes: String, base: String): Key? {

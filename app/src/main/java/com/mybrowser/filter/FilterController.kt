@@ -152,8 +152,11 @@ class FilterController(
     private fun scheduleRebuild(): Job? {
         if (closed.get()) return null
         val generation = rebuildGeneration.incrementAndGet()
+        // The first build is what the first navigation waits for, and there is nothing to
+        // coalesce yet; later builds keep the window so rapid toggles parse once.
+        val firstBuildPending = !firstBuild.isCompleted
         return rebuildScope.launch {
-            delay(rebuildDebounceMs) // Coalesce rapid subscription changes before parsing large lists.
+            if (!firstBuildPending) delay(rebuildDebounceMs)
             if (generation != rebuildGeneration.get()) return@launch
             val snapshot = payloads
             val names = sourceNames

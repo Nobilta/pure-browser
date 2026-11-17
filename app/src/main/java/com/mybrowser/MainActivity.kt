@@ -208,6 +208,9 @@ import com.mybrowser.ui.shell.SecurityInfoDialog
  * assignment recomposes [BrowserScreen], whose holder reconciliation swaps the instance
  * in. No view manipulation at this level.
  */
+/** The reverse image search provider; the image address is appended URL-encoded. */
+private const val LENS_SEARCH = "https://lens.google.com/uploadbyurl?url="
+
 class MainActivity : ComponentActivity(),
     BrowserWebViewClient.Listener,
     BrowserChromeClient.Listener,
@@ -554,6 +557,10 @@ class MainActivity : ComponentActivity(),
     private val certificateWarnings get() = (application as App).certificateWarnings
     private val hasCertificateWarning get() = currentCertificateError || certificateWarnings.contains(state.currentUrl)
     private var showSecurityDialog by mutableStateOf(false)
+    /** The page QR code, shown as a dialog over the browser. */
+    private var showPageQr by mutableStateOf(false)
+    /** Reader typography; the page itself carries the copy, this one drives the bar and keeps it. */
+    private var readerStyle by mutableStateOf(com.mybrowser.reader.ReaderStyle())
     private var securityCertificate by mutableStateOf<CertificateDetails?>(null)
     private var showSSLErrorDialog by mutableStateOf(false)
     private var pendingSSLError: Triple<SslErrorHandler, String, java.security.cert.X509Certificate?>? = null
@@ -603,6 +610,7 @@ class MainActivity : ComponentActivity(),
         normalSites = app.siteSettings
         preferencesRepository = BrowserPreferencesRepository(this)
         browserPreferences = loadBrowserPreferences()
+        readerStyle = com.mybrowser.reader.ReaderStyle.load(this)
         showWelcome = !getSharedPreferences("onboarding", MODE_PRIVATE).getBoolean("welcome_seen", false)
         downloadNotificationsEnabled = com.mybrowser.download.DownloadNotificationGuide.isEnabled(this)
         // A persisted incognito wish applies only on a fresh process. An Activity
@@ -759,6 +767,13 @@ class MainActivity : ComponentActivity(),
                 filterExplanation?.let { com.mybrowser.ui.devtools.FilterExplanationDialog(it, filter) { filterExplanation = null } }
                 if (showClearData) ClearBrowsingDataDialog(privacy.isIncognito, privacy.hasRealIsolation,
                     dataCleaner.supportsCompleteDeletion, clearingData, ::clearBrowsingData, { showClearData = false })
+                if (showPageQr) {
+                    com.mybrowser.ui.shell.QrCodeDialog(
+                        url = state.currentUrl,
+                        onCopy = ::copyToClipboard,
+                        onDismiss = { showPageQr = false },
+                    )
+                }
                 // The single download confirmation; the request behind it lives in memory only.
                 downloadRequests.pending.collectAsState().value?.let { confirmation ->
                     com.mybrowser.ui.download.DownloadConfirmDialog(
@@ -767,6 +782,7 @@ class MainActivity : ComponentActivity(),
                         settings = downloadSettings,
                         onConfirm = ::confirmDownloadRequest,
                         onCancel = downloadRequests::rejectPending,
+                        onMessage = { snackbar(it) },
                     )
                 }
                 // Import preview: nothing is written until the user applies.
@@ -878,6 +894,8 @@ class MainActivity : ComponentActivity(),
                     isIncognito = privacy.isIncognito,
                     hasPrivateIsolation = privacy.hasRealIsolation,
                     isReaderActive = readerActive,
+                    readerStyle = readerStyle,
+                    onReaderStyleChange = ::changeReaderStyle,
                     onToggleReader = ::toggleReaderMode,
                     onRetryPage = ::retryFailedPage,
                     onNewTab = { createNewTab() },
@@ -936,6 +954,9 @@ class MainActivity : ComponentActivity(),
                             isTranslateActive = translation.sessionActive || translation.pageTranslated,
                             onToggleReader = { sheetAction(entry, ::toggleReaderMode) },
                             onSharePage = { if (UrlUtils.isHttpUrl(state.currentUrl)) shareUrl(state.currentUrl) },
+                            onShowPageQr = {
+                                if (UrlUtils.isHttpUrl(state.currentUrl)) sheetAction(entry) { showPageQr = true }
+                            },
                             onBlockElement = {
                                 sheetAction(entry) {
                                     startElementPicker(accent = pickerAccent, bottomInset = pickerInset)
@@ -1315,6 +1336,8 @@ class MainActivity : ComponentActivity(),
                         onCopy = { url -> pageContextTarget = null; copyToClipboard(url) },
                         onShare = { url -> pageContextTarget = null; shareUrl(url) },
                         onSaveImage = { url -> pageContextTarget = null; downloadImage(url) },
+                        onShareImage = { url -> pageContextTarget = null; shareImage(url) },
+                        onSearchImage = { url -> pageContextTarget = null; searchImage(url) },
                         onBlockResource = { rule ->
                             pageContextTarget = null
                             addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))
@@ -1620,7 +1643,6 @@ class MainActivity : ComponentActivity(),
         // instance defaults to the normal profile, which would silently drop an incognito
         // session back onto persistent storage.
         privacy.applyTo(view)
-        com.mybrowser.core.SystemLoginSupport.configure(view, privacy.isIncognito)
         // Normal pages keep their departed document so Back does not rebuild it; private
         // pages never do, because a cached document cannot be flushed when the session ends.
         com.mybrowser.core.WebViewConfig.applyBackForwardCache(view, !privacy.isIncognito)
@@ -2278,16 +2300,13 @@ class MainActivity : ComponentActivity(),
 
     private fun openUrlInNewTab(url: String, background: Boolean = false, mediaNavigation: com.mybrowser.tabs.MediaNavigation? = null) {
         val target = NavigationPolicy.resolve(url, searchEngine)
-        if (target is NavigationTarget.External) {
-            onExternalUrl(target.url)
+        // Anything that is not a plain web address is the navigator's to hand off: it performs the
+        // same external-app, download and unsafe-scheme routing this function used to repeat.
+        if (target !is NavigationTarget.Load || !UrlUtils.isHttpUrl(target.url)) {
+            navigator.navigate(url)
             return
         }
-        if (target is NavigationTarget.Download) {
-            submitDownloadRequest(target.url, webView.settings.userAgentString, null, null, fromUser = true)
-            return
-        }
-        val loadUrl = (target as? NavigationTarget.Load)?.url ?: url
-        if (!UrlUtils.isHttpUrl(loadUrl)) { navigator.navigate(url); return }
+        val loadUrl = target.url
         if (!tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); return }
         if (!background) saveCurrentTab()
         tabManager.createTab(loadUrl, select = !background, title = UrlUtils.hostOf(loadUrl).orEmpty(),
@@ -2336,6 +2355,28 @@ class MainActivity : ComponentActivity(),
                     this, com.mybrowser.download.DownloadNotificationGuide.appSettingsIntent(this))
         }
         downloadNotificationsEnabled = com.mybrowser.download.DownloadNotificationGuide.isEnabled(this)
+    }
+
+    /** Shares the picture itself: an image URL often answers with a login page, not the bytes. */
+    private fun shareImage(url: String) {
+        val page = state.currentUrl.takeIf { UrlUtils.isHttpUrl(it) && it != url }
+        val cookie = privacy.cookiesFor(url)
+        lifecycleScope.launch {
+            val shared = com.mybrowser.download.ImageSharing.share(
+                context = this@MainActivity,
+                url = url,
+                userAgent = webView.settings.userAgentString,
+                referer = page,
+                cookie = cookie,
+                chooserTitle = getString(R.string.context_share_image),
+            )
+            if (!shared) toast(getString(R.string.context_share_image_failed))
+        }
+    }
+
+    /** Reverse image search opens in a new tab; LENS_SEARCH is the provider's one constant. */
+    private fun searchImage(url: String) {
+        openUrlInNewTab(LENS_SEARCH + android.net.Uri.encode(url))
     }
 
     private fun downloadImage(url: String) {
@@ -2524,7 +2565,7 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun confirmDownloadRequest(retryResponse: Boolean, filename: String, destination: com.mybrowser.download.DownloadSettings) {
+    private fun confirmDownloadRequest(retryResponse: Boolean, filename: String, destination: com.mybrowser.download.DownloadDestination) {
         val offer = downloadRequests.pending.value?.request?.pageFile
         when (val outcome = downloadRequests.confirmPending(retryResponse, filename, destination)) {
             is com.mybrowser.download.DownloadHandler.EnqueueOutcome.Started -> {
@@ -3026,10 +3067,17 @@ class MainActivity : ComponentActivity(),
         if (description.isNotEmpty()) state.pageFailure = PageFailure(url, PageFailureKind.NETWORK, "$code: $description")
     }
 
+    /** Saves the choice, then repaints the page that is showing the article right now. */
+    private fun changeReaderStyle(style: com.mybrowser.reader.ReaderStyle) {
+        readerStyle = style
+        com.mybrowser.reader.ReaderStyle.save(this, style)
+        pages.current?.let { com.mybrowser.reader.ReaderMode.applyStyle(it, style) }
+    }
+
     private fun toggleReaderMode() {
         val view = pages.current ?: return
         val ownerTabId = pages.ownerTabId ?: tabManager.currentTab?.id ?: return
-        ReaderMode.toggle(view, isDarkUi()) { outcome ->
+        ReaderMode.toggle(view, readerStyle, isDarkUi()) { outcome ->
             // The callback is asynchronous and the user may have switched tabs or navigated
             // meanwhile. Record the result against the tab that owns the view, but only toast
             // and drive the visible chrome while that exact view is still the foreground one.
@@ -3447,6 +3495,11 @@ class MainActivity : ComponentActivity(),
             onChooseSpeed = ::applyPlaybackSpeed,
             onChooseTransform = ::rememberVideoTransform,
             castContent = { CurrentCastPicker(onDismiss = {}, embedded = true) },
+            onToggleBackgroundPlayback = if (privacy.isIncognito) null else ({
+                browserPreferences = preferencesRepository.update(transform = { current: BrowserPreferences ->
+                    current.copy(video = current.video.copy(backgroundPlayback = !current.video.backgroundPlayback))
+                })
+            }),
             onPictureInPicture = if (pipController.isAvailable) ({ pipController.enter(); Unit }) else null,
         )
         fullscreenView = host

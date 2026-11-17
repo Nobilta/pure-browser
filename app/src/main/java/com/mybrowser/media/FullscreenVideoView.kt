@@ -54,9 +54,13 @@ class FullscreenVideoView(
     private val onChooseSpeed: (Float) -> Unit,
     private val onChooseTransform: (Boolean, VideoFit) -> Unit,
     private val castContent: @Composable () -> Unit,
+    /** Null in a private session, where background playback is never allowed. */
+    private val onToggleBackgroundPlayback: (() -> Unit)?,
     private val onPictureInPicture: (() -> Unit)? = null,
 ) : FrameLayout(activity) {
     private val ui = Handler(Looper.getMainLooper())
+    /** Local copy: the preference is persisted, but the tint has to flip without a rebuild. */
+    private var backgroundPlayback by mutableStateOf(preferences.backgroundPlayback)
     private val audio = activity.getSystemService(AudioManager::class.java)
     private val accessibility = activity.getSystemService(AccessibilityManager::class.java)
     private val originalBrightness = activity.window.attributes.screenBrightness
@@ -157,6 +161,13 @@ class FullscreenVideoView(
                     onSpeed = { rate -> onChooseSpeed(rate) },
                     onMirror = { changeTransform(!mirror, fit) },
                     onFit = { chosen -> changeTransform(mirror, chosen) },
+                    backgroundPlayback = backgroundPlayback,
+                    onToggleBackgroundPlayback = onToggleBackgroundPlayback?.let {
+                        {
+                            backgroundPlayback = !backgroundPlayback
+                            it()
+                        }
+                    },
                     castContent = castContent,
                 )
             }

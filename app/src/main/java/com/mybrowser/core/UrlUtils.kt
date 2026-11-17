@@ -92,8 +92,8 @@ object UrlUtils {
         // opaque values. Known direct schemes take precedence over the host:port carve-out
         // so mailto:1234 and tel:1234 remain opaque hand-offs rather than local hosts.
         if (HAS_SCHEME.containsMatchIn(text)) {
-            // FTP is a download the browser performs itself; keeping the text intact lets the
-            // navigation policy route it there instead of searching for the address.
+            // FTP is a download the browser performs itself (NavigationPolicy.Download); keeping
+            // the text intact lets the policy route it there instead of searching for it.
             if (explicitScheme == "http" || explicitScheme == "https" || explicitScheme == "ftp" ||
                 explicitScheme == "about" || isTypedHandoff(text)) {
                 return text

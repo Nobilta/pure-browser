@@ -1,7 +1,5 @@
 package com.mybrowser.ui.settings
 
-import androidx.compose.material3.DropdownMenuItem
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -71,7 +69,6 @@ import com.mybrowser.search.SearchEngine
 import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.LibrarySearchField
-import com.mybrowser.ui.shell.SystemLoginDialog
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.BrowserMotion
@@ -124,7 +121,6 @@ fun SettingsSheet(
 ) {
     val textResources = localizedResources()
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var showSystemLogin by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
     if (showUpdate) UpdatePanel { showUpdate = false }
     var highlightTitle by rememberSaveable { mutableStateOf<String?>(null) }
@@ -143,7 +139,7 @@ fun SettingsSheet(
     // returns to where the reader was, instead of to the top of the list.
     val paneState = rememberSaveableStateHolder()
     val back = {
-        if (!childOpen && picker == null && !showSystemLogin && !showUpdate) {
+        if (!childOpen && picker == null && !showUpdate) {
             if (selected != null) {
                 highlightTitle = null
                 sectionName = null
@@ -155,7 +151,6 @@ fun SettingsSheet(
     val updateVideo = { value: VideoPreferences -> onPreferencesChange(preferences.copy(video = value)) }
 
     BrowserFullscreenSheet(onDismissRequest = back) {
-    if (showSystemLogin) SystemLoginDialog { showSystemLogin = false }
     CompositionLocalProvider(LocalSettingHighlight provides highlightTitle) {
     Surface(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
         .testTag(if (selected == null) "settings_root" else "settings_detail")) {
@@ -308,9 +303,6 @@ fun SettingsSheet(
                                                 checked = isIncognito,
                                                 onChange = onIncognitoChange,
                                             )
-                                            SettingsDivider()
-                                            SettingsItem(textResources.getString(R.string.system_login), textResources.getString(R.string.system_login_summary),
-                                                { showSystemLogin = true }, R.drawable.ic_ui_lock)
                                         }
                                         SettingsGroupCard(title = textResources.getString(R.string.settings_sites_and_data)) {
                                             SettingsItem(textResources.getString(R.string.site_settings), textResources.getString(R.string.site_settings_summary), onManageSites, R.drawable.ic_ui_tools)
@@ -436,7 +428,7 @@ fun SettingsSheet(
                                             DownloadNotificationItem(downloadNotificationsEnabled, onDownloadNotifications)
                                         }
                                         DownloadSettingsSection(downloadSettings, onUseSystemDownloadDirectory, onChooseDownloadDirectory,
-                                            onDownloadThreadCountChange, onDownloadConcurrencyChange, onDownloadSpeedLimitChange)
+                                            onDownloadThreadCountChange, onDownloadConcurrencyChange, { openPicker("downloadSpeed") })
                                     }
                                 }
                                 }
@@ -458,6 +450,27 @@ fun SettingsSheet(
                             onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine, dismissPicker)
                         "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
                             onHomepageModeChange, onHomepageChange, dismissPicker)
+                        "downloadSpeed" -> Column(
+                            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+                        ) {
+                            Text(
+                                textResources.getString(R.string.download_speed_limit),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(20.dp),
+                            )
+                            listOf(0, 128, 512, 1024, 5120, 10240).forEach { limit ->
+                                val label = when {
+                                    limit == 0 -> textResources.getString(R.string.download_speed_unlimited)
+                                    limit % 1024 == 0 ->
+                                        textResources.getString(R.string.download_speed_value_mib, limit / 1024)
+                                    else -> textResources.getString(R.string.download_speed_value, limit)
+                                }
+                                SettingsRadioItem(label, selected = downloadSettings.speedLimitKib == limit) {
+                                    onDownloadSpeedLimitChange(limit)
+                                    dismissPicker()
+                                }
+                            }
+                        }
                         else -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                             val title = when (picker) { "theme" -> textResources.getString(R.string.ui_app_theme); "boost" -> textResources.getString(R.string.ui_hold_speed); else -> textResources.getString(R.string.ui_default_playback_speed) }
                             Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
@@ -713,7 +726,7 @@ private fun DownloadSettingsSection(
     onChooseDirectory: () -> Unit,
     onThreadCountChange: (Int) -> Unit,
     onConcurrencyChange: (Int) -> Unit,
-    onSpeedLimitChange: (Int) -> Unit,
+    onOpenSpeedPicker: () -> Unit,
 ) {
     val textResources = localizedResources()
     var threadDraft by remember(settings.threadCount) {
@@ -722,7 +735,6 @@ private fun DownloadSettingsSection(
     var concurrencyDraft by remember(settings.maxConcurrentDownloads) {
         mutableFloatStateOf(settings.maxConcurrentDownloads.toFloat())
     }
-    var speedMenu by remember { mutableStateOf(false) }
 
     // The group heading carries the text the settings search indexes under
     // `ui_download_settings`, so a search hit jumps here and highlights the card.
@@ -757,65 +769,52 @@ private fun DownloadSettingsSection(
         )
     }
 
-    SettingsGroupCard(title = textResources.getString(R.string.download_transfer_policy)) {
+    SettingsGroupCard(
+        modifier = Modifier.highlightSetting(textResources.getString(R.string.download_transfer_policy)),
+        title = textResources.getString(R.string.download_transfer_policy),
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text(stringResource(R.string.download_concurrent, concurrencyDraft.roundToInt()), style = MaterialTheme.typography.bodyLarge)
             Text(stringResource(R.string.download_concurrent_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Slider(value = concurrencyDraft, onValueChange = { concurrencyDraft = it },
-                onValueChangeFinished = { onConcurrencyChange(concurrencyDraft.roundToInt()) }, valueRange = 1f..5f, steps = 3)
-        }
-        SettingsDivider()
-        Box {
-            SettingsItem(title = stringResource(R.string.download_speed_limit) + " · " +
-                if (settings.speedLimitKib == 0) stringResource(R.string.download_speed_unlimited)
-                    else stringResource(R.string.download_speed_value, settings.speedLimitKib),
-                subtitle = "",
-                onClick = { speedMenu = true })
-            com.mybrowser.ui.shell.BrowserDropdownMenu(speedMenu, { speedMenu = false }) {
-                listOf(0, 128, 512, 1024, 5120, 10240).forEach { limit ->
-                    DropdownMenuItem(text = { Text(if (limit == 0) stringResource(R.string.download_speed_unlimited)
-                        else stringResource(R.string.download_speed_value, limit)) }, onClick = { speedMenu = false; onSpeedLimitChange(limit) })
-                }
+                onValueChangeFinished = { onConcurrencyChange(concurrencyDraft.roundToInt()) }, valueRange = 1f..5f, steps = 3,
+                modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("1", style = MaterialTheme.typography.labelSmall)
+                Text("5", style = MaterialTheme.typography.labelSmall)
             }
         }
         SettingsDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = textResources.getString(R.string.ui_connections_818c76, threadDraft.roundToInt()),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = textResources.getString(R.string.ui_choose_1_16_connections_servers_without_range_support),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Slider(
-            value = threadDraft,
-            onValueChange = { threadDraft = it },
-            onValueChangeFinished = {
-                onThreadCountChange(threadDraft.roundToInt())
-            },
-            valueRange = 1f..16f,
-            steps = 14,
-            modifier = Modifier.padding(horizontal = 16.dp),
+        SettingsItem(
+            title = textResources.getString(R.string.download_speed_limit),
+            subtitle = "",
+            onClick = onOpenSpeedPicker,
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("1", style = MaterialTheme.typography.labelSmall)
-            Text("16", style = MaterialTheme.typography.labelSmall)
+        SettingsDivider()
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(
+                text = textResources.getString(R.string.ui_connections_818c76, threadDraft.roundToInt()),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = textResources.getString(R.string.ui_choose_1_16_connections_servers_without_range_support),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = threadDraft,
+                onValueChange = { threadDraft = it },
+                onValueChangeFinished = {
+                    onThreadCountChange(threadDraft.roundToInt())
+                },
+                valueRange = 1f..16f,
+                steps = 14,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("1", style = MaterialTheme.typography.labelSmall)
+                Text("16", style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
@@ -875,7 +874,6 @@ private fun HomepageSettings(
 
 private val SETTINGS_SEARCH = listOf(
     R.string.ui_incognito_browsing to SettingsCategory.PRIVACY,
-    R.string.system_login to SettingsCategory.PRIVACY,
     R.string.automatic_pip to SettingsCategory.VIDEO,
     R.string.background_playback to SettingsCategory.VIDEO,
     R.string.cd_home to SettingsCategory.BROWSING,
@@ -899,6 +897,8 @@ private val SETTINGS_SEARCH = listOf(
     R.string.download_unmetered to SettingsCategory.DOWNLOADS,
     R.string.download_notifications to SettingsCategory.DOWNLOADS,
     R.string.ui_download_settings to SettingsCategory.DOWNLOADS,
+    R.string.download_transfer_policy to SettingsCategory.DOWNLOADS,
+    R.string.download_speed_limit to SettingsCategory.DOWNLOADS,
     R.string.ui_brightness_and_volume_gestures to SettingsCategory.VIDEO,
     R.string.ui_swipe_to_seek to SettingsCategory.VIDEO,
     R.string.ui_enhanced_video_controls to SettingsCategory.VIDEO,

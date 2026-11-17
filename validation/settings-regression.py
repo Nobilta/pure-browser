@@ -110,7 +110,7 @@ try:
         for _ in range(5):
             root, _ = ux.nodes()
             row = next((n for n in root.iter("node") if ux.visible(n)
-                        and any(n.get("text", "").startswith(p + " · ") for p in prefixes)), None)
+                        and any(n.get("text", "") in ux.labels(p) for p in prefixes)), None)
             if row is not None:
                 return row
             ux.swipe(root, downward=False)
@@ -121,7 +121,10 @@ try:
     restart()
     ux.open_settings("下载设置")
     ux.expect("Concurrent downloads: 1")
-    assert "512 KiB/s" in speed_row().get("text")
+    # The row keeps a static title (so settings search can highlight it); the chosen value is the
+    # picker's selected option, like every other radio-style setting.
+    ux.tap_node(speed_row())
+    expect_selected("512 KiB/s")
     screenshot("download-limits")
     record("download concurrency and total speed limit survive a process restart")
     rate_case = "rate-" + str(time.time_ns())[-10:]

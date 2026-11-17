@@ -60,6 +60,8 @@ class PrivacyMode(private val appContext: android.content.Context) {
      * API 26, so current Android versions have nothing useful to toggle here.
      */
     fun applyTo(view: WebView): Boolean {
+        view.importantForAutofill = if (isIncognito) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+            else android.view.View.IMPORTANT_FOR_AUTOFILL_AUTO
         if (!isIncognito) {
             view.settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
             return false

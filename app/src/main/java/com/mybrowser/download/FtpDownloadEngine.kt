@@ -1,9 +1,12 @@
 package com.mybrowser.download
 
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -30,6 +33,8 @@ internal data class FtpTarget(
     val path: String,
 ) {
     companion object {
+        private fun containsLineBreak(value: String) = value.any { it == '\r' || it == '\n' || it == '\u0000' }
+
         fun parse(url: String): FtpTarget? = runCatching {
             val uri = URI(url)
             if (!uri.scheme.equals("ftp", ignoreCase = true)) return null
@@ -38,11 +43,16 @@ internal data class FtpTarget(
             if (path.isBlank() || path.endsWith("/")) return null
             val userInfo = uri.userInfo.orEmpty()
             val user = userInfo.substringBefore(':').ifBlank { ANONYMOUS_USER }
+            val password = if (userInfo.contains(':')) userInfo.substringAfter(':') else ANONYMOUS_PASSWORD
+            // These come from the URL percent-decoded and go into commands verbatim. FTP has no
+            // quoting, so a line break in any of them would arrive as an extra command: the
+            // address is refused instead.
+            if (listOf(path, user, password).any(::containsLineBreak)) return null
             FtpTarget(
                 host = host,
                 port = if (uri.port > 0) uri.port else DEFAULT_PORT,
                 user = user,
-                password = if (userInfo.contains(':')) userInfo.substringAfter(':') else ANONYMOUS_PASSWORD,
+                password = password,
                 path = path,
             )
         }.getOrNull()
@@ -79,14 +89,31 @@ internal class FtpDownloadEngine(
         val progress = TransferProgress(onProgress)
         val session = FtpSession(target.host, target.port)
         // A blocking socket read ignores Thread.interrupt, so the only reliable cancellation is
-        // closing the sockets the transfer is waiting on.
-        val cancelGuard = currentCoroutineContext().job.invokeOnCompletion { session.close() }
+        // closing the sockets the transfer is waiting on. A completion handler would run only
+        // once this coroutine finishes, which is exactly what the blocked read prevents: the
+        // watcher is a child coroutine, so its finally runs as soon as we are cancelled. The
+        // session's sockets exist from its construction for that reason: a connect still in
+        // progress is waited on the same way, and closing it is what aborts it.
+        val cancelGuard = launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                awaitCancellation()
+            } finally {
+                session.close()
+            }
+        }
         try {
+            session.connect()
             session.login(target)
             session.command("TYPE I")
             val total = session.size(target.path)
-            val already = destination.length()
-            if (total != null && already >= total) {
+            var already = destination.length()
+            // A file longer than the entity cannot be a prefix of it: the remote file shrank, or a
+            // previous attempt ran past its end. Start over rather than publish the wrong bytes.
+            if (total != null && already > total) {
+                destination.delete()
+                already = 0L
+            }
+            if (total != null && already == total && already > 0L) {
                 progress.update(already, total, force = true)
                 return@withContext DownloadPayload(listOf(destination), total, 1)
             }
@@ -114,10 +141,15 @@ internal class FtpDownloadEngine(
                 runCatching { data.close() }
             }
             session.finish()
+            // A server may end the stream early and still answer 226. Only the length it announced
+            // proves the file holds the entire entity.
+            if (total != null && downloaded != total) {
+                throw IOException("FTP transfer stopped at $downloaded of $total bytes")
+            }
             progress.update(downloaded, total ?: downloaded, force = true)
             return@withContext DownloadPayload(listOf(destination), total ?: downloaded, 1)
         } finally {
-            cancelGuard.dispose()
+            cancelGuard.cancel()
             session.close()
         }
     }
@@ -130,15 +162,25 @@ internal class FtpDownloadEngine(
 private data class FtpReply(val code: Int, val text: String)
 
 /** One control connection plus the passive data connection a single RETR uses. */
-private class FtpSession(host: String, port: Int) : Closeable {
-    private val control = Socket().apply {
-        connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
-        soTimeout = READ_TIMEOUT_MS
-        tcpNoDelay = true
-    }
-    private val reader = BufferedInputStream(control.getInputStream())
-    private val writer = BufferedOutputStream(control.getOutputStream())
+private class FtpSession(private val host: String, private val port: Int) : Closeable {
+    // Both sockets are created here and connected afterwards, so a task that is cancelled while
+    // one of them is still connecting has something to close — closing is the only way to stop a
+    // connect that has not returned.
+    private val control = Socket()
+    private lateinit var reader: BufferedInputStream
+    private lateinit var writer: BufferedOutputStream
+    /** Written by the transfer coroutine, read by the cancellation watcher: guarded by [lock]. */
+    private val lock = Any()
     private var data: Socket? = null
+    private var closed = false
+
+    fun connect() {
+        control.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+        control.soTimeout = READ_TIMEOUT_MS
+        control.tcpNoDelay = true
+        reader = BufferedInputStream(control.getInputStream())
+        writer = BufferedOutputStream(control.getOutputStream())
+    }
 
     fun login(target: FtpTarget) {
         val greeting = readReply()
@@ -173,10 +215,10 @@ private class FtpSession(host: String, port: Int) : Closeable {
         val opened = passive()
         val reply = command("RETR $path")
         if (reply.code !in 125..150) {
+            forgetData(opened)
             runCatching { opened.close() }
             throw IOException("FTP download refused: ${reply.text}")
         }
-        data = opened
         return opened
     }
 
@@ -199,15 +241,36 @@ private class FtpSession(host: String, port: Int) : Closeable {
         }
         // The advertised address is often a private one on a server behind NAT; the control
         // connection already reached it, so only the port is worth taking from the reply.
-        return Socket().apply {
-            connect(InetSocketAddress(control.inetAddress, numbers[4] * 256 + numbers[5]), CONNECT_TIMEOUT_MS)
-            soTimeout = READ_TIMEOUT_MS
+        val opened = openData()
+        try {
+            opened.connect(InetSocketAddress(control.inetAddress, numbers[4] * 256 + numbers[5]), CONNECT_TIMEOUT_MS)
+            opened.soTimeout = READ_TIMEOUT_MS
+        } catch (error: Exception) {
+            forgetData(opened)
+            runCatching { opened.close() }
+            throw error
         }
+        return opened
+    }
+
+    /**
+     * The data socket, registered before it connects so cancellation can close it.
+     *
+     * Registration and [close] are serialized: a cancellation that already ran must not leave a
+     * socket connecting that nobody will close, and one that runs later must see this one.
+     */
+    private fun openData(): Socket = synchronized(lock) {
+        if (closed) throw IOException("FTP transfer cancelled")
+        Socket().also { data = it }
+    }
+
+    private fun forgetData(socket: Socket) = synchronized(lock) {
+        if (data === socket) data = null
     }
 
     private fun readReply(): FtpReply {
         val first = readLine() ?: throw IOException("FTP connection closed")
-        val code = first.substring(0, 3).toIntOrNull()
+        val code = first.take(3).toIntOrNull()
             ?: throw IOException("Malformed FTP reply: $first")
         if (first.length > 3 && first[3] == '-') {
             // Multi-line replies repeat the code with a space on their last line.
@@ -233,7 +296,11 @@ private class FtpSession(host: String, port: Int) : Closeable {
     }
 
     override fun close() {
-        runCatching { data?.close() }
+        val opened = synchronized(lock) {
+            closed = true
+            data.also { data = null }
+        }
+        runCatching { opened?.close() }
         runCatching { control.close() }
     }
 

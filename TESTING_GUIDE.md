@@ -19,7 +19,11 @@ FTP 与 HLS 下载回归：`python3 validation/ftp-hls-server.py` 在 127.0.0.1 
 再运行 `python3 validation/ftp-hls-regression.py --serial emulator-5554 [--package com.mybrowser.debug]
 --output validation/results/ftp-hls`。脚本点击夹具页上的 FTP 与 HLS 链接、确认下载，并比对落盘文件的
 SHA-256：FTP 必须逐字节等于服务端实体，HLS 必须等于播放列表全部分段的拼接（含 AES-128 分段时同样如此）。
-设备侧只覆盖明文 FTP 与未加密播放列表；AES-128、`EXT-X-MAP`、主列表选码率和续传由 JVM 单测覆盖。
+设备侧只覆盖明文 FTP 与未加密播放列表；AES-128（含短 IV）、`EXT-X-MAP`、主列表选码率、独立音轨和范围列表拒绝、读取大小上限及续传由 JVM 单测覆盖。
+
+阅读与图片分享回归：QA 服务运行时执行 `python3 validation/reader-sharing-regression.py --serial emulator-5554
+--output validation/results/reader-sharing`。脚本检查普通/无痕受 Cookie 保护图片的实际分享请求，以及三语、320dp、
+200% 字体下阅读工具条的完整显示，结束后恢复字体、分辨率和语言。播放器 `video` 回归同时检查后台播放开关的 checked 状态切换。
 
 书签导入导出通过 `bookmarks_transfer` 资源定位「书签操作」菜单，避免依赖旧版按钮名称。
 菜单回归使用当前站点卡片打开网站设置，退出操作按当前「退出」标签定位。
@@ -115,9 +119,9 @@ UI 回归里的无痕入口按 `menu_incognito_short` / `menu_incognito_exit_sho
 `element-picker.test.cjs` 还覆盖触摸与鼠标松开坐标跨越元素边界、空白释放、取消选择及预览恢复；
 修改元素选择器后，运行设备阶段 `block-element` 验证真实 WebView 中的选择、预览与规则生效。
 这些都在 JVM 或 Node 上运行，不执行真实的 Chromium，因此不能替代设备验证——
-Autofill、窗口通信、系统媒体、内存压力和真实触摸的行为只能由下面的模拟器回归确认。
+窗口通信、系统媒体、内存压力和真实触摸的行为只能由下面的模拟器回归确认。
 
-过滤引擎的 JNI 决策表和系统登录能力由 `app/src/androidTest` 在设备上核对，不在上面的快速检查里。
+过滤引擎的 JNI 决策表由 `app/src/androidTest` 在设备上核对，不在上面的快速检查里。
 `testInstrumentationRunner` 是一个自定义 `Instrumentation` 而不是 JUnit 用例，
 `./gradlew :app:connectedDebugAndroidTest` 会以零个用例「通过」，必须显式运行：
 
@@ -127,15 +131,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 # 决策表：核对发布 ABI 与宿主构建是否给出同一组答案
 adb shell am instrument -w com.mybrowser.debug.test/com.mybrowser.validation.NativeFilterInstrumentation
-# 系统登录：Autofill 与 WebAuthn 的开关随普通/无痕模式切换
-adb shell am instrument -w -e suite login com.mybrowser.debug.test/com.mybrowser.validation.NativeFilterInstrumentation
 ```
 
-两者的结果都在输出的 `report` 里，`"passed":true` 表示通过；失败时同一行会带上 `failure`。
+结果在输出的 `report` 里，`"passed":true` 表示通过；失败时同一行会带上 `failure`。
 
-签名包登录入口回归：先运行 QA 服务，再运行 `python3 validation/system-integration-regression.py --serial emulator-5554 --section login --output validation/results/login`。覆盖系统提供方设置跳转、返回后保留状态面板、合成通行密钥请求及无痕拒绝；不等同于真实账号保存/填充或通行密钥注册成功。Android 10–13 的自动填充选择器与不同厂商提供方需在对应设备另测。
-
-设备验证可在 QA 服务打开 `login-lifecycle-fixture.html`：用虚拟账号测试系统 Autofill；
+设备验证可在 QA 服务打开 `login-lifecycle-fixture.html`：
 分别打开回调/跳转弹窗并完成，确认原页面显示 PASS，回调模式的文档标识与表单不变。
 在三秒延迟内切到第三个标签，确认关闭的是弹窗，返回原页面后回调请求成功；再验证嵌套弹窗、
 无痕模式（仅窗口通信）、关闭其他标签和退出会话。真实 Bitwarden 与 Google/X 登录需另外记录版本和结果。

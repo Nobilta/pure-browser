@@ -22,6 +22,9 @@ internal data class DownloadRequestHeaders(
     val referer: String?,
 )
 
+/** One fetched resource: its byte count and the address the request finally resolved to. */
+internal data class HttpFetch(val bytes: Long, val url: String)
+
 internal data class DownloadPayload(
     val parts: List<File>,
     val totalBytes: Long,
@@ -247,8 +250,11 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         url: String,
         headers: DownloadRequestHeaders,
         sink: java.io.OutputStream,
-    ): Long {
-        val connection = openConnection(url, headers)
+        /** The origin [DownloadRequestHeaders.cookie] belongs to; null means [url]. */
+        cookieOrigin: String? = null,
+        maxBytes: Int? = null,
+    ): HttpFetch {
+        val connection = openConnection(url, headers, cookieOrigin = cookieOrigin)
         try {
             val code = connection.responseCode
             requireIdentityEncoding(connection)
@@ -261,12 +267,13 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                     val count = input.read(buffer)
                     if (count < 0) break
                     if (count == 0) continue
+                    if (maxBytes != null && total + count > maxBytes) throw IOException("Resource exceeds $maxBytes bytes")
                     rateLimiter.acquire(count)
                     sink.write(buffer, 0, count)
                     total += count
                 }
             }
-            return total
+            return HttpFetch(total, connection.url.toExternalForm())
         } finally {
             releaseConnection(connection)
         }
@@ -433,9 +440,13 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         headers: DownloadRequestHeaders,
         range: String? = null,
         validator: String? = null,
+        cookieOrigin: String? = null,
     ): HttpURLConnection {
-        val original = URL(url)
-        var current = original
+        // A raw Cookie header belongs to the address that supplied it. For a plain download that
+        // is this URL; a playlist passes its own page address instead, so a segment or key on
+        // another host never receives it. The request itself still goes to [url].
+        val cookieScope = URL(cookieOrigin ?: url)
+        var current = URL(url)
         repeat(MAX_REDIRECTS + 1) { hop ->
             if (current.protocol !in setOf("http", "https") || current.host.isBlank()) {
                 throw IOException("Unsupported download URL")
@@ -453,7 +464,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                 headers.userAgent.takeIf(String::isNotBlank)?.let { setRequestProperty("User-Agent", it) }
                 // A raw Cookie header is scoped to the URL that supplied it. Platform
                 // auto-redirects can forward that header to an unrelated download host.
-                if (sameOrigin(original, current)) {
+                if (sameOrigin(cookieScope, current)) {
                     headers.cookie?.takeIf(String::isNotBlank)?.let { setRequestProperty("Cookie", it) }
                 }
                 headers.referer?.takeIf(String::isNotBlank)?.let { setRequestProperty("Referer", it) }

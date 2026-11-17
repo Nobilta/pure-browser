@@ -34,11 +34,12 @@ internal interface DownloadTransport {
 internal class TransferProgress(private val report: (Long, Long, Int) -> Unit) {
     private var lastNanos = 0L
 
-    fun update(downloaded: Long, total: Long, threads: Int = 1, force: Boolean = false) {
+    /** Both transports that use this move bytes over one connection. */
+    fun update(downloaded: Long, total: Long, force: Boolean = false) {
         val now = System.nanoTime()
         if (!force && now - lastNanos < INTERVAL_NANOS) return
         lastNanos = now
-        report(downloaded, total, threads)
+        report(downloaded, total, 1)
     }
 
     private companion object {

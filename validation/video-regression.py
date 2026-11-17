@@ -460,6 +460,25 @@ class Regression:
         assert self.width > self.height, "Landscape video did not rotate"
         self.record("landscape video rotates automatically")
 
+        self.button("暂停视频")
+        self.wait(lambda s: s["paused"])
+        background_label = next(iter(ux.resource_labels("player_background_audio")))
+        root, _ = self.player_nodes(reveal=True)
+        def background_switch(tree):
+            return next(n for n in tree.iter("node") if n.get("checkable") == "true"
+                        and ux.match(n, background_label) is not None)
+        initial = background_switch(root).get("checked")
+        self.button(background_label)
+        root, _ = self.player_nodes(reveal=True)
+        assert background_switch(root).get("checked") != initial
+        self.snapshot("background-toggle")
+        self.button(background_label)
+        root, _ = self.player_nodes(reveal=True)
+        assert background_switch(root).get("checked") == initial
+        self.record("background playback exposes a checked switch and toggles both ways")
+        self.button("播放视频")
+        self.wait(lambda s: not s["paused"])
+
         if cast_buttons:
             baseline = self.popup_baseline()
             self.button("投屏")

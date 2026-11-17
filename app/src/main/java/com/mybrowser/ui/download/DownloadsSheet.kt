@@ -6,10 +6,16 @@ import com.mybrowser.download.DownloadRequestCoordinator
 import com.mybrowser.download.DownloadStatus
 import com.mybrowser.download.DownloadFailure
 import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.components.BrowserGroupDivider
+import com.mybrowser.ui.theme.BrowserColors
 import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.BrowserDropdownMenu
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.mybrowser.ui.components.BrowserListItem
 import androidx.compose.ui.platform.LocalContext
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -27,8 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
@@ -79,21 +83,27 @@ fun DownloadsSheet(
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(focusedId, query, filter, visible.map { it.id }) {
         val target = focusedId ?: return@LaunchedEffect
-        if (query.isNotEmpty() || filter != DownloadFilter.ALL) {
-            query = ""
-            filter = DownloadFilter.ALL
-            return@LaunchedEffect
-        }
         val index = visible.indexOfFirst { it.id == target }
         if (index >= 0) {
             listState.scrollToItem(index)
+            onFocusConsumed()
+        } else if (query.isNotEmpty() || filter != DownloadFilter.ALL) {
+            // Hidden by the current search or filter: clear both to reach the record.
+            query = ""
+            filter = DownloadFilter.ALL
+        } else if (visible.isNotEmpty()) {
+            // The record is gone (deleted or expired). A pending focus would otherwise wipe every
+            // search keystroke, because this effect re-runs on each query change.
             onFocusConsumed()
         }
     }
     // A record can disappear while it is selected (cancelled, retried, deleted elsewhere).
     LaunchedEffect(visible.map { it.id }) {
         selected = selected.intersect(visible.map { it.id }.toSet())
-        if (visible.isEmpty()) selecting = false
+        if (selected.isEmpty()) {
+            selecting = false
+            confirmDeleteSelected = false
+        }
     }
     val leaveSelection = { selecting = false; selected = emptySet() }
 
@@ -134,18 +144,21 @@ fun DownloadsSheet(
                 }
             }
 
-            HorizontalDivider()
+            BrowserGroupDivider()
 
             if (downloads.isNotEmpty()) {
                 LibrarySearchField(query, stringResource(R.string.download_search), {
                     query = it; leaveSelection()
-                }, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                }, Modifier.padding(horizontal = 16.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     DownloadFilter.entries.forEach { option ->
                         BrowserActionPill(stringResource(option.label), {
                             filter = option; leaveSelection()
-                        }, modifier = Modifier.semantics { this.selected = filter == option }, active = filter == option)
+                        }, active = filter == option, isToggle = true)
                     }
                 }
             }
@@ -223,7 +236,7 @@ fun DownloadsSheet(
                         }
                     }
                 }
-                HorizontalDivider()
+                BrowserGroupDivider()
             }
 
             if (visible.isEmpty()) {
@@ -280,7 +293,7 @@ fun DownloadsSheet(
                                 onDelete = { pendingDelete = download },
                                 onDetails = { detailId = download.id },
                             )
-                            HorizontalDivider()
+                            BrowserGroupDivider()
                         }
                     }
                 }
@@ -357,46 +370,71 @@ private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit)
     BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.download_details)) },
-        buttonsInColumn = true,
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(download.filename, style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(when (download.status) {
-                    DownloadStatus.DOWNLOADING -> R.string.download_filter_active
-                    DownloadStatus.COMPLETED -> R.string.download_filter_completed
-                    DownloadStatus.PAUSED -> R.string.download_filter_paused
-                    DownloadStatus.FAILED -> R.string.download_filter_failed
-                    DownloadStatus.QUEUED -> R.string.download_queued
-                    DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
-                    DownloadStatus.SAVING -> R.string.download_saving
-                }))
-                if (download.status == DownloadStatus.FAILED) Text(stringResource(when (download.failure) {
-                    DownloadFailure.AUTHORIZATION -> R.string.download_error_authorization
-                    DownloadFailure.NOT_FOUND -> R.string.download_error_not_found
-                    DownloadFailure.SERVER -> R.string.download_error_server
-                    DownloadFailure.STORAGE -> R.string.download_error_storage
-                    DownloadFailure.SOURCE_UNAVAILABLE -> R.string.download_error_source
-                    DownloadFailure.NETWORK, null -> R.string.download_error_network
-                }), color = MaterialTheme.colorScheme.error)
-                Text(stringResource(R.string.download_detail_progress, formatBytes(download.bytesDownloaded),
-                    if (download.totalBytes > 0) formatBytes(download.totalBytes) else "—", download.threadCount))
-                Text(stringResource(R.string.download_confirm_destination, localizeDownloadDirectory(resources, download.destinationLabel)))
-                Text(stringResource(R.string.download_created, date))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = BrowserColors.recessedWell,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(stringResource(when (download.status) {
+                            DownloadStatus.DOWNLOADING -> R.string.download_filter_active
+                            DownloadStatus.COMPLETED -> R.string.download_filter_completed
+                            DownloadStatus.PAUSED -> R.string.download_filter_paused
+                            DownloadStatus.FAILED -> R.string.download_filter_failed
+                            DownloadStatus.QUEUED -> R.string.download_queued
+                            DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
+                            DownloadStatus.SAVING -> R.string.download_saving
+                        }), style = MaterialTheme.typography.bodySmall)
+                        if (download.status == DownloadStatus.FAILED) Text(stringResource(when (download.failure) {
+                            DownloadFailure.AUTHORIZATION -> R.string.download_error_authorization
+                            DownloadFailure.NOT_FOUND -> R.string.download_error_not_found
+                            DownloadFailure.SERVER -> R.string.download_error_server
+                            DownloadFailure.STORAGE -> R.string.download_error_storage
+                            DownloadFailure.SOURCE_UNAVAILABLE -> R.string.download_error_source
+                            DownloadFailure.NETWORK -> R.string.download_error_network
+                            DownloadFailure.UNSUPPORTED -> R.string.download_error_unsupported
+                            // A record from before the field existed, or a legacy system task
+                            // whose reason only the platform manager knows.
+                            null -> R.string.download_error_unknown
+                        }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.download_detail_progress, formatBytes(download.bytesDownloaded),
+                            if (download.totalBytes > 0) formatBytes(download.totalBytes) else "—", download.threadCount),
+                            style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.download_confirm_destination, localizeDownloadDirectory(resources, download.destinationLabel)),
+                            style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.download_created, date), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 download.sourceUrl?.let { url ->
                     Text(stringResource(R.string.download_confirm_source), style = MaterialTheme.typography.labelMedium)
-                    Text(url, maxLines = 4, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = BrowserColors.recessedWell,
+                    ) {
+                        Text(url, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(12.dp))
+                    }
                 }
             }
         },
         confirmButton = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                download.sourceUrl?.let { url ->
-                    BrowserActionPill(stringResource(R.string.download_copy_source), {
-                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                            ClipData.newPlainText(resources.getString(R.string.download_confirm_source), url))
-                    }, Modifier.fillMaxWidth(), iconRes = R.drawable.ic_ui_copy)
-                }
-                BrowserActionPill(stringResource(R.string.ui_close), onDismiss, Modifier.fillMaxWidth())
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
+        },
+        dismissButton = download.sourceUrl?.let { url ->
+            {
+                TextButton(onClick = {
+                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                        ClipData.newPlainText(resources.getString(R.string.download_confirm_source), url))
+                }) { Text(stringResource(R.string.download_copy_source)) }
             }
         },
     )
@@ -474,7 +512,7 @@ private fun DownloadItemRow(
         ) {
             Text(
                 text = download.filename,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -496,9 +534,12 @@ private fun DownloadItemRow(
                         formatBytes(download.bytesPerSecond),
                         if (download.totalBytes > 0) ((download.totalBytes - download.bytesDownloaded).coerceAtLeast(0) / download.bytesPerSecond).toString() else "—"),
                         style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(4.dp))
                     if (download.totalBytes <= 0) LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(
                         progress = { download.progress / 100f },
                         modifier = Modifier.fillMaxWidth(),
+                        gapSize = 0.dp,
+                        drawStopIndicator = {},
                     )
                 }
                 DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> {
@@ -507,7 +548,13 @@ private fun DownloadItemRow(
                         DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
                         else -> R.string.download_queued
                     }), style = MaterialTheme.typography.bodySmall)
-                    if (download.status == DownloadStatus.SAVING) LinearProgressIndicator(progress = { download.savingProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(4.dp))
+                    if (download.status == DownloadStatus.SAVING) LinearProgressIndicator(
+                        progress = { download.savingProgress / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                        gapSize = 0.dp,
+                        drawStopIndicator = {},
+                    )
                     else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 DownloadStatus.COMPLETED -> {
@@ -570,15 +617,29 @@ private fun DeleteDownloadDialog(
     onDismiss: () -> Unit,
 ) {
     val textResources = localizedResources()
+    var deleteFiles by rememberSaveable { mutableStateOf(false) }
     BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { Text(message, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        buttonsInColumn = true,
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()).selectableGroup()) {
+                Text(message, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                listOf(false, true).forEach { files ->
+                    BrowserListItem(
+                        title = textResources.getString(if (files) R.string.ui_delete_records_and_files else R.string.ui_delete_records_only),
+                        onClick = { deleteFiles = files },
+                        selected = deleteFiles == files,
+                        destructive = files,
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                        leading = { RadioButton(selected = deleteFiles == files, onClick = null) },
+                    )
+                }
+            }
+        },
         confirmButton = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BrowserActionPill(textResources.getString(R.string.ui_delete_records_only), { onConfirm(false) }, Modifier.fillMaxWidth())
-                BrowserActionPill(textResources.getString(R.string.ui_delete_records_and_files), { onConfirm(true) }, Modifier.fillMaxWidth())
+            TextButton(onClick = { onConfirm(deleteFiles) },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Text(textResources.getString(R.string.cd_delete))
             }
         },
         dismissButton = {

@@ -63,6 +63,86 @@ class FilterSubscriptionsTest {
         }
     }
 
+    @Test fun aSnapshotLeftBehindByABundledListIsRemovedOnce() = runBlocking {
+        val source = FilterSubscriptions.BUILT_INS.first()
+        val text = "! legacy\n||stale.example^\n"
+        val staleId = "custom-stale"
+        val staleName = staleId + "-" + TextDownloader.sha256(text) + ".txt"
+        val directory = File(context.filesDir, "filter_subscriptions").apply { mkdirs() }
+        File(directory, staleName).writeText(text)
+        val manifest = JSONArray().put(
+            JSONObject().put("id", staleId).put("name", "Legacy").put("url", source.url)
+                .put("enabled", true).put("file", staleName),
+        )
+        context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
+            .putString("subscriptions_manifest", manifest.toString()).commit()
+
+        val lists = FilterSubscriptions(context)
+        lists.initialize()
+
+        // The record's address is a bundled one now: the packaged copy replaces the stale
+        // snapshot, and the manifest and directory are both cleaned up so the next start does not
+        // read and hash the file again.
+        val builtIn = lists.subscriptions.value.single { it.id == source.id }
+        assertNull(builtIn.file)
+        assertFalse(File(directory, staleName).exists())
+        val stored = JSONArray(
+            context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+                .getString("subscriptions_manifest", "[]"),
+        )
+        val ids = (0 until stored.length()).map { stored.getJSONObject(it).getString("id") }
+        assertTrue(source.id in ids)
+        assertFalse(staleId in ids)
+    }
+
+    @Test fun theFirstLaunchRecordsTheCountsItValidated() = runBlocking {
+        FilterSubscriptions(context).initialize()
+
+        val stored = JSONObject(
+            context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+                .getString("rule_counts", null),
+        )
+        // Every enabled packaged list is counted once and kept, so the next cold start can skip
+        // the native counting pass that `FilterListFormat.validate` performs.
+        assertTrue(stored.length() >= 3)
+        assertTrue(stored.keys().asSequence().all { it.startsWith("asset:filters/") })
+    }
+
+    @Test fun disabledPackagedCountsKeepTheirBuildAcrossRestart() = runBlocking {
+        val sources = listOf(FilterSubscriptions.BUILT_INS.first().copy(enabledByDefault = false))
+        val first = FilterSubscriptions(context, builtIns = sources)
+        first.initialize()
+        val prefs = context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+        val stored = JSONArray(prefs.getString("subscriptions_manifest", "[]")).getJSONObject(0)
+        val version = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        assertEquals(version, stored.getLong("countBuild"))
+        val restored = FilterSubscriptions(context, builtIns = sources)
+        restored.initialize()
+        assertEquals(first.subscriptions.value.single(), restored.subscriptions.value.single())
+    }
+
+    @Test fun updatePathKeepsTheCountItValidated() = runBlocking {
+        val lists = controller()
+        assertTrue(lists.add("Fixture", "https://fixture.test/rules"))
+
+        val stored = JSONObject(
+            context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+                .getString("rule_counts", null),
+        )
+        // The staged snapshot's count is in the cache, so the next cold start reads it from here
+        // instead of parsing the file a second time to count it.
+        assertTrue(stored.keys().asSequence().any { it.startsWith("snapshot:") })
+    }
+
+    @Test fun aCorruptCountCacheIsIgnoredInsteadOfBreakingStartup() = runBlocking {
+        context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE).edit()
+            .putString("rule_counts", "not json").commit()
+
+        val lists = FilterSubscriptions(context).also { it.initialize() }.subscriptions.value
+
+        assertTrue(lists.all { it.error == null && it.ruleCount > 1000 })
+    }
+
     private lateinit var context: Context
     private var response = TextDownloader.Response("! test\n||ads.example.com^\n", "\"version1\"", "yesterday")
     private var failure = false
@@ -343,18 +423,37 @@ class FilterSubscriptionsTest {
         assertTrue(File(context.filesDir, "filter_subscriptions/" + before.file).isFile)
     }
 
-    @Test fun customImportCannotDuplicateBuiltInsOrNormalizedUrls() = runBlocking {
+    @Test fun customImportCannotDuplicateNormalizedUrls() = runBlocking {
         val controller = FilterSubscriptions(context)
         controller.initialize()
         val before = controller.subscriptions.value
-        for (lists in listOf(
-            listOf(Triple("Copy", FilterSubscriptions.BUILT_INS.first().url, true)),
-            listOf(Triple("A", "https://example.com/list", true), Triple("B", " https://example.com/list ", false)),
-        )) {
-            assertFalse(controller.importConfiguration(emptyMap(), lists, enabled = false, autoUpdate = false).ok)
-            assertEquals(before, controller.subscriptions.value)
-            assertTrue(controller.autoUpdate.value)
-        }
+        val lists = listOf(
+            Triple("A", "https://example.com/list", true),
+            Triple("B", " https://example.com/list ", false),
+        )
+
+        assertFalse(controller.importConfiguration(emptyMap(), lists, enabled = false, autoUpdate = false).ok)
+        assertEquals(before, controller.subscriptions.value)
+        assertTrue(controller.autoUpdate.value)
+    }
+
+    /**
+     * A file exported before a list was bundled carries that URL as a custom subscription. The
+     * switch moves onto the built-in it became instead of the import being refused or a second
+     * copy of the same rules being added.
+     */
+    @Test fun aCustomListThatIsNowBundledBecomesItsBuiltInSwitch() = runBlocking {
+        val controller = FilterSubscriptions(context)
+        controller.initialize()
+        val bundled = FilterSubscriptions.BUILT_INS.first { !it.enabledByDefault }
+        assertFalse(controller.subscriptions.value.single { it.id == bundled.id }.enabled)
+
+        val outcome = controller.importConfiguration(emptyMap(), listOf(Triple("Old name", bundled.url, true)))
+
+        assertTrue(outcome.ok)
+        val lists = controller.subscriptions.value
+        assertEquals(1, lists.count { it.url == bundled.url })
+        assertTrue(lists.single { it.id == bundled.id }.enabled)
     }
 
 }

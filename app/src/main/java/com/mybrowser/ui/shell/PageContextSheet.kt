@@ -30,6 +30,8 @@ fun PageContextSheet(
     onCopy: (String) -> Unit,
     onShare: (String) -> Unit,
     onSaveImage: (String) -> Unit,
+    onShareImage: (String) -> Unit,
+    onSearchImage: (String) -> Unit,
     onBlockResource: (String) -> Unit,
     onBlockHost: (String) -> Unit,
     onHideHere: (String) -> Unit,
@@ -54,6 +56,8 @@ fun PageContextSheet(
                 if (target.linkUrl != null) HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 BrowserActionRow(R.drawable.ic_ui_open_in_new, stringResource(R.string.context_open_image)) { onOpen(image, false) }
                 BrowserActionRow(R.drawable.ic_ui_download, stringResource(R.string.context_save_image)) { onSaveImage(image) }
+                BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_image)) { onShareImage(image) }
+                BrowserActionRow(R.drawable.ic_ui_search, stringResource(R.string.context_search_image)) { onSearchImage(image) }
                 BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_image_link)) { onCopy(image) }
             }
             // One address, so one set of block rows: see PageContextTarget.blockAddress for why the

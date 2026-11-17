@@ -17,8 +17,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- WebView's browser WebAuthn mode supplies the website origin to CredentialManager. -->
-    <uses-permission android:name="android.permission.CREDENTIAL_MANAGER_SET_ORIGIN" />
     <!--
       Package visibility (API 30+): the external-app prompt names the app a deep link is
       about to open ("Open 中国银行?"), which needs queryIntentActivities on a scheme no

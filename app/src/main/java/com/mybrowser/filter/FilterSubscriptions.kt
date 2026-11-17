@@ -50,6 +50,8 @@ class FilterSubscriptions(
         val enabled: Boolean = true,
         val ruleCount: Int = 0,
         val bytes: Int = 0,
+        /** The build that measured [ruleCount]; a new APK re-reads a disabled list once. */
+        val countBuild: Long = 0,
         val file: String? = null,
         val updatedAt: Long = 0,
         val checkedAt: Long = 0,
@@ -60,6 +62,14 @@ class FilterSubscriptions(
 
     private val appContext = context.applicationContext
     private val directory = File(appContext.filesDir, "filter_subscriptions")
+    /** Keyed by content identity; see [ruleCount]. Shared with the switches, like the manifest. */
+    private val ruleCounts = LinkedHashMap<String, Int>()
+    private var ruleCountsDirty = false
+    /** Read once: identifies the packaged lists this build shipped. */
+    @Suppress("DEPRECATION")
+    private val appVersionCode: Long by lazy {
+        appContext.packageManager.getPackageInfo(appContext.packageName, 0).longVersionCode
+    }
     private val legacyManifest = AtomicFile(File(directory, "subscriptions.json"))
     private val prefs = appContext.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
     private val mutex = Mutex()
@@ -162,6 +172,7 @@ class FilterSubscriptions(
     private suspend fun initializeLocked() {
         if (initialized) return
         directory.mkdirs()
+        readRuleCounts()
         val hadManifest = prefs.contains(MANIFEST_KEY) || legacyManifest.baseFile.exists()
         val saved = runCatching {
             val text = prefs.getString(MANIFEST_KEY, null)
@@ -196,25 +207,47 @@ class FilterSubscriptions(
         }
         if (saved == null) migrateLegacy(loaded)
         val startupPayloads = HashMap<String, ValidatedPayload>(loaded.size)
+        val manifestBefore = loaded.map(::manifestFields)
         _subscriptions.value = loaded.map { savedList ->
+            // A disabled packaged list is not part of the engine's snapshot, and its count is
+            // already in the manifest: reading and measuring it on every start buys nothing.
+            if (!savedList.enabled && savedList.file == null && savedList.ruleCount > 0 &&
+                savedList.countBuild == appVersionCode
+            ) {
+                return@map savedList
+            }
             // One read per list: a saved snapshot is verified once, and the built-in fallback is
             // only touched when there is no usable snapshot. The result is kept for the first
             // rebuild instead of being read, hashed and validated again there.
-            val savedPayload = if (savedList.file != null) readSavedPayload(savedList) else null
-            val list = if (savedList.file != null && savedPayload == null) {
+            val saved = savedList.file?.let { readSavedPayload(savedList) } ?: SavedPayload.Missing
+            // A vanishing or stale file loses its reference (cleanup then deletes it); a failed read
+            // keeps it, because one I/O error must not delete the only copy of a list.
+            val list = if (saved is SavedPayload.Missing || saved is SavedPayload.Stale) {
                 savedList.copy(file = null, etag = null, modified = null, updatedAt = 0, checkedAt = 0)
             } else savedList
-            val payload = savedPayload ?: readBuiltInPayload(list)
-            if (payload == null) list.copy(file = null, ruleCount = 0, bytes = 0, etag = null, modified = null,
-                error = appContext.getString(R.string.filter_missing_snapshot))
+            val payload = (saved as? SavedPayload.Loaded)?.payload ?: readBuiltInPayload(list)
+            if (payload == null) list.copy(ruleCount = 0, bytes = 0, etag = null, modified = null,
+                error = appContext.getString(
+                    if (saved is SavedPayload.Unreadable) R.string.filter_snapshot_unreadable
+                    else R.string.filter_missing_snapshot,
+                ))
             else {
-                startupPayloads[list.id] = payload
-                list.copy(ruleCount = payload.rules, bytes = payload.text.toByteArray().size)
+                if (list.enabled) startupPayloads[list.id] = payload
+                list.copy(ruleCount = payload.rules, bytes = FilterController.utf8Bytes(payload.text).toInt(),
+                    countBuild = appVersionCode)
             }
+        }
+        // A dropped or merged snapshot, or a count measured for the first time, has to reach the
+        // manifest once; without this every cold start would re-read and re-hash the same file.
+        val currentSubscriptions = _subscriptions.value
+        if (currentSubscriptions.map(::manifestFields) != manifestBefore) {
+            persist(currentSubscriptions)
+            cleanup()
         }
         _userRules.value = readUserRules()
         initialized = true
         initPayloads = startupPayloads
+        persistRuleCounts()
         try {
             rebuild()
         } finally {
@@ -265,10 +298,19 @@ class FilterSubscriptions(
             .toList()
     }
 
+    /** The fields [persist] writes; equal keys mean the manifest already describes these lists. */
+    private fun manifestFields(list: Subscription): List<Any?> = listOf(
+        list.id, list.enabled, list.ruleCount, list.bytes, list.countBuild, list.file,
+        list.updatedAt, list.checkedAt, list.etag, list.modified,
+    )
+
     private fun decode(value: JSONObject?, defaults: Subscription): Subscription {
         if (value == null) return defaults
         val filename = value.optString("file").takeIf { SNAPSHOT.matches(it) && File(directory, it).isFile }
         return defaults.copy(enabled = value.optBoolean("enabled", defaults.enabled), file = filename,
+            ruleCount = value.optInt("ruleCount", defaults.ruleCount),
+            bytes = value.optInt("bytes", defaults.bytes),
+            countBuild = value.optLong("countBuild", defaults.countBuild),
             updatedAt = value.optLong("updatedAt"), checkedAt = value.optLong("checkedAt"),
             etag = value.optString("etag").takeIf { filename != null && it.isNotBlank() },
             modified = value.optString("modified").takeIf { filename != null && it.isNotBlank() })
@@ -377,7 +419,7 @@ class FilterSubscriptions(
             _busy.value = true
             _lastError.value = null
             try {
-                customLists?.let { validateCustomLists(it, builtIns.map { source -> source.url }.toSet()) }
+                customLists?.let { validateCustomLists(it) }
                 initializeLocked()
                 val current = _subscriptions.value
                 var next = current.map { subscription ->
@@ -399,10 +441,16 @@ class FilterSubscriptions(
                 if (customLists != null) {
                     next = next.filter { it.builtIn } // custom lists are replaced wholesale
                     require(customLists.size <= MAX_CUSTOM_LISTS) { "Subscription limit reached" }
+                    val builtInByUrl = next.filter { it.builtIn }.associateBy { it.url }
                     for ((name, url, enabled) in customLists) {
                         val cleanName = name.trim()
                         val cleanUrl = url.trim()
                         require(cleanName.isNotEmpty() && cleanName.length <= 128 && TextDownloader.isHttpUrl(cleanUrl))
+                        val bundled = builtInByUrl[cleanUrl]
+                        if (bundled != null) {
+                            next = next.map { if (it.id == bundled.id) it.copy(enabled = enabled) else it }
+                            continue
+                        }
                         // Reuse a cached payload when the same URL was already subscribed here.
                         val cached = current.firstOrNull { !it.builtIn && it.url == cleanUrl }
                         next += (cached?.copy(name = cleanName, enabled = enabled)
@@ -455,7 +503,7 @@ class FilterSubscriptions(
         val targets = _subscriptions.value.filter(matches)
         for (target in targets) {
             try {
-                val hasSnapshot = target.file != null && readSavedPayload(target) != null
+                val hasSnapshot = target.file != null && readSavedPayload(target) is SavedPayload.Loaded
                 val response = fetch(target.url, if (hasSnapshot) target.etag else null, if (hasSnapshot) target.modified else null)
                 if (!hasSnapshot && response.text == null) throw IOException("No snapshot for HTTP 304")
                 val nextList = (if (response.text == null) target.copy(checkedAt = System.currentTimeMillis())
@@ -527,12 +575,16 @@ class FilterSubscriptions(
     }
 
     private fun stage(list: Subscription, text: String): Subscription {
-        val count = FilterListFormat.validate(text)
         val filename = list.id + "-" + TextDownloader.sha256(text) + ".txt"
+        // The download path validates to reject a bad payload, and the first rebuild parses the
+        // same text again on the next cold start unless this result is kept.
+        val count = ruleCount("snapshot:$filename:$appVersionCode", text)
         val atomic = AtomicFile(File(directory, filename))
         if (!atomic.baseFile.isFile) atomic.writeUtf8(text)
+        persistRuleCounts()
         val now = System.currentTimeMillis()
-        return list.copy(file = filename, bytes = text.toByteArray().size, ruleCount = count,
+        return list.copy(file = filename, bytes = FilterController.utf8Bytes(text).toInt(), ruleCount = count,
+            countBuild = appVersionCode,
             updatedAt = if (list.file == filename && list.updatedAt != 0L) list.updatedAt else now, checkedAt = now, error = null)
     }
 
@@ -540,8 +592,24 @@ class FilterSubscriptions(
 
     private fun readValidatedPayload(list: Subscription): ValidatedPayload? {
         initPayloads?.get(list.id)?.let { return it }
-        readSavedPayload(list)?.let { return it }
+        (readSavedPayload(list) as? SavedPayload.Loaded)?.payload?.let { return it }
         return readBuiltInPayload(list)
+    }
+
+    private fun readRuleCounts() {
+        val stored = runCatching { JSONObject(prefs.getString(RULE_COUNTS_KEY, null) ?: "") }.getOrNull()
+            ?: return
+        stored.keys().forEach { key ->
+            // Keys are build-scoped; another build's measurements said nothing about this parser.
+            val current = when {
+                key.startsWith("asset:") -> key.contains(":$appVersionCode:")
+                key.startsWith("snapshot:") -> key.endsWith(":$appVersionCode")
+                else -> false
+            }
+            if (!current) return@forEach
+            val count = stored.optInt(key, -1)
+            if (count > 0 && ruleCounts.size < MAX_CACHED_COUNTS) ruleCounts[key] = count
+        }
     }
 
     private fun readBuiltInPayload(list: Subscription): ValidatedPayload? {
@@ -549,19 +617,60 @@ class FilterSubscriptions(
         return runCatching {
             val text = appContext.assets.open(source.asset)
                 .use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
-            ValidatedPayload(text, FilterListFormat.validate(text))
+            // A packaged list only changes with the APK, so build plus length identify its text
+            // without hashing it; the build rules out an equal-length change in another version.
+            ValidatedPayload(text, ruleCount("asset:${source.asset}:$appVersionCode:${text.length}", text))
         }.getOrNull()
     }
 
-    private fun readSavedPayload(list: Subscription): ValidatedPayload? =
-        list.file?.takeIf(SNAPSHOT::matches)?.let { name ->
-            runCatching {
-                val text = File(directory, name).inputStream()
-                    .use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
-                if (name != list.id + "-" + TextDownloader.sha256(text) + ".txt") return@runCatching null
-                ValidatedPayload(text, FilterListFormat.validate(text))
-            }.getOrNull()
-        }
+    /** What a record's snapshot turned out to be. */
+    private sealed interface SavedPayload {
+        data class Loaded(val payload: ValidatedPayload) : SavedPayload
+        /** The record names a file that is no longer on disk. */
+        data object Missing : SavedPayload
+        /** The bytes are not the ones the name promises: the file is stale, not unreadable. */
+        data object Stale : SavedPayload
+        /** The file exists but the read itself failed; the reference is kept for a later start. */
+        data object Unreadable : SavedPayload
+    }
+
+    private fun readSavedPayload(list: Subscription): SavedPayload {
+        val name = list.file?.takeIf(SNAPSHOT::matches) ?: return SavedPayload.Missing
+        val file = File(directory, name)
+        if (!file.isFile) return SavedPayload.Missing
+        val text = runCatching {
+            file.inputStream().use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
+        }.getOrNull() ?: return SavedPayload.Unreadable
+        if (name != list.id + "-" + TextDownloader.sha256(text) + ".txt") return SavedPayload.Stale
+        // The name carries the digest of these bytes, so it identifies them too; the build is part
+        // of the key so a new parser re-validates each snapshot once instead of never.
+        return SavedPayload.Loaded(ValidatedPayload(text, ruleCount("snapshot:$name:$appVersionCode", text)))
+    }
+
+    /**
+     * The rule count for content [key] identifies exactly, counting it only the first time.
+     *
+     * [FilterListFormat.validate] counts rules by parsing the list in the native engine, and the
+     * first rebuild parses the same text again, so a cold start paid for two full parses of every
+     * enabled list — measured at roughly half of the startup wait for filtering. Neither key can
+     * name different bytes: a packaged asset's length is part of the key, and a snapshot's name is
+     * the digest of its contents, which [readSavedPayload] verifies before asking.
+     */
+    private fun ruleCount(key: String, text: String): Int {
+        val counts = ruleCounts
+        counts[key]?.let { return it }
+        val count = FilterListFormat.validate(text)
+        if (counts.size >= MAX_CACHED_COUNTS) counts.clear()
+        counts[key] = count
+        ruleCountsDirty = true
+        return count
+    }
+
+    private fun persistRuleCounts() {
+        if (!ruleCountsDirty) return
+        ruleCountsDirty = false
+        prefs.edit { putString(RULE_COUNTS_KEY, JSONObject(ruleCounts.toMap()).toString()) }
+    }
 
     /**
      * Whether [rules] leave room for them inside the engine’s aggregate payload limit.
@@ -616,7 +725,8 @@ class FilterSubscriptions(
         lists.forEach { list ->
             array.put(JSONObject().put("id", list.id).put("name", list.name).put("url", list.url)
                 .put("enabled", list.enabled).put("file", list.file).put("updatedAt", list.updatedAt)
-                .put("checkedAt", list.checkedAt).put("etag", list.etag).put("modified", list.modified))
+                .put("checkedAt", list.checkedAt).put("etag", list.etag).put("modified", list.modified)
+                .put("ruleCount", list.ruleCount).put("bytes", list.bytes).put("countBuild", list.countBuild))
         }
         val text = array.toString()
         require(text.length <= 256 * 1024) { "Subscription manifest too large" }
@@ -636,16 +746,20 @@ class FilterSubscriptions(
 
     private fun cleanup() {
         val keep = _subscriptions.value.mapNotNull { it.file }.toSet()
-        directory.listFiles()?.filter { SNAPSHOT.matches(it.name) && it.name !in keep }?.forEach { it.delete() }
+        directory.listFiles()?.filter { SNAPSHOT.matches(it.name) && it.name !in keep }?.forEach {
+            ruleCounts.remove("snapshot:${it.name}:$appVersionCode")
+            it.delete()
+        }
+        // Dropping a file drops its measurement; persistRuleCounts writes only when that changed.
+        persistRuleCounts()
     }
 
     companion object {
         /** Shared by decode, whole-file preflight and the repository write boundary. */
-        fun validateCustomLists(lists: List<Triple<String, String, Boolean>>, builtInUrls: Set<String> = BUILT_INS.map { it.url }.toSet()) {
+        fun validateCustomLists(lists: List<Triple<String, String, Boolean>>) {
             require(lists.size <= MAX_CUSTOM_LISTS) { "Subscription limit reached" }
             val urls = lists.map { it.second.trim() }
             require(urls.toSet().size == urls.size) { "Duplicate subscription URL" }
-            require(urls.none { it in builtInUrls }) { "Custom subscription duplicates a built-in list" }
             lists.forEach { (name, url, _) ->
                 require(name.trim().length in 1..128) { "Subscription name out of range" }
                 require(TextDownloader.isHttpUrl(url.trim())) { "Invalid subscription URL" }
@@ -657,6 +771,9 @@ class FilterSubscriptions(
 
         /** Hand-written rules. In the same preference file so a settings import commits them too. */
         private const val USER_RULES_KEY = "user_rules"
+        private const val RULE_COUNTS_KEY = "rule_counts"
+        /** Enough for every bundled list plus a long run of subscription snapshots. */
+        private const val MAX_CACHED_COUNTS = 64
 
         /**
          * Ceiling on hand-written rules. Small on purpose: every rule is matched against every

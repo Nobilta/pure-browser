@@ -1,6 +1,11 @@
 package com.mybrowser.download
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -67,6 +72,100 @@ class FtpDownloadEngineTest {
     }
 
     @Test
+    fun `a URL that hides a line break is refused before any command is sent`() = runBlocking {
+        FakeFtpServer(payload).use { server ->
+            val failure = runCatching {
+                FtpDownloadEngine().download(
+                    url = server.url("/dir/a%0d%0aDELE%20important.txt"),
+                    headers = DownloadRequestHeaders("test", null, null),
+                    requestedThreads = 1, tempDirectory = tempDirectory(), onProgress = { _, _, _ -> },
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure is IOException)
+            // The whole point: nothing was sent, so the server never saw DELE.
+            assertTrue(server.commands.isEmpty())
+        }
+    }
+
+    @Test
+    fun `cancelling during the control connect does not wait for the timeout`() = runBlocking {
+        val job = launch(Dispatchers.IO) {
+            runCatching {
+                FtpDownloadEngine().download(
+                    // TEST-NET-1 has no listener and no route that answers, so the connect itself
+                    // is what blocks; the point is that cancellation does not have to outwait it.
+                    url = "ftp://192.0.2.1/file.bin",
+                    headers = DownloadRequestHeaders("test", null, null),
+                    requestedThreads = 1,
+                    tempDirectory = tempDirectory(),
+                    onProgress = { _, _, _ -> },
+                )
+            }
+        }
+        delay(500)
+        val stillConnecting = job.isActive
+        if (!stillConnecting) job.cancelAndJoin()
+        // A network that refuses or answers immediately has no connect left to cancel.
+        org.junit.Assume.assumeTrue("the connect returned before it could be cancelled", stillConnecting)
+
+        withTimeout(2_000) { job.cancelAndJoin() }
+        assertTrue(job.isCancelled)
+    }
+
+    @Test
+    fun `cancelling closes the blocked read instead of waiting for the timeout`() = runBlocking {
+        FakeFtpServer(payload, stallAfter = 4_096).use { server ->
+            val job = launch(Dispatchers.IO) {
+                runCatching {
+                    FtpDownloadEngine().download(
+                        url = server.url(), headers = DownloadRequestHeaders("test", null, null),
+                        requestedThreads = 1, tempDirectory = tempDirectory(), onProgress = { _, _, _ -> },
+                    )
+                }
+            }
+            withTimeout(5_000) {
+                while (!server.transferStarted) delay(10)
+            }
+            delay(200)
+
+            // A completion handler would only run once the read returns — thirty seconds later.
+            withTimeout(2_000) { job.cancelAndJoin() }
+            assertTrue(job.isCancelled)
+        }
+    }
+
+    @Test
+    fun `a reply shorter than a status code is a protocol error`() = runBlocking {
+        FakeFtpServer(payload, greeting = "OK").use { server ->
+            val failure = runCatching {
+                FtpDownloadEngine().download(
+                    url = server.url(), headers = DownloadRequestHeaders("test", null, null),
+                    requestedThreads = 1, tempDirectory = tempDirectory(), onProgress = { _, _, _ -> },
+                )
+            }.exceptionOrNull()
+
+            // A substring(0, 3) here used to escape as StringIndexOutOfBoundsException, which the
+            // retry loop does not treat as a failed transfer.
+            assertTrue(failure is IOException)
+        }
+    }
+
+    @Test
+    fun `a short entity is refused instead of published`() = runBlocking {
+        FakeFtpServer(payload, truncateTo = 1_000).use { server ->
+            val failure = runCatching {
+                FtpDownloadEngine().download(
+                    url = server.url(), headers = DownloadRequestHeaders("test", null, null),
+                    requestedThreads = 1, tempDirectory = tempDirectory(), onProgress = { _, _, _ -> },
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure is IOException)
+        }
+    }
+
+    @Test
     fun `a URL that names a directory is refused before any connection`() = runBlocking {
         val failure = runCatching {
             FtpDownloadEngine().download(
@@ -80,9 +179,18 @@ class FtpDownloadEngineTest {
 }
 
 /** Just enough of RFC 959 to serve one file, in the order the client drives it. */
-private class FakeFtpServer(private val payload: ByteArray) : Closeable {
+private class FakeFtpServer(
+    private val payload: ByteArray,
+    /** Bytes to send before holding the data connection open, so a read blocks. */
+    private val stallAfter: Int = Int.MAX_VALUE,
+    /** Announce the full entity but send only this many bytes, then still answer 226. */
+    private val truncateTo: Int = Int.MAX_VALUE,
+    private val greeting: String = "220 fake ftp ready",
+) : Closeable {
     private val server = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
     val commands = java.util.Collections.synchronizedList(mutableListOf<String>())
+    @Volatile var transferStarted = false
+    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val worker = Thread({ accept() }, "fake-ftp").apply { isDaemon = true; start() }
 
     fun url(path: String = "/dir/file.bin") = "ftp://127.0.0.1:${server.localPort}$path"
@@ -90,7 +198,7 @@ private class FakeFtpServer(private val payload: ByteArray) : Closeable {
     private fun accept() {
         while (!server.isClosed) {
             val control = runCatching { server.accept() }.getOrNull() ?: return
-            control.use { session(it) }
+            control.use { runCatching { session(it) } }
         }
     }
 
@@ -101,7 +209,7 @@ private class FakeFtpServer(private val payload: ByteArray) : Closeable {
             writer.write(line + "\r\n")
             writer.flush()
         }
-        reply("220 fake ftp ready")
+        reply(greeting)
         var data: ServerSocket? = null
         var offset = 0
         while (true) {
@@ -126,7 +234,21 @@ private class FakeFtpServer(private val payload: ByteArray) : Closeable {
                     val passive = data ?: throw IllegalStateException("RETR before PASV")
                     reply("150 opening data connection")
                     passive.accept().use { socket ->
-                        socket.getOutputStream().write(payload, offset, payload.size - offset)
+                        transferStarted = true
+                        val remaining = payload.size - offset
+                        val sent = minOf(stallAfter, truncateTo, remaining)
+                        socket.getOutputStream().use { out ->
+                            out.write(payload, offset, sent)
+                            out.flush()
+                            // Only hold the connection open when the test asked for a stall.
+                            if (sent < minOf(remaining, truncateTo)) {
+                                var waited = 0
+                                while (!closed.get() && waited < 60_000) {
+                                    Thread.sleep(100)
+                                    waited += 100
+                                }
+                            }
+                        }
                     }
                     passive.close()
                     data = null
@@ -143,6 +265,7 @@ private class FakeFtpServer(private val payload: ByteArray) : Closeable {
     }
 
     override fun close() {
+        closed.set(true)
         runCatching { server.close() }
         worker.join(1_000)
     }

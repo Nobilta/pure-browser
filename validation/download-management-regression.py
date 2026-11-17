@@ -140,6 +140,7 @@ def main():
         tap_label('ui_delete_download_record')
         save('delete-choices')
         tap_label('ui_delete_records_only')
+        tap_label('cd_delete')
         wait_file('/sdcard/Download/' + first)
         record('Removing only the record preserves the downloaded file')
         back()
@@ -153,6 +154,7 @@ def main():
         row_action(custom, 'download_more')
         tap_label('ui_delete_download_record')
         tap_label('ui_delete_records_and_files')
+        tap_label('cd_delete')
         deadline = time.monotonic() + 10
         while subprocess.run(ux.ADB + ['shell', 'test', '-e', path]).returncode == 0:
             assert time.monotonic() < deadline, 'Delete-file choice retained the file'

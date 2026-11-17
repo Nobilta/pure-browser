@@ -31,6 +31,15 @@ class FtpTargetTest {
     }
 
     @Test
+    fun `a decoded line break is refused instead of becoming a command`() {
+        // FTP has no quoting: a CR/LF inside a component would arrive as a second command.
+        assertNull(FtpTarget.parse("ftp://files.example.test/pub/a%0d%0aDELE%20important.txt"))
+        assertNull(FtpTarget.parse("ftp://files.example.test/pub/a%0aDELE%20important.txt"))
+        assertNull(FtpTarget.parse("ftp://user%0d%0aPASS%20x:pw@files.example.test/report.bin"))
+        assertNull(FtpTarget.parse("ftp://user:pw%0d%0aDELE%20important.txt@files.example.test/report.bin"))
+    }
+
+    @Test
     fun `an address that cannot name one file is not a target`() {
         assertNull(FtpTarget.parse("ftp://files.example.test/"))
         assertNull(FtpTarget.parse("ftp://files.example.test"))
@@ -56,6 +65,51 @@ class HlsPlaylistTest {
             HlsPlaylist.variant(master, "https://cdn.example.test/media/master.m3u8"),
         )
         assertNull(HlsPlaylist.variant("#EXTM3U\n#EXTINF:4,\na.ts\n#EXT-X-ENDLIST", "https://cdn.example.test/x.m3u8"))
+    }
+
+    @Test
+    fun `external audio on an unselected variant does not reject a self contained rendition`() {
+        val master = """
+            #EXTM3U
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="external",URI="audio.m3u8"
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="embedded",NAME="In-band"
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="embedded",NAME="Alternative",URI="alternative.m3u8"
+            #EXT-X-STREAM-INF:BANDWIDTH=100,AUDIO="external"
+            low.m3u8
+            #EXT-X-STREAM-INF:BANDWIDTH=200,AUDIO="embedded"
+            high.m3u8
+        """.trimIndent()
+        assertEquals("https://cdn.example.test/high.m3u8", HlsPlaylist.variant(master, "https://cdn.example.test/master.m3u8"))
+    }
+
+    @Test
+    fun `IV accepts a short number but still rejects invalid or overflowing values`() {
+        assertArrayEquals(HlsPlaylist.defaultIv(0xabc), HlsPlaylist.parseIv("0Xabc"))
+        assertArrayEquals(ByteArray(16) { -1 }, HlsPlaylist.parseIv("0xffffffffffffffffffffffffffffffff"))
+        listOf("0x", "0xgg", "0x100000000000000000000000000000000").forEach {
+            assertNull(HlsPlaylist.parseIv(it))
+        }
+    }
+
+    @Test
+    fun `a master playlist without bandwidth still names its variant`() {
+        // BANDWIDTH is required by RFC 8216, but a master playlist that omits it is still a master
+        // playlist; treating it as media would fail with "no segments" instead of downloading.
+        val master = "#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=640x360\nlow/index.m3u8\n"
+
+        assertEquals(
+            "https://cdn.example.test/media/low/index.m3u8",
+            HlsPlaylist.variant(master, "https://cdn.example.test/media/master.m3u8"),
+        )
+    }
+
+    @Test
+    fun `a map after the last segment applies to nothing`() {
+        val media = "#EXTM3U\n#EXTINF:4.0,\na.ts\n#EXT-X-MAP:URI=\"late.mp4\"\n#EXT-X-ENDLIST"
+
+        val parsed = HlsPlaylist.media(media, "https://cdn.example.test/v/index.m3u8")
+
+        assertEquals(listOf("https://cdn.example.test/v/a.ts"), parsed.items.map { it.uri })
     }
 
     @Test

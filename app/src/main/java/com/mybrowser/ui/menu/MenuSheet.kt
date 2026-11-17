@@ -89,6 +89,7 @@ fun MenuSheet(
     onOpenMoreTools: () -> Unit = {},
     runningScriptCount: Int = 0,
     onSharePage: () -> Unit = {},
+    onShowPageQr: () -> Unit = {},
     siteTitle: String = "",
     siteHost: String = "",
     securityLevel: SecurityLevel = SecurityLevel.SECURE,
@@ -118,6 +119,7 @@ fun MenuSheet(
                 onOpenSiteSettings = onOpenSiteSettings,
                 onToggleBookmark = onToggleBookmark,
                 onSharePage = onSharePage,
+                onShowPageQr = onShowPageQr,
             )
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(scrollState)
@@ -173,6 +175,7 @@ private fun SiteSummaryCard(
     onOpenSiteSettings: () -> Unit,
     onToggleBookmark: () -> Unit,
     onSharePage: () -> Unit,
+    onShowPageQr: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -260,6 +263,12 @@ private fun SiteSummaryCard(
                 description = stringResource(R.string.menu_share_page),
                 enabled = canUsePageActions,
                 onClick = onSharePage,
+            )
+            QuickIcon(
+                icon = R.drawable.ic_ui_qr,
+                description = stringResource(R.string.menu_page_qr),
+                enabled = canUsePageActions,
+                onClick = onShowPageQr,
             )
         }
     }

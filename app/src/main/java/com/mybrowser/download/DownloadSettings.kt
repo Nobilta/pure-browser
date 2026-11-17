@@ -16,6 +16,29 @@ enum class DownloadDestinationMode {
 }
 
 /**
+ * Where one confirmed task saves: the part of [DownloadSettings] a record keeps.
+ *
+ * A settings snapshot has threads, a network policy and limits, none of which describe a place;
+ * a redownload keeps the place its record came from.
+ */
+data class DownloadDestination(
+    val mode: DownloadDestinationMode,
+    val treeUri: String?,
+    val label: String,
+) {
+    fun displayDestinationLabel(resources: Resources): String = localizeDownloadDirectory(resources, label)
+
+    companion object {
+        fun labelFor(mode: DownloadDestinationMode, customLabel: String?): String =
+            if (mode == DownloadDestinationMode.CUSTOM_DIRECTORY) {
+                customLabel?.takeIf { it.isNotBlank() } ?: CUSTOM_DIRECTORY_LABEL
+            } else {
+                SYSTEM_DIRECTORY_LABEL
+            }
+    }
+}
+
+/**
  * Persisted download preferences.
  *
  * A Storage Access Framework tree URI is deliberately stored instead of a filesystem path.
@@ -32,12 +55,10 @@ data class DownloadSettings(
     /** Zero means unlimited; shared across tasks, including their parallel connections. */
     val speedLimitKib: Int = 0,
 ) {
-    val destinationLabel: String
-        get() = if (destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY) {
-            customDirectoryLabel?.takeIf { it.isNotBlank() } ?: CUSTOM_DIRECTORY_LABEL
-        } else {
-            SYSTEM_DIRECTORY_LABEL
-        }
+    val destinationLabel: String get() = DownloadDestination.labelFor(destinationMode, customDirectoryLabel)
+
+    fun destination(): DownloadDestination =
+        DownloadDestination(destinationMode, customTreeUri, destinationLabel)
 
     fun displayDestinationLabel(resources: Resources): String = localizeDownloadDirectory(resources, destinationLabel)
 }
@@ -156,38 +177,41 @@ class DownloadSettingsRepository(context: Context) {
     }
 
     /** Human-readable label for a tree picker result; never exposes an opaque URI to users. */
-    fun describeDirectory(uri: Uri): String {
-        val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
-        val path = documentId
-            ?.takeIf { it.contains(':') }
-            ?.substringAfter(':', missingDelimiterValue = documentId)
-            ?.replace("/", " › ")
-            ?.trim()
-            .orEmpty()
-        if (path.isNotEmpty()) return path.take(MAX_DIRECTORY_LABEL_LENGTH)
-
-        val documentUri = runCatching {
-            DocumentsContract.buildDocumentUriUsingTree(uri, requireNotNull(documentId))
-        }.getOrNull()
-        if (documentUri != null) {
-            runCatching {
-                appContext.contentResolver.query(
-                    documentUri,
-                    arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                    null,
-                    null,
-                    null,
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                }
-            }.getOrNull()?.takeIf { it.isNotBlank() }?.let {
-                return it.take(MAX_DIRECTORY_LABEL_LENGTH)
-            }
-        }
-        return CUSTOM_DIRECTORY_LABEL
-    }
+    fun describeDirectory(uri: Uri): String = describeDirectory(appContext, uri)
 
     companion object {
+        /** Same label, callable where only a Context is at hand (no repository needed). */
+        fun describeDirectory(context: Context, uri: Uri): String {
+            val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+            val path = documentId
+                ?.takeIf { it.contains(':') }
+                ?.substringAfter(':', missingDelimiterValue = documentId)
+                ?.replace("/", " › ")
+                ?.trim()
+                .orEmpty()
+            if (path.isNotEmpty()) return path.take(MAX_DIRECTORY_LABEL_LENGTH)
+
+            val documentUri = runCatching {
+                DocumentsContract.buildDocumentUriUsingTree(uri, requireNotNull(documentId))
+            }.getOrNull()
+            if (documentUri != null) {
+                runCatching {
+                    context.applicationContext.contentResolver.query(
+                        documentUri,
+                        arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    }
+                }.getOrNull()?.takeIf { it.isNotBlank() }?.let {
+                    return it.take(MAX_DIRECTORY_LABEL_LENGTH)
+                }
+            }
+            return CUSTOM_DIRECTORY_LABEL
+        }
+
         internal const val PREFS_NAME = "download_settings"
         private const val KEY_DESTINATION_MODE = "destination_mode"
         private const val KEY_CUSTOM_TREE_URI = "custom_tree_uri"

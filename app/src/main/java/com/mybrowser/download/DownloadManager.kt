@@ -148,9 +148,12 @@ class DownloadHandler(context: Context) : Closeable {
         )
         publishSnapshots()
         refresh()
-        // Only legacy system tasks need polling. Local transfers push progress directly.
+        // Only legacy system tasks need polling. Local transfers push progress directly, and a
+        // record set without one never gains one (only a restored process has that backend), so
+        // the loop ends instead of waking this process every five seconds for nothing.
         monitorJob = transferScope.launch {
             while (isActive && !closed) {
+                if (metadata.values.none { it.backend == DownloadBackend.LEGACY_SYSTEM }) return@launch
                 refresh()
                 val hasRunningLegacy = legacySnapshot.any {
                     it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.PAUSED
@@ -204,7 +207,7 @@ class DownloadHandler(context: Context) : Closeable {
         response: DownloadResponse? = null,
         retryResponse: Boolean = false,
         filename: String? = null,
-        destination: DownloadSettings? = null,
+        destination: DownloadDestination? = null,
     ): EnqueueOutcome {
         if (closed) return EnqueueOutcome.Rejected
         val offer = pageFile
@@ -216,10 +219,15 @@ class DownloadHandler(context: Context) : Closeable {
         val dedupUrl = offer?.let { PAGE_FILE_PREFIX + it.url } ?: cleanUrl.substringBefore('#')
         val safeMime = mimeType?.substringBefore(';')?.let(::sanitizeMime).orEmpty()
             .ifEmpty { "application/octet-stream" }
-        // A playlist URL names the playlist. The saved file is the stream it lists, so both its
-        // extension and its MIME describe the merged bytes instead.
+        // A playlist URL names the playlist, so the saved file's extension describes the stream it
+        // lists. The record keeps the *source* MIME: the transfer, a retry and a redownload all
+        // decide what to fetch from it, and the MIME the finished file is published with is chosen
+        // when the bytes are written.
         val playlist = offer == null && HlsDownloadEngine.handles(cleanUrl, safeMime)
-        val entryMime = if (playlist) HlsDownloadEngine.MIME else safeMime
+        // FTP and HLS move bytes over one connection whatever the thread setting says, and the
+        // detail sheet shows this count before the first progress callback can correct it.
+        // Same predicate as transportFor: the FTP engine, not the thread setting, owns its stream.
+        val singleConnection = playlist || cleanUrl.startsWith("ftp://", ignoreCase = true)
         val safeUserAgent = sanitizeHeader(userAgent, MAX_USER_AGENT_LENGTH).orEmpty()
         val safeDisposition = sanitizeHeader(contentDisposition, MAX_CONTENT_DISPOSITION_LENGTH)
         val safeReferer = referer?.let(::validHttpUrl)
@@ -228,7 +236,7 @@ class DownloadHandler(context: Context) : Closeable {
             MAX_COOKIE_LENGTH,
         )
         val settings = settingsRepository.load()
-        val target = destination ?: settings
+        val target = destination ?: settings.destination()
         response?.let(::prepareResponse)
         val id = createLocalId()
         val entry = synchronized(taskLock) {
@@ -248,11 +256,11 @@ class DownloadHandler(context: Context) : Closeable {
                 userAgent = safeUserAgent,
                 cookie = safeCookie,
                 contentDisposition = safeDisposition,
-                mimeType = entryMime,
+                mimeType = safeMime,
                 filename = uniqueFilename(
                     sanitizeFilename(
                         (filename?.trim()?.takeIf { it.isNotEmpty() } ?: offer?.name?.takeIf { it.isNotBlank() }
-                            ?: FilenameParser.resolve(safeDisposition, cleanUrl, entryMime))
+                            ?: FilenameParser.resolve(safeDisposition, cleanUrl, safeMime))
                             .let { if (playlist) HlsDownloadEngine.outputName(it) else it },
                     ),
                 ),
@@ -269,13 +277,15 @@ class DownloadHandler(context: Context) : Closeable {
                 unmeteredOnly = offer == null && settings.unmeteredOnly,
                 responseBacked = response != null && !retryResponse,
                 identity = identity,
-                // The bytes come from the renderer, so there is no segmented transfer to configure
-                // and nothing metered to defer: the page already has them.
-                configuredThreadCount = if (offer != null) 1 else settings.threadCount,
-                actualThreadCount = if (offer != null || response != null) 1 else settings.threadCount,
-                destinationMode = target.destinationMode,
-                customTreeUri = target.customTreeUri,
-                destinationLabel = target.destinationLabel,
+                // A page file supplies its own bytes; FTP and HLS move them over one connection.
+                // Neither has a segmented transfer to configure, and the page file has nothing
+                // metered to defer.
+                configuredThreadCount = if (offer != null || singleConnection) 1 else settings.threadCount,
+                actualThreadCount = if (offer != null || response != null || singleConnection) 1
+                    else settings.threadCount,
+                destinationMode = target.mode,
+                customTreeUri = target.treeUri,
+                destinationLabel = target.label,
             )
             if (offer != null) fromPageTasks.add(id)
             if (response != null && !retryResponse) responses[id] = response
@@ -848,7 +858,7 @@ class DownloadHandler(context: Context) : Closeable {
                 old.url, old.userAgent, old.contentDisposition, old.mimeType, old.referer,
                 isPrivate = old.identity.isPrivate, cookieHeader = cookie, newCopy = true,
                 filename = old.filename,
-                destination = DownloadSettings(old.destinationMode, old.customTreeUri, old.destinationLabel),
+                destination = DownloadDestination(old.destinationMode, old.customTreeUri, old.destinationLabel),
             )) {
                 is EnqueueOutcome.Started -> outcome.id
                 is EnqueueOutcome.Existing -> outcome.id
@@ -1064,6 +1074,7 @@ class DownloadHandler(context: Context) : Closeable {
             metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.DOWNLOADING) else value }
             publishSnapshots()
             try { return action() } catch (error: java.io.IOException) {
+                if (error is UnsupportedHlsException) throw error
                 if (error is DownloadHttpException && !error.isTransient) throw error
                 if (++retries > 2) throw error
                 metadata.computeIfPresent(id) { _, value -> if (value.status.active) value.copy(status = DownloadStatus.QUEUED, bytesPerSecond = 0) else value }
@@ -1123,7 +1134,10 @@ class DownloadHandler(context: Context) : Closeable {
                 threadCount = current.configuredThreadCount,
             ),
             preferredName = current.filename,
-            mimeType = current.mimeType,
+            // A page file is the bytes the page built, whatever MIME it announced: only a task the
+            // HLS transport merged is republished as a transport stream.
+            mimeType = if (isPageFile(current)) current.mimeType
+            else HlsDownloadEngine.outputMime(current.url, current.mimeType),
             parts = parts,
             onProgress = { percent ->
                 synchronized(taskLock) {
@@ -1196,9 +1210,42 @@ class DownloadHandler(context: Context) : Closeable {
                 metadata.computeIfPresent(id) { _, current ->
                     if (current.status.active) current.copy(status = DownloadStatus.DOWNLOADING) else current
                 }
-                engine.downloadResponse(response, tempDirectory, onProgress)
+                if (HlsDownloadEngine.handles(entry.url, entry.mimeType)) {
+                    // The handed-over body is the playlist itself. Only the playlist is one-shot:
+                    // the segments behind it are ordinary requests. Keeping its text means a pause
+                    // and continue does not need the consumed response or a new request.
+                    val playlist = HlsDownloadEngine.playlistText(response.body)
+                    val kept = runCatching {
+                        tempDirectory.mkdirs()
+                        File(tempDirectory, HlsDownloadEngine.PLAYLIST_NAME).writeText(playlist)
+                    }.isSuccess
+                    if (kept) {
+                        synchronized(taskLock) {
+                            metadata.computeIfPresent(id) { _, current -> current.copy(responseBacked = false) }
+                        }
+                        persistMetadata()
+                    }
+                    retryTransfer(id, entry.unmeteredOnly) {
+                        hls.downloadHandedOver(
+                            url = entry.url,
+                            headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
+                            tempDirectory = tempDirectory,
+                            onProgress = onProgress,
+                            playlistText = playlist,
+                        )
+                    }
+                } else engine.downloadResponse(response, tempDirectory, onProgress)
             } else retryTransfer(id, entry.unmeteredOnly) {
-                transportFor(entry.url, entry.mimeType).download(
+                val keptPlaylist = File(tempDirectory, HlsDownloadEngine.PLAYLIST_NAME)
+                if (HlsDownloadEngine.handles(entry.url, entry.mimeType) && keptPlaylist.isFile) {
+                    hls.downloadHandedOver(
+                        url = entry.url,
+                        headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
+                        tempDirectory = tempDirectory,
+                        onProgress = onProgress,
+                        playlistText = keptPlaylist.readText(),
+                    )
+                } else transportFor(entry.url, entry.mimeType).download(
                     url = entry.url,
                     headers = DownloadRequestHeaders(entry.userAgent, entry.cookie, entry.referer),
                     requestedThreads = entry.configuredThreadCount,
@@ -1219,6 +1266,7 @@ class DownloadHandler(context: Context) : Closeable {
                 metadata.computeIfPresent(id) { _, current ->
                     if (jobs[id] === transferJob && current.status.active)
                         current.copy(status = DownloadStatus.FAILED, failure = when {
+                            error is UnsupportedHlsException -> DownloadFailure.UNSUPPORTED
                             current.status == DownloadStatus.SAVING || error is SecurityException -> DownloadFailure.STORAGE
                             response?.unavailable?.value != null -> DownloadFailure.SOURCE_UNAVAILABLE
                             error is DownloadHttpException -> when (error.code) {

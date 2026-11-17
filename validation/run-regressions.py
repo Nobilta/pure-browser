@@ -104,8 +104,6 @@ def main():
               ('blob-download', ['blob-download-regression.py', '--output', str(OUT / (prefix + '-blob-download'))])]
     stages += [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
                for name, script in upgrade]
-    stages += [(name, ['system-integration-regression.py', '--section', name, '--package', 'com.mybrowser',
-                       '--output', str(OUT / (prefix + '-' + name))]) for name in ['login']]
     stages += [('site-storage', ['site-storage-regression.py']),
               ('desktop-mode', ['desktop-mode-regression.py']),
               ('menu-navigation', ['menu-navigation-regression.py']),

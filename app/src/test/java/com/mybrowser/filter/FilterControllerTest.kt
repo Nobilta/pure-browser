@@ -13,6 +13,19 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class FilterControllerTest {
+    @Test fun theFirstBuildDoesNotWaitOutTheCoalescingWindow() = runBlocking {
+        // Production passes 80 ms; a window this size proves the first build ignores it rather
+        // than that the test happened to finish inside it.
+        val controller = FilterController(RuntimeEnvironment.getApplication(), rebuildDebounceMs = 5_000)
+        try {
+            controller.replaceLists(listOf("||ads.example^\n"), listOf("test"))
+            withTimeout(2_000) { controller.awaitReady() }
+            assertTrue(controller.isReady)
+        } finally {
+            controller.close()
+        }
+    }
+
     @Test fun aRejectedSubscriptionSetStillCompletesFirstBuildReadiness() = runBlocking {
         val controller = FilterController(RuntimeEnvironment.getApplication())
         try {

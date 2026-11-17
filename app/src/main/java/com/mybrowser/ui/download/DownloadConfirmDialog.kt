@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import com.mybrowser.ui.components.BrowserTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -18,12 +19,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import android.content.Intent
-import android.widget.Toast
+import com.mybrowser.download.DownloadDestination
 import com.mybrowser.download.DownloadSettings
 import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.download.DownloadDestinationMode
 import com.mybrowser.ui.components.BrowserActionPill
-import com.mybrowser.ui.components.BrowserTextField
 import com.mybrowser.ui.shell.BrowserDropdownMenu
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -45,33 +45,33 @@ fun DownloadConfirmDialog(
     request: DownloadRequestCoordinator.Request,
     isNewCopy: Boolean,
     settings: DownloadSettings,
-    onConfirm: (retryResponse: Boolean, filename: String, destination: DownloadSettings) -> Unit,
+    onConfirm: (retryResponse: Boolean, filename: String, destination: DownloadDestination) -> Unit,
     onCancel: () -> Unit,
+    onMessage: (String) -> Unit = {},
 ) {
     val textResources = localizedResources()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val repository = remember(context) { DownloadSettingsRepository(context) }
     var filename by rememberSaveable(request.identity) { mutableStateOf(request.filename) }
     var mode by rememberSaveable(request.identity) { mutableStateOf(settings.destinationMode) }
     var treeUri by rememberSaveable(request.identity) { mutableStateOf(settings.customTreeUri) }
     var treeLabel by rememberSaveable(request.identity) { mutableStateOf(settings.customDirectoryLabel) }
     var choosingDirectory by remember { mutableStateOf(false) }
-    val destination = settings.copy(destinationMode = mode, customTreeUri = treeUri, customDirectoryLabel = treeLabel)
+    val destination = DownloadDestination(mode, treeUri, DownloadDestination.labelFor(mode, treeLabel))
     val directoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) scope.launch {
             val label = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.takePersistableUriPermission(uri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                    repository.describeDirectory(uri)
+                    DownloadSettingsRepository.describeDirectory(context, uri)
                 }.getOrNull()
             }
             if (label != null) {
                 treeUri = uri.toString()
                 treeLabel = label
                 mode = DownloadDestinationMode.CUSTOM_DIRECTORY
-            } else Toast.makeText(context, textResources.getString(R.string.ui_unable_to_use_the_selected_download_folder), Toast.LENGTH_LONG).show()
+            } else onMessage(textResources.getString(R.string.ui_unable_to_use_the_selected_download_folder))
         }
     }
     val responseUnavailable = request.response?.unavailable?.collectAsState()?.value
@@ -80,8 +80,12 @@ fun DownloadConfirmDialog(
         title = { Text(textResources.getString(if (isNewCopy) R.string.download_copy_title else R.string.download_confirm_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.download_filename), style = MaterialTheme.typography.labelMedium)
-                BrowserTextField(filename, stringResource(R.string.download_filename), { filename = it.take(127) })
+                BrowserTextField(
+                    value = filename,
+                    onValueChange = { filename = it.take(127) },
+                    label = stringResource(R.string.download_filename),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 if (isNewCopy) {
                     Text(textResources.getString(R.string.download_copy_note), style = MaterialTheme.typography.bodySmall)
                 }

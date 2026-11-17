@@ -28,8 +28,8 @@ class DownloadDedupTest {
     @Test fun confirmationOverridesOnlyThisTasksNameAndDestination() = runBlocking {
         val defaults = DownloadSettingsRepository(context).load()
         coordinator.submit(request(url()))
-        val target = defaults.copy(destinationMode = DownloadDestinationMode.CUSTOM_DIRECTORY,
-            customTreeUri = "content://test/tree/task", customDirectoryLabel = "Task folder")
+        val target = DownloadDestination(DownloadDestinationMode.CUSTOM_DIRECTORY,
+            "content://test/tree/task", "Task folder")
         val outcome = coordinator.confirmPending(filename = " chosen?.bin ", destination = target) as DownloadHandler.EnqueueOutcome.Started
         val item = handler.downloads.value.single { it.id == outcome.id }
         assertEquals(FilenameParser.sanitize("chosen?.bin"), item.filename)

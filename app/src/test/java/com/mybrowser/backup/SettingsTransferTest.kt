@@ -828,9 +828,11 @@ class SettingsTransferTest {
     }
 
     @Test fun invalidSubscriptionsRejectTheWholeFileBeforeAnyGroupChanges() = runBlocking {
+        // A URL that has since become bundled is no longer invalid: the import merges it into that
+        // built-in's switch (FilterSubscriptionsTest covers it).
         val urls = listOf(
             "https://example.com/list#fragment", "https://user:pass@example.com/list",
-            "https://example.com/" + "a".repeat(2048), FilterSubscriptions.BUILT_INS.first().url,
+            "https://example.com/" + "a".repeat(2048),
         )
         val filter = FilterController(context, 0)
         try {

@@ -123,6 +123,8 @@ fun BrowserScreen(
     isIncognito: Boolean = false,
     hasPrivateIsolation: Boolean = false,
     isReaderActive: Boolean = false,
+    readerStyle: com.mybrowser.reader.ReaderStyle = com.mybrowser.reader.ReaderStyle(),
+    onReaderStyleChange: (com.mybrowser.reader.ReaderStyle) -> Unit = {},
     onToggleReader: () -> Unit = {},
     onNewTab: () -> Unit = onTabs,
     bottomAddressBar: Boolean = false,
@@ -163,6 +165,7 @@ fun BrowserScreen(
     val chromeShown = !isVideoFullscreen && (!isBrowserFullscreen || state.isChromeRevealed)
     val chromeForced = immersiveActive && state.isChromeRevealed
     var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
+    var readerBarHeightPx by remember { mutableIntStateOf(0) }
     LaunchedEffect(immersiveActive) { state.onImmersiveFullscreenChanged(immersiveActive) }
 
     // While immersive, back first leaves the revealed state (closing the find bar if it
@@ -634,16 +637,35 @@ fun BrowserScreen(
         }
         }
     }
+    if (isReaderActive) {
+        val chrome = with(LocalDensity.current) { bottomChromeHeightPx.toDp() }
+        ReaderStyleBar(
+            style = readerStyle,
+            onChange = onReaderStyleChange,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        if (chromeShown) WindowInsetsSides.Horizontal
+                        else WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                )
+                .padding(horizontal = 16.dp)
+                .padding(bottom = (if (chromeShown) chrome else 0.dp) + 12.dp)
+                .onSizeChanged { readerBarHeightPx = it.height },
+        )
+    }
     if (snackbarHostState != null && !suppressSnackbar) {
         val bottomChromeHeight = with(LocalDensity.current) { bottomChromeHeightPx.toDp() }
         val fabVisible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused &&
             !immersiveActive && elementPicker == null
-        val overlayLift = when {
+        val readerLift = if (isReaderActive) with(LocalDensity.current) { readerBarHeightPx.toDp() } + 12.dp else 0.dp
+        val overlayLift = maxOf(readerLift, when {
             elementPicker != null -> 64.dp
             translationVisible -> 56.dp
             fabVisible || (immersiveActive && !state.isChromeRevealed) -> 72.dp
             else -> 0.dp
-        }
+        })
         SwipeDismissSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier

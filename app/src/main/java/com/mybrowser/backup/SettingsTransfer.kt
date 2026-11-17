@@ -386,6 +386,8 @@ class SettingsTransfer(
         }
 
         settings.filtering?.let { filtering ->
+            // apply() is not transactional across groups, so an invalid file is refused here before
+            // the browser, home or search groups are written.
             runCatching {
                 val customs = filtering.customSubscriptions ?: return@runCatching
                 FilterSubscriptions.validateCustomLists(customs.map { Triple(it.name, it.url, it.enabled) })

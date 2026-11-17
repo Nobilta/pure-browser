@@ -88,8 +88,8 @@ internal fun SettingsGroupCard(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        BrowserGroupCard(title = title, content = content)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        BrowserGroupCard(modifier = modifier, title = title, content = content)
     }
 }
 

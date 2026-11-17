@@ -104,12 +104,11 @@ def main():
 
         ux.open_settings()
         tap('settings_search')
-        # 'passkey' only appears in this privacy row's title, so the search result is unique
-        # and the tap cannot land on a different setting.
-        text('passkey')
-        tap('system_login')
-        ux.expect(labels['system_login_summary'])
-        record('Settings search opens and highlights the matching privacy setting')
+        # 'incognito' only appears in this privacy row's title, so the filtered list has exactly
+        # the row this checks for.
+        text('incognito')
+        ux.expect(labels['ui_incognito_browsing'])
+        record('Settings search finds the matching privacy setting')
         back(); back(); back()
 
         ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '2.0')
