@@ -1319,6 +1319,7 @@ class DownloadHandler(context: Context) : Closeable {
                 filename = entry.filename,
                 url = entry.url,
                 status = mapped,
+                mimeType = entry.mimeType,
                 progress = progress(downloaded, total),
                 bytesDownloaded = downloaded,
                 totalBytes = total,
@@ -1355,6 +1356,7 @@ class DownloadHandler(context: Context) : Closeable {
         requiresNewRequest = entry.responseBacked,
         sourceUrl = entry.url.takeIf { !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity) }?.let(DownloadValidation::redactCredentials),
         failure = entry.failure,
+        mimeType = entry.mimeType,
     )
 
     private fun publishSnapshots() = synchronized(metadataLock) {

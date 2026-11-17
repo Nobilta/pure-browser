@@ -88,18 +88,11 @@ object SettingsBackupCodec {
         backup.settings.search?.let { search ->
             val group = JSONObject()
             search.currentEngineId?.let { group.put("currentEngineId", it) }
-            search.customEngines?.let { engines ->
-                val array = JSONArray()
-                engines.forEach { engine ->
-                    val item = JSONObject()
-                        .put("id", engine.id)
-                        .put("name", engine.name)
-                        .put("template", engine.template)
-                    engine.suggestUrlTemplate?.let { item.put("suggestUrlTemplate", it) }
-                    array.put(item)
+            search.currentImageEngineId?.let { group.put("currentImageEngineId", it) }
+            listOf("customEngines" to search.customEngines, "customImageEngines" to search.customImageEngines)
+                .forEach { (key, engines) ->
+                    engines?.let { group.put(key, encodeEngines(it)) }
                 }
-                group.put("customEngines", array)
-            }
             settings.put("search", group)
         }
 
@@ -310,13 +303,27 @@ object SettingsBackupCodec {
         return home
     }
 
-    private fun decodeSearch(group: JSONObject): BackupSearch {
+    private fun encodeEngines(engines: List<BackupCustomEngine>): JSONArray = JSONArray().apply {
+        engines.forEach { engine ->
+            put(JSONObject().put("id", engine.id).put("name", engine.name).put("template", engine.template)
+                .apply { engine.suggestUrlTemplate?.let { put("suggestUrlTemplate", it) } })
+        }
+    }
+
+    private fun decodeSearch(group: JSONObject): BackupSearch = BackupSearch(
+        currentEngineId = optionalString(group, "currentEngineId"),
+        customEngines = decodeEngines(group, "customEngines"),
+        currentImageEngineId = optionalString(group, "currentImageEngineId"),
+        customImageEngines = decodeEngines(group, "customImageEngines"),
+    )
+
+    private fun decodeEngines(group: JSONObject, key: String): List<BackupCustomEngine>? {
         var engines: List<BackupCustomEngine>? = null
-        optionalArray(group, "customEngines")?.let { array ->
+        optionalArray(group, key)?.let { array ->
             if (array.length() > 12) throw SettingsBackupException("Too many custom search engines")
             engines = (0 until array.length()).map { index ->
                 val item = array.optJSONObject(index)
-                    ?: throw SettingsBackupException("search.customEngines[$index] is not an object")
+                    ?: throw SettingsBackupException("search.$key[$index] is not an object")
                 val engine = BackupCustomEngine(
                     id = requiredString(item, "id"),
                     name = requiredString(item, "name"),
@@ -343,10 +350,7 @@ object SettingsBackupCodec {
                 throw SettingsBackupException("Duplicate engine id or name")
             }
         }
-        return BackupSearch(
-            currentEngineId = optionalString(group, "currentEngineId"),
-            customEngines = engines,
-        )
+        return engines
     }
 
     private fun decodeDownloads(group: JSONObject): BackupDownloads {

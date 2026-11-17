@@ -12,7 +12,10 @@ import org.json.JSONObject
 /**
  * Manages search engine selection and custom search engines.
  */
-class SearchEngineManager(private val context: Context) {
+class SearchEngineManager(
+    private val context: Context,
+    private val kind: SearchEngineKind = SearchEngineKind.WEB,
+) {
     /** True when a stored custom-engine list exists but could not be decoded. */
     @Volatile var loadFailed: Boolean = false
         private set
@@ -22,24 +25,24 @@ class SearchEngineManager(private val context: Context) {
 
     companion object {
         private const val TAG = "SearchEngineManager"
-        private const val PREF_CURRENT_ENGINE_ID = "current_engine_id"
-        private const val PREF_CUSTOM_ENGINES = "custom_engines"
-        private const val DEFAULT_ENGINE_ID = "baidu"
         private const val MAX_CUSTOM_ENGINES = 12
         private const val MAX_NAME_LENGTH = 64
         private const val MAX_TEMPLATE_LENGTH = 2_048
-        private val BUILTIN_IDS = SearchEngine.BUILTIN_ENGINES.mapTo(HashSet()) { it.id }
-        private val BUILTIN_NAMES = SearchEngine.BUILTIN_ENGINES
-            .mapTo(HashSet()) { it.name.lowercase() }
         private const val MAX_PERSISTED_JSON_LENGTH = 64 * 1024
     }
+
+    private val currentKey = if (kind == SearchEngineKind.WEB) "current_engine_id" else "current_image_engine_id"
+    private val customKey = if (kind == SearchEngineKind.WEB) "custom_engines" else "custom_image_engines"
+    private val defaultEngine = kind.builtIns.first()
+    private val builtinIds = kind.builtIns.mapTo(HashSet()) { it.id }
+    private val builtinNames = kind.builtIns.mapTo(HashSet()) { it.name.lowercase() }
 
     /**
      * Gets the currently selected search engine.
      */
     fun getCurrentEngine(): SearchEngine {
-        val id = prefs.getString(PREF_CURRENT_ENGINE_ID, DEFAULT_ENGINE_ID) ?: DEFAULT_ENGINE_ID
-        return getEngineById(id) ?: SearchEngine.BAIDU
+        val id = prefs.getString(currentKey, defaultEngine.id) ?: defaultEngine.id
+        return getEngineById(id) ?: defaultEngine
     }
 
     /**
@@ -57,9 +60,9 @@ class SearchEngineManager(private val context: Context) {
         // fall back to the built-in default on the next read rather than making every
         // caller handle a dangling engine object.
         if (getEngineById(id) != null) {
-            prefs.edit { putString(PREF_CURRENT_ENGINE_ID, id) }
+            prefs.edit { putString(currentKey, id) }
         } else {
-            prefs.edit { remove(PREF_CURRENT_ENGINE_ID) }
+            prefs.edit { remove(currentKey) }
         }
     }
 
@@ -67,7 +70,7 @@ class SearchEngineManager(private val context: Context) {
      * Gets all available search engines (built-in + custom).
      */
     fun getAvailableEngines(): List<SearchEngine> {
-        return SearchEngine.BUILTIN_ENGINES + getCustomEngines()
+        return kind.builtIns + getCustomEngines()
     }
 
     /**
@@ -96,7 +99,7 @@ class SearchEngineManager(private val context: Context) {
         require(existing.size < MAX_CUSTOM_ENGINES) {
             "Too many custom search engines (maximum $MAX_CUSTOM_ENGINES)"
         }
-        require(cleanName.lowercase() !in BUILTIN_NAMES &&
+        require(cleanName.lowercase() !in builtinNames &&
             existing.none { it.name.equals(cleanName, ignoreCase = true) }) {
             "A custom search engine with this name already exists"
         }
@@ -123,8 +126,8 @@ class SearchEngineManager(private val context: Context) {
         saveCustomEngines(engines)
 
         // If removed engine was current, reset to default
-        if (prefs.getString(PREF_CURRENT_ENGINE_ID, null) == id) {
-            setCurrentEngineById(DEFAULT_ENGINE_ID)
+        if (prefs.getString(currentKey, null) == id) {
+            setCurrentEngineById(defaultEngine.id)
         }
     }
 
@@ -140,36 +143,50 @@ class SearchEngineManager(private val context: Context) {
         for (engine in engines) {
             if (engine.name.length > MAX_NAME_LENGTH || engine.searchUrlTemplate.length > MAX_TEMPLATE_LENGTH) return false
             if (!isValidTemplate(engine.searchUrlTemplate)) return false
-            if (!SearchSuggestionProvider.isValidSuggestTemplate(engine.suggestUrl)) return false
+            if (!isValidSuggestTemplate(engine.suggestUrl)) return false
         }
-        if (engines.any { it.id in BUILTIN_IDS || it.name.lowercase() in BUILTIN_NAMES }) return false
+        if (engines.any { it.id in builtinIds || it.name.lowercase() in builtinNames }) return false
         return buildCustomEnginesJson(engines).length <= MAX_PERSISTED_JSON_LENGTH
     }
 
-    /** The custom list and its selected id become durable in the same file edit. */
-    fun importSettings(customEngines: List<SearchEngine>?, currentEngineId: String?) {
+    /** Both kinds share one preference file so a backup applies them atomically. */
+    fun importSettings(
+        customEngines: List<SearchEngine>?,
+        currentEngineId: String?,
+        customImageEngines: List<SearchEngine>? = null,
+        currentImageEngineId: String? = null,
+    ) {
+        val values = importValues(customEngines, currentEngineId).toMutableMap()
+        if (customImageEngines != null || currentImageEngineId != null) {
+            values.putAll(SearchEngineManager(context, SearchEngineKind.IMAGE)
+                .importValues(customImageEngines, currentImageEngineId))
+        }
+        prefs.commitConfirmed(values)
+    }
+
+    internal fun importValues(customEngines: List<SearchEngine>?, currentEngineId: String?): Map<String, Any> {
         require(customEngines == null || isValidCustomEngineList(customEngines)) { "Invalid custom engine list" }
-        val finalEngines = SearchEngine.BUILTIN_ENGINES + (customEngines ?: getCustomEngines())
+        val finalEngines = kind.builtIns + (customEngines ?: getCustomEngines())
         val finalId = currentEngineId ?: getCurrentEngine().id
         require(finalEngines.any { it.id == finalId }) { "Current engine does not resolve" }
-        prefs.commitConfirmed(buildMap {
-            customEngines?.let { put(PREF_CUSTOM_ENGINES, buildCustomEnginesJson(it)) }
-            put(PREF_CURRENT_ENGINE_ID, finalId)
-        })
+        return buildMap {
+            customEngines?.let { put(customKey, buildCustomEnginesJson(it)) }
+            put(currentKey, finalId)
+        }
     }
 
     fun replaceCustomEngines(engines: List<SearchEngine>): Boolean {
         if (!isValidCustomEngineList(engines)) return false
         saveCustomEngines(engines)
         // A dangling current id (removed by the replacement) falls back via the normal rule.
-        if (prefs.getString(PREF_CURRENT_ENGINE_ID, null)?.let { getEngineById(it) == null } == true) {
-            setCurrentEngineById(DEFAULT_ENGINE_ID)
+        if (prefs.getString(currentKey, null)?.let { getEngineById(it) == null } == true) {
+            setCurrentEngineById(defaultEngine.id)
         }
         return true
     }
 
     private fun getCustomEngines(): List<SearchEngine> {
-        val json = prefs.getString(PREF_CUSTOM_ENGINES, null)
+        val json = prefs.getString(customKey, null)
         if (json == null) {
             loadFailed = false
             return emptyList()
@@ -194,7 +211,7 @@ class SearchEngineManager(private val context: Context) {
     private fun saveCustomEngines(engines: List<SearchEngine>) {
         require(isValidCustomEngineList(engines)) { "Invalid or oversized custom engine list" }
         val json = buildCustomEnginesJson(engines)
-        prefs.edit { putString(PREF_CUSTOM_ENGINES, json) }
+        prefs.edit { putString(customKey, json) }
         loadFailed = false
     }
 
@@ -213,7 +230,7 @@ class SearchEngineManager(private val context: Context) {
                 }
                 if (rawSuggest.isNotEmpty() &&
                     (rawSuggest.length > MAX_TEMPLATE_LENGTH ||
-                        !SearchSuggestionProvider.isValidSuggestTemplate(rawSuggest))
+                        !isValidSuggestTemplate(rawSuggest))
                 ) {
                     continue
                 }
@@ -223,7 +240,7 @@ class SearchEngineManager(private val context: Context) {
                     // Ignore duplicate IDs/names from a hand-edited or truncated preference
                     // blob.  Built-ins are resolved first, so a custom entry also may not
                     // shadow one of their IDs.
-                    if (BUILTIN_IDS.contains(id) || name.lowercase() in BUILTIN_NAMES ||
+                    if (builtinIds.contains(id) || name.lowercase() in builtinNames ||
                         any { it.id == id || it.name.equals(name, true) }
                     ) {
                         continue
@@ -266,28 +283,33 @@ class SearchEngineManager(private val context: Context) {
             "Search URL is too long (maximum $MAX_TEMPLATE_LENGTH characters)"
         }
         require(isValidTemplate(template)) {
-            "Search URL must be an HTTP(S) URL with exactly one {query} or %s placeholder"
+            "Search URL must be an HTTP(S) URL with exactly one ${kind.placeholder} or %s placeholder"
         }
         if (suggestTemplate != null) {
-            require(SearchSuggestionProvider.isValidSuggestTemplate(suggestTemplate)) {
+            require(isValidSuggestTemplate(suggestTemplate)) {
                 "Suggest URL must be HTTPS with a host and exactly one {query} or %s placeholder"
             }
         }
     }
 
+    private fun isValidSuggestTemplate(template: String?): Boolean =
+        if (kind == SearchEngineKind.IMAGE) template.isNullOrBlank()
+        else SearchSuggestionProvider.isValidSuggestTemplate(template)
+
     private fun isValidTemplate(template: String): Boolean {
         if (template.isEmpty() || template.any { it.isWhitespace() || it.isISOControl() }) {
             return false
         }
-        val braceCount = template.windowed(7, partialWindows = true)
-            .count { it == "{query}" }
+        val braceCount = template.windowed(kind.placeholder.length, partialWindows = true)
+            .count { it == kind.placeholder }
         val percentCount = template.windowed(2, partialWindows = true)
             .count { it == "%s" }
         if (braceCount + percentCount != 1) return false
 
         val probe = template
-            .replace("{query}", "query")
+            .replace(kind.placeholder, "query")
             .replace("%s", "query")
+        if ('{' in probe || '}' in probe) return false
         val parsed = runCatching { probe.toUri() }.getOrNull() ?: return false
         val scheme = parsed.scheme?.lowercase() ?: return false
         return (scheme == "http" || scheme == "https") && !parsed.host.isNullOrBlank()

@@ -32,6 +32,7 @@ data class DownloadItem(
     /** Only a source that is usable in the current session; page files have no fetchable URL. */
     val sourceUrl: String? = null,
     val failure: DownloadFailure? = null,
+    val mimeType: String = "application/octet-stream",
 )
 
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, QUEUED, WAITING_NETWORK, SAVING;

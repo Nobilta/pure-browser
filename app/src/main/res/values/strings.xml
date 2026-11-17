@@ -87,8 +87,8 @@
     <string name="menu_cast_found">Castable videos found: %1$d</string>
     <string name="menu_cast_no_direct_source">No direct media address detected for this video</string>
     <string name="playback_speed_title">Playback speed</string>
-    <string name="player_background_audio">Background audio</string>
-    <string name="player_video_menu">Display</string>
+    <string name="player_background_audio">Background playback</string>
+    <string name="player_video_menu">Playback settings</string>
     <string name="player_mirror">Mirror</string>
     <string name="player_fit_natural">Original</string>
     <string name="player_fit_ratio_3_4">3:4</string>
@@ -1088,6 +1088,10 @@
     <string name="filter_cjx_summary">Chinese-site promotions and annoyances. Turn off if page controls stop working.</string>
     <string name="filter_mobile_ads_summary">Additional mobile ad blocking to complement EasyList.</string>
     <string name="filter_app_banners_summary">Optional: hide prompts to open or install apps. Some website navigation may be affected.</string>
+    <string name="search_engine_web">Web search</string>
+    <string name="search_engine_add_custom">Add custom</string>
+    <string name="image_search_engine_add">Add image search engine</string>
+    <string name="image_search_engine_url_hint">https://example.com/search?url={imageUrl}</string>
     <string name="filter_cookie_summary">Optional: hide cookie notices. Does not choose consent for you and may affect login or embedded content.</string>
     <string name="reader_font_smaller">Smaller text</string>
     <string name="reader_font_larger">Larger text</string>

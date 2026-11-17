@@ -113,6 +113,28 @@ class SettingsTransferTest {
         clearLibrary()
     }
 
+    @Test fun imageEnginesRoundTripAndOldBackupsKeepTheirSelection() = runBlocking {
+        val filter = FilterController(context, 0)
+        try {
+            val images = SearchEngineManager(context, com.mybrowser.search.SearchEngineKind.IMAGE)
+            val custom = images.addCustomEngine("Photo lookup", "https://example.com/?image={imageUrl}")
+            images.setCurrentEngine(custom)
+            val transfer = transfer(filter, FilterSubscriptions(context), SiteSettingsRepository(context))
+            val exported = transfer.collect("0.22.2").backup
+            val backup = SettingsBackupCodec.decode(SettingsBackupCodec.encode(exported))
+            assertEquals(custom.id, backup.settings.search!!.currentImageEngineId)
+            assertEquals(custom.searchUrlTemplate, backup.settings.search!!.customImageEngines!!.single().template)
+            images.removeCustomEngine(custom.id)
+            val result = transfer.apply(backup.copy(settings = BackupSettings(search = backup.settings.search)))
+            assertTrue(result.failed.isEmpty())
+            assertEquals(custom, images.getCurrentEngine())
+            val old = SettingsBackupCodec.decode("""{"format":"pure-browser-settings","schemaVersion":1,
+                "settings":{"search":{"currentEngineId":"google","customEngines":[]}}}""")
+            assertTrue(transfer.apply(old).failed.isEmpty())
+            assertEquals(custom, images.getCurrentEngine())
+        } finally { filter.close() }
+    }
+
     @Test fun roundTripRestoresEveryGroupOnAFreshDevice() = runBlocking {
         val filter = FilterController(context, 0)
         val subscriptions = FilterSubscriptions(context, filter) { _, _, _ ->

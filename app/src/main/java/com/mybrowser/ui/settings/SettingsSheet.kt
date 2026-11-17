@@ -66,6 +66,9 @@ import com.mybrowser.download.DownloadDestinationMode
 import com.mybrowser.download.DownloadSettings
 import com.mybrowser.home.HomepageMode
 import com.mybrowser.search.SearchEngine
+import com.mybrowser.search.SearchEngineKind
+import com.mybrowser.ui.components.BrowserTextField
+import androidx.compose.foundation.selection.selectableGroup
 import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.LibrarySearchField
@@ -91,6 +94,11 @@ fun SettingsSheet(
     onSearchEngineChange: (SearchEngine) -> Unit,
     onAddCustomSearchEngine: (String, String, String?) -> Boolean,
     onRemoveCustomSearchEngine: (SearchEngine) -> Unit,
+    currentImageSearchEngine: SearchEngine,
+    availableImageSearchEngines: List<SearchEngine>,
+    onImageSearchEngineChange: (SearchEngine) -> Unit,
+    onAddCustomImageSearchEngine: (String, String) -> Boolean,
+    onRemoveCustomImageSearchEngine: (SearchEngine) -> Unit,
     currentHomepageMode: HomepageMode,
     currentHomepage: String,
     onHomepageModeChange: (HomepageMode) -> Unit,
@@ -447,7 +455,9 @@ fun SettingsSheet(
                         Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
                     when (picker) {
                         "search" -> SearchEngineSettings(currentSearchEngine, availableSearchEngines,
-                            onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine, dismissPicker)
+                            onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine,
+                            currentImageSearchEngine, availableImageSearchEngines, onImageSearchEngineChange,
+                            onAddCustomImageSearchEngine, onRemoveCustomImageSearchEngine, dismissPicker)
                         "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
                             onHomepageModeChange, onHomepageChange, dismissPicker)
                         "downloadSpeed" -> Column(
@@ -608,56 +618,68 @@ private fun SearchEngineSettings(
     onChange: (SearchEngine) -> Unit,
     onAddCustom: (String, String, String?) -> Boolean,
     onRemoveCustom: (SearchEngine) -> Unit,
+    currentImage: SearchEngine,
+    availableImages: List<SearchEngine>,
+    onImageChange: (SearchEngine) -> Unit,
+    onAddCustomImage: (String, String) -> Boolean,
+    onRemoveCustomImage: (SearchEngine) -> Unit,
     onBack: () -> Unit,
 ) {
-    val textResources = localizedResources()
-    var showAddDialog by remember { mutableStateOf(false) }
-
-    SettingsPage(
-        title = textResources.getString(R.string.ui_search_engine),
-        onBack = onBack,
-        actions = {
-            TextButton(onClick = { showAddDialog = true }) {
-                Text(stringResource(R.string.search_engine_add))
-            }
-        },
-    ) {
-        SettingsGroupCard {
-            available.forEachIndexed { index, engine ->
-                if (index > 0) SettingsDivider()
-                SettingsRadioItem(
-                    title = engine.displayName(textResources),
-                    selected = engine.id == current.id,
-                    trailing = if (engine.isCustom) {
-                        {
-                            IconButton(onClick = { onRemoveCustom(engine) }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_ui_delete),
-                                    contentDescription = stringResource(R.string.search_engine_delete),
-                                )
-                            }
-                        }
-                    } else null,
-                ) {
-                    onChange(engine)
-                    onBack()
-                }
-            }
-        }
+    var adding by remember { mutableStateOf<SearchEngineKind?>(null) }
+    SettingsPage(title = stringResource(R.string.ui_search_engine), onBack = onBack) {
+        SearchEngineGroup(stringResource(R.string.search_engine_web), current, available,
+            onChange, onRemoveCustom, { adding = SearchEngineKind.WEB })
+        SearchEngineGroup(stringResource(R.string.context_search_image), currentImage, availableImages,
+            onImageChange, onRemoveCustomImage, { adding = SearchEngineKind.IMAGE })
     }
-
-    if (showAddDialog) {
+    adding?.let { kind ->
         CustomSearchEngineDialog(
+            kind = kind,
             onConfirm = { name, template, suggestTemplate ->
-                if (onAddCustom(name, template, suggestTemplate)) showAddDialog = false
+                val saved = if (kind == SearchEngineKind.IMAGE) onAddCustomImage(name, template)
+                    else onAddCustom(name, template, suggestTemplate)
+                if (saved) adding = null
             },
-            onDismiss = { showAddDialog = false },
+            onDismiss = { adding = null },
         )
     }
 }
 
 @Composable
+private fun SearchEngineGroup(
+    title: String,
+    current: SearchEngine,
+    available: List<SearchEngine>,
+    onChange: (SearchEngine) -> Unit,
+    onRemove: (SearchEngine) -> Unit,
+    onAdd: () -> Unit,
+) {
+    val resources = localizedResources()
+    SettingsGroupCard(title = title) {
+        Column(Modifier.selectableGroup()) {
+            available.forEachIndexed { index, engine ->
+                if (index > 0) SettingsDivider()
+                SettingsRadioItem(
+                    title = engine.displayName(resources), selected = engine.id == current.id,
+                    trailing = if (engine.isCustom) {
+                        {
+                            IconButton(onClick = { onRemove(engine) }) {
+                                Icon(painterResource(R.drawable.ic_ui_delete),
+                                    contentDescription = stringResource(R.string.search_engine_delete))
+                            }
+                        }
+                    } else null,
+                ) { onChange(engine) }
+            }
+        }
+        SettingsDivider()
+        SettingsItem(stringResource(R.string.search_engine_add_custom), "", onAdd, R.drawable.ic_ui_add)
+    }
+}
+
+@Composable
 private fun CustomSearchEngineDialog(
+    kind: SearchEngineKind,
     onConfirm: (name: String, template: String, suggestTemplate: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -668,35 +690,34 @@ private fun CustomSearchEngineDialog(
 
     BrowserAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.search_engine_add)) },
+        title = { Text(stringResource(if (kind == SearchEngineKind.IMAGE)
+            R.string.image_search_engine_add else R.string.search_engine_add)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                BrowserTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.search_engine_name)) },
-                    singleLine = true,
+                    label = stringResource(R.string.search_engine_name),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                BrowserTextField(
                     value = template,
                     onValueChange = { template = it },
-                    label = { Text(stringResource(R.string.search_engine_url)) },
-                    placeholder = { Text(stringResource(R.string.search_engine_url_hint)) },
-                    singleLine = true,
+                    label = stringResource(R.string.search_engine_url),
+                    placeholder = stringResource(if (kind == SearchEngineKind.IMAGE)
+                        R.string.image_search_engine_url_hint else R.string.search_engine_url_hint),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next,
+                        imeAction = if (kind == SearchEngineKind.IMAGE) ImeAction.Done else ImeAction.Next,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                if (kind == SearchEngineKind.WEB) BrowserTextField(
                     value = suggestTemplate,
                     onValueChange = { suggestTemplate = it },
-                    label = { Text(stringResource(R.string.search_engine_suggest_url)) },
-                    placeholder = { Text(stringResource(R.string.search_engine_suggest_url_hint)) },
-                    singleLine = true,
+                    label = stringResource(R.string.search_engine_suggest_url),
+                    placeholder = stringResource(R.string.search_engine_suggest_url_hint),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Done,

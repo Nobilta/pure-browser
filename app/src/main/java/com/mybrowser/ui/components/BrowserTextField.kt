@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,7 +20,14 @@ import androidx.compose.ui.unit.dp
 
 /** Compact form input using the same surface and focus tokens as library search. */
 @Composable
-fun BrowserTextField(value: String, label: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+fun BrowserTextField(
+    value: String,
+    label: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = label,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -32,13 +40,15 @@ fun BrowserTextField(value: String, label: String, onValueChange: (String) -> Un
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
+            keyboardOptions = keyboardOptions,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
             cursorBrush = SolidColor(colors.primary),
             modifier = Modifier.onFocusChanged { focused = it.isFocused }
                 .semantics { contentDescription = label }.padding(12.dp),
             decorationBox = { input ->
                 Box {
-                    if (value.isEmpty()) Text(label, color = colors.onSurfaceVariant)
+                    if (value.isEmpty()) Text(if (focused) placeholder else label,
+                        style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
                     input()
                 }
             },

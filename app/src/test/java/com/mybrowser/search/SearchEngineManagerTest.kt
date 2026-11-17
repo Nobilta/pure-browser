@@ -145,4 +145,46 @@ class SearchEngineManagerTest {
         val metaso = SearchEngine.BUILTIN_ENGINES.single { it.id == "metaso" }
         assertEquals("https://metaso.cn/?q=%E4%B8%AD%E6%96%87", metaso.buildSearchUrl("中文"))
     }
+    @Test
+    fun `image selection and custom templates persist independently of web search`() {
+        val context = RuntimeEnvironment.getApplication()
+        val images = SearchEngineManager(context, SearchEngineKind.IMAGE)
+        assertEquals(SearchEngine.IMAGE_BING, images.getCurrentEngine())
+        manager.setCurrentEngine(SearchEngine.GOOGLE)
+        val custom = images.addCustomEngine("Images", "https://images.example/search?url={imageUrl}")
+        images.setCurrentEngine(custom)
+        val reloaded = SearchEngineManager(context, SearchEngineKind.IMAGE)
+        assertEquals(custom, reloaded.getCurrentEngine())
+        assertEquals(SearchEngine.GOOGLE, manager.getCurrentEngine())
+        assertEquals(SearchEngine.BUILTIN_ENGINES, manager.getAvailableEngines())
+        val imageUrl = "https://cdn.example/猫.png?token=a+b&size=2#crop"
+        assertEquals(imageUrl, android.net.Uri.parse(custom.buildSearchUrl(imageUrl)).getQueryParameter("url"))
+        images.removeCustomEngine(custom.id)
+        assertEquals(SearchEngine.IMAGE_BING, images.getCurrentEngine())
+        assertEquals(SearchEngine.GOOGLE, manager.getCurrentEngine())
+    }
+
+    @Test
+    fun `wrong placeholder and image suggestion URLs are rejected`() {
+        val images = SearchEngineManager(RuntimeEnvironment.getApplication(), SearchEngineKind.IMAGE)
+        for (template in listOf("https://example.com/?url={query}",
+            "https://example.com/?url={imageUrl}&again=%s", "javascript:{imageUrl}")) {
+            org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+                images.addCustomEngine("Images", template)
+            }
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            images.addCustomEngine("Images", "https://example.com/?url={imageUrl}",
+                "https://example.com/suggest?q=%s")
+        }
+    }
+
+    @Test
+    fun `invalid image import does not partially change web settings`() {
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            manager.importSettings(emptyList(), SearchEngine.GOOGLE.id, emptyList(), "missing")
+        }
+        assertEquals(SearchEngine.BAIDU, manager.getCurrentEngine())
+    }
+
 }

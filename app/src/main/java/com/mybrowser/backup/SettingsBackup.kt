@@ -94,6 +94,8 @@ data class BackupSearch(
     val currentEngineId: String? = null,
     /** Null = keep current custom engines; a list (even empty) replaces them all. */
     val customEngines: List<BackupCustomEngine>? = null,
+    val currentImageEngineId: String? = null,
+    val customImageEngines: List<BackupCustomEngine>? = null,
 )
 
 data class BackupCustomEngine(

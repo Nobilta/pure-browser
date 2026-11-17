@@ -136,13 +136,16 @@ def main():
             messages = [n for n in root.iter('node') if n.get('text') in ux.resource_labels('reader_entered')]
             for message in messages:
                 assert ux.bounds(message)[3] <= min(ux.bounds(n)[1] for n in buttons), 'Snackbar overlaps reader controls'
-            record(language + ': all four reader controls fit at 320dp and 200% font size')
+            record(language + ': all reader controls fit at 320dp and 200% font size')
         result['passed'] = True
     finally:
         if private:
             back()
             ux.menu_item(ux._translations[0]['menu_incognito_exit_short'])
-        ux.adb('shell', 'settings', 'put', 'system', 'font_scale', font)
+        if font == 'null':
+            ux.adb('shell', 'settings', 'delete', 'system', 'font_scale')
+        else:
+            ux.adb('shell', 'settings', 'put', 'system', 'font_scale', font)
         ux.adb('shell', 'wm', 'size', original_size)
         command = ['shell', 'cmd', 'locale', 'set-app-locales', ux.PACKAGE]
         if locale:

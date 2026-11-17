@@ -21,6 +21,7 @@ import com.mybrowser.home.HomeRepository
 import com.mybrowser.home.HomepageMode
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchEngineManager
+import com.mybrowser.search.SearchEngineKind
 import com.mybrowser.site.SiteSettings
 import com.mybrowser.site.SiteSettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -159,7 +160,10 @@ class SettingsTransfer(
         val currentEngine = engines.getCurrentEngine()
         val downloads = DownloadSettingsRepository(appContext).load()
         val sitesCorrupt = sites.needsRepair.value
-        val searchCorrupt = engines.loadFailed
+        val imageEngines = SearchEngineManager(appContext, SearchEngineKind.IMAGE)
+        val availableImageEngines = imageEngines.getAvailableEngines()
+        val currentImageEngine = imageEngines.getCurrentEngine()
+        val searchCorrupt = engines.loadFailed || imageEngines.loadFailed
         val filteringCorrupt = filterSubscriptions.loadFailed || filterSubscriptions.userRulesLoadFailed
 
         // The library is capped, never refused: a device over the budget still gets a file,
@@ -228,6 +232,10 @@ class SettingsTransfer(
                     currentEngineId = currentEngine.id,
                     customEngines = availableEngines.filter { it.isCustom }.map {
                         BackupCustomEngine(it.id, it.name, it.searchUrlTemplate, it.suggestUrl)
+                    },
+                    currentImageEngineId = currentImageEngine.id,
+                    customImageEngines = availableImageEngines.filter { it.isCustom }.map {
+                        BackupCustomEngine(it.id, it.name, it.searchUrlTemplate)
                     },
                 ),
                 downloads = BackupDownloads(
@@ -328,8 +336,13 @@ class SettingsTransfer(
             },
             incognitoSwitch = settings.browser?.incognitoEnabled
                 ?.takeIf { it != preferences.incognitoEnabled },
-            engineReplaces = settings.search?.customEngines?.let { new ->
-                new.size to engines.getAvailableEngines().count { it.isCustom }
+            engineReplaces = settings.search?.let { search ->
+                if (search.customEngines == null && search.customImageEngines == null) null else {
+                    val imageEngines = SearchEngineManager(appContext, SearchEngineKind.IMAGE)
+                    (search.customEngines.orEmpty().size + search.customImageEngines.orEmpty().size) to
+                        ((if (search.customEngines != null) engines.getAvailableEngines().count { it.isCustom } else 0) +
+                            (if (search.customImageEngines != null) imageEngines.getAvailableEngines().count { it.isCustom } else 0))
+                }
             },
             subscriptionReplaces = settings.filtering?.customSubscriptions?.let { new ->
                 new.size to filterSubscriptions.subscriptions.value.count { !it.builtIn }
@@ -361,24 +374,9 @@ class SettingsTransfer(
 
         settings.search?.let { search ->
             runCatching {
-                val manager = SearchEngineManager(appContext)
-                val replacement = search.customEngines?.map {
-                    SearchEngine(
-                        id = it.id, name = it.name, searchUrlTemplate = it.template,
-                        suggestUrl = it.suggestUrlTemplate, isCustom = true,
-                    )
-                }
-                if (replacement != null) {
-                    require(manager.isValidCustomEngineList(replacement)) { "Invalid custom engine list" }
-                }
-                // The final current id must resolve no matter whether the file replaced
-                // the custom list, pointed at one, or kept the retained engine.
-                val finalEngines = SearchEngine.BUILTIN_ENGINES +
-                    (replacement ?: manager.getAvailableEngines().filter { it.isCustom })
-                val finalId = search.currentEngineId ?: manager.getCurrentEngine().id
-                require(finalEngines.any { it.id == finalId }) {
-                    "currentEngineId does not resolve: $finalId"
-                }
+                SearchEngineManager(appContext).importValues(search.customEngines?.map { it.toEngine() }, search.currentEngineId)
+                SearchEngineManager(appContext, SearchEngineKind.IMAGE).importValues(
+                    search.customImageEngines?.map { it.toEngine() }, search.currentImageEngineId)
             }.onFailure {
                 invalid += "search"
                 Log.w(TAG, "Settings import rejected: search", it)
@@ -503,12 +501,10 @@ class SettingsTransfer(
         settings.search?.let { search ->
             runCatching {
                 val manager = SearchEngineManager(appContext)
-                manager.importSettings(search.customEngines?.map {
-                    SearchEngine(
-                        id = it.id, name = it.name, searchUrlTemplate = it.template,
-                        suggestUrl = it.suggestUrlTemplate, isCustom = true,
-                    )
-                }, search.currentEngineId)
+                manager.importSettings(
+                    search.customEngines?.map { it.toEngine() }, search.currentEngineId,
+                    search.customImageEngines?.map { it.toEngine() }, search.currentImageEngineId,
+                )
             }.onSuccess { applied += "search" }.onFailure { noteFailure("search", it) }
         }
 
@@ -611,3 +607,7 @@ class SettingsTransfer(
         return ApplyResult(applied, failed, pendingFilterUpdates, importedBookmarks, importedHistory)
     }
 }
+
+private fun BackupCustomEngine.toEngine() = SearchEngine(
+    id = id, name = name, searchUrlTemplate = template, suggestUrl = suggestUrlTemplate, isCustom = true,
+)

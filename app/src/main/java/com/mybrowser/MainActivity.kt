@@ -139,6 +139,7 @@ import com.mybrowser.data.BrowserPreferencesRepository
 import com.mybrowser.core.PlaybackSpeed
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchEngineManager
+import com.mybrowser.search.SearchEngineKind
 import com.mybrowser.search.UrlOrSearch
 import com.mybrowser.media.MediaSniffer
 import com.mybrowser.privacy.PrivacyMode
@@ -208,8 +209,6 @@ import com.mybrowser.ui.shell.SecurityInfoDialog
  * assignment recomposes [BrowserScreen], whose holder reconciliation swaps the instance
  * in. No view manipulation at this level.
  */
-/** The reverse image search provider; the image address is appended URL-encoded. */
-private const val LENS_SEARCH = "https://lens.google.com/uploadbyurl?url="
 
 class MainActivity : ComponentActivity(),
     BrowserWebViewClient.Listener,
@@ -405,6 +404,9 @@ class MainActivity : ComponentActivity(),
     private lateinit var defaultBrowserLauncher: ActivityResultLauncher<Intent>
 
     // Search engine setting
+    private lateinit var imageSearchEngineManager: SearchEngineManager
+    private var imageSearchEngine by mutableStateOf(SearchEngine.IMAGE_BING)
+    private var availableImageSearchEngines by mutableStateOf<List<SearchEngine>>(emptyList())
     private lateinit var searchEngineManager: SearchEngineManager
     private var searchEngine by mutableStateOf(SearchEngine.BAIDU)
     private var availableSearchEngines by mutableStateOf<List<SearchEngine>>(emptyList())
@@ -626,9 +628,12 @@ class MainActivity : ComponentActivity(),
         }
 
         // Initialize search engine manager
+        imageSearchEngineManager = SearchEngineManager(this, SearchEngineKind.IMAGE)
         searchEngineManager = SearchEngineManager(this)
         searchEngine = searchEngineManager.getCurrentEngine()
         availableSearchEngines = searchEngineManager.getAvailableEngines()
+        imageSearchEngine = imageSearchEngineManager.getCurrentEngine()
+        availableImageSearchEngines = imageSearchEngineManager.getAvailableEngines()
 
         homeRepository = HomeRepository(this)
         homeRepository.loadSettings().let { settings ->
@@ -1153,6 +1158,29 @@ class MainActivity : ComponentActivity(),
                                     searchEngine = searchEngineManager.getCurrentEngine()
                                 }
                                 toast(getString(R.string.ui_search_engine_removed, engine.displayName(resources)))
+                            },
+                            currentImageSearchEngine = imageSearchEngine,
+                            availableImageSearchEngines = availableImageSearchEngines,
+                            onImageSearchEngineChange = { engine ->
+                                imageSearchEngineManager.setCurrentEngine(engine)
+                                imageSearchEngine = engine
+                            },
+                            onAddCustomImageSearchEngine = { name, template ->
+                                runCatching { imageSearchEngineManager.addCustomEngine(name, template) }.fold(
+                                    onSuccess = {
+                                        availableImageSearchEngines = imageSearchEngineManager.getAvailableEngines()
+                                        true
+                                    },
+                                    onFailure = {
+                                        toast(getString(R.string.ui_invalid_search_engine_format_or_engine_limit_reached))
+                                        false
+                                    },
+                                )
+                            },
+                            onRemoveCustomImageSearchEngine = { engine ->
+                                imageSearchEngineManager.removeCustomEngine(engine.id)
+                                availableImageSearchEngines = imageSearchEngineManager.getAvailableEngines()
+                                imageSearchEngine = imageSearchEngineManager.getCurrentEngine()
                             },
                             currentHomepageMode = homepageMode,
                             currentHomepage = homeUrl,
@@ -2374,9 +2402,9 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    /** Reverse image search opens in a new tab; LENS_SEARCH is the provider's one constant. */
+    /** Opens the selected provider with the encoded image address. */
     private fun searchImage(url: String) {
-        openUrlInNewTab(LENS_SEARCH + android.net.Uri.encode(url))
+        openUrlInNewTab(imageSearchEngine.buildSearchUrl(url))
     }
 
     private fun downloadImage(url: String) {
@@ -4196,6 +4224,8 @@ class MainActivity : ComponentActivity(),
         browserPreferences = loadBrowserPreferences()
         searchEngine = searchEngineManager.getCurrentEngine()
         availableSearchEngines = searchEngineManager.getAvailableEngines()
+        imageSearchEngine = imageSearchEngineManager.getCurrentEngine()
+        availableImageSearchEngines = imageSearchEngineManager.getAvailableEngines()
         homeRepository.loadSettings().let { settings ->
             homepageMode = settings.mode
             homeUrl = settings.fixedUrl

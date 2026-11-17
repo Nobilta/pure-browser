@@ -471,7 +471,7 @@ private fun DownloadItemRow(
         // one frame made the row look replaced.
         val statusIcon = when (download.status) {
             DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.WAITING_NETWORK, DownloadStatus.SAVING -> R.drawable.ic_ui_download
-            DownloadStatus.COMPLETED -> R.drawable.ic_ui_file
+            DownloadStatus.COMPLETED -> downloadFileIcon(download.filename, download.mimeType)
             DownloadStatus.FAILED -> R.drawable.ic_ui_close
             DownloadStatus.PAUSED -> R.drawable.ic_ui_pause
         }
@@ -488,7 +488,6 @@ private fun DownloadItemRow(
                 modifier = Modifier.size(24.dp),
                 tint = animateColorAsState(
                     targetValue = when (download.status) {
-                        DownloadStatus.COMPLETED -> MaterialTheme.colorScheme.primary
                         DownloadStatus.FAILED -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
@@ -555,7 +554,7 @@ private fun DownloadItemRow(
                     Text(
                         text = textResources.getString(R.string.ui_completed, formatBytes(download.totalBytes), localizeDownloadDirectory(textResources, download.destinationLabel)),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 DownloadStatus.FAILED -> {

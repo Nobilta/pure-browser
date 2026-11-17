@@ -87,8 +87,8 @@
     <string name="menu_cast_found">發現 %1$d 個可投送視頻</string>
     <string name="menu_cast_no_direct_source">未偵測到此視頻可直接投送的媒體地址</string>
     <string name="playback_speed_title">播放速度</string>
-    <string name="player_background_audio">背景播放音訊</string>
-    <string name="player_video_menu">畫面</string>
+    <string name="player_background_audio">背景播放</string>
+    <string name="player_video_menu">播放設定</string>
     <string name="player_mirror">鏡像</string>
     <string name="player_fit_natural">還原</string>
     <string name="player_fit_ratio_3_4">3:4</string>
@@ -1071,6 +1071,10 @@
     <string name="filter_cjx_summary">補充過濾中文網站推廣與干擾元素；頁面操作異常時可關閉。</string>
     <string name="filter_mobile_ads_summary">補充過濾行動網頁廣告，與 EasyList 搭配使用。</string>
     <string name="filter_app_banners_summary">按需開啟：隱藏開啟或安裝 App 的引導，可能影響部分網站導覽。</string>
+    <string name="search_engine_web">網頁搜尋</string>
+    <string name="search_engine_add_custom">新增自訂</string>
+    <string name="image_search_engine_add">新增識圖引擎</string>
+    <string name="image_search_engine_url_hint">https://example.com/search?url={imageUrl}</string>
     <string name="filter_cookie_summary">按需開啟：隱藏 Cookie 提示，不代替你同意或拒絕，可能影響登入及嵌入內容。</string>
     <string name="reader_font_smaller">縮小字級</string>
     <string name="reader_font_larger">放大字級</string>

@@ -106,7 +106,7 @@ def main():
             title = ux.match(root, 'Pure Video Lab')
             assert title is not None and ux.bounds(title)[2] > ux.bounds(title)[0], 'Player title is missing'
             for resource in ('ui_exit_fullscreen', 'picture_in_picture', 'ui_rotate_screen',
-                             'player_background_audio', 'player_video_menu'):
+                             'player_video_menu'):
                 label = next(iter(ux.resource_labels(resource)))
                 targets = [n for n in root.iter('node') if n.get('clickable') == 'true'
                            and ux.match(n, label) is not None]
@@ -114,18 +114,22 @@ def main():
                 left, top, right, bottom = ux.bounds(targets[-1])
                 assert 0 <= left < right <= test.width and 0 <= top < bottom <= test.height, resource
                 assert right-left >= 47*density and bottom-top >= 47*density, 'Player touch target is clipped'
-            record(f'Player title and all five 48dp top actions fit at {width}dp / {scale*100}%')
+            record(f'Player title and all four 48dp top actions fit at {width}dp / {scale*100}%')
             if width == 400 and scale == 2:
                 background = next(iter(ux.resource_labels('player_background_audio')))
                 def checked(tree):
                     return next(n.get('checked') for n in tree.iter('node')
                                 if n.get('checkable') == 'true' and ux.match(n, background) is not None)
+                assert ux.match(root, background) is None, 'Background playback remains in toolbar'
+                test.button(next(iter(ux.resource_labels('player_video_menu'))))
+                root, raw = test.player_nodes(reveal=True)
+                save('player-menu-400-2', raw)
                 initial = checked(root)
                 test.button(background)
                 assert checked(test.player_nodes(reveal=True)[0]) != initial
                 test.button(background)
                 assert checked(test.player_nodes(reveal=True)[0]) == initial
-                record('Background playback switch toggles both ways at 400dp and 200%')
+                record('Background playback menu switch toggles both ways at 400dp and 200%')
         result['passed'] = True
     finally:
         ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)

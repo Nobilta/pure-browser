@@ -4,6 +4,12 @@
 
 ## 自动检查
 
+识图引擎与文件图标回归：安装待测签名 APK、配置 UI probe 后执行
+`python3 validation/image-search-regression.py --serial emulator-5554 --output validation/results/image-search`。
+在专用模拟器验证网页／图片引擎独立选择、自定义两字段表单、重启后 URL 编码传递、删除回到默认 Bing，
+并用每轮独立文件名下载五类文件，核对文件摘要及「已完成」筛选后截图检查图标。加 `--live` 会将公开的 Wikimedia 猫图片地址发送给 Bing，检查实际识别结果；
+它只证明测试网络当时的可用性。JVM 用例覆盖图片引擎备份往返、旧备份保留配置和导入失败不部分写入。
+
 下载管理交互回归：启动 `python3 validation/qa-server.py`，安装待测签名 APK，运行
 `python3 validation/setup-ui-probe.py emulator-5554`，再运行
 `python3 validation/download-management-regression.py --serial emulator-5554 --output validation/results/download-management`。
@@ -28,7 +34,7 @@ SHA-256：FTP 必须逐字节等于服务端实体，HLS 必须等于播放列�
 
 阅读与图片分享回归：QA 服务运行时执行 `python3 validation/reader-sharing-regression.py --serial emulator-5554
 --output validation/results/reader-sharing`。脚本检查普通/无痕受 Cookie 保护图片的实际分享请求、仅普通模式显示以图搜图，以及三语、320dp、
-200% 字体下阅读工具条的完整显示，结束后恢复字体、分辨率和语言。播放器 `video` 回归同时检查后台播放开关的 checked 状态切换。
+200% 字体下阅读工具条的完整显示，结束后恢复字体、分辨率和语言。播放器 `video` 回归同时检查「播放设置」菜单中的后台播放开关双向切换；窄屏矩阵检查顶栏四个操作完整显示。
 
 书签导入导出通过 `bookmarks_transfer` 资源定位「书签操作」菜单，避免依赖旧版按钮名称。
 菜单回归使用当前站点卡片打开网站设置，退出操作按当前「退出」标签定位。

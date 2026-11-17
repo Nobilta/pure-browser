@@ -21,6 +21,7 @@ data class SearchEngine(
         val encoded = Uri.encode(query)
         return searchUrlTemplate
             .replace("{query}", encoded)
+            .replace("{imageUrl}", encoded)
             .replace("%s", encoded)
     }
 
@@ -64,5 +65,26 @@ data class SearchEngine(
         )
 
         val BUILTIN_ENGINES = listOf(BAIDU, GOOGLE, BING, DUCKDUCKGO, METASO)
+
+        val IMAGE_BING = SearchEngine(
+            id = "bing", name = "Bing",
+            searchUrlTemplate = "https://www.bing.com/images/search?view=detailv2&iss=sbi&q=imgurl:{imageUrl}",
+        )
+        val IMAGE_GOOGLE = SearchEngine(
+            id = "google_lens", name = "Google Lens",
+            searchUrlTemplate = "https://lens.google.com/uploadbyurl?url={imageUrl}",
+        )
+        val IMAGE_YANDEX = SearchEngine(
+            id = "yandex", name = "Yandex",
+            searchUrlTemplate = "https://yandex.com/images/search?rpt=imageview&url={imageUrl}",
+        )
+        val IMAGE_ENGINES = listOf(IMAGE_BING, IMAGE_GOOGLE, IMAGE_YANDEX)
     }
+}
+
+enum class SearchEngineKind(val placeholder: String) {
+    WEB("{query}"), IMAGE("{imageUrl}");
+
+    val builtIns: List<SearchEngine>
+        get() = if (this == WEB) SearchEngine.BUILTIN_ENGINES else SearchEngine.IMAGE_ENGINES
 }

@@ -106,8 +106,7 @@ internal fun PlayerControls(
                 slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { -it },
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            val iconCount = 3 + (if (onPictureInPicture != null) 1 else 0) +
-                (if (onToggleBackgroundPlayback != null) 1 else 0)
+            val iconCount = 3 + (if (onPictureInPicture != null) 1 else 0)
             val textWidth = maxWidth - 16.dp - 48.dp * iconCount
             val compact = textWidth < 120.dp * density.fontScale
             val showStatus = textWidth >= 280.dp * density.fontScale
@@ -116,13 +115,6 @@ internal fun PlayerControls(
                     PlayerIcon(R.drawable.ic_ui_pip, stringResource(R.string.picture_in_picture), it)
                 }
                 PlayerIcon(R.drawable.ic_ui_rotate, stringResource(R.string.ui_rotate_screen), onRotate)
-                onToggleBackgroundPlayback?.let { toggle ->
-                    PlayerIcon(
-                        R.drawable.ic_ui_headphones, stringResource(R.string.player_background_audio),
-                        onClick = toggle,
-                        checked = backgroundPlayback,
-                    )
-                }
                 PlayerIcon(
                     R.drawable.ic_ui_more, stringResource(R.string.player_video_menu),
                     onClick = { onMenu(if (state.menu == PlayerMenu.VIDEO) null else PlayerMenu.VIDEO) },
@@ -248,7 +240,7 @@ internal fun PlayerControls(
                     val bar = with(density) { barHeight.toDp() }
                     val available = (viewportHeight - bar - 44.dp).coerceAtLeast(48.dp)
                     val popupWidth = if (menu == PlayerMenu.SPEED) 288.dp else 336.dp
-                    // The picture menu holds five rows, which does not fit the strip above the
+                    // The playback menu does not fit the strip above the
                     // control bar on a landscape phone (~247 dp), so it is allowed to use the
                     // viewport and overlap the bar. The speed and cast panels keep the cap they
                     // were measured with.
@@ -285,7 +277,8 @@ internal fun PlayerControls(
                             when (menu) {
                                 PlayerMenu.SPEED -> SpeedPanel(state.rate, onSpeedPreview, onSpeed)
                                 PlayerMenu.CAST -> castContent()
-                                PlayerMenu.VIDEO -> VideoPanel(state.mirror, state.fit, onMirror, onFit)
+                                PlayerMenu.VIDEO -> VideoPanel(state.mirror, state.fit, onMirror, onFit,
+                                    backgroundPlayback, onToggleBackgroundPlayback)
                             }
                         }
                     }
@@ -468,10 +461,9 @@ private val FIT_OPTIONS = listOf(
 )
 
 /**
- * The picture shape of the video the takeover owns: a mirror and the ratios worth pinning, with
- * the source's own ratio as the way back.
+ * Playback and picture options for the enhanced player.
  *
- * The host remembers the choice for the site, so the panel only reports it and stays open.
+ * The host persists each choice; the panel reports changes and stays open.
  */
 @Composable
 private fun VideoPanel(
@@ -479,23 +471,19 @@ private fun VideoPanel(
     fit: VideoFit,
     onMirror: () -> Unit,
     onFit: (VideoFit) -> Unit,
+    backgroundPlayback: Boolean,
+    onToggleBackgroundPlayback: (() -> Unit)?,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        // The switch itself is inert: the row is the target, so the label and the control are one
-        // accessibility node instead of two.
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("player_mirror_row")
-                .toggleable(value = mirror, role = Role.Switch, onValueChange = { onMirror() }),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(stringResource(R.string.player_mirror), Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium, color = colors.onSurface)
-            Switch(checked = mirror, onCheckedChange = null)
+        onToggleBackgroundPlayback?.let { toggle ->
+            PlayerToggleRow(stringResource(R.string.player_background_audio), backgroundPlayback,
+                "player_background_audio_row", toggle)
         }
+        PlayerToggleRow(stringResource(R.string.player_mirror), mirror, "player_mirror_row", onMirror)
         FIT_OPTIONS.forEach { option ->
             val selected = fit == option.fit
             Row(
@@ -529,6 +517,18 @@ private fun VideoPanel(
                     color = colors.onSurface)
             }
         }
+    }
+}
+
+@Composable
+private fun PlayerToggleRow(label: String, checked: Boolean, tag: String, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = { onToggle() }),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -568,21 +568,7 @@ private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, mo
 }
 
 @Composable
-private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, tint: Color? = null, checked: Boolean? = null) {
-    if (checked != null) {
-        val colors = MaterialTheme.colorScheme
-        Box(
-            Modifier.size(48.dp).clip(CircleShape)
-                .background(if (checked) colors.secondaryContainer else colors.surfaceContainerHigh)
-                .then(if (checked) Modifier.border(1.dp, colors.primary, CircleShape) else Modifier)
-                .toggleable(value = checked, role = Role.Switch, onValueChange = { onClick() }),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(painterResource(icon), description, Modifier.size(24.dp),
-                tint = if (checked) colors.primary else colors.onSurfaceVariant)
-        }
-        return
-    }
+private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, tint: Color? = null) {
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp),
         colors = IconButtonDefaults.iconButtonColors(
             contentColor = tint ?: MaterialTheme.colorScheme.onSurface,
