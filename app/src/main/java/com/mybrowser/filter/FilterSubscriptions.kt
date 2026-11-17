@@ -40,7 +40,7 @@ class FilterSubscriptions(
         val url: String,
         val asset: String,
         val enabledByDefault: Boolean = true,
-        @androidx.annotation.StringRes val summaryRes: Int = 0,
+        @param:androidx.annotation.StringRes val summaryRes: Int = 0,
     )
     data class Subscription(
         val id: String,

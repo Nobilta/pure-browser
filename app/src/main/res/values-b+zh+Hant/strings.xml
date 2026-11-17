@@ -172,7 +172,6 @@
     <string name="ui_private_search_suggestions_summary">默認關閉；開啟後無痕模式輸入也會發送給搜索引擎</string>
     <string name="ui_system_downloads_folder">系統下載目錄</string>
     <string name="ui_download_manager">下載管理</string>
-    <string name="ui_no_downloads">暫無下載</string>
     <string name="ui_items">%1$d 項</string>
     <string name="ui_no_download_tasks">暫無下載任務</string>
     <string name="ui_delete_download_record">刪除下載記錄？</string>

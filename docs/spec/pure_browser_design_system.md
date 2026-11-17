@@ -8,7 +8,7 @@
 
 1. **「底座重度封装，业务一行调用」的可维护架构（Encapsulated Primitives, One-Line Reuse）**
    * **拒绝粗陋的 M3 默认堆砌**：M3 原生部分控件（如锁死 `56.dp` 高的 `OutlinedTextField`、线框噪点过重的 `OutlinedButton`、裸露无边界的次级 `TextButton`、默认灰色 `12.dp` `Card`）无法满足清爽度与无障碍要求。
-   * **复杂度全部下沉至 5 个全局基础组件**（[`BrowserGroupCard`](../../app/src/main/java/com/mybrowser/ui/components/BrowserGroupCard.kt) / [`SettingsGroupCard`](../../app/src/main/java/com/mybrowser/ui/settings/SettingsComponents.kt)、[`BrowserTileCard`](../../app/src/main/java/com/mybrowser/ui/components/BrowserTileCard.kt)、[`BrowserActionPill`](../../app/src/main/java/com/mybrowser/ui/components/BrowserActionPill.kt)、[`LibrarySearchField`](../../app/src/main/java/com/mybrowser/ui/shell/BrowserActions.kt)、[`ThumbZoneLibrarySheet`](../../app/src/main/java/com/mybrowser/ui/components/ThumbZoneLibrarySheet.kt) 及 [`BrowserListItem`](../../app/src/main/java/com/mybrowser/ui/components/BrowserListItem.kt) / [`BrowserSheetHeader`](../../app/src/main/java/com/mybrowser/ui/shell/BrowserActions.kt)）：在基础组件内部**手写封死全部视觉、状态生命周期与无障碍细节**（三层前景色映射、`Role.Switch` 与 `Role.Button` 分流、`0.38f` 禁用降级、紧凑胶囊内边距、`Error > Loading > Empty > Content` 状态分支）。
+   * **复杂度全部下沉至 5 个全局基础组件**（[`BrowserGroupCard`](../../app/src/main/java/com/mybrowser/ui/components/BrowserGroupCard.kt) / [`SettingsGroupCard`](../../app/src/main/java/com/mybrowser/ui/settings/SettingsComponents.kt)、[`BrowserTileCard`](../../app/src/main/java/com/mybrowser/ui/components/BrowserTileCard.kt)、[`BrowserActionPill`](../../app/src/main/java/com/mybrowser/ui/components/BrowserActionPill.kt)、[`LibrarySearchField`](../../app/src/main/java/com/mybrowser/ui/shell/BrowserActions.kt)、[`ThumbZoneLibrarySheet`](../../app/src/main/java/com/mybrowser/ui/components/ThumbZoneLibrarySheet.kt) 及 [`BrowserListItem`](../../app/src/main/java/com/mybrowser/ui/components/BrowserListItem.kt) / [`BrowserSheetHeader`](../../app/src/main/java/com/mybrowser/ui/shell/BrowserActions.kt)）：在基础组件内部**手写封死全部视觉、状态生命周期与无障碍细节**（三层前景色映射、`Role.Switch`、`Role.Button` 与排他单选语义分流、`0.38f` 禁用降级、紧凑胶囊内边距、`Error > Loading > Empty > Content` 状态分支）。
    * **业务页面零手写样式**：业务页面严禁自行拼装 `OutlinedButton` / 裸 `Card`、严禁手写档位外 `RoundedCornerShape(xx.dp)` 或随意 `.copy(alpha = ...)`，一律传业务参数一行调用基础组件。
 2. **微边纯白分层与雪雾交互槽法则（Pure-White Canvas, Porcelain Hairline Cards & Snow-Mist Wells）**
    * [`Theme.kt`](../../app/src/main/java/com/mybrowser/ui/theme/Theme.kt) 全局设置 `surfaceTint = Color.Transparent`，彻底禁用 M3 自动色调叠加。
@@ -34,6 +34,7 @@
    * [`BrowserTileCard`](../../app/src/main/java/com/mybrowser/ui/components/BrowserTileCard.kt) 与 [`BrowserActionPill`](../../app/src/main/java/com/mybrowser/ui/components/BrowserActionPill.kt) 均通过 `isToggle: Boolean` 严格区分无障碍与视觉语义：
      * **布尔开关（`isToggle = true`）**：绑定 `Modifier.toggleable(..., role = Role.Switch)`（如无痕、桌面版、阅读模式、广告拦截、手电筒开关）；开启态采用 `secondaryContainer` 填充 + `1.dp` `primary` 描边 + `primary` 图标（若同时处于禁用态则容器、描边与前景同步降级至 `0.38f` 透明度并保留 `1.dp` 结构环），绝不依赖单一颜色传递状态。
      * **一次性动作或面板启动器（`isToggle = false`）**：绑定 `Modifier.clickable(..., role = Role.Button)`；硬件暂不可用（如相机未授权时的手电筒槽位）优先保持 `0.38f` 禁用占位而非隐藏整个按钮，防止授权瞬间布局跳变。
+   * **排他单选**：`BrowserActionPill(selected = 当前选中状态)` 使用 `Modifier.selectable(..., role = Role.RadioButton)`，父容器提供 `selectableGroup()`；沿用激活底色和描边，不使用布尔开关语义。
 6. **层级导航头契约（Root Dismiss vs Child Back）**
    * **顶层独立半屏抽屉**（栈深 $= 1$，如 `TabsSheet`）：`BrowserSheetHeader` 传入 **`onDismiss`**（渲染右侧 `×` 关闭按钮）。
    * **从父面板压栈进入的子页面或全屏工具页**（如 `SettingsSheet`、`BookmarksSheet`、`QrScannerSheet`）：传入 **`onBack`**（渲染左侧 `←` 返回箭头，优先回退页内子状态，根节点时弹栈）。
@@ -150,6 +151,8 @@
 | **Medium 横屏/小折叠 (`600~839.dp`)** | 半屏抽屉居中限宽 `widthIn(max = 640.dp)` | 标签网格切换为 `GridCells.Fixed(3)` |
 | **Expanded 平板/大折 (`>=840.dp`)** | 左右双栏 Master-Detail | 左侧分类列表固定 `260.dp` + `VerticalDivider` + 右侧详情 |
 
+窄屏或大字体下，`LibrarySelectionBar` 的计数与操作组空间不足时自然分行；播放器优先保留标题与全部 48dp 操作，空间不足时操作分行，并省略时间／电量。
+
 ---
 
 ## 五、全局高复用基础组件库（底座封死细节，业务一行调用）
@@ -204,6 +207,7 @@ fun BrowserActionPill(
     active: Boolean = false,
     isToggle: Boolean = false,
     enabled: Boolean = true,
+    selected: Boolean? = null,
 )
 ```
 

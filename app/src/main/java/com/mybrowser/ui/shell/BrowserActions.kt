@@ -166,6 +166,7 @@ internal fun LibrarySearchField(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LibrarySelectionBar(
     visible: Boolean,
@@ -182,15 +183,17 @@ internal fun LibrarySelectionBar(
         exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
             shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
     ) {
-        Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val selectAll = stringResource(R.string.library_select_all)
-            Checkbox(
-                checked = allSelected,
-                onCheckedChange = onToggleSelectAll,
-                modifier = Modifier.semantics { contentDescription = selectAll },
-            )
-            Text(countText, Modifier.weight(1f))
-            actions()
+        FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val selectAll = stringResource(R.string.library_select_all)
+                Checkbox(
+                    checked = allSelected,
+                    onCheckedChange = onToggleSelectAll,
+                    modifier = Modifier.semantics { contentDescription = selectAll },
+                )
+                Text(countText)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }
     }
 }

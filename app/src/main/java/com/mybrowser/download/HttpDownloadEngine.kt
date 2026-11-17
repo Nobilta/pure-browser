@@ -22,8 +22,8 @@ internal data class DownloadRequestHeaders(
     val referer: String?,
 )
 
-/** One fetched resource: its byte count and the address the request finally resolved to. */
-internal data class HttpFetch(val bytes: Long, val url: String)
+/** Metadata from the final response after redirects. */
+internal data class HttpFetch(val url: String, val contentType: String?)
 
 internal data class DownloadPayload(
     val parts: List<File>,
@@ -273,7 +273,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                     total += count
                 }
             }
-            return HttpFetch(total, connection.url.toExternalForm())
+            return HttpFetch(connection.url.toExternalForm(), connection.contentType)
         } finally {
             releaseConnection(connection)
         }

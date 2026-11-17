@@ -1329,7 +1329,7 @@ class DownloadHandler(context: Context) : Closeable {
                 // offered a resume the manager refuses, and must not have its filename read out.
                 showsFilenameInNotification = entry.identity.showsFilenameInNotification,
                 canResume = entry.identity.canResumeIn(sessionIdentity),
-                sourceUrl = entry.url.takeIf { entry.identity.canResumeIn(sessionIdentity) },
+                sourceUrl = entry.url.takeIf { entry.identity.canResumeIn(sessionIdentity) }?.let(DownloadValidation::redactCredentials),
             )
         }
     }
@@ -1353,7 +1353,7 @@ class DownloadHandler(context: Context) : Closeable {
         showsFilenameInNotification = entry.identity.showsFilenameInNotification,
         canResume = !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity),
         requiresNewRequest = entry.responseBacked,
-        sourceUrl = entry.url.takeIf { !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity) },
+        sourceUrl = entry.url.takeIf { !isPageFile(entry) && entry.identity.canResumeIn(sessionIdentity) }?.let(DownloadValidation::redactCredentials),
         failure = entry.failure,
     )
 

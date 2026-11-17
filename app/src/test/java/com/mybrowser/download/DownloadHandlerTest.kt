@@ -21,6 +21,39 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
+    @Test fun ftpSourceLinksHideCredentialsWithoutChangingTheTransferAddress() {
+        val context = RuntimeEnvironment.getApplication()
+        val url = "ftp://user:p%40ss@example.test/a%20b.bin?q=x%2Fy#fragment"
+        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit()
+            .putString("entries", JSONArray().put(identityRecord(-90, url, "a.bin", "COMPLETED", "normal")).toString()).commit()
+        val handler = DownloadHandler(context)
+        try {
+            val item = handler.downloads.value.single()
+            assertEquals(url, item.url)
+            assertEquals("ftp://example.test/a%20b.bin?q=x%2Fy#fragment", item.sourceUrl)
+        } finally { handler.close() }
+    }
+
+    @Test fun ordinaryM3u8IsUnsupportedAndIsNotRetried() = runBlocking {
+        val context = connectedContext()
+        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/radio.m3u8") { e ->
+            requests.incrementAndGet()
+            val body = "#EXTM3U\nhttps://radio.test/stream\n".toByteArray()
+            e.sendResponseHeaders(200, body.size.toLong())
+            e.responseBody.use { it.write(body) }; e.close()
+        }
+        server.start()
+        val handler = DownloadHandler(context)
+        try {
+            val id = requireNotNull(handler.enqueue("http://127.0.0.1:${server.address.port}/radio.m3u8", null, null, null))
+            val failed = withTimeout(5000) { handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } } }.single { it.id == id }
+            assertEquals(DownloadFailure.UNSUPPORTED, failed.failure)
+            assertEquals(1, requests.get())
+        } finally { handler.close(); server.stop(0) }
+    }
+
     @Test fun httpRejectionsExposeAnActionableCategoryAndKeepItAfterRestart() = runBlocking {
         val context = connectedContext()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

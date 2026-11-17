@@ -30,17 +30,25 @@ internal object ImageSharing {
         cookie: String?,
         chooserTitle: String,
     ): Boolean = withContext(Dispatchers.IO) {
-        val name = "share-${System.currentTimeMillis()}${extensionFor(url)}"
-        // Directly in the capture directory: startup deletes its files, so a share from a private
-        // session does not survive a restart either.
+        // Startup clears this directory, including images shared from a private session.
         val directory = File(context.cacheDir, SHARE_DIRECTORY).apply { mkdirs() }
-        val file = File(directory, name)
-        // A one-shot fetch outside the download budget: the user is waiting for a share sheet, and
-        // the transfer policy (threads, speed limit) describes downloads that keep running.
+        var file = File(directory, "share-${java.util.UUID.randomUUID()}.tmp")
+        val mime: String
         try {
-            FileOutputStream(file).use { sink ->
-                HttpDownloadEngine().fetchTo(url, DownloadRequestHeaders(userAgent.orEmpty(), cookie, referer), sink)
+            val fetched = FileOutputStream(file).use { sink ->
+                HttpDownloadEngine().fetchTo(url, DownloadRequestHeaders(userAgent.orEmpty(), cookie, referer),
+                    sink, maxBytes = MAX_IMAGE_BYTES)
             }
+            val responseType = fetched.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+            mime = when {
+                responseType.startsWith("image/") -> responseType
+                responseType.isEmpty() || responseType == "application/octet-stream" -> mimeFor(fetched.url)
+                else -> throw IOException("The response is not an image")
+            }
+            val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "img"
+            val destination = File(directory, "${file.nameWithoutExtension}.$extension")
+            if (!file.renameTo(destination)) throw IOException("Unable to name the shared image")
+            file = destination
         } catch (cancelled: CancellationException) {
             file.delete()
             throw cancelled
@@ -50,7 +58,7 @@ internal object ImageSharing {
         }
         val uri = FileProvider.getUriForFile(context, context.packageName + CAPTURE_AUTHORITY, file)
         val send = Intent(Intent.ACTION_SEND)
-            .setType(mimeFor(url))
+            .setType(mime)
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         // The chooser reads the URI from ClipData when it targets another app.
@@ -70,12 +78,11 @@ internal object ImageSharing {
     private const val SHARE_DIRECTORY = "web-capture"
     private const val CAPTURE_AUTHORITY = ".captures"
 
-    private fun extensionFor(url: String): String {
-        val extension = MimeTypeMap.getFileExtensionFromUrl(url.substringBefore('?').substringBefore('#'))
-        return if (extension.isNullOrBlank()) ".jpg" else ".$extension"
-    }
+    private const val MAX_IMAGE_BYTES = 64 * 1024 * 1024
 
-    private fun mimeFor(url: String): String =
-        MimeTypeMap.getSingleton().getMimeTypeFromExtension(extensionFor(url).removePrefix("."))
-            ?: "image/*"
+    private fun mimeFor(url: String): String {
+        val extension = MimeTypeMap.getFileExtensionFromUrl(url.substringBefore('?').substringBefore('#')).lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?.takeIf { it.startsWith("image/") } ?: "image/*"
+    }
 }

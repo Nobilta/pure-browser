@@ -50,6 +50,28 @@ class DownloadMetadataStoreTest {
         assertTrue(store.load().entries.isEmpty())
     }
 
+    @Test fun privateFtpCredentialsAreRemovedOnSaveAndOnLoadingExistingRecords() {
+        val store = DownloadMetadataStore(prefs)
+        val url = "ftp://private-user:secret@example.test/a%20b.bin?token=secret#fragment"
+        val entry = record(1).copy(url = url, referer = "https://page.test/private",
+            identity = DownloadIdentity.PrivateSession("private-test"))
+        store.save(listOf(entry))
+        var saved = JSONArray(prefs.getString("entries", null)).getJSONObject(0)
+        assertEquals("ftp://example.test/a%20b.bin", saved.getString("url"))
+        assertEquals(url, entry.url)
+        // Simulate a terminal record written by the previous version; load must rewrite it now.
+        saved.put("url", url).put("referer", entry.referer)
+        prefs.edit { putString("entries", JSONArray().put(saved).toString()) }
+        val restored = store.load().entries.single()
+        assertEquals("ftp://example.test/a%20b.bin", restored.url)
+        assertNull(restored.referer)
+        saved = JSONArray(prefs.getString("entries", null)).getJSONObject(0)
+        assertEquals(restored.url, saved.getString("url"))
+        assertEquals("", saved.getString("referer"))
+        store.save(listOf(entry.copy(identity = DownloadIdentity.Normal)))
+        assertEquals(url, store.load().entries.single().url)
+    }
+
     @Test fun corruptAndOversizedPreferencesAreDiscardedBeforeTheNextSave() {
         val store = DownloadMetadataStore(prefs)
         for (invalid in listOf("not-json", " ".repeat(512 * 1024 + 1))) {

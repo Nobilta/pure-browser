@@ -106,23 +106,12 @@ internal fun PlayerControls(
                 slideOutVertically(animationSpec = BrowserMotion.chromeSpatial()) { -it },
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            Row(
-                Modifier.fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent)))
-                    .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // The immersive bars hide the system status bar, so the controls carry time and
-                // battery themselves. They sit where the system puts its own clock, and the right
-                // end of the row holds the button that opens the picture menu.
-                PlayerStatusStrip(
-                    state.statusTime, state.statusBattery, state.statusCharging,
-                    Modifier.padding(start = 4.dp, end = 8.dp),
-                )
-                PlayerIcon(R.drawable.ic_ui_back, stringResource(R.string.ui_exit_fullscreen), onExit)
-                Text(state.title, Modifier.weight(1f).padding(horizontal = 8.dp),
-                    style = MaterialTheme.typography.titleMedium, color = colors.onSurface,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val iconCount = 3 + (if (onPictureInPicture != null) 1 else 0) +
+                (if (onToggleBackgroundPlayback != null) 1 else 0)
+            val textWidth = maxWidth - 16.dp - 48.dp * iconCount
+            val compact = textWidth < 120.dp * density.fontScale
+            val showStatus = textWidth >= 280.dp * density.fontScale
+            val actions: @Composable RowScope.() -> Unit = {
                 onPictureInPicture?.let {
                     PlayerIcon(R.drawable.ic_ui_pip, stringResource(R.string.picture_in_picture), it)
                 }
@@ -139,6 +128,25 @@ internal fun PlayerControls(
                     onClick = { onMenu(if (state.menu == PlayerMenu.VIDEO) null else PlayerMenu.VIDEO) },
                     tint = if (state.menu == PlayerMenu.VIDEO) colors.primary else null,
                 )
+            }
+            Column(
+                Modifier.fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent)))
+                    .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 24.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (showStatus) PlayerStatusStrip(
+                        state.statusTime, state.statusBattery, state.statusCharging,
+                        Modifier.padding(start = 4.dp, end = 8.dp),
+                    )
+                    PlayerIcon(R.drawable.ic_ui_back, stringResource(R.string.ui_exit_fullscreen), onExit)
+                    Text(state.title, Modifier.weight(1f).padding(horizontal = 8.dp),
+                        style = MaterialTheme.typography.titleMedium, color = colors.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (!compact) actions()
+                }
+                if (compact) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically, content = actions)
             }
         }
 

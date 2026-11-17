@@ -31,6 +31,8 @@ internal object HlsPlaylist {
 
     /** Whether a download of [url] is an HLS merge rather than a file transfer. */
     fun isPlaylist(url: String, mimeType: String): Boolean {
+        if (!url.startsWith("http://", ignoreCase = true) &&
+            !url.startsWith("https://", ignoreCase = true)) return false
         val path = url.substringBefore('#').substringBefore('?').lowercase()
         if (path.endsWith(".m3u8")) return true
         return mimeType.substringBefore(';').trim().lowercase() in PLAYLIST_MIME
@@ -87,7 +89,7 @@ internal object HlsPlaylist {
         var sequence = 0L
         var key: Key? = null
         var complete = false
-        var pendingInit: String? = null
+        var pendingInit: Item? = null
         var expectingSegment = false
         for (line in text.lineSequence().map(String::trim)) {
             when {
@@ -100,7 +102,7 @@ internal object HlsPlaylist {
                     if (attribute(line, "BYTERANGE") != null) {
                         throw UnsupportedHlsException("HLS byte-range maps are not supported")
                     }
-                    pendingInit = attribute(line, "URI")?.let { resolve(base, it) }
+                    pendingInit = attribute(line, "URI")?.let { Item(resolve(base, it), key, sequence) }
                         ?: throw IOException("HLS playlist has an initialization segment without a URI")
                 }
                 // A byte range addresses part of a file; appending the whole file would claim
@@ -113,7 +115,7 @@ internal object HlsPlaylist {
                 else -> {
                     if (!expectingSegment) continue
                     if (pendingInit != null) {
-                        items += Item(pendingInit, key, sequence)
+                        items += pendingInit
                         pendingInit = null
                     }
                     items += Item(resolve(base, line), key, sequence)
@@ -122,7 +124,7 @@ internal object HlsPlaylist {
                 }
             }
         }
-        if (items.isEmpty()) throw IOException("HLS playlist has no segments")
+        if (items.isEmpty()) throw UnsupportedHlsException("HLS playlist has no segments")
         return Media(items, complete)
     }
 

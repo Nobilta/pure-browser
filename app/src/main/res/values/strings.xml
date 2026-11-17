@@ -172,7 +172,6 @@
     <string name="ui_private_search_suggestions_summary">Off by default; when on, private-mode input is also sent to the search engine</string>
     <string name="ui_system_downloads_folder">System Downloads folder</string>
     <string name="ui_download_manager">Download manager</string>
-    <string name="ui_no_downloads">No downloads</string>
     <string name="ui_items">Items: %1$d</string>
     <string name="ui_no_download_tasks">No download tasks</string>
     <string name="ui_delete_download_record">Delete download record?</string>

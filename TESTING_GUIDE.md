@@ -19,10 +19,15 @@ FTP 与 HLS 下载回归：`python3 validation/ftp-hls-server.py` 在 127.0.0.1 
 再运行 `python3 validation/ftp-hls-regression.py --serial emulator-5554 [--package com.mybrowser.debug]
 --output validation/results/ftp-hls`。脚本点击夹具页上的 FTP 与 HLS 链接、确认下载，并比对落盘文件的
 SHA-256：FTP 必须逐字节等于服务端实体，HLS 必须等于播放列表全部分段的拼接（含 AES-128 分段时同样如此）。
-设备侧只覆盖明文 FTP 与未加密播放列表；AES-128（含短 IV）、`EXT-X-MAP`、主列表选码率、独立音轨和范围列表拒绝、读取大小上限及续传由 JVM 单测覆盖。
+设备侧只覆盖明文 FTP 与未加密播放列表；AES-128（含短 IV）、`EXT-X-MAP`、主列表选码率、独立音轨和范围列表拒绝、读取大小上限及续传由 JVM 单测覆盖。单测还覆盖 MAP 前后密钥切换、普通 M3U8 不重试、FTP 无 SIZE 时重下、来源凭据隐藏，以及旧无痕记录清理。
+
+图片分享的 JVM 回归检查无扩展名 PNG、重定向响应类型、HTML 拒绝和 64 MiB 上限及缓存清理。
+下载筛选应暴露 RadioButton/selected 语义；320dp、200% 字体下计数与操作分行；播放器在 320/360/400dp、100%/200% 字体下保留标题和所有顶栏操作。
+
+窄屏布局回归：先运行 FTP/HLS 夹具，再执行 `python3 validation/compact-ui-regression.py --serial emulator-5554 --output validation/results/compact-ui`，检查筛选语义、320dp/200% 多选栏和播放器尺寸矩阵。
 
 阅读与图片分享回归：QA 服务运行时执行 `python3 validation/reader-sharing-regression.py --serial emulator-5554
---output validation/results/reader-sharing`。脚本检查普通/无痕受 Cookie 保护图片的实际分享请求，以及三语、320dp、
+--output validation/results/reader-sharing`。脚本检查普通/无痕受 Cookie 保护图片的实际分享请求、仅普通模式显示以图搜图，以及三语、320dp、
 200% 字体下阅读工具条的完整显示，结束后恢复字体、分辨率和语言。播放器 `video` 回归同时检查后台播放开关的 checked 状态切换。
 
 书签导入导出通过 `bookmarks_transfer` 资源定位「书签操作」菜单，避免依赖旧版按钮名称。

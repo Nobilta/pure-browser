@@ -5,7 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.IOException
 
 class FtpTargetTest {
 
@@ -49,6 +48,19 @@ class FtpTargetTest {
 }
 
 class HlsPlaylistTest {
+    @Test fun `only HTTP playlists use the HLS transport`() {
+        assertTrue(HlsPlaylist.isPlaylist("https://example.test/x.m3u8?q=1", ""))
+        assertTrue(HlsPlaylist.isPlaylist("HTTP://example.test/stream", "application/vnd.apple.mpegurl"))
+        assertTrue(!HlsPlaylist.isPlaylist("ftp://example.test/x.m3u8", "application/vnd.apple.mpegurl"))
+        assertTrue(!HlsPlaylist.isPlaylist("ftp://example.test/stream", "audio/x-mpegurl"))
+    }
+
+    @Test fun `a radio URL list is unsupported HLS`() {
+        val failure = runCatching {
+            HlsPlaylist.media("#EXTM3U\nhttps://radio.test/live\n", "https://example.test/radio.m3u8")
+        }.exceptionOrNull()
+        assertTrue(failure is UnsupportedHlsException)
+    }
 
     @Test
     fun `a master playlist resolves to its highest bandwidth variant`() {
@@ -172,7 +184,7 @@ class HlsPlaylistTest {
     fun `a playlist without segments is refused`() {
         val failure = runCatching { HlsPlaylist.media("#EXTM3U\n#EXT-X-ENDLIST", "https://cdn.example.test/e.m3u8") }
 
-        assertTrue(failure.exceptionOrNull() is IOException)
+        assertTrue(failure.exceptionOrNull() is UnsupportedHlsException)
     }
 
     @Test

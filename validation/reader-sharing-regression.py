@@ -92,6 +92,11 @@ def main():
             x1, y1, x2, y2 = ux.bounds(image)
             ux.adb('shell', 'input', 'swipe', str((x1+x2)//2), str((y1+y2)//2),
                    str((x1+x2)//2), str((y1+y2)//2), '1000')
+            ux.expect('Share image')
+            search = ux.match(ux.nodes()[0], next(iter(ux.resource_labels('context_search_image'))))
+            assert (search is not None) == (not private_mode), 'Search by image must be offered only in normal mode'
+            record(('Private hides' if private_mode else 'Normal shows') + ' search by image')
+            save('context-' + ('private' if private_mode else 'normal'))
             ux.tap('Share image')
             deadline = time.monotonic() + 15
             while not any('ResumedActivity' in line and 'ChooserActivity' in line
@@ -111,7 +116,9 @@ def main():
         ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '2.0')
         for language in ('en', 'zh-CN', 'zh-Hant'):
             ux.adb('shell', 'cmd', 'locale', 'set-app-locales', ux.PACKAGE, '--locales', language)
+            ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
             ux.launch('http://127.0.0.1:8875/reader-fixture.html?language=' + language)
+            ux.expect('Reader fixture', timeout=15)
             ux.menu_item('Reader mode')
             root = save('reader-' + language)
             descriptions = ux.resource_labels('reader_font_smaller') | ux.resource_labels('reader_font_larger')

@@ -132,7 +132,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                 metadata[id] = DownloadMetadata(
                     id = id,
                     backend = backend,
-                    url = url,
+                    url = persistedUrl(url, identity).also { if (it != url) changed = true },
                     userAgent = userAgent,
                     // Session cookies are deliberately memory-only. A retry re-reads the
                     // WebView cookie jar instead of copying credentials into preferences.
@@ -140,7 +140,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                     contentDisposition = disposition,
                     mimeType = mime,
                     filename = filename,
-                    referer = referer,
+                    referer = referer.takeIf { identity.persistSourceUrl }.also { if (it != referer) changed = true },
                     timestamp = timestamp,
                     status = status,
                     unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
@@ -180,9 +180,10 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
             )
         }
 
-    /** Private records retain the file, but never query tokens or the page's address. */
-    private fun persistedUrl(entry: DownloadMetadata): String =
-        if (entry.identity.persistSourceUrl) entry.url else entry.url.substringBefore('?').substringBefore('#')
+    /** Private records retain the file, but never credentials, query tokens or the page address. */
+    private fun persistedUrl(url: String, identity: DownloadIdentity): String =
+        if (identity.persistSourceUrl) url
+        else DownloadValidation.redactCredentials(url.substringBefore('?').substringBefore('#'))
 
     /** See [persistedUrl]: a private download does not keep the page it was started from. */
     private fun persistedReferer(entry: DownloadMetadata): String =
@@ -197,7 +198,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                 .put("version", PERSIST_VERSION)
                 .put("id", entry.id)
                 .put("backend", entry.backend.name)
-                .put("url", persistedUrl(entry))
+                .put("url", persistedUrl(entry.url, entry.identity))
                 .put("userAgent", entry.userAgent)
                 .put("contentDisposition", entry.contentDisposition)
                 .put("mimeType", entry.mimeType)

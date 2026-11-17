@@ -30,6 +30,11 @@ internal object DownloadValidation {
         return value.takeIf { FtpTarget.parse(it) != null }
     }
 
+    /** Removes userinfo without decoding or rewriting the resource path and query. */
+    fun redactCredentials(url: String): String = url.replace(USER_INFO, "$1")
+
+    private val USER_INFO = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?#]*@")
+
     fun sanitizeFilename(raw: String): String =
         FilenameParser.sanitize(raw, keepExtension = false)
 

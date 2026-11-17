@@ -1337,7 +1337,7 @@ class MainActivity : ComponentActivity(),
                         onShare = { url -> pageContextTarget = null; shareUrl(url) },
                         onSaveImage = { url -> pageContextTarget = null; downloadImage(url) },
                         onShareImage = { url -> pageContextTarget = null; shareImage(url) },
-                        onSearchImage = { url -> pageContextTarget = null; searchImage(url) },
+                        onSearchImage = if (privacy.isIncognito) null else { url -> pageContextTarget = null; searchImage(url) },
                         onBlockResource = { rule ->
                             pageContextTarget = null
                             addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))

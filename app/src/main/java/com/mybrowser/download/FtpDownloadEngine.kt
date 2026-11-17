@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
@@ -117,7 +116,7 @@ internal class FtpDownloadEngine(
                 progress.update(already, total, force = true)
                 return@withContext DownloadPayload(listOf(destination), total, 1)
             }
-            val offset = if (already > 0 && session.rest(already)) already else 0L
+            val offset = if (total != null && already > 0 && session.rest(already)) already else 0L
             if (offset == 0L) destination.delete()
             progress.update(offset, total ?: 0L, force = true)
             val data = session.retrieve(target.path)

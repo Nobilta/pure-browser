@@ -104,6 +104,12 @@ def main():
             width = ux.stable_display_bounds(root)[2]
             ux.adb('shell', 'input', 'swipe', str(width - 60), str((y1+y2)//2), '50', str((y1+y2)//2), '300')
         tap_label(resource)
+        root = ux.nodes()[0]
+        radio = next((n for n in root.iter('node') if ux.match(n, label) is not None
+                      and any(c.get('class') == 'android.widget.RadioButton' for c in n.iter('node'))
+                      and n.get('checkable') == 'true'), None)
+        assert radio is not None and radio.get('checked') == 'true', 'Filter must expose selected radio semantics'
+
 
     def wait_file(path):
         expected = hashlib.sha256(bytes(range(256)) * (6 * 1024 * 1024 // 256)).hexdigest()

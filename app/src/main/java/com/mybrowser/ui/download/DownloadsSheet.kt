@@ -80,6 +80,7 @@ fun DownloadsSheet(
     val visible = remember(downloads, query, filter) {
         downloads.filter { filter.matches(it.status) && (query.isBlank() || it.filename.contains(query.trim(), ignoreCase = true)) }
     }
+    val chosen = remember(downloads, selected) { downloads.filter { it.id in selected } }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(focusedId, query, filter, visible.map { it.id }) {
         val target = focusedId ?: return@LaunchedEffect
@@ -118,13 +119,7 @@ fun DownloadsSheet(
         ) {
             BrowserSheetHeader(textResources.getString(R.string.ui_download_manager),
                 onBack = { if (selecting) leaveSelection() else onDismiss() }) {
-                if (downloads.isEmpty()) {
-                    Text(
-                        text = textResources.getString(R.string.ui_no_downloads),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
+                if (downloads.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = textResources.getString(R.string.ui_items, downloads.size),
@@ -151,14 +146,14 @@ fun DownloadsSheet(
                     query = it; leaveSelection()
                 }, Modifier.padding(horizontal = 16.dp))
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    Modifier.fillMaxWidth().selectableGroup().horizontalScroll(rememberScrollState())
                         .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     DownloadFilter.entries.forEach { option ->
                         BrowserActionPill(stringResource(option.label), {
                             filter = option; leaveSelection()
-                        }, active = filter == option, isToggle = true)
+                        }, selected = filter == option)
                     }
                 }
             }
@@ -172,7 +167,6 @@ fun DownloadsSheet(
                 countText = textResources.getString(R.string.ui_selected_count, selected.size),
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
-                val chosen = downloads.filter { it.id in selected }
                 BrowserIconAction(R.drawable.ic_ui_pause, stringResource(R.string.download_pause_selected), chosen.any { it.status.active && it.canPause }) {
                     chosen.filter { it.status.active && it.canPause }.forEach { onPauseDownload(it.id) }
                 }

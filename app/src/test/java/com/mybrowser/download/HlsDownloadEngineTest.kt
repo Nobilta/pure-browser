@@ -318,6 +318,31 @@ class HlsDownloadEngineTest {
         assertEquals(1, requests["/one.ts"] ?: 0)
     }
 
+    @Test
+    fun `maps keep their own encryption across key rotation and clear transitions`() = runBlocking {
+        val init = "initialization bytes".toByteArray()
+        val segment = "media segment bytes".toByteArray()
+        val keyA = ByteArray(16) { it.toByte() }
+        val keyB = ByteArray(16) { (it + 20).toByte() }
+        val ivA = HlsPlaylist.defaultIv(1)
+        val ivB = HlsPlaylist.defaultIv(2)
+        routes["/a.key"] = keyA
+        routes["/b.key"] = keyB
+        for ((encryptedInit, encryptedMedia) in listOf(true to true, true to false, false to true)) {
+            routes["/init.mp4"] = if (encryptedInit) encrypt(init, keyA, ivA) else init
+            routes["/segment.m4s"] = if (encryptedMedia) encrypt(segment, keyB, ivB) else segment
+            val before = if (encryptedInit) "#EXT-X-KEY:METHOD=AES-128,URI=\"a.key\",IV=0x1" else "#EXT-X-KEY:METHOD=NONE"
+            val after = if (encryptedMedia) "#EXT-X-KEY:METHOD=AES-128,URI=\"b.key\",IV=0x2" else "#EXT-X-KEY:METHOD=NONE"
+            routes["/map.m3u8"] = "#EXTM3U\n$before\n#EXT-X-MAP:URI=\"init.mp4\"\n$after\n#EXTINF:4,\nsegment.m4s\n#EXT-X-ENDLIST\n".toByteArray()
+            val dir = directory()
+            try {
+                val result = HlsDownloadEngine(HttpDownloadEngine()).download(url("/map.m3u8"),
+                    DownloadRequestHeaders("test", null, null), 1, dir, { _, _, _ -> })
+                assertArrayEquals(init + segment, result.parts.single().readBytes())
+            } finally { dir.deleteRecursively() }
+        }
+    }
+
     private fun encrypt(plain: ByteArray, key: ByteArray, iv: ByteArray): ByteArray =
         Cipher.getInstance("AES/CBC/PKCS5Padding").run {
             init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))

@@ -72,6 +72,19 @@ class FtpDownloadEngineTest {
     }
 
     @Test
+    fun `unknown SIZE restarts even when REST claims success but ignores the offset`() = runBlocking {
+        FakeFtpServer(payload, supportsSize = false, ignoresRest = true).use { server ->
+            val directory = tempDirectory()
+            File(directory, "part-0").writeBytes(payload.copyOfRange(0, 120_000))
+            val result = FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("test", null, null),
+                1, directory, { _, _, _ -> })
+            assertArrayEquals(payload, result.parts.single().readBytes())
+            assertTrue(server.commands.none { it.startsWith("REST ") })
+            assertEquals(payload.size.toLong(), result.totalBytes)
+        }
+    }
+
+    @Test
     fun `a URL that hides a line break is refused before any command is sent`() = runBlocking {
         FakeFtpServer(payload).use { server ->
             val failure = runCatching {
@@ -186,6 +199,8 @@ private class FakeFtpServer(
     /** Announce the full entity but send only this many bytes, then still answer 226. */
     private val truncateTo: Int = Int.MAX_VALUE,
     private val greeting: String = "220 fake ftp ready",
+    private val supportsSize: Boolean = true,
+    private val ignoresRest: Boolean = false,
 ) : Closeable {
     private val server = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
     val commands = java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -219,9 +234,9 @@ private class FakeFtpServer(
                 "USER" -> reply("331 password required")
                 "PASS" -> reply("230 logged in")
                 "TYPE" -> reply("200 binary mode")
-                "SIZE" -> reply("213 ${payload.size}")
+                "SIZE" -> reply(if (supportsSize) "213 ${payload.size}" else "500 SIZE unavailable")
                 "REST" -> {
-                    offset = line.substringAfter(' ').trim().toInt()
+                    offset = if (ignoresRest) 0 else line.substringAfter(' ').trim().toInt()
                     reply("350 restarting at $offset")
                 }
                 "PASV" -> {

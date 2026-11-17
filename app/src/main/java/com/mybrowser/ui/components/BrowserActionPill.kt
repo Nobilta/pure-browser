@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -26,7 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * The unified capsule pill for secondary actions and toggleable utility states.
+ * The unified capsule pill for actions, boolean toggles and single-choice selections.
+ * [selected] supplies RadioButton semantics and the active appearance for a choice group.
  *
  * - Resting state: borderless snow-mist capsule (`surfaceContainerHigh`) with calm `onSurface`
  *   label and `onSurfaceVariant` icon, avoiding raw Material `OutlinedButton` wireframes and naked
@@ -45,26 +47,30 @@ fun BrowserActionPill(
     active: Boolean = false,
     isToggle: Boolean = false,
     enabled: Boolean = true,
+    selected: Boolean? = null,
 ) {
+    val highlighted = selected ?: active
     val colors = MaterialTheme.colorScheme
     val containerColor = when {
-        !active -> colors.surfaceContainerHigh
+        !highlighted -> colors.surfaceContainerHigh
         enabled -> colors.secondaryContainer
         else -> colors.secondaryContainer.copy(alpha = 0.38f)
     }
     val border = when {
-        !active -> null
+        !highlighted -> null
         enabled -> BorderStroke(1.dp, colors.primary)
         else -> BorderStroke(1.dp, colors.primary.copy(alpha = 0.38f))
     }
-    val baseLabelColor = if (active) colors.onSecondaryContainer else colors.onSurface
+    val baseLabelColor = if (highlighted) colors.onSecondaryContainer else colors.onSurface
     val labelColor = if (enabled) baseLabelColor else baseLabelColor.copy(alpha = 0.38f)
     val iconTint = when {
         !enabled -> labelColor
-        active -> colors.primary
+        highlighted -> colors.primary
         else -> colors.onSurfaceVariant
     }
-    val interaction = if (isToggle) {
+    val interaction = if (selected != null) {
+        Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+    } else if (isToggle) {
         Modifier.toggleable(
             value = active,
             enabled = enabled,
