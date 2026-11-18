@@ -162,6 +162,7 @@ class HlsDownloadEngineTest {
 
         assertArrayEquals(first + second, result.parts.single().readBytes())
         assertEquals((first.size + second.size).toLong(), result.totalBytes)
+        assertEquals(HlsContainer.MPEG_TS, result.hlsContainer)
         assertEquals(1, result.actualThreadCount)
     }
 
@@ -320,7 +321,7 @@ class HlsDownloadEngineTest {
 
     @Test
     fun `maps keep their own encryption across key rotation and clear transitions`() = runBlocking {
-        val init = "initialization bytes".toByteArray()
+        val init = byteArrayOf(0, 0, 0, 20) + "ftypiso6".toByteArray() + ByteArray(4) + "iso6".toByteArray()
         val segment = "media segment bytes".toByteArray()
         val keyA = ByteArray(16) { it.toByte() }
         val keyB = ByteArray(16) { (it + 20).toByte() }
@@ -339,6 +340,7 @@ class HlsDownloadEngineTest {
                 val result = HlsDownloadEngine(HttpDownloadEngine()).download(url("/map.m3u8"),
                     DownloadRequestHeaders("test", null, null), 1, dir, { _, _, _ -> })
                 assertArrayEquals(init + segment, result.parts.single().readBytes())
+                assertEquals(HlsContainer.MP4, result.hlsContainer)
             } finally { dir.deleteRecursively() }
         }
     }

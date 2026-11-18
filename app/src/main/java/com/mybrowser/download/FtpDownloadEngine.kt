@@ -105,19 +105,9 @@ internal class FtpDownloadEngine(
             session.login(target)
             session.command("TYPE I")
             val total = session.size(target.path)
-            var already = destination.length()
-            // A file longer than the entity cannot be a prefix of it: the remote file shrank, or a
-            // previous attempt ran past its end. Start over rather than publish the wrong bytes.
-            if (total != null && already > total) {
-                destination.delete()
-                already = 0L
-            }
-            if (total != null && already == total && already > 0L) {
-                progress.update(already, total, force = true)
-                return@withContext DownloadPayload(listOf(destination), total, 1)
-            }
-            val offset = if (total != null && already > 0 && session.rest(already)) already else 0L
-            if (offset == 0L) destination.delete()
+            val already = destination.length()
+            // Even a full-length part can belong to a RETR whose final reply was a failure.
+            val offset = if (total != null && already > 0 && already < total && session.rest(already)) already else 0L
             progress.update(offset, total ?: 0L, force = true)
             val data = session.retrieve(target.path)
             var downloaded = offset

@@ -1,5 +1,7 @@
 # 0.22.2 本地验证（2026-11-17，未发布）
 
+11 月 18 日的订阅、图片分享、FTP、HLS 与下载限速修复已通过 Kotlin 主源码编译和 77 项 JVM 测试。测试覆盖损坏清单重启、图片请求来源记录与来源策略、TS 和 fMP4 的命名及 MIME。本地套接字受限，FTP 和 HTTP 服务端集成用例仅完成编译，限速页尚未在模拟器回归，本次未生成签名 APK。
+
 被测产物：`PureBrowser-v0.22.2-release.apk`（versionCode 86），当前工作区构建的本地签名 ARM64 Release，包含工作区既有修改；大小、签名和摘要见生成的发布附件。
 
 - 自动化：`./build-and-test.sh --release` 通过。1034 条三语资源、发布工具 14 项、Node 132 项、Rust 70 项；JVM 892 项无失败（1 项跳过）。Rust fmt/clippy、Android Lint（0 错误、20 项既有警告）、R8、签名与 16 KiB zipalign 校验通过。

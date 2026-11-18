@@ -460,14 +460,11 @@ fun SettingsSheet(
                             onAddCustomImageSearchEngine, onRemoveCustomImageSearchEngine, dismissPicker)
                         "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
                             onHomepageModeChange, onHomepageChange, dismissPicker)
-                        "downloadSpeed" -> Column(
-                            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+                        "downloadSpeed" -> SettingsPage(
+                            title = textResources.getString(R.string.download_speed_limit),
+                            onBack = dismissPicker,
+                            modifier = Modifier.selectableGroup(),
                         ) {
-                            Text(
-                                textResources.getString(R.string.download_speed_limit),
-                                style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.padding(20.dp),
-                            )
                             listOf(0, 128, 512, 1024, 5120, 10240).forEach { limit ->
                                 val label = when {
                                     limit == 0 -> textResources.getString(R.string.download_speed_unlimited)

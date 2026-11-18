@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.webkit.MimeTypeMap
+import com.mybrowser.tabs.MediaNavigation
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -26,7 +27,7 @@ internal object ImageSharing {
         context: Context,
         url: String,
         userAgent: String?,
-        referer: String?,
+        navigation: MediaNavigation?,
         cookie: String?,
         chooserTitle: String,
     ): Boolean = withContext(Dispatchers.IO) {
@@ -36,8 +37,8 @@ internal object ImageSharing {
         val mime: String
         try {
             val fetched = FileOutputStream(file).use { sink ->
-                HttpDownloadEngine().fetchTo(url, DownloadRequestHeaders(userAgent.orEmpty(), cookie, referer),
-                    sink, maxBytes = MAX_IMAGE_BYTES)
+                HttpDownloadEngine().fetchTo(url, DownloadRequestHeaders(userAgent.orEmpty(), cookie, null),
+                    sink, maxBytes = MAX_IMAGE_BYTES, navigation = navigation)
             }
             val responseType = fetched.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
             mime = when {

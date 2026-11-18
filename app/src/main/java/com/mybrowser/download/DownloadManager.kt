@@ -1114,6 +1114,7 @@ class DownloadHandler(context: Context) : Closeable {
          * about to write into.
          */
         owner: Job,
+        hlsContainer: HlsContainer? = null,
     ) {
         synchronized(taskLock) {
             metadata.computeIfPresent(id) { _, current ->
@@ -1133,11 +1134,8 @@ class DownloadHandler(context: Context) : Closeable {
                 customDirectoryLabel = current.destinationLabel,
                 threadCount = current.configuredThreadCount,
             ),
-            preferredName = current.filename,
-            // A page file is the bytes the page built, whatever MIME it announced: only a task the
-            // HLS transport merged is republished as a transport stream.
-            mimeType = if (isPageFile(current)) current.mimeType
-            else HlsDownloadEngine.outputMime(current.url, current.mimeType),
+            preferredName = hlsContainer?.filename(current.filename) ?: current.filename,
+            mimeType = hlsContainer?.mimeType ?: current.mimeType,
             parts = parts,
             onProgress = { percent ->
                 synchronized(taskLock) {
@@ -1255,7 +1253,7 @@ class DownloadHandler(context: Context) : Closeable {
             }
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             publishParts(id, payload.parts, payload.totalBytes, payload.actualThreadCount, clearSource = false,
-                owner = transferJob)
+                owner = transferJob, hlsContainer = payload.hlsContainer)
         } catch (cancelled: CancellationException) {
             // An explicit cancel removes metadata first. close() changes surviving entries to
             // PAUSED, so there is no state to publish from this coroutine.

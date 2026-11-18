@@ -2388,13 +2388,15 @@ class MainActivity : ComponentActivity(),
     /** Shares the picture itself: an image URL often answers with a login page, not the bytes. */
     private fun shareImage(url: String) {
         val page = state.currentUrl.takeIf { UrlUtils.isHttpUrl(it) && it != url }
+        val observed = pages.devTools.sessionFor(webView)?.observedImageReferer(url)
+        val navigation = com.mybrowser.tabs.MediaNavigation.create(url, page, observed)
         val cookie = privacy.cookiesFor(url)
         lifecycleScope.launch {
             val shared = com.mybrowser.download.ImageSharing.share(
                 context = this@MainActivity,
                 url = url,
                 userAgent = webView.settings.userAgentString,
-                referer = page,
+                navigation = navigation,
                 cookie = cookie,
                 chooserTitle = getString(R.string.context_share_image),
             )

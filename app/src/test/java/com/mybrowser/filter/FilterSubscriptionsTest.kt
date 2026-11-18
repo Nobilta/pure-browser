@@ -19,6 +19,31 @@ import java.io.IOException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class FilterSubscriptionsTest {
+    @Test fun unreadableManifestAndSnapshotsSurviveRestartAndScheduledUpdates() = runBlocking {
+        val prefs = context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+        val directory = File(context.filesDir, "filter_subscriptions").apply { mkdirs() }
+        val rules = "||fixture.example^"
+        val snapshot = File(directory, "custom-list-" + TextDownloader.sha256(rules) + ".txt")
+        snapshot.writeText(rules)
+        prefs.edit().putString("subscriptions_manifest", "{unreadable").commit()
+
+        repeat(2) {
+            val lists = FilterSubscriptions(context, builtIns = FilterSubscriptions.BUILT_INS.take(1)) { _, _, _ ->
+                throw AssertionError("Unexpected subscription update")
+            }
+            lists.initialize()
+            assertTrue(lists.loadFailed)
+            assertFalse(lists.update())
+            assertFalse(lists.importConfiguration(mapOf("easylist" to false), null).ok)
+            assertEquals("{unreadable", prefs.getString("subscriptions_manifest", null))
+            assertEquals(rules, snapshot.readText())
+        }
+        val recovered = controller()
+        assertTrue(recovered.importConfiguration(emptyMap(), emptyList()).ok)
+        assertFalse(recovered.loadFailed)
+        assertFalse(snapshot.exists())
+    }
+
     @Test fun importedEnabledListsFetchFirstRulesAndFailedDownloadsRemainRetryable() = runBlocking {
         val fetched = mutableListOf<String>()
         var failDownload = true

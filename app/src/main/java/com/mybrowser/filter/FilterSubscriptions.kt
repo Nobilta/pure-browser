@@ -205,7 +205,7 @@ class FilterSubscriptions(
                 loaded += decode(value, Subscription(id, name, url))
             }
         }
-        if (saved == null) migrateLegacy(loaded)
+        if (saved == null && !loadFailed) migrateLegacy(loaded)
         val startupPayloads = HashMap<String, ValidatedPayload>(loaded.size)
         val manifestBefore = loaded.map(::manifestFields)
         _subscriptions.value = loaded.map { savedList ->
@@ -240,7 +240,7 @@ class FilterSubscriptions(
         // A dropped or merged snapshot, or a count measured for the first time, has to reach the
         // manifest once; without this every cold start would re-read and re-hash the same file.
         val currentSubscriptions = _subscriptions.value
-        if (currentSubscriptions.map(::manifestFields) != manifestBefore) {
+        if (!loadFailed && currentSubscriptions.map(::manifestFields) != manifestBefore) {
             persist(currentSubscriptions)
             cleanup()
         }
@@ -421,6 +421,8 @@ class FilterSubscriptions(
             try {
                 customLists?.let { validateCustomLists(it) }
                 initializeLocked()
+                // A partial import cannot retain subscriptions from an unreadable manifest.
+                check(!loadFailed || customLists != null)
                 val current = _subscriptions.value
                 var next = current.map { subscription ->
                     if (subscription.builtIn && subscription.id in builtInStates) {
@@ -532,6 +534,7 @@ class FilterSubscriptions(
             _lastError.value = null
             try {
                 initializeLocked()
+                check(!loadFailed) { "Subscription manifest could not be read" }
                 block()
             } catch (cancelled: CancellationException) {
                 throw cancelled

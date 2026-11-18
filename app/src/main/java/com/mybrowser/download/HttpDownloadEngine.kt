@@ -1,6 +1,7 @@
 package com.mybrowser.download
 
 import android.util.Log
+import com.mybrowser.tabs.MediaNavigation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -29,6 +30,7 @@ internal data class DownloadPayload(
     val parts: List<File>,
     val totalBytes: Long,
     val actualThreadCount: Int,
+    val hlsContainer: HlsContainer? = null,
 )
 
 /**
@@ -253,8 +255,9 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         /** The origin [DownloadRequestHeaders.cookie] belongs to; null means [url]. */
         cookieOrigin: String? = null,
         maxBytes: Int? = null,
+        navigation: MediaNavigation? = null,
     ): HttpFetch {
-        val connection = openConnection(url, headers, cookieOrigin = cookieOrigin)
+        val connection = openConnection(url, headers, cookieOrigin = cookieOrigin, navigation = navigation)
         try {
             val code = connection.responseCode
             requireIdentityEncoding(connection)
@@ -441,12 +444,14 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         range: String? = null,
         validator: String? = null,
         cookieOrigin: String? = null,
+        navigation: MediaNavigation? = null,
     ): HttpURLConnection {
         // A raw Cookie header belongs to the address that supplied it. For a plain download that
         // is this URL; a playlist passes its own page address instead, so a segment or key on
         // another host never receives it. The request itself still goes to [url].
         val cookieScope = URL(cookieOrigin ?: url)
         var current = URL(url)
+        var source = navigation
         repeat(MAX_REDIRECTS + 1) { hop ->
             if (current.protocol !in setOf("http", "https") || current.host.isBlank()) {
                 throw IOException("Unsupported download URL")
@@ -467,7 +472,8 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                 if (sameOrigin(cookieScope, current)) {
                     headers.cookie?.takeIf(String::isNotBlank)?.let { setRequestProperty("Cookie", it) }
                 }
-                headers.referer?.takeIf(String::isNotBlank)?.let { setRequestProperty("Referer", it) }
+                val referer = source?.referer ?: headers.referer
+                referer?.takeIf(String::isNotBlank)?.let { setRequestProperty("Referer", it) }
                 range?.let { setRequestProperty("Range", it) }
                 validator?.let { setRequestProperty("If-Range", it) }
                 }
@@ -485,6 +491,8 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                     next.userInfo != null || (current.protocol == "https" && next.protocol != "https")) {
                     throw IOException("Unsafe download redirect")
                 }
+                source = source?.follow(next.toString(), isRedirect = true,
+                    responsePolicy = connection.getHeaderField("Referrer-Policy"))
                 current = next
             } catch (error: Exception) {
                 releaseConnection(connection)

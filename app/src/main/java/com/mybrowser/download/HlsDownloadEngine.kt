@@ -18,9 +18,8 @@ import javax.crypto.spec.SecretKeySpec
  *
  * A transport rather than a second downloader: the playlist is resolved to one variant, each
  * segment goes through the HTTP engine's connection rules and byte budget, and the result is the
- * same "one part plus its total" every other transport leaves behind. Concatenated MPEG-TS plays as
- * one file; a playlist with `#EXT-X-MAP` is an fMP4 stream whose initialisation segment simply
- * comes first in the same file.
+ * same "one part plus its total" every other transport leaves behind. An initialization segment,
+ * when present, comes first in the merged file.
  *
  * The part is resumable: after each segment the number already appended is written to
  * `hls.state`, and a later attempt truncates back to it before continuing. The state carries a
@@ -94,7 +93,7 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
         }
         progress.update(written, 0L, force = true)
         // A playlist has no declared total: the bytes it produced are the total.
-        return@withContext DownloadPayload(listOf(part), written, 1)
+        return@withContext DownloadPayload(listOf(part), written, 1, HlsContainer.detect(part))
     }
 
     private suspend fun append(
@@ -182,9 +181,6 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
     }
 
     companion object {
-        /** The container a concatenated HLS stream is saved as. */
-        const val MIME = "video/mp2t"
-
         private const val PART_NAME = "part-0"
 
         /**
@@ -199,15 +195,6 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
         /** Whether this address is an HLS merge rather than a file transfer. */
         fun handles(url: String, mimeType: String): Boolean = HlsPlaylist.isPlaylist(url, mimeType)
 
-        /**
-         * What the finished file is published as.
-         *
-         * The task keeps the MIME its request arrived with, because that is what a retry and a
-         * redownload need to recognise the address as a playlist; the saved bytes are the merged
-         * stream, so the destination gets that instead.
-         */
-        fun outputMime(url: String, mimeType: String): String = if (handles(url, mimeType)) MIME else mimeType
-
         /** The playlist a response body carries, bounded like every other playlist read. */
         internal fun playlistText(body: java.io.InputStream): String {
             val collected = ByteArrayOutputStream()
@@ -221,13 +208,7 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
             return collected.toString("UTF-8")
         }
 
-        /**
-         * The name the merged file is saved as.
-         *
-         * A playlist URL names the playlist, not the video, so the extension has to describe what
-         * the bytes actually are — otherwise the file opens in a text viewer and every player
-         * refuses it.
-         */
+        /** Suggested name before the media container is known. */
         fun outputName(name: String): String {
             val lower = name.lowercase()
             return when {
@@ -235,6 +216,29 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
                 '.' !in name -> "$name.ts"
                 else -> name
             }
+        }
+    }
+}
+
+internal enum class HlsContainer(val mimeType: String, private val extension: String) {
+    MPEG_TS("video/mp2t", "ts"), MP4("video/mp4", "mp4");
+
+    fun filename(name: String): String {
+        val suffix = name.substringAfterLast('.', "").lowercase()
+        val stem = when (suffix) {
+            "" -> name
+            "ts", "mp4", "m3u8" -> name.substringBeforeLast('.')
+            else -> return name
+        }
+        return FilenameParser.sanitize("$stem.$extension")
+    }
+
+    companion object {
+        fun detect(part: File): HlsContainer = RandomAccessFile(part, "r").use { file ->
+            if (file.length() < 8) return MPEG_TS
+            file.seek(4)
+            // The first box of an HLS fragmented MP4 initialization section is 'ftyp'.
+            if (file.readInt() == 0x66747970) MP4 else MPEG_TS
         }
     }
 }

@@ -55,6 +55,24 @@ class FtpDownloadEngineTest {
     }
 
     @Test
+    fun `a full part left after a negative final reply must be retrieved again`() = runBlocking {
+        FakeFtpServer(payload, finalReply = "426 transfer aborted").use { server ->
+            val directory = tempDirectory()
+            try {
+                repeat(2) {
+                    val failure = runCatching {
+                        FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("test", null, null),
+                            1, directory) { _, _, _ -> }
+                    }.exceptionOrNull()
+                    assertTrue(failure is IOException)
+                    assertEquals(payload.size.toLong(), File(directory, "part-0").length())
+                }
+                assertEquals(2, server.commands.count { it.startsWith("RETR ") })
+            } finally { directory.deleteRecursively() }
+        }
+    }
+
+    @Test
     fun `an interrupted transfer resumes at the bytes already on disk`() = runBlocking {
         FakeFtpServer(payload).use { server ->
             val directory = tempDirectory()
@@ -199,6 +217,7 @@ private class FakeFtpServer(
     /** Announce the full entity but send only this many bytes, then still answer 226. */
     private val truncateTo: Int = Int.MAX_VALUE,
     private val greeting: String = "220 fake ftp ready",
+    private val finalReply: String = "226 transfer complete",
     private val supportsSize: Boolean = true,
     private val ignoresRest: Boolean = false,
 ) : Closeable {
@@ -268,7 +287,7 @@ private class FakeFtpServer(
                     passive.close()
                     data = null
                     offset = 0
-                    reply("226 transfer complete")
+                    reply(finalReply)
                 }
                 "QUIT" -> {
                     reply("221 bye")

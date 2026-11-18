@@ -266,6 +266,17 @@ internal class DevToolsSession(
         }
     }
 
+    /** Null means no image observation; an empty value preserves an omitted header. */
+    fun observedImageReferer(url: String): String? {
+        val target = url.substringBefore('#')
+        val image = details.snapshot().lastOrNull {
+            it.documentId == documentId && it.source == NetworkSource.WEBVIEW &&
+                it.resourceType == ResourceType.IMAGE.ordinal && it.method == "GET" && it.url.substringBefore('#') == target
+        } ?: return null
+        return image.requestHeaders.firstOrNull { it.name.equals("Referer", true) }?.value
+            ?.takeIf { it.length < DevToolsBudgets.HEADER_VALUE_CHARS }.orEmpty()
+    }
+
     fun recordNativeRequest(
         request: android.webkit.WebResourceRequest,
         documentUrl: String,

@@ -32,7 +32,23 @@ class DownloadNamingTest {
     }
 
     @Test
-    fun `a playlist keeps its source MIME and is published as a transport stream`() {
+    fun `the merged bytes determine the HLS filename and published type`() {
+        val part = java.io.File.createTempFile("hls", ".part")
+        try {
+            part.writeBytes(ByteArray(188).also { it[0] = 0x47 })
+            val ts = HlsContainer.detect(part)
+            assertEquals("video/mp2t", ts.mimeType)
+            assertEquals("movie.ts", ts.filename("movie.ts"))
+            part.writeBytes(byteArrayOf(0, 0, 0, 20) + "ftypiso6".toByteArray() + ByteArray(4) + "iso6".toByteArray())
+            val mp4 = HlsContainer.detect(part)
+            assertEquals("video/mp4", mp4.mimeType)
+            assertEquals("movie.mp4", mp4.filename("movie.ts"))
+            assertEquals("custom.clip", mp4.filename("custom.clip"))
+        } finally { part.delete() }
+    }
+
+    @Test
+    fun `an extensionless playlist keeps its source MIME for retries`() {
         val handler = DownloadHandler(RuntimeEnvironment.getApplication())
         try {
             // No .m3u8 suffix: only the MIME identifies this as a playlist, which is the case a
@@ -47,7 +63,6 @@ class DownloadNamingTest {
             assertEquals("application/vnd.apple.mpegurl", stored.mimeType)
             assertEquals("live.ts", stored.filename)
             assertTrue(HlsDownloadEngine.handles(stored.url, stored.mimeType))
-            assertEquals("video/mp2t", HlsDownloadEngine.outputMime(stored.url, stored.mimeType))
         } finally {
             handler.close()
         }

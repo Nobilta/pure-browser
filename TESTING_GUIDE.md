@@ -27,7 +27,7 @@ FTP 与 HLS 下载回归：`python3 validation/ftp-hls-server.py` 在 127.0.0.1 
 SHA-256：FTP 必须逐字节等于服务端实体，HLS 必须等于播放列表全部分段的拼接（含 AES-128 分段时同样如此）。
 设备侧只覆盖明文 FTP 与未加密播放列表；AES-128（含短 IV）、`EXT-X-MAP`、主列表选码率、独立音轨和范围列表拒绝、读取大小上限及续传由 JVM 单测覆盖。单测还覆盖 MAP 前后密钥切换、普通 M3U8 不重试、FTP 无 SIZE 时重下、来源凭据隐藏，以及旧无痕记录清理。
 
-图片分享的 JVM 回归检查无扩展名 PNG、重定向响应类型、HTML 拒绝和 64 MiB 上限及缓存清理。
+图片分享的 JVM 回归检查无扩展名 PNG、重定向响应类型、跨源重定向的 Referer 和 Cookie、HTML 拒绝和 64 MiB 上限及缓存清理。
 下载筛选应暴露 RadioButton/selected 语义；320dp、200% 字体下计数与操作分行；播放器在 320/360/400dp、100%/200% 字体下保留标题和所有顶栏操作。
 
 窄屏布局回归：先运行 FTP/HLS 夹具，再执行 `python3 validation/compact-ui-regression.py --serial emulator-5554 --output validation/results/compact-ui`，检查筛选语义、320dp/200% 多选栏和播放器尺寸矩阵。

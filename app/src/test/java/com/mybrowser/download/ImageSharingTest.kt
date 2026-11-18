@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.mybrowser.tabs.MediaNavigation
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -62,8 +63,8 @@ class ImageSharingTest {
         }
     }
 
-    private suspend fun share(path: String) = ImageSharing.share(activity,
-        "http://127.0.0.1:${server.address.port}$path", "test", null, null, "Share")
+    private suspend fun share(path: String, navigation: MediaNavigation? = null, cookie: String? = null) = ImageSharing.share(activity,
+        "http://127.0.0.1:${server.address.port}$path", "test", navigation, cookie, "Share")
 
     private fun assertPngShare() {
         val chooser = shadowOf(activity).nextStartedActivity
@@ -91,6 +92,34 @@ class ImageSharingTest {
         response("/image", "image/png", png)
         assertTrue(share("/wrong.jpg"))
         assertPngShare()
+    }
+
+    @Test fun redirectToAnotherOriginReceivesOnlyThePageOrigin() = runBlocking {
+        val origin = "http://127.0.0.1:${server.address.port}"
+        val target = "$origin/redirect"
+        val page = "$origin/account?entry=private"
+        val cdn = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val headers = java.util.concurrent.ConcurrentHashMap<String, String>()
+        server.createContext("/redirect") { e ->
+            headers["first"] = e.requestHeaders.getFirst("Referer").orEmpty()
+            e.responseHeaders.add("Location", "http://127.0.0.1:${cdn.address.port}/picture")
+            e.sendResponseHeaders(302, -1)
+            e.close()
+        }
+        cdn.createContext("/picture") { e ->
+            headers["last"] = e.requestHeaders.getFirst("Referer").orEmpty()
+            headers["cookie"] = e.requestHeaders.getFirst("Cookie").orEmpty()
+            e.responseHeaders.add("Content-Type", "image/png")
+            e.sendResponseHeaders(200, png.size.toLong())
+            e.responseBody.use { it.write(png) }
+            e.close()
+        }
+        cdn.start()
+        try {
+            assertTrue(share("/redirect", MediaNavigation.create(target, "$page#section"), "session=private"))
+            assertPngShare()
+            assertEquals(mapOf("first" to page, "last" to "$origin/", "cookie" to ""), headers)
+        } finally { cdn.stop(0) }
     }
 
     @Test fun genericContentTypeFallsBackToTheFinalUrl() = runBlocking {
