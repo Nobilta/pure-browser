@@ -101,6 +101,6 @@ class DownloadDeletionTest {
             val id = requireNotNull(handler.enqueue("http://127.0.0.1:${server.address.port}/file", null, null, null))
             withTimeout(10_000) { handler.downloads.first { rows -> rows.any { it.id == id && it.bytesDownloaded > 0 } } }
             check(handler, id)
-        } finally { handler.close(); server.stop(0); workers.shutdownNow() }
+        } finally { handler.closeAndAwait(); server.stop(0); workers.shutdownNow() }
     }
 }

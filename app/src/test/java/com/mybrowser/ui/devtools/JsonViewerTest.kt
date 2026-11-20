@@ -7,13 +7,30 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.json.JSONTokener
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class JsonViewerTest {
-    @Test fun deeplyNestedResponseFallsBackToRawText() {
+    @Implements(JSONTokener::class)
+    class OverflowingParser {
+        @Implementation fun nextValue(): Any = throw StackOverflowError("parser recursion")
+    }
+
+    @Test
+    @Config(shadows = [OverflowingParser::class])
+    fun parserStackOverflowFallsBackToRawText() {
+        assertEquals(null, JsonDocument.parse("[1]"))
+    }
+
+    @Test fun deeplyNestedResponseDoesNotCrash() {
         val body = "[".repeat(20_000) + "0" + "]".repeat(20_000)
-        assertEquals(null, JsonDocument.parse(body))
+        // Host stack sizes differ: both a parsed tree and the raw-text fallback are valid.
+        JsonDocument.parse(body)?.let { document ->
+            assertEquals("[1]", document.rows(emptySet()).single().summary)
+        }
         assertEquals(1, JsonDocument.parse("[1]")!!.rows(setOf("$"))[1].value.toInt())
     }
 

@@ -20,7 +20,7 @@ class DownloadNamingTest {
         return try {
             handler.previewFilename(url, null, mimeType)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -64,7 +64,7 @@ class DownloadNamingTest {
             assertEquals("live.ts", stored.filename)
             assertTrue(HlsDownloadEngine.handles(stored.url, stored.mimeType))
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -82,7 +82,7 @@ class DownloadNamingTest {
             assertEquals(1, items.getValue(ftp).threadCount)
             assertEquals(1, items.getValue(hls).threadCount)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 

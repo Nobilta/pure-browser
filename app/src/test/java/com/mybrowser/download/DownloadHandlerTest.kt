@@ -22,15 +22,6 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
-    private fun DownloadHandler.closeAndAwait() = runBlocking {
-        val scope = DownloadHandler::class.java.getDeclaredField("transferScope").apply { isAccessible = true }
-            .get(this@closeAndAwait) as kotlinx.coroutines.CoroutineScope
-        close()
-        // Robolectric deletes its filesystem after the test; cancellation alone does not
-        // wait for an IO cleanup already executing on a worker thread.
-        withTimeout(10_000) { scope.coroutineContext[kotlinx.coroutines.Job]!!.join() }
-    }
-
     @Test fun allRetryStatesResolveARevokedDirectoryToTheCurrentDefault() {
         val context = RuntimeEnvironment.getApplication()
         val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)

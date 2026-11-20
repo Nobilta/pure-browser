@@ -106,6 +106,6 @@ class DownloadFilesTest {
         try {
             assertEquals(DownloadOpenResult.NotCompleted, handler.fileToOpen(-71))
             assertEquals(DownloadOpenResult.Unavailable, handler.fileToOpen(-72))
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 }

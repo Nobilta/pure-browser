@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.webkit.WebViewFeature
 import com.mybrowser.App
 import com.mybrowser.download.DownloadHandler
+import com.mybrowser.download.closeAndAwait
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +47,6 @@ class BrowserSessionStateTest {
             assertSame(state.privacy, reopened.privacy)
             assertFalse(reopened.privacy.isIncognito)
             assertTrue(reopened.privacy.isTransitioning)
-        } finally { store.clear(); handler.close() }
+        } finally { store.clear(); handler.closeAndAwait() }
     }
 }

@@ -52,7 +52,7 @@ class DownloadRedownloadTest {
             // and deleting it would also delete the user's finished file.
             handler.cancel(-150)
             assertTrue(handler.downloads.value.any { it.id == -150L && it.status == DownloadStatus.COMPLETED })
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aFailedFileDeletionKeepsTheRecordWithoutKeepingAnIdleMutex() = runBlocking {
@@ -78,7 +78,7 @@ class DownloadRedownloadTest {
             assertTrue(handler.downloads.value.any { it.id == -124L })
             val locks = DownloadHandler::class.java.getDeclaredField("transferLocks").apply { isAccessible = true }
             assertFalse((locks.get(handler) as Map<*, *>).containsKey(-124L))
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun failedNewCopyRetainsOldFileAndUsesCurrentCookie() = exercise(cancelNew = false)
@@ -131,6 +131,6 @@ class DownloadRedownloadTest {
             assertTrue(handler.downloads.value.any { it.id == -123L && it.status == DownloadStatus.COMPLETED })
             assertEquals("keep these original bytes", file.readText())
             assertEquals(0, provider.deletes.get())
-        } finally { release.countDown(); handler.close(); server.stop(0) }
+        } finally { release.countDown(); handler.closeAndAwait(); server.stop(0) }
     }
 }

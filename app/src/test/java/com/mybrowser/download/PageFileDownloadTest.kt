@@ -46,7 +46,7 @@ class PageFileDownloadTest {
             }
             assertFalse(source.isTransferring(id))
             assertFalse(tempDirectory(context, id).exists())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun serviceTimeoutStopsAnUnresumablePageFile() = runBlocking {
@@ -63,7 +63,7 @@ class PageFileDownloadTest {
             }
             assertFalse(source.isTransferring(id))
             assertFalse(tempDirectory(context, id).exists())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun cancellingAnActiveWriterRemovesItsPartsAndLock() = runBlocking {
@@ -97,7 +97,7 @@ class PageFileDownloadTest {
             }
             assertFalse(live.get())
             assertTrue(handler.downloads.value.none { it.id == id })
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     private fun connectedContext(): Context {
@@ -210,7 +210,7 @@ class PageFileDownloadTest {
             assertFalse(item.canResume)
             assertFalse(tempDirectory(context, id).exists())
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -231,7 +231,7 @@ class PageFileDownloadTest {
             }
             assertFalse(tempDirectory(context, id).exists())
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -260,7 +260,7 @@ class PageFileDownloadTest {
                 handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
             }
             assertFalse(tempDirectory(context, id).exists())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aPageFileIsNeverResumedAndItsPlaceholderIsNeverFetched() {
@@ -279,7 +279,7 @@ class PageFileDownloadTest {
             handler.cancel(id)
             assertTrue(handler.downloads.value.none { it.id == id })
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -299,7 +299,7 @@ class PageFileDownloadTest {
             withTimeout(5_000) { while (tempDirectory(context, id).exists()) delay(20) }
             assertTrue(handler.downloads.value.none { it.id == id })
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -335,7 +335,7 @@ class PageFileDownloadTest {
                 handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
             }
             assertFalse(tempDirectory(context, id).exists())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aRefusedFirstSliceFailsTheTaskAndBindsNothing() = runBlocking {
@@ -360,7 +360,7 @@ class PageFileDownloadTest {
             val item = handler.downloads.value.single { it.id == id }
             assertEquals(DownloadStatus.FAILED, item.status)
             assertFalse(tempDirectory(context, id).exists())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aFailedWriteStopsThePageSource() = runBlocking {
@@ -385,7 +385,7 @@ class PageFileDownloadTest {
             // open and refuses its next blob download.
             handler.failPageFile(id, "write")
             assertTrue("the page transfer has to be stopped", source.cancelled)
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aRestartedHandlerDoesNotKeepAPageFilesPartialBytes() = runBlocking {
@@ -398,7 +398,7 @@ class PageFileDownloadTest {
         val directory = tempDirectory(context, outcome.id)
         directory.mkdirs()
         File(directory, "part-0").writeBytes(ByteArray(16))
-        first.close()
+        first.closeAndAwait()
         // A page file can never be resumed, so a restart must not keep its partial data. Startup
         // cleanup runs on its own coroutine, so the assertion waits for it rather than racing it.
         val second = DownloadHandler(context)
@@ -407,7 +407,7 @@ class PageFileDownloadTest {
             // immediately would cancel the cleanup job and make this assertion a race.
             withTimeout(10_000) { while (directory.exists()) delay(20) }
         } finally {
-            second.close()
+            second.closeAndAwait()
         }
         assertFalse("partial bytes of a page file must not survive a restart", directory.exists())
     }
@@ -431,7 +431,7 @@ class PageFileDownloadTest {
             val id = (outcome as DownloadHandler.EnqueueOutcome.Started).id
             assertFalse(handler.startPageFile(id, offer(100), source))
             assertEquals(DownloadStatus.FAILED, handler.downloads.value.single { it.id == id }.status)
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aWriteFailureThroughThePumpStillStopsTheSource() = runBlocking {
@@ -457,7 +457,7 @@ class PageFileDownloadTest {
                 handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
             }
             assertTrue("a failed transfer has to stop the page source", source.cancelled)
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aRestoredPageFileRecordOffersNoResume() {
@@ -469,7 +469,7 @@ class PageFileDownloadTest {
                 pageFile = offer(4_096, "restored.bin").copy(url = "blob:https://example.com/restored"),
             )
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
         // A second handler sees the same persisted records, which is what a process restart does.
         val restarted = DownloadHandler(context)
@@ -479,7 +479,7 @@ class PageFileDownloadTest {
             assertFalse(item.canPause)
             assertNull(restarted.retry(item.id))
         } finally {
-            restarted.close()
+            restarted.closeAndAwait()
         }
     }
     /**
@@ -520,7 +520,7 @@ class PageFileDownloadTest {
             supersededJob.cancel()
             val item = handler.downloads.value.single { it.id == id }
             assertNotEquals("a superseded transfer must not publish", DownloadStatus.COMPLETED, item.status)
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun aZeroBytePageFileThatFailsOrCancelsIsNotMarkedCompleted() = runBlocking {
@@ -552,7 +552,7 @@ class PageFileDownloadTest {
             val item = handler.downloads.value.single { it.id == id }
             assertEquals("a failed 0-byte page file must not publish as COMPLETED", DownloadStatus.FAILED, item.status)
             assertFalse(tempDirectory(context, id).exists())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
 }

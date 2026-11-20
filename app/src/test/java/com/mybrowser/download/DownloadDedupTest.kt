@@ -181,7 +181,7 @@ class DownloadDedupTest {
     }
 
     @After fun tearDown() {
-        handler.close()
+        handler.closeAndAwait()
         server.stop(0)
     }
 
@@ -364,7 +364,7 @@ class DownloadDedupTest {
     }
 
     @Test fun completedUrlKeepsAnExplicitNewCopyActionWithoutDeletingTheOldTask() {
-        handler.close()
+        handler.closeAndAwait()
         val entry = org.json.JSONObject().put("id", -99).put("backend", "LOCAL").put("url", url())
             .put("filename", "old.bin").put("status", "COMPLETED").put("autoResumeAllowed", true)
         context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit().putString("entries", org.json.JSONArray().put(entry).toString()).commit()
@@ -445,7 +445,7 @@ class DownloadDedupTest {
     }
 
     private fun seedCompleted() {
-        handler.close()
+        handler.closeAndAwait()
         val entry = org.json.JSONObject().put("id", -99).put("backend", "LOCAL").put("url", url())
             .put("filename", "old.bin").put("status", "COMPLETED").put("autoResumeAllowed", true)
         context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit()

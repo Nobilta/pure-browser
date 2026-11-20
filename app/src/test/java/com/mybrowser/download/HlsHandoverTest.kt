@@ -68,7 +68,7 @@ class HlsHandoverTest {
 
     @After
     fun tearDown() {
-        handler.close()
+        handler.closeAndAwait()
         server.stop(0)
     }
 

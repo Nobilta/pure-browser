@@ -66,7 +66,7 @@ class DownloadLifecycleRegressionTest {
             pending.cancel()
             pending.join()
             executor.shutdownNow()
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -90,7 +90,7 @@ class DownloadLifecycleRegressionTest {
             assertEquals(DownloadStatus.PAUSED, handler.downloads.value.single { it.id == id }.status)
             assertTrue(registry(handler, "jobs").isEmpty())
             assertTrue(registry(handler, "transferLocks").isEmpty())
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun cancellingAReplacementWaitsForTheOriginalWriterBeforeDeletingItsDirectory() = runBlocking {
@@ -131,7 +131,7 @@ class DownloadLifecycleRegressionTest {
             withTimeout(5_000) {
                 while (directory.exists() || registry(handler, "transferLocks").containsKey(id)) delay(10)
             }
-        } finally { finishRead.countDown(); handler.close() }
+        } finally { finishRead.countDown(); handler.closeAndAwait() }
     }
 
     @Test fun pendingDirectoriesSurviveCleanupAndReleaseOnlyAfterTheirOwnerFinishes() = runBlocking {
@@ -152,7 +152,7 @@ class DownloadLifecycleRegressionTest {
             handler.releaseUnusedDirectoryGrants()
             assertFalse(DownloadSettingsRepository.hasWritableGrant(context, tree.toString()))
             assertNull(second.select(tree))
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun cancelledDirectorySelectionCannotReplaceTheCurrentGrant() = runBlocking {
@@ -179,7 +179,7 @@ class DownloadLifecycleRegressionTest {
             assertEquals(tree.toString(), selection.destination?.treeUri)
             assertTrue(DownloadSettingsRepository.hasWritableGrant(context, tree.toString()))
             selection.close()
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun sourceDisplaySkipsBlankPagesAndRedactsCredentials() {

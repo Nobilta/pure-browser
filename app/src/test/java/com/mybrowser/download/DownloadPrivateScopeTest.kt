@@ -85,7 +85,7 @@ class DownloadPrivateScopeTest {
                     .load().entries.single { it.id == id }.status)
         } finally {
             proceed.countDown()
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -114,7 +114,7 @@ class DownloadPrivateScopeTest {
             assertNull(entry.referer)
             assertEquals("", entry.url)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
     @Test fun acceptedHlsRetryFinishesAfterExitThenDropsItsPlaylist() = runBlocking {
@@ -198,7 +198,7 @@ class DownloadPrivateScopeTest {
                 while (cache.containsKey(id) || (registry(handler, "metadata") as Map<*, *>)[id]
                     .let { (it as DownloadMetadata).url.isNotEmpty() }) delay(10)
             }
-        } finally { proceed.countDown(); handler.close(); server.stop(0) }
+        } finally { proceed.countDown(); handler.closeAndAwait(); server.stop(0) }
     }
     private fun registry(handler: DownloadHandler, name: String): Any =
         DownloadHandler::class.java.getDeclaredField(name).apply { isAccessible = true }.get(handler)
