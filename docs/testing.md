@@ -22,6 +22,8 @@
 
 低影响可逆修改不强制新增镜像实现的单测。检查通过后，只有新改动、失败或未解决疑点才扩大或重复验证。
 同一工作区 Gradle 串行执行，同一模拟器 UI 脚本串行执行。
+AndroidX FileProvider 使用 Unix 路径匹配规则；依赖真实 URI 往返的 Robolectric 用例在 Windows 跳过，
+由 Linux、macOS 和 Android 设备验证。下载失败与缓存清理等不依赖该路径的用例仍在 Windows 运行。
 
 ```bash
 ./build-and-test.sh --quick

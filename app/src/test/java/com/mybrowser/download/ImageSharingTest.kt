@@ -71,6 +71,13 @@ class ImageSharingTest {
         "http://127.0.0.1:${server.address.port}$path", "test", null, null, "Share",
         privateSession = true, engine = HttpDownloadEngine(), sessionActive = { active })
 
+    private fun requireFileProviderPaths() {
+        // AndroidX appends '/' when matching canonical roots; Windows JVM paths use '\\'.
+        // Real FileProvider round trips run on Linux/macOS and on the Android device suite.
+        org.junit.Assume.assumeFalse("Android FileProvider requires Unix filesystem paths",
+            System.getProperty("os.name").orEmpty().startsWith("Windows"))
+    }
+
     private fun assertPngShare() {
         val chooser = shadowOf(activity).nextStartedActivity
         val send = chooser.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)!!
@@ -84,6 +91,7 @@ class ImageSharingTest {
     }
 
     @Test fun aDeliveredPrivateShareLivesOutsideTheSessionDirectory() = runBlocking {
+        requireFileProviderPaths()
         response("/image", "image/png", png)
         assertTrue(privateShare("/image", active = true))
         assertPngShare()
@@ -93,6 +101,7 @@ class ImageSharingTest {
     }
 
     @Test fun cancellationAfterTheMoveLeavesNoDeliveredFileBehind() = runBlocking {
+        requireFileProviderPaths()
         response("/image", "image/png", png)
         var checks = 0
         val failure = runCatching {
@@ -110,6 +119,7 @@ class ImageSharingTest {
     }
 
     @Test fun aSessionThatEndsBeforeDeliveryDoesNotOpenAChooser() = runBlocking {
+        requireFileProviderPaths()
         response("/image", "image/png", png)
         var checks = 0
         val result = ImageSharing.share(activity,
@@ -130,12 +140,14 @@ class ImageSharingTest {
     }
 
     @Test fun extensionlessPngUsesTheResponseTypeAndFilename() = runBlocking {
+        requireFileProviderPaths()
         response("/image", "image/png; charset=binary", png)
         assertTrue(share("/image"))
         assertPngShare()
     }
 
     @Test fun redirectResponseTypeOverridesTheOriginalExtension() = runBlocking {
+        requireFileProviderPaths()
         server.createContext("/wrong.jpg") { e ->
             e.responseHeaders.add("Location", "/image")
             e.sendResponseHeaders(302, -1); e.close()
@@ -146,6 +158,7 @@ class ImageSharingTest {
     }
 
     @Test fun redirectToAnotherOriginReceivesOnlyThePageOrigin() = runBlocking {
+        requireFileProviderPaths()
         val origin = "http://127.0.0.1:${server.address.port}"
         val target = "$origin/redirect"
         val page = "$origin/account?entry=private"
@@ -174,6 +187,7 @@ class ImageSharingTest {
     }
 
     @Test fun genericContentTypeFallsBackToTheFinalUrl() = runBlocking {
+        requireFileProviderPaths()
         response("/image.png", "application/octet-stream", png)
         assertTrue(share("/image.png"))
         assertPngShare()

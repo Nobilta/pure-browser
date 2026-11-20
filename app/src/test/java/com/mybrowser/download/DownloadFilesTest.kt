@@ -47,7 +47,7 @@ class DownloadFilesTest {
         assertEquals(listOf("capture:cache-path:web-capture/"), declaredPaths(context, R.xml.capture_paths))
         assertEquals(listOf("updates:cache-path:updates/"), declaredPaths(context, R.xml.update_paths))
         // The round trip below relies on FileProvider matching a canonical file path against its
-        // configured roots. A Windows host hands the JVM its temp directory in 8.3 short form, which
+        // configured roots. AndroidX appends '/' but Windows canonical paths use '\\', which
         // makes those two sides disagree for reasons no device can reproduce, so the structural
         // checks above carry the contract there.
         assumeFalse(

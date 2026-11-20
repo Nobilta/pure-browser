@@ -22,6 +22,15 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
+    private fun DownloadHandler.closeAndAwait() = runBlocking {
+        val scope = DownloadHandler::class.java.getDeclaredField("transferScope").apply { isAccessible = true }
+            .get(this@closeAndAwait) as kotlinx.coroutines.CoroutineScope
+        close()
+        // Robolectric deletes its filesystem after the test; cancellation alone does not
+        // wait for an IO cleanup already executing on a worker thread.
+        withTimeout(10_000) { scope.coroutineContext[kotlinx.coroutines.Job]!!.join() }
+    }
+
     @Test fun allRetryStatesResolveARevokedDirectoryToTheCurrentDefault() {
         val context = RuntimeEnvironment.getApplication()
         val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
@@ -43,7 +52,7 @@ class DownloadHandlerTest {
                 assertNull(entry.customTreeUri)
                 assertEquals(SYSTEM_DIRECTORY_LABEL, entry.destinationLabel)
             }
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun ftpSourceLinksHideCredentialsWithoutChangingTheTransferAddress() {
@@ -56,7 +65,7 @@ class DownloadHandlerTest {
             val item = handler.downloads.value.single()
             assertEquals(url, item.url)
             assertEquals("ftp://example.test/a%20b.bin?q=x%2Fy#fragment", item.sourceUrl)
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     @Test fun ordinaryM3u8IsUnsupportedAndIsNotRetried() = runBlocking {
@@ -76,7 +85,7 @@ class DownloadHandlerTest {
             val failed = withTimeout(5000) { handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } } }.single { it.id == id }
             assertEquals(DownloadFailure.UNSUPPORTED, failed.failure)
             assertEquals(1, requests.get())
-        } finally { handler.close(); server.stop(0) }
+        } finally { handler.closeAndAwait(); server.stop(0) }
     }
 
     @Test fun ftpPermanentRepliesAreNotRetriedAndKeepTheirCategory() = runBlocking {
@@ -92,7 +101,7 @@ class DownloadHandlerTest {
                     }.single { it.id == id }
                     assertEquals(if (code == 530) DownloadFailure.AUTHORIZATION else DownloadFailure.SERVER, failed.failure)
                     assertEquals(1, server.commands.count { it.startsWith("USER ") })
-                } finally { handler.close() }
+                } finally { handler.closeAndAwait() }
             }
         }
     }
@@ -107,10 +116,10 @@ class DownloadHandlerTest {
             val id = requireNotNull(handler.enqueue("http://127.0.0.1:${server.address.port}/denied", null, null, null))
             val failed = withTimeout(5000) { handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } } }.single { it.id == id }
             assertEquals(DownloadFailure.AUTHORIZATION, failed.failure)
-            handler.close()
+            handler.closeAndAwait()
             val restored = DownloadMetadataStore(context.getSharedPreferences("downloads", Context.MODE_PRIVATE)).load()
             assertEquals(DownloadFailure.AUTHORIZATION, restored.entries.single { it.id == id }.failure)
-        } finally { handler.close(); server.stop(0) }
+        } finally { handler.closeAndAwait(); server.stop(0) }
     }
     @Test fun queuedLiveResponseExpiresWithoutReadingOrBypassingTheHostBudget() = runBlocking {
         val context = connectedContext()
@@ -138,7 +147,7 @@ class DownloadHandlerTest {
             withTimeout(10_000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.FAILED } } }
             assertTrue(closed)
             assertEquals(DownloadResponse.Unavailable.EXPIRED, queued.unavailable.value)
-        } finally { release.countDown(); handler.close() }
+        } finally { release.countDown(); handler.closeAndAwait() }
     }
 
     @Test fun meteredResponsesAreClosedAndOnlyAnExplicitRetryCanFetchAgain() = runBlocking {
@@ -176,7 +185,7 @@ class DownloadHandlerTest {
                 .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
             withTimeout(5000) { handler.downloads.first { it.any { item -> item.id == id && item.status == DownloadStatus.FAILED } } }
             assertEquals(1, requests.get())
-        } finally { handler.close(); server.stop(0) }
+        } finally { handler.closeAndAwait(); server.stop(0) }
     }
 
     @Test fun responseTasksDoNotAutomaticallyRefetchAfterProcessDeath() {
@@ -188,7 +197,7 @@ class DownloadHandlerTest {
             handler.resumeInterrupted()
             assertEquals(DownloadStatus.PAUSED, handler.downloads.value.single().status)
             assertTrue(handler.downloads.value.single().requiresNewRequest)
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 
     /** Robolectric starts with no usable network; a transfer without one waits instead of failing. */
@@ -253,7 +262,7 @@ class DownloadHandlerTest {
             handler.cancel(id)
             withTimeout(5_000) { while (directory.exists()) delay(20) }
             assertFalse(handler.downloads.value.any { it.id == id })
-        } finally { handler.close(); server.stop(0); (server.executor as java.util.concurrent.ExecutorService).shutdownNow() }
+        } finally { handler.closeAndAwait(); server.stop(0); (server.executor as java.util.concurrent.ExecutorService).shutdownNow() }
     }
 
     @Test fun privateDownloadsKeepTheRecordButNotTheSourceUrlOrRefererOnDisk() {
@@ -280,7 +289,7 @@ class DownloadHandlerTest {
             assertEquals("private.bin", saved.getString("filename"))
             assertEquals(DownloadStatus.PAUSED, handler.downloads.value.single().status)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -325,7 +334,7 @@ class DownloadHandlerTest {
             // ...and the ordinary task is unaffected by either boundary.
             assertEquals(normalId, handler.retry(normalId))
         } finally {
-            handler.close(); server.stop(0)
+            handler.closeAndAwait(); server.stop(0)
             (server.executor as java.util.concurrent.ExecutorService).shutdownNow()
         }
     }
@@ -375,7 +384,7 @@ class DownloadHandlerTest {
             handler.endPrivateScope()
             withTimeout(10_000) { while (directory.exists()) delay(20) }
         } finally {
-            handler.close(); server.stop(0)
+            handler.closeAndAwait(); server.stop(0)
             (server.executor as java.util.concurrent.ExecutorService).shutdownNow()
         }
     }
@@ -414,7 +423,7 @@ class DownloadHandlerTest {
             withTimeout(10_000) { while (stale.exists()) delay(20) }
             assertTrue("a resumable task keeps its partial files", resumable.exists())
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -463,7 +472,7 @@ class DownloadHandlerTest {
                 assertNull(handler.retry(taskId))
             }
         } finally {
-            handler.close(); server.stop(0)
+            handler.closeAndAwait(); server.stop(0)
             CookieManager.getInstance().removeAllCookies(null)
         }
     }
@@ -497,7 +506,7 @@ class DownloadHandlerTest {
             withTimeout(10_000) { while (seen.isEmpty()) delay(20) }
             assertEquals(listOf("private=1"), seen.distinct())
         } finally {
-            handler.close(); server.stop(0)
+            handler.closeAndAwait(); server.stop(0)
             (server.executor as java.util.concurrent.ExecutorService).shutdownNow()
             CookieManager.getInstance().removeAllCookies(null)
         }
@@ -544,7 +553,7 @@ class DownloadHandlerTest {
                 posted.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
             assertEquals(afterNormal + 1, notifications.activeNotifications.size)
         } finally {
-            handler.close(); server.stop(0)
+            handler.closeAndAwait(); server.stop(0)
             (server.executor as java.util.concurrent.ExecutorService).shutdownNow()
         }
     }
@@ -598,7 +607,7 @@ class DownloadHandlerTest {
             assertEquals("", private.getString("referer"))
             assertEquals("", byName.getValue("c.bin").getString("url"))
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -650,7 +659,7 @@ class DownloadHandlerTest {
             assertNull(handler.retry(-70))
             assertNull(handler.retry(-71))
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -677,7 +686,7 @@ class DownloadHandlerTest {
             assertTrue(items.getValue("a.bin").canResume)
             assertFalse(items.getValue("b.bin").canResume)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -707,7 +716,7 @@ class DownloadHandlerTest {
             val again = handler.enqueueOrGetExisting("https://private.example/a", null, null, null, isPrivate = true)
             assertTrue(again is DownloadHandler.EnqueueOutcome.Existing)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -732,7 +741,7 @@ class DownloadHandlerTest {
             val normal = requireNotNull(handler.enqueue("https://normal.example/d", null, null, null))
             assertTrue(handler.downloads.value.single { it.id == normal }.canResume)
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -759,7 +768,7 @@ class DownloadHandlerTest {
             // the URL it would fetch is no longer the one the transfer started from.
             assertNull(handler.retry(-40))
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -786,7 +795,7 @@ class DownloadHandlerTest {
             // None of them may surface as a download this build thinks it can act on.
             assertTrue(handler.downloads.value.isEmpty())
         } finally {
-            handler.close()
+            handler.closeAndAwait()
         }
     }
 
@@ -801,6 +810,6 @@ class DownloadHandlerTest {
             assertEquals(DownloadStatus.PAUSED, handler.downloads.value.single().status)
             val saved = JSONArray(context.getSharedPreferences("downloads", Context.MODE_PRIVATE).getString("entries", "[]"))
             assertFalse(saved.getJSONObject(0).has("cookie"))
-        } finally { handler.close() }
+        } finally { handler.closeAndAwait() }
     }
 }
