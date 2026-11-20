@@ -1,0 +1,433 @@
+package com.mybrowser.validation;
+
+import android.app.UiAutomation;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.graphics.Rect;
+import android.os.HandlerThread;
+import android.os.Looper;
+import android.os.Bundle;
+import android.os.SystemClock;
+import android.util.Xml;
+import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.KeyCharacterMap;
+import android.view.MotionEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import org.json.JSONArray;
+import org.xmlpull.v1.XmlSerializer;
+
+/** Shell-only UI snapshot: video progress updates must not wait for a 10-second idle period. */
+public final class FastUiDump {
+    private static int count;
+
+    public static void main(String[] args) throws Exception {
+        // API 37's accessibility client constructs a Handler on the main Looper even
+        // for shell UiAutomation. app_process has no Application to prepare it for us.
+        Looper.prepareMainLooper();
+        new Thread(() -> {
+            try { run(args); }
+            catch (Throwable error) { error.printStackTrace(); System.exit(1); }
+        }, "pure-ui-command").start();
+        Looper.loop();
+    }
+
+    private static void run(String[] args) throws Exception {
+        HandlerThread thread = new HandlerThread("pure-ui-snapshot");
+        thread.start();
+        Class<?> connectionInterface = Class.forName("android.app.IUiAutomationConnection");
+        Object connection = Class.forName("android.app.UiAutomationConnection").getConstructor().newInstance();
+        UiAutomation automation = UiAutomation.class.getConstructor(Looper.class, connectionInterface)
+                .newInstance(thread.getLooper(), connection);
+        try {
+            if (args.length > 0 && args[0].startsWith("a11y")) {
+                // Keep the real screen reader active while observing focus or injecting
+                // a TalkBack double tap. Ordinary automation still uses its normal mode.
+                UiAutomation.class.getMethod("connect", int.class).invoke(automation,
+                        UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
+            } else UiAutomation.class.getMethod("connect").invoke(automation);
+            if (args.length == 5 && args[0].equals("dragJump")) {
+                float x = Float.parseFloat(args[1]), y = Float.parseFloat(args[2]);
+                float endX = Float.parseFloat(args[3]), endY = Float.parseFloat(args[4]);
+                long down = SystemClock.uptimeMillis();
+                // Start the recognizer, then deliver one coalesced move across rows.
+                float slopY = y + Math.copySign(Math.min(48f, Math.abs(endY - y) / 2), endY - y);
+                float[] ys = new float[] {y, slopY, endY, endY};
+                int[] actions = new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE,
+                        MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP};
+                for (int i = 0; i < actions.length; i++) {
+                    MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), actions[i],
+                            i < 2 ? x : endX, ys[i], 0);
+                    event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                    if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Jump drag injection failed");
+                    event.recycle(); SystemClock.sleep(64);
+                }
+                System.out.println("Jumped and released");
+            } else if (args.length == 7 && (args[0].equals("dragHold") || args[0].equals("dragCancel"))) {
+                float x = Float.parseFloat(args[1]), y = Float.parseFloat(args[2]);
+                float endX = Float.parseFloat(args[3]), endY = Float.parseFloat(args[4]);
+                int duration = Integer.parseInt(args[5]), hold = Integer.parseInt(args[6]);
+                if (duration < 100 || duration > 5000 || hold < 0 || hold > 20000) throw new IllegalArgumentException("Invalid drag duration");
+                long down = SystemClock.uptimeMillis();
+                int steps = Math.max(1, duration / 16);
+                for (int i = 0; i <= steps; i++) {
+                    MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), i == 0 ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_MOVE,
+                            x + (endX - x) * i / steps, y + (endY - y) * i / steps, 0);
+                    event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                    if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Drag injection failed");
+                    event.recycle(); SystemClock.sleep(16);
+                }
+                SystemClock.sleep(hold);
+                if (args[0].equals("dragCancel")) {
+                    long keyDown = SystemClock.uptimeMillis();
+                    for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                        automation.injectInputEvent(new KeyEvent(keyDown, SystemClock.uptimeMillis(), action,
+                                KeyEvent.KEYCODE_BACK, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                                0, 0, InputDevice.SOURCE_KEYBOARD), true);
+                    }
+                    SystemClock.sleep(600);
+                }
+                MotionEvent up = MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, endX, endY, 0);
+                up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                automation.injectInputEvent(up, true); up.recycle();
+                System.out.println("Dragged and released");
+            } else if (args.length == 2 && args[0].equals("sequence")) {
+                JSONArray events = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                if (events.length() > 256) throw new IllegalArgumentException("Too many input events");
+                long started = SystemClock.uptimeMillis();
+                for (int i = 0; i < events.length(); i++) {
+                    JSONArray event = events.getJSONArray(i);
+                    switch (event.getString(0)) {
+                        case "tap":
+                            tap(automation, (float) event.getDouble(1), (float) event.getDouble(2));
+                            break;
+                        case "key":
+                            long down = SystemClock.uptimeMillis();
+                            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                                if (!automation.injectInputEvent(new KeyEvent(down, SystemClock.uptimeMillis(), action,
+                                        event.getInt(1), 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                                        0, 0, InputDevice.SOURCE_KEYBOARD), true))
+                                    throw new IllegalStateException("Key injection failed");
+                            }
+                            break;
+                        case "wait":
+                            int millis = event.getInt(1);
+                            if (millis < 0 || millis > 2000) throw new IllegalArgumentException("Invalid input delay");
+                            Thread.sleep(millis);
+                            break;
+                        default: throw new IllegalArgumentException("Unknown input event");
+                    }
+                }
+                System.out.println("Sequence completed in " + (SystemClock.uptimeMillis() - started) + " ms");
+            } else if (args.length == 3 && (args[0].equals("doubleTap") || args[0].equals("a11yDoubleTap"))) {
+                doubleTap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
+                System.out.println("Double tapped");
+            } else if (args.length == 1 && args[0].equals("selectAll")) {
+                long down = SystemClock.uptimeMillis();
+                for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                    automation.injectInputEvent(new KeyEvent(down, SystemClock.uptimeMillis(), action,
+                            KeyEvent.KEYCODE_A, 0, KeyEvent.META_CTRL_ON, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                            0, 0, InputDevice.SOURCE_KEYBOARD), true);
+                }
+            } else {
+            AccessibilityServiceInfo service = automation.getServiceInfo();
+            service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                    | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+            automation.setServiceInfo(service);
+            // WebView enables its accessibility tree asynchronously after a service connects.
+            Thread.sleep(150);
+            AccessibilityNodeInfo root = null;
+            for (int i = 0; i < 30 && root == null; i++) {
+                root = activeRoot(automation);
+                if (root == null) Thread.sleep(50);
+            }
+            if (root == null) throw new IllegalStateException("No active UI root");
+            boolean player = args.length > 0 && args[0].startsWith("player");
+            if (player) root = playerRoot(root, 0);
+            if (player && root == null) throw new IllegalStateException("No fullscreen player root");
+            if (args.length == 3 && args[0].equals("playerReveal")) {
+                if (findVisible(root, new JSONArray("[\"player_control_bar\"]"), 0, true) == null) {
+                    tap(automation, Float.parseFloat(args[1]), Float.parseFloat(args[2]));
+                    SystemClock.sleep(350);
+                    root = playerRoot(activeRoot(automation), 0);
+                }
+            }
+            if (args.length == 4 && args[0].equals("clickWindowResource")) {
+                tap(automation, Float.parseFloat(args[2]), Float.parseFloat(args[3]));
+                AccessibilityNodeInfo target = null;
+                JSONArray labels = new JSONArray().put(args[1]);
+                long deadline = SystemClock.uptimeMillis() + 2000;
+                while (target == null && SystemClock.uptimeMillis() < deadline) {
+                    for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                        AccessibilityNodeInfo windowRoot = window.getRoot();
+                        if (windowRoot != null) target = findVisible(windowRoot, labels, 0, false);
+                        if (target != null) break;
+                    }
+                    if (target == null) SystemClock.sleep(50);
+                }
+                if (target == null) throw new IllegalStateException("Window button not found: " + args[1]);
+                if (!target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    throw new IllegalStateException("Window button action rejected: " + args[1]);
+                System.out.println("Clicked window resource: " + args[1]);
+            } else if (args.length == 3 && args[0].equals("tapInRow")) {
+                JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[2]), StandardCharsets.UTF_8));
+                AccessibilityNodeInfo row = findRow(root, args[1], 0);
+                AccessibilityNodeInfo target = row == null ? null : findVisible(row, labels, 0, false);
+                if (target == null) throw new IllegalStateException("No matching row action");
+                // A sheet can move while its accessibility bounds are being updated.
+                // Invoke the identified button, so a stale position cannot hit another row.
+                while (!target.isClickable() && !target.equals(row)) target = target.getParent();
+                if (target.equals(row) || !target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    throw new IllegalStateException("Row button action rejected");
+                System.out.println("Tapped row action");
+            } else if (args.length == 2 && args[0].equals("setText")) {
+                AccessibilityNodeInfo input = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (input == null || !input.isEditable()) input = focusedEditable(root, 0);
+                if (input == null || !input.isEditable()) {
+                    // A non-focusable suggestions Popup may be the active accessibility
+                    // window while the actual editor keeps IME focus in the app window.
+                    for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                        AccessibilityNodeInfo candidateRoot = window.getRoot();
+                        AccessibilityNodeInfo candidate = candidateRoot == null ? null : candidateRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                        if (candidate == null || !candidate.isEditable()) candidate = focusedEditable(candidateRoot, 0);
+                        if (candidate != null && candidate.isEditable()) { input = candidate; break; }
+                    }
+                }
+                if (input == null || !input.isEditable()) throw new IllegalStateException("No focused text input");
+                Bundle values = new Bundle();
+                values.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, values))
+                    throw new IllegalStateException("Text input rejected");
+                System.out.println("Text entered");
+            } else if ((args.length == 2 && (args[0].equals("tap") || args[0].equals("visible")))
+                    || (args.length == 4 && args[0].equals("playerTap"))) {
+                JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                AccessibilityNodeInfo target = findVisible(root, labels, 0, player);
+                if (target == null && player) {
+                    tap(automation, Float.parseFloat(args[2]), Float.parseFloat(args[3]));
+                    SystemClock.sleep(350);
+                    root = playerRoot(activeRoot(automation), 0);
+                    target = root == null ? null : findVisible(root, labels, 0, true);
+                }
+                // Keep one service connection alive while Chromium creates virtual
+                // descendants; reconnecting for each snapshot can restart that work.
+                long deadline = SystemClock.uptimeMillis() + 2000;
+                while (target == null && SystemClock.uptimeMillis() < deadline) {
+                    SystemClock.sleep(100);
+                    root = activeRoot(automation);
+                    if (player) root = playerRoot(root, 0);
+                    if (root != null) {
+                        root.refresh();
+                        target = findVisible(root, labels, 0, player);
+                    }
+                }
+                if (target != null && args[0].equals("visible")) {
+                    System.out.println("Target visible");
+                } else if (target != null) {
+                    Rect bounds = new Rect();
+                    target.getBoundsInScreen(bounds);
+                    tap(automation, bounds.exactCenterX(), bounds.exactCenterY());
+                    System.out.println("Tapped");
+                } else System.out.println("Target not visible");
+            } else if (args.length >= 3 && args[0].equals("await")) {
+                // Wait for a labelled control (or for one to disappear) inside this process.
+                // A caller that polls from the host pays a service connection per attempt;
+                // waiting here keeps one connection and returns the settled tree either way.
+                JSONArray labels = new JSONArray(new String(Base64.getDecoder().decode(args[1]), StandardCharsets.UTF_8));
+                long deadline = SystemClock.uptimeMillis() + Long.parseLong(args[2]);
+                boolean absent = args.length > 3 && args[3].equals("absent");
+                long started = SystemClock.uptimeMillis();
+                AccessibilityNodeInfo current = root;
+                boolean matched = false;
+                while (true) {
+                    current = activeRoot(automation);
+                    matched = current != null && findVisible(current, labels, 0, player) != null;
+                    if (matched != absent || SystemClock.uptimeMillis() >= deadline) break;
+                    SystemClock.sleep(80);
+                }
+                String state = matched != absent ? (absent ? "Await absent in " : "Await matched in ")
+                        : "Await timeout after ";
+                System.out.println(state + (SystemClock.uptimeMillis() - started) + " ms");
+                printTree(automation, current, player, false);
+            } else {
+                printTree(automation, root, player, args.length == 1 && args[0].equals("windows"));
+            }
+            }
+        } finally {
+            UiAutomation.class.getMethod("disconnect").invoke(automation);
+            thread.quitSafely();
+        }
+        System.exit(0);
+    }
+
+    /** Serialize the current tree; every command that reads the UI ends here. */
+    private static void printTree(UiAutomation automation, AccessibilityNodeInfo root, boolean player, boolean windowsMode)
+            throws Exception {
+        StringWriter output = new StringWriter();
+        XmlSerializer xml = Xml.newSerializer();
+        xml.setOutput(output);
+        xml.startDocument("UTF-8", true);
+        xml.startTag("", "hierarchy");
+        if (windowsMode) {
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo windowRoot = window.getRoot();
+                if (windowRoot != null) dump(windowRoot, xml, 0);
+            }
+        } else if (root != null) dump(root, xml, 0, player);
+        xml.endTag("", "hierarchy");
+        xml.endDocument();
+        System.out.println(output);
+    }
+
+    private static AccessibilityNodeInfo activeRoot(UiAutomation automation) {
+        return automation.getRootInActiveWindow();
+    }
+
+    private static AccessibilityNodeInfo focusedEditable(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 50 || !node.refresh()) return null;
+        // Compose can report the focused virtual editor in its tree while findFocus()
+        // still returns null after a tab remount. Inspect fresh focus, never an arbitrary
+        // EditText, so the probe cannot silently write into a different field.
+        if (node.isVisibleToUser() && node.isFocused() && node.isEditable()) return node;
+        for (int i = node.getChildCount() - 1; i >= 0; i--) {
+            AccessibilityNodeInfo found = focusedEditable(node.getChild(i), depth + 1);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static AccessibilityNodeInfo playerRoot(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 6) return null;
+        node.refresh();
+        if ("android:id/content".equals(node.getViewIdResourceName())) {
+            // Identify the native fullscreen host by structure, not child z-order.
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null && "android.widget.FrameLayout".contentEquals(child.getClassName())) return child;
+            }
+            return null;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo found = playerRoot(node.getChild(i), depth + 1);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static boolean hasSuffix(AccessibilityNodeInfo node, String suffix, int depth) {
+        if (depth > 50 || node == null) return false;
+        if (node.getText() != null && node.getText().toString().endsWith(suffix)) return true;
+        for (int i = 0; i < node.getChildCount(); i++) if (hasSuffix(node.getChild(i), suffix, depth + 1)) return true;
+        return false;
+    }
+
+    private static AccessibilityNodeInfo findRow(AccessibilityNodeInfo node, String suffix, int depth) {
+        if (depth > 50 || node == null) return null;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo found = findRow(node.getChild(i), suffix, depth + 1);
+            if (found != null) return found;
+        }
+        return node.isVisibleToUser() && node.isCheckable() && hasSuffix(node, suffix, 0) ? node : null;
+    }
+
+    private static AccessibilityNodeInfo findVisible(AccessibilityNodeInfo node, JSONArray labels, int depth, boolean nativeOnly) {
+        if (depth > 50 || (nativeOnly && "android.webkit.WebView".contentEquals(node.getClassName()))) return null;
+        // Paused video emits no changing accessibility events. Re-reading only the
+        // window root can retain the Compose subtree from before controls appeared.
+        if (nativeOnly && !node.refresh()) return null;
+        if (node.isVisibleToUser()) {
+            for (int i = 0; i < labels.length(); i++) {
+                String label = labels.optString(i);
+                if (label.contentEquals(node.getText() == null ? "" : node.getText())
+                        || label.contentEquals(node.getContentDescription() == null ? "" : node.getContentDescription())
+                        || label.equals(node.getViewIdResourceName())) {
+                    Rect bounds = new Rect();
+                    node.getBoundsInScreen(bounds);
+                    if (!bounds.isEmpty()) return node;
+                }
+            }
+        }
+        // Native fullscreen controls and modal sheets are the last/topmost children.
+        // Visiting them first avoids a slow WebView tree consuming the hide timeout.
+        for (int i = node.getChildCount() - 1; i >= 0; i--) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo found = findVisible(child, labels, depth + 1, nativeOnly);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static void tap(UiAutomation automation, float x, float y) {
+        long down = SystemClock.uptimeMillis();
+        for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+            MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Touch injection failed");
+            event.recycle();
+            SystemClock.sleep(30);
+        }
+    }
+
+    private static void doubleTap(UiAutomation automation, float x, float y) {
+        for (int i = 0; i < 2; i++) {
+            long down = SystemClock.uptimeMillis();
+            for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+                MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                if (!automation.injectInputEvent(event, true)) throw new IllegalStateException("Touch injection failed");
+                event.recycle();
+                SystemClock.sleep(30);
+            }
+            SystemClock.sleep(60);
+        }
+    }
+
+    private static void attribute(XmlSerializer xml, String key, Object value) throws Exception {
+        String text = value == null ? "" : value.toString();
+        // Website accessibility text can contain characters that XML cannot represent.
+        text = text.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+        xml.attribute("", key, text);
+    }
+
+    private static void dump(AccessibilityNodeInfo node, XmlSerializer xml, int depth) throws Exception {
+        dump(node, xml, depth, false);
+    }
+
+    private static void dump(AccessibilityNodeInfo node, XmlSerializer xml, int depth, boolean nativeOnly) throws Exception {
+        if (nativeOnly && "android.webkit.WebView".contentEquals(node.getClassName())) return;
+        if (nativeOnly && !node.refresh()) return;
+        if (depth > 50 || ++count > 4000) return;
+        xml.startTag("", "node");
+        attribute(xml, "text", node.getText());
+        attribute(xml, "content-desc", node.getContentDescription());
+        attribute(xml, "resource-id", node.getViewIdResourceName());
+        attribute(xml, "class", node.getClassName());
+        attribute(xml, "package", node.getPackageName());
+        attribute(xml, "checked", node.isChecked());
+        attribute(xml, "checkable", node.isCheckable());
+        attribute(xml, "selected", node.isSelected());
+        attribute(xml, "clickable", node.isClickable());
+        attribute(xml, "enabled", node.isEnabled());
+        attribute(xml, "focused", node.isFocused());
+        attribute(xml, "editable", node.isEditable());
+        attribute(xml, "accessibility-focused", node.isAccessibilityFocused());
+        attribute(xml, "reported-child-count", node.getChildCount());
+        attribute(xml, "scrollable", node.isScrollable());
+        attribute(xml, "visible-to-user", node.isVisibleToUser());
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        attribute(xml, "bounds", bounds.toShortString());
+        for (int index = 0; index < node.getChildCount(); index++) {
+            int i = nativeOnly ? node.getChildCount() - 1 - index : index;
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) dump(child, xml, depth + 1, nativeOnly);
+        }
+        xml.endTag("", "node");
+    }
+}

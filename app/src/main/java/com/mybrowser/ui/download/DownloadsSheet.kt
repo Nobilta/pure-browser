@@ -69,38 +69,39 @@ fun DownloadsSheet(
     onDismissBlocked: (String) -> Unit = {},
 ) {
     val textResources = localizedResources()
-    var pendingDelete by remember { mutableStateOf<DownloadItem?>(null) }
-    var confirmClearCompleted by remember { mutableStateOf(false) }
-    var selecting by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var confirmDeleteSelected by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(DownloadFilter.ALL) }
-    var detailId by remember { mutableStateOf<Long?>(null) }
+    var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var confirmClearCompleted by rememberSaveable { mutableStateOf(false) }
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var selected by rememberSaveable { mutableStateOf<Set<Long>>(emptySet()) }
+    var confirmDeleteSelected by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf(DownloadFilter.ALL) }
+    var detailId by rememberSaveable { mutableStateOf<Long?>(null) }
     val visible = remember(downloads, query, filter) {
         downloads.filter { filter.matches(it.status) && (query.isBlank() || it.filename.contains(query.trim(), ignoreCase = true)) }
     }
     val chosen = remember(downloads, selected) { downloads.filter { it.id in selected } }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    LaunchedEffect(focusedId, query, filter, visible.map { it.id }) {
+    val visibleIds = remember(visible) { visible.map { it.id } }
+    LaunchedEffect(focusedId, query, filter, visibleIds) {
         val target = focusedId ?: return@LaunchedEffect
         val index = visible.indexOfFirst { it.id == target }
         if (index >= 0) {
             listState.scrollToItem(index)
             onFocusConsumed()
-        } else if (query.isNotEmpty() || filter != DownloadFilter.ALL) {
+        } else if (downloads.any { it.id == target }) {
             // Hidden by the current search or filter: clear both to reach the record.
             query = ""
             filter = DownloadFilter.ALL
-        } else if (visible.isNotEmpty()) {
+        } else {
             // The record is gone (deleted or expired). A pending focus would otherwise wipe every
             // search keystroke, because this effect re-runs on each query change.
             onFocusConsumed()
         }
     }
     // A record can disappear while it is selected (cancelled, retried, deleted elsewhere).
-    LaunchedEffect(visible.map { it.id }) {
-        selected = selected.intersect(visible.map { it.id }.toSet())
+    LaunchedEffect(visibleIds) {
+        selected = selected.intersect(visibleIds.toSet())
         if (selected.isEmpty()) {
             selecting = false
             confirmDeleteSelected = false
@@ -126,10 +127,9 @@ fun DownloadsSheet(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        val hasTerminal = downloads.any {
-                            it.status == DownloadStatus.COMPLETED ||
-                                it.status == DownloadStatus.FAILED
-                        }
+                        val hasTerminal = remember(downloads) { downloads.any {
+                            it.status == DownloadStatus.COMPLETED || it.status == DownloadStatus.FAILED
+                        } }
                         if (hasTerminal && !selecting) {
                             TextButton(onClick = { confirmClearCompleted = true }) {
                                 Text(textResources.getString(R.string.cd_clear))
@@ -165,7 +165,7 @@ fun DownloadsSheet(
                     selected = if (checked) visible.map { it.id }.toSet() else emptySet()
                 },
                 countText = textResources.getString(R.string.ui_selected_count, selected.size),
-                modifier = Modifier.padding(horizontal = 12.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
             ) {
                 BrowserIconAction(R.drawable.ic_ui_pause, stringResource(R.string.download_pause_selected), chosen.any { it.status.active && it.canPause }) {
                     chosen.filter { it.status.active && it.canPause }.forEach { onPauseDownload(it.id) }
@@ -182,7 +182,7 @@ fun DownloadsSheet(
             if (blocked.isNotEmpty() || overflowCount > 0) {
                 // Requests the coordinator did not show a dialog for. The user picks one
                 // to request it explicitly; nothing here started a transfer.
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
                         text = textResources.getString(R.string.download_blocked_title),
                         style = MaterialTheme.typography.titleSmall,
@@ -221,11 +221,8 @@ fun DownloadsSheet(
                             TextButton(onClick = { onUnblockDownload(entry.identity) }) {
                                 Text(textResources.getString(R.string.download_blocked_request))
                             }
-                            IconButton(onClick = { onDismissBlocked(entry.identity) }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_ui_close),
-                                    contentDescription = textResources.getString(R.string.ui_close),
-                                )
+                            BrowserIconAction(R.drawable.ic_ui_close, textResources.getString(R.string.ui_close)) {
+                                onDismissBlocked(entry.identity)
                             }
                         }
                     }
@@ -284,7 +281,7 @@ fun DownloadsSheet(
                                 onPause = { onPauseDownload(download.id) },
                                 onRetry = { onRetryDownload(download.id) },
                                 onOpen = { onOpenFile(download.id) },
-                                onDelete = { pendingDelete = download },
+                                onDelete = { pendingDeleteId = download.id },
                                 onDetails = { detailId = download.id },
                             )
                             BrowserGroupDivider()
@@ -299,20 +296,22 @@ fun DownloadsSheet(
         DownloadDetailsDialog(download) { detailId = null }
     }
 
-    pendingDelete?.let { download ->
+    downloads.firstOrNull { it.id == pendingDeleteId }?.let { download ->
         DeleteDownloadDialog(
+            stateKey = download.id,
             title = textResources.getString(R.string.ui_delete_download_record),
             message = download.filename,
             onConfirm = { deleteFile ->
-                pendingDelete = null
+                pendingDeleteId = null
                 onDeleteDownload(download.id, deleteFile)
             },
-            onDismiss = { pendingDelete = null },
+            onDismiss = { pendingDeleteId = null },
         )
     }
 
     if (confirmClearCompleted) {
         DeleteDownloadDialog(
+            stateKey = "completed",
             title = textResources.getString(R.string.ui_clear_finished_records),
             message = textResources.getString(R.string.ui_completed_and_failed_download_records_will_be_cleared),
             onConfirm = { deleteFiles ->
@@ -326,6 +325,7 @@ fun DownloadsSheet(
     if (confirmDeleteSelected) {
         val count = selected.size
         DeleteDownloadDialog(
+            stateKey = selected.toSet(),
             title = textResources.getString(R.string.ui_delete_download_record),
             message = textResources.getString(R.string.ui_selected_count, count),
             onConfirm = { deleteFiles ->
@@ -355,6 +355,10 @@ private enum class DownloadFilter(val label: Int) {
 @Composable
 private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    var copied by remember(download.id, download.sourceUrl) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) { kotlinx.coroutines.delay(1500); copied = false }
+    }
     val resources = localizedResources()
     val locale = resources.configuration.locales[0]
     val date = remember(download.timestamp, locale) {
@@ -421,14 +425,17 @@ private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit)
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
-        },
-        dismissButton = download.sourceUrl?.let { url ->
-            {
+            download.sourceUrl?.let { url ->
                 TextButton(onClick = {
                     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
                         ClipData.newPlainText(resources.getString(R.string.download_confirm_source), url))
-                }) { Text(stringResource(R.string.download_copy_source)) }
+                    copied = true
+                }) { Text(stringResource(if (copied) R.string.plain_text_copied else R.string.download_copy_source)) }
+            } ?: TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
+        },
+        dismissButton = if (download.sourceUrl == null) null else {
+            {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
             }
         },
     )
@@ -448,7 +455,7 @@ private fun DownloadItemRow(
     onDetails: () -> Unit,
 ) {
     val textResources = localizedResources()
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -459,7 +466,7 @@ private fun DownloadItemRow(
                 onOpen = { if (download.status == DownloadStatus.COMPLETED) onOpen() else onDetails() },
                 onToggleSelection = onToggleSelection,
             )
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selecting) {
@@ -523,10 +530,14 @@ private fun DownloadItemRow(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    if (download.bytesPerSecond > 0) Text(textResources.getString(R.string.download_speed_eta,
-                        formatBytes(download.bytesPerSecond),
-                        if (download.totalBytes > 0) ((download.totalBytes - download.bytesDownloaded).coerceAtLeast(0) / download.bytesPerSecond).toString() else "—"),
-                        style = MaterialTheme.typography.bodySmall)
+                    if (download.bytesPerSecond > 0) {
+                        val speed = formatBytes(download.bytesPerSecond)
+                        val label = if (download.totalBytes > 0) {
+                            val seconds = (download.totalBytes - download.bytesDownloaded).coerceAtLeast(0) / download.bytesPerSecond
+                            textResources.getString(R.string.download_speed_eta, speed, seconds.toString())
+                        } else textResources.getString(R.string.ui_player_network_speed, speed)
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     if (download.totalBytes <= 0) LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(
                         progress = { download.progress / 100f },
@@ -540,7 +551,7 @@ private fun DownloadItemRow(
                         DownloadStatus.SAVING -> R.string.download_saving
                         DownloadStatus.WAITING_NETWORK -> R.string.download_waiting_network
                         else -> R.string.download_queued
-                    }), style = MaterialTheme.typography.bodySmall)
+                    }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(4.dp))
                     if (download.status == DownloadStatus.SAVING) LinearProgressIndicator(
                         progress = { download.savingProgress / 100f },
@@ -579,10 +590,10 @@ private fun DownloadItemRow(
         }
 
         if (!selecting) {
+            // A finished file opens from a tap on the row itself; the row keeps only the actions
+            // that have no equivalent gesture (pause, resume) and the overflow menu.
             if (download.status.active && download.canPause) {
                 BrowserIconAction(R.drawable.ic_ui_pause, stringResource(R.string.download_pause), onClick = onPause)
-            } else if (download.status == DownloadStatus.COMPLETED) {
-                BrowserIconAction(R.drawable.ic_ui_open_in_new, stringResource(R.string.download_open), onClick = onOpen)
             } else if (download.canResume && (download.status == DownloadStatus.PAUSED || download.status == DownloadStatus.FAILED)) {
                 BrowserIconAction(R.drawable.ic_ui_play,
                     stringResource(if (download.status == DownloadStatus.PAUSED && !download.requiresNewRequest) R.string.download_resume else R.string.ui_retry), onClick = onRetry)
@@ -594,7 +605,7 @@ private fun DownloadItemRow(
                     if (download.status == DownloadStatus.COMPLETED && download.canResume) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.download_redownload)) }, onClick = { expanded = false; onRetry() })
                     }
-                    DropdownMenuItem(text = { Text(stringResource(if (download.status.active) R.string.ui_cancel_download else R.string.ui_delete_download_record)) },
+                    DropdownMenuItem(text = { Text(stringResource(if (download.status.active) R.string.ui_cancel_download else R.string.download_delete)) },
                         onClick = { expanded = false; if (download.status.active) onCancel() else onDelete() })
                 }
             }
@@ -604,25 +615,26 @@ private fun DownloadItemRow(
 
 @Composable
 private fun DeleteDownloadDialog(
+    stateKey: Any,
     title: String,
     message: String,
     onConfirm: (deleteFiles: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val textResources = localizedResources()
-    var deleteFiles by rememberSaveable { mutableStateOf(false) }
+    var deleteFiles by rememberSaveable(stateKey) { mutableStateOf(false) }
     BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()).selectableGroup()) {
+            Column(Modifier.verticalScroll(rememberScrollState()).selectableGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(message, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 listOf(false, true).forEach { files ->
                     BrowserListItem(
                         title = textResources.getString(if (files) R.string.ui_delete_records_and_files else R.string.ui_delete_records_only),
                         onClick = { deleteFiles = files },
                         selected = deleteFiles == files,
-                        destructive = files,
+                        role = androidx.compose.ui.semantics.Role.RadioButton,
                         contentPadding = PaddingValues(vertical = 4.dp),
                         leading = { RadioButton(selected = deleteFiles == files, onClick = null) },
                     )

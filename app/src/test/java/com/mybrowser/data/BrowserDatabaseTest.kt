@@ -41,6 +41,31 @@ class BrowserDatabaseTest {
         history.close()
     }
 
+    @Test fun upgradesVersionOneHistoryWithoutLosingVisits() = checkVersionOneUpgrade(false)
+
+    @Test fun upgradesVersionOneHistoryThatAlreadyHasVisitCounts() = checkVersionOneUpgrade(true)
+
+    private fun checkVersionOneUpgrade(hasVisitCount: Boolean) {
+        val helper = BrowserDatabase.acquire(RuntimeEnvironment.getApplication())
+        try {
+            android.database.sqlite.SQLiteDatabase.create(null).use { db ->
+                db.execSQL("CREATE TABLE bookmarks (id INTEGER PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL, favicon_url TEXT, created_at INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE history (id INTEGER PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL, visit_time INTEGER NOT NULL" +
+                    (if (hasVisitCount) ", visit_count INTEGER NOT NULL DEFAULT 1" else "") + ")")
+                db.execSQL("INSERT INTO history (id, title, url, visit_time) VALUES (1, 'Saved page', 'https://example.com', 123)")
+                if (hasVisitCount) db.execSQL("UPDATE history SET visit_count = 7")
+                helper.onUpgrade(db, 1, 3)
+                db.rawQuery("SELECT title, visit_count, host FROM history", null).use { row ->
+                    assertTrue(row.moveToFirst())
+                    assertEquals("Saved page", row.getString(0))
+                    assertEquals(if (hasVisitCount) 7 else 1, row.getInt(1))
+                    assertEquals("example.com", row.getString(2))
+                    assertFalse(row.moveToNext())
+                }
+            }
+        } finally { BrowserDatabase.release(helper) }
+    }
+
     @Test
     fun `shared helper remains usable until both repositories release it`() {
         bookmarks.close()

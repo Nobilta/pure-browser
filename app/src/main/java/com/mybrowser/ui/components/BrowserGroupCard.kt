@@ -11,6 +11,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mybrowser.ui.theme.BrowserColors
@@ -26,6 +27,7 @@ import com.mybrowser.ui.theme.BrowserColors
 fun BrowserGroupCard(
     modifier: Modifier = Modifier,
     title: String? = null,
+    containerColor: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -40,7 +42,7 @@ fun BrowserGroupCard(
         }
         Surface(
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = containerColor ?: MaterialTheme.colorScheme.surfaceContainerLow,
             border = BorderStroke(1.dp, BrowserColors.cardBorder),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -50,9 +52,9 @@ fun BrowserGroupCard(
 }
 
 @Composable
-fun BrowserGroupDivider(inset: Dp = 16.dp) {
+fun BrowserGroupDivider(inset: Dp = 16.dp, modifier: Modifier = Modifier) {
     HorizontalDivider(
-        modifier = Modifier.padding(horizontal = inset),
+        modifier = modifier.padding(horizontal = inset),
         thickness = 0.5.dp,
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
     )

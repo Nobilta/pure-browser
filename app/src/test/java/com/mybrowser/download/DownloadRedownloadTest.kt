@@ -55,6 +55,32 @@ class DownloadRedownloadTest {
         } finally { handler.close() }
     }
 
+    @Test fun aFailedFileDeletionKeepsTheRecordWithoutKeepingAnIdleMutex() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val provider = OldFileProvider(File(context.cacheDir, "missing.bin"))
+        ShadowContentResolver.registerProviderInternal("redownload.test", provider)
+        val entry = JSONObject().put("id", -124).put("backend", "LOCAL").put("url", "https://files.test/a")
+            .put("filename", "missing.bin").put("status", "COMPLETED").put("autoResumeAllowed", true)
+            .put("destinationUri", "content://redownload.test/original")
+        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit()
+            .putString("entries", JSONArray().put(entry).toString()).commit()
+        val handler = DownloadHandler(context)
+        val result = java.util.concurrent.atomic.AtomicReference<DownloadDeleteResult>()
+        try {
+            handler.delete(-124, true) { result.set(it) }
+            withTimeout(5_000) {
+                while (result.get() == null) {
+                    shadowOf(android.os.Looper.getMainLooper()).idle()
+                    delay(10)
+                }
+            }
+            assertEquals(DownloadDeleteResult(0, 1), result.get())
+            assertTrue(handler.downloads.value.any { it.id == -124L })
+            val locks = DownloadHandler::class.java.getDeclaredField("transferLocks").apply { isAccessible = true }
+            assertFalse((locks.get(handler) as Map<*, *>).containsKey(-124L))
+        } finally { handler.close() }
+    }
+
     @Test fun failedNewCopyRetainsOldFileAndUsesCurrentCookie() = exercise(cancelNew = false)
     @Test fun cancelledNewCopyRetainsOldFileAndRepeatedTapsCoalesce() = exercise(cancelNew = true)
 

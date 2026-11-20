@@ -29,4 +29,5 @@ internal data class DownloadMetadata(
     val destinationLabel: String = SYSTEM_DIRECTORY_LABEL,
     val destinationUri: String? = null,
     val failure: DownloadFailure? = null,
+    val outputMimeType: String? = null,
 )

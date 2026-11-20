@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -13,10 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -31,13 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import com.mybrowser.R
 import com.mybrowser.ui.components.BrowserGroupCard
 import com.mybrowser.ui.components.BrowserGroupDivider
@@ -57,9 +49,8 @@ internal fun SettingsToggle(
 ) {
     BrowserListItem(
         title = title,
-        // Settings rows are intentionally single-line; detailed explanations live in the
-        // destination page or the dialog that performs the change.
-        subtitle = "",
+        subtitle = summary,
+        subtitleMaxLines = Int.MAX_VALUE,
         enabled = enabled,
         toggleState = checked,
         onClick = { onChange(!checked) },
@@ -88,8 +79,15 @@ internal fun SettingsGroupCard(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val highlighted = title != null && LocalSettingHighlight.current == title
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        BrowserGroupCard(modifier = modifier, title = title, content = content)
+        BrowserGroupCard(
+            modifier = modifier,
+            title = title,
+            containerColor = if (highlighted) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.surfaceContainerLow,
+            content = content,
+        )
     }
 }
 
@@ -123,7 +121,8 @@ internal fun SettingsRadioItem(
 ) {
     BrowserListItem(
         title = title,
-        subtitle = "",
+        subtitle = subtitle,
+        subtitleMaxLines = Int.MAX_VALUE,
         selected = selected,
         role = Role.RadioButton,
         onClick = onClick,
@@ -139,13 +138,14 @@ internal fun SettingsItem(
     subtitle: String,
     onClick: () -> Unit,
     iconRes: Int? = null,
-    selected: Boolean = false,
+    selected: Boolean? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    val supporting = if (selected) colors.onSecondaryContainer.copy(alpha = 0.75f) else null
+    val supporting = if (selected == true) colors.onSecondaryContainer.copy(alpha = 0.78f) else null
     BrowserListItem(
         title = title,
-        subtitle = "",
+        subtitle = subtitle,
+        subtitleMaxLines = Int.MAX_VALUE,
         iconRes = iconRes,
         onClick = onClick,
         trailing = {
@@ -153,24 +153,31 @@ internal fun SettingsItem(
                 painterResource(R.drawable.ic_ui_chevron),
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = if (selected) colors.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (selected == true) colors.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        containerColor = if (selected) colors.secondaryContainer else Color.Transparent,
-        contentColorOverride = if (selected) colors.onSecondaryContainer else null,
+        containerColor = if (selected == true) colors.secondaryContainer else Color.Transparent,
+        contentColorOverride = if (selected == true) colors.onSecondaryContainer else null,
         supportingColorOverride = supporting,
-        leadingColorOverride = if (selected) colors.onSecondaryContainer else null,
-        modifier = Modifier.highlightSetting(title).then(
-            if (selected) Modifier.semantics { this.selected = true } else Modifier,
-        ),
+        leadingColorOverride = if (selected == true) colors.onSecondaryContainer else null,
+        selected = selected,
+        role = if (selected != null) Role.Tab else null,
+        modifier = Modifier.highlightSetting(title),
     )
 }
 
 internal val LocalSettingHighlight = staticCompositionLocalOf<String?> { null }
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-internal fun Modifier.highlightSetting(title: String): Modifier = composed {
+internal fun Modifier.highlightSetting(title: String): Modifier = settingHighlight(title, drawBackground = true)
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+internal fun Modifier.highlightSettingTarget(title: String): Modifier = settingHighlight(title, drawBackground = false)
+
+private fun Modifier.settingHighlight(title: String, drawBackground: Boolean): Modifier = composed {
     val highlighted = LocalSettingHighlight.current == title
     val requester = remember { BringIntoViewRequester() }
     LaunchedEffect(highlighted) { if (highlighted) { kotlinx.coroutines.delay(250); requester.bringIntoView() } }
-    bringIntoViewRequester(requester).then(if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
+    bringIntoViewRequester(requester).then(
+        if (highlighted && drawBackground) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier,
+    )
 }

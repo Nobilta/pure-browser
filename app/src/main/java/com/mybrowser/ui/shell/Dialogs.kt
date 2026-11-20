@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import com.mybrowser.ui.components.BrowserTextField
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
 import androidx.compose.foundation.rememberScrollState
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -92,16 +93,16 @@ class Dialogs {
             text = {
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(request.message.take(16000))
-                    if (request.kind == Kind.PROMPT) OutlinedTextField(value, { value = it },
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (request.kind == Kind.PROMPT) {
+                        if (request.message.isNotBlank()) Text(request.message.take(16000))
+                        BrowserTextField(value, res.getString(R.string.ui_prompt_value), { value = it }, Modifier.fillMaxWidth())
+                    } else Text(request.message.take(16000))
                     if (request.kind == Kind.CREDENTIALS) {
-                        OutlinedTextField(value, { value = it }, label = { Text(res.getString(R.string.ui_username)) },
-                            singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(password, { password = it }, label = { Text(res.getString(R.string.ui_password)) },
+                        BrowserTextField(value, res.getString(R.string.ui_username), { value = it }, Modifier.fillMaxWidth())
+                        BrowserTextField(password, res.getString(R.string.ui_password), { password = it },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                            modifier = Modifier.fillMaxWidth())
                     }
                 }
             },
@@ -146,26 +147,19 @@ fun BookmarkEditDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(if (isEditing) R.string.library_edit_bookmark else R.string.bookmark_editor_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                BrowserTextField(
                     value = bookmarkTitle,
                     onValueChange = { bookmarkTitle = it.take(MAX_BOOKMARK_TITLE_LENGTH) },
-                    label = { Text(stringResource(R.string.bookmark_edit_title)) },
-                    singleLine = true,
+                    label = stringResource(R.string.bookmark_edit_title),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                BrowserTextField(
                     value = bookmarkUrl,
                     onValueChange = { bookmarkUrl = it.take(MAX_BOOKMARK_URL_LENGTH) },
-                    label = { Text(stringResource(R.string.bookmark_edit_url)) },
-                    singleLine = true,
-                    isError = trimmedUrl.isNotEmpty() && !isUrlValid,
-                    supportingText = if (trimmedUrl.isNotEmpty() && !isUrlValid) {
-                        { Text(stringResource(R.string.bookmark_invalid_url)) }
-                    } else {
-                        null
-                    },
+                    label = stringResource(R.string.bookmark_edit_url),
+                    errorMessage = if (trimmedUrl.isNotEmpty() && !isUrlValid) stringResource(R.string.bookmark_invalid_url) else null,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Done,
@@ -176,6 +170,7 @@ fun BookmarkEditDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .toggleable(
                             value = addToHome && canAddToHome,
                             enabled = canAddToHome,
@@ -190,7 +185,7 @@ fun BookmarkEditDialog(
                         onCheckedChange = null,
                         enabled = canAddToHome,
                     )
-                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                    Column(modifier = Modifier.padding(start = 8.dp).alpha(if (canAddToHome) 1f else 0.38f)) {
                         Text(
                             text = stringResource(R.string.bookmark_add_to_home),
                             style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
@@ -236,21 +231,13 @@ fun TextInputDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var value by remember { mutableStateOf(initialValue) }
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
 
     BrowserAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text(label) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            BrowserTextField(value, label, { value = it }, Modifier.fillMaxWidth())
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(value) }) {

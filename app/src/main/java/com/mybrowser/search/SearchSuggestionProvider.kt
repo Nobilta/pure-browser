@@ -105,7 +105,7 @@ class SearchSuggestionProvider internal constructor(
             val percentCount = clean.windowed(2, partialWindows = true).count { it == "%s" }
             if (braceCount + percentCount != 1) return false
             val probe = clean.replace("{query}", "query").replace("%s", "query")
-            val parsed = runCatching { probe.toUri() }.getOrNull() ?: return false
+            val parsed = probe.toUri()
             val scheme = parsed.scheme?.lowercase() ?: return false
             return scheme == "https" && !parsed.host.isNullOrBlank()
         }

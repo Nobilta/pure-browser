@@ -2,7 +2,6 @@ package com.mybrowser.download
 
 import android.app.Application
 import android.content.Context
-import kotlinx.coroutines.flow.first
 import android.net.Uri
 import androidx.core.net.toUri
 import kotlinx.coroutines.delay
@@ -24,11 +23,83 @@ import java.io.File
  * The transfer is driven by a fake [PageFileDownload] because the real one needs a WebView, and what
  * is being tested here is everything downstream of it — the record, the slice pump, the temporary
  * file and what happens when the page stops early. The page half itself is covered by
- * `validation/blob-download.test.cjs`.
+ * `validation/node/blob-download.test.cjs`.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class PageFileDownloadTest {
+    @Test fun aRefusedForegroundServiceStopsThePageFile() = runBlocking {
+        val context = object : android.content.ContextWrapper(connectedContext()) {
+            override fun getApplicationContext(): Context = this
+            override fun startForegroundService(service: android.content.Intent): android.content.ComponentName? {
+                throw IllegalStateException("Background service start denied")
+            }
+        }
+        val handler = DownloadHandler(context)
+        val source = WaitingSource(ByteArray(1024))
+        try {
+            val id = (handler.enqueueOrGetExisting("page-file://service-denied", null, null, null,
+                pageFile = offer(4096)) as DownloadHandler.EnqueueOutcome.Started).id
+            assertFalse(handler.startPageFile(id, offer(4096), source))
+            withTimeout(5_000) {
+                handler.downloads.first { rows -> rows.any { it.id == id && it.status == DownloadStatus.FAILED } }
+            }
+            assertFalse(source.isTransferring(id))
+            assertFalse(tempDirectory(context, id).exists())
+        } finally { handler.close() }
+    }
+
+    @Test fun serviceTimeoutStopsAnUnresumablePageFile() = runBlocking {
+        val context = connectedContext()
+        val handler = DownloadHandler(context)
+        val source = WaitingSource(ByteArray(1024))
+        try {
+            val id = (handler.enqueueOrGetExisting("page-file://service-timeout", null, null, null,
+                pageFile = offer(4096)) as DownloadHandler.EnqueueOutcome.Started).id
+            assertTrue(handler.startPageFile(id, offer(4096), source))
+            handler.pauseActiveTransfers()
+            withTimeout(5_000) {
+                handler.downloads.first { rows -> rows.any { it.id == id && it.status == DownloadStatus.FAILED } }
+            }
+            assertFalse(source.isTransferring(id))
+            assertFalse(tempDirectory(context, id).exists())
+        } finally { handler.close() }
+    }
+
+    @Test fun cancellingAnActiveWriterRemovesItsPartsAndLock() = runBlocking {
+        val context = connectedContext()
+        val handler = DownloadHandler(context)
+        val written = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val live = java.util.concurrent.atomic.AtomicBoolean(true)
+        val source = object : PageFileSource {
+            lateinit var sink: PageFileSink
+            override fun start(id: Long, url: String, size: Long, sink: PageFileSink): Boolean {
+                this.sink = sink
+                return true
+            }
+            override fun requestNext(id: Long, bytes: Long): Boolean {
+                if (bytes == 0L) sink.write(ByteArray(1024)) else written.complete(Unit)
+                return live.get()
+            }
+            override fun isTransferring(id: Long): Boolean = live.get()
+            override fun cancel() { live.set(false) }
+        }
+        try {
+            val id = (handler.enqueueOrGetExisting("page-file://cancel-lock", null, null, null,
+                pageFile = offer(4096)) as DownloadHandler.EnqueueOutcome.Started).id
+            assertTrue(handler.startPageFile(id, offer(4096), source))
+            withTimeout(5_000) { written.await() }
+            val locks = DownloadHandler::class.java.getDeclaredField("transferLocks").apply { isAccessible = true }
+                .get(handler) as Map<*, *>
+            handler.cancel(id)
+            withTimeout(5_000) {
+                while (tempDirectory(context, id).exists() || locks.containsKey(id)) delay(10)
+            }
+            assertFalse(live.get())
+            assertTrue(handler.downloads.value.none { it.id == id })
+        } finally { handler.close() }
+    }
+
     private fun connectedContext(): Context {
         val context = RuntimeEnvironment.getApplication()
         val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
@@ -184,12 +255,11 @@ class PageFileDownloadTest {
                 pageFile = offer(64, "publish.bin").copy(url = "blob:https://example.com/publish"),
             )
             val id = (outcome as DownloadHandler.EnqueueOutcome.Started).id
-            val part = File(context.cacheDir, "publish-part").apply { writeBytes(ByteArray(64)) }
-            handler.onPageFileFinished(id, null, listOf(part), part.length())
+            assertTrue(handler.startPageFile(id, offer(64), FakeSource(ByteArray(64))))
             withTimeout(5_000) {
                 handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
             }
-            Unit
+            assertFalse(tempDirectory(context, id).exists())
         } finally { handler.close() }
     }
 
@@ -380,10 +450,12 @@ class PageFileDownloadTest {
                 pageFile = offer(4_096, "pump-fail.bin").copy(url = "blob:https://example.com/pump-fail"),
             )
             val id = (outcome as DownloadHandler.EnqueueOutcome.Started).id
+            // A file where the task directory belongs makes the actual writer fail.
+            tempDirectory(context, id).apply { parentFile!!.mkdirs(); writeText("occupied") }
             assertTrue(handler.startPageFile(id, offer(4_096), source))
-            // Exactly what the pump does when a write throws: report the reason through the same
-            // hook, which is where the source has to be stopped as well as forgotten.
-            handler.onPageFileFinished(id, "write", emptyList(), 0L)
+            withTimeout(5_000) {
+                handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
+            }
             assertTrue("a failed transfer has to stop the page source", source.cancelled)
         } finally { handler.close() }
     }
@@ -437,13 +509,14 @@ class PageFileDownloadTest {
             // A part that satisfies the declared size, so nothing but the ownership check can
             // decide the outcome: without that check these bytes would be published and the task
             // marked COMPLETED.
-            val part = File(tempDirectory(context, id).apply { mkdirs() }, "part-0")
+            val part = File.createTempFile("superseded", ".bin", context.cacheDir)
             part.writeBytes(ByteArray(2_000))
             // The job the pump reports with is the one it actually ran as; this is a different
             // one, which is what a retry leaves behind.
             val supersededJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
                 .launch(start = kotlinx.coroutines.CoroutineStart.LAZY) { }
-            handler.onPageFileFinished(id, null, listOf(part), 2_000, owner = supersededJob)
+            withTimeout(2_000) { handler.finishPageFileLocked(id, null, listOf(part), publishing = supersededJob) }
+            part.delete()
             supersededJob.cancel()
             val item = handler.downloads.value.single { it.id == id }
             assertNotEquals("a superseded transfer must not publish", DownloadStatus.COMPLETED, item.status)

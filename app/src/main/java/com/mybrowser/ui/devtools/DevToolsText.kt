@@ -10,30 +10,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
-import com.mybrowser.ui.shell.BrowserIconAction
+import com.mybrowser.ui.shell.LibrarySearchField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** No floating label: focus and IME changes must not change the search field's height. */
 @Composable
 internal fun DevToolsSearchField(query: String, label: String, onQueryChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        placeholder = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        trailingIcon = if (query.isNotEmpty()) ({
-            BrowserIconAction(R.drawable.ic_ui_close, stringResource(R.string.ui_clear)) { onQueryChange("") }
-        }) else null,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).semantics { contentDescription = label },
+    LibrarySearchField(
+        query = query,
+        label = label,
+        onQueryChange = onQueryChange,
+        modifier = Modifier.padding(top = 4.dp),
+        maxLength = null,
     )
 }
 
@@ -97,7 +91,7 @@ internal fun PagedSelectableText(text: String, modifier: Modifier = Modifier, hi
         if (pages.size > 1) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { index-- }, enabled = index > 0) { Text(stringResource(R.string.dev_source_prev)) }
             Text(stringResource(R.string.dev_text_page, index + 1, pages.size), Modifier.weight(1f),
-                style = MaterialTheme.typography.labelSmall)
+                style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { index++ }, enabled = index < pages.lastIndex) { Text(stringResource(R.string.dev_source_next)) }
         }
         key(page) {

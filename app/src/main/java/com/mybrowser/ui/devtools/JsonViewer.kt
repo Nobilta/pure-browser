@@ -33,55 +33,62 @@ internal data class JsonRow(
     val summary: String = "",
 )
 
-internal fun jsonRows(text: String, expanded: Set<String>): List<JsonRow>? {
-    if (text.length > 512 * 1024) return null
-    val value = runCatching { JSONTokener(text).nextValue() }.getOrNull() ?: return null
-    if (value !is JSONObject && value !is JSONArray) return null
-    val rows = ArrayList<JsonRow>()
-    fun walk(node: Any?, label: String, depth: Int, path: String) {
-        if (rows.size >= 2000) return
-        when (node) {
-            is JSONObject -> {
-                val keys = node.keys().asSequence().toList()
-                rows += JsonRow(path, depth, label, "", expandable = keys.isNotEmpty(),
-                    expanded = path in expanded, summary = "{${keys.size}}")
-                if (path in expanded) keys.take(500).forEach { key ->
-                    walk(node.opt(key), key, depth + 1, jsonChildPath(path, key))
+/** Parsed once per response body; expansion only traverses this read-only tree. */
+internal class JsonDocument private constructor(private val root: Any) {
+    fun rows(expanded: Set<String>): List<JsonRow> {
+        val rows = ArrayList<JsonRow>()
+        fun walk(node: Any?, label: String, depth: Int, path: String) {
+            if (rows.size >= 2000) return
+            when (node) {
+                is JSONObject -> {
+                    val keys = node.keys().asSequence().toList()
+                    rows += JsonRow(path, depth, label, "", expandable = keys.isNotEmpty(),
+                        expanded = path in expanded, summary = "{${keys.size}}")
+                    if (path in expanded) keys.take(500).forEach { key ->
+                        walk(node.opt(key), key, depth + 1, jsonChildPath(path, key))
+                    }
+                }
+                is JSONArray -> {
+                    rows += JsonRow(path, depth, label, "", expandable = node.length() > 0,
+                        expanded = path in expanded, summary = "[${node.length()}]")
+                    if (path in expanded) for (index in 0 until minOf(node.length(), 500)) {
+                        walk(node.opt(index), index.toString(), depth + 1, jsonChildPath(path, index.toString()))
+                    }
+                }
+                else -> {
+                    val rendered = when (node) {
+                        null, JSONObject.NULL -> "null"
+                        is String -> if (node.length > 1024) "\"${node.take(1024)}…\"" else "\"$node\""
+                        else -> node.toString()
+                    }
+                    rows += JsonRow(path, depth, label, rendered, expandable = false, expanded = false)
                 }
             }
-            is JSONArray -> {
-                rows += JsonRow(path, depth, label, "", expandable = node.length() > 0,
-                    expanded = path in expanded, summary = "[${node.length()}]")
-                if (path in expanded) for (index in 0 until minOf(node.length(), 500)) {
-                    walk(node.opt(index), index.toString(), depth + 1, jsonChildPath(path, index.toString()))
-                }
-            }
-            else -> {
-                val rendered = when (node) {
-                    null, JSONObject.NULL -> "null"
-                    is String -> if (node.length > 1024) "\"${node.take(1024)}…\"" else "\"$node\""
-                    else -> node.toString()
-                }
-                rows += JsonRow(path, depth, label, rendered, expandable = false, expanded = false)
-            }
+        }
+        walk(root, "", 0, "$")
+        return rows
+    }
+
+    fun initialExpanded(): Set<String> {
+        val children = if (root is JSONObject) root.keys().asSequence()
+            else (0 until (root as JSONArray).length()).asSequence().map(Int::toString)
+        return buildSet {
+            add("$")
+            children.take(100).forEach { add(jsonChildPath("$", it)) }
         }
     }
-    walk(value, "", 0, "$")
-    return rows
-}
 
-internal fun jsonInitialExpanded(text: String): Set<String> {
-    if (text.length > 512 * 1024) return setOf("$")
-    return when (val value = runCatching { JSONTokener(text).nextValue() }.getOrNull()) {
-        is JSONObject -> buildSet {
-            add("$")
-            value.keys().asSequence().take(100).forEach { add(jsonChildPath("$", it)) }
+    companion object {
+        fun parse(text: String): JsonDocument? {
+            if (text.length > 512 * 1024) return null
+            if (text.firstOrNull { !it.isWhitespace() } !in listOf('{', '[')) return null
+            val value = try {
+                val parser = JSONTokener(text)
+                parser.nextValue().takeIf { parser.nextClean() == '\u0000' }
+            } catch (_: org.json.JSONException) { null }
+            catch (_: StackOverflowError) { null } // Platform parser recursion on deeply nested response bodies.
+            return if (value is JSONObject || value is JSONArray) JsonDocument(value) else null
         }
-        is JSONArray -> buildSet {
-            add("$")
-            for (index in 0 until minOf(value.length(), 100)) add(jsonChildPath("$", index.toString()))
-        }
-        else -> setOf("$")
     }
 }
 

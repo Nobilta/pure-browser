@@ -29,12 +29,12 @@ internal fun captureKind(capture: Boolean, multiple: Boolean, accepts: List<Stri
 }
 
 /** Owns exactly one platform chooser and the document to which its result belongs. */
-class WebFileChooser(private val activity: ComponentActivity, private val document: () -> Any?, private val onFailure: () -> Unit) {
+class WebFileChooser(private val activity: ComponentActivity, private val document: () -> Any?,
+    private val privateRequest: () -> Boolean, private val onFailure: () -> Unit) {
     private data class Request(val callback: ValueCallback<Array<Uri>?>, val document: Any?,
         val kind: CaptureKind?, var delivered: Boolean = false, var cancelled: Boolean = false,
         var file: File? = null, var uri: Uri? = null)
     private var pending: Request? = null
-    private val directory = File(activity.cacheDir, "web-capture").apply { mkdirs() }
     private val granted = ArrayList<Pair<Uri, File>>()
     private val single = activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         finish(uri?.let { arrayOf(it) })
@@ -50,13 +50,6 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
     private val cameraPermission = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
         val request = pending ?: return@registerForActivityResult
         if (allowed && isCurrent(request)) launchCapture(request) else finish(null)
-    }
-
-    init {
-        // Process death cannot leave captured private images indefinitely. Files still in
-        // use by this Activity are younger and removed on navigation or close below.
-        val before = System.currentTimeMillis() - 24 * 60 * 60 * 1000
-        directory.listFiles()?.filter { it.isFile && it.lastModified() < before }?.forEach { it.delete() }
     }
 
     fun show(callback: ValueCallback<Array<Uri>?>, params: WebChromeClient.FileChooserParams): Boolean {
@@ -87,6 +80,10 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
         if (!isCurrent(request)) { finish(null); return }
         try {
             val photo = request.kind == CaptureKind.PHOTO
+            // A private capture is owned by the session, so leaving the session can remove it;
+            // an ordinary capture stays with the cache the chooser has always used.
+            val directory = if (privateRequest()) WebCaptureCache.privateDirectory(activity)
+            else WebCaptureCache.directory(activity)
             val file = File(directory, UUID.randomUUID().toString() + if (photo) ".jpg" else ".mp4")
             val uri = FileProvider.getUriForFile(activity, activity.packageName + ".captures", file)
             request.file = file; request.uri = uri
@@ -144,7 +141,7 @@ class WebFileChooser(private val activity: ComponentActivity, private val docume
     fun close() {
         cancelDocument()
         // The Activity is going away, so no platform result can be matched to this request any
-        // more; release its capture file now rather than waiting for the 24-hour startup sweep.
+        // more; release its capture file now rather than waiting for the next process start.
         pending?.let { request ->
             request.uri?.let {
                 activity.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)

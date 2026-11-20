@@ -18,7 +18,6 @@ class DownloadIdentityTest {
         assertFalse(normal.isPrivate)
         assertEquals(CookiePolicy.READ_FROM_COOKIE_JAR, normal.cookiePolicy)
         assertTrue(normal.persistSourceUrl)
-        assertTrue(normal.notifyOnCompletion)
         assertTrue(normal.showsFilenameInNotification)
         assertTrue(normal.resumesAfterRestart)
 
@@ -26,7 +25,6 @@ class DownloadIdentityTest {
         assertTrue(session.isPrivate)
         assertEquals(CookiePolicy.SESSION_ONLY, session.cookiePolicy)
         assertFalse(session.persistSourceUrl)
-        assertFalse(session.notifyOnCompletion)
         assertFalse(session.showsFilenameInNotification)
         assertFalse(session.resumesAfterRestart)
     }

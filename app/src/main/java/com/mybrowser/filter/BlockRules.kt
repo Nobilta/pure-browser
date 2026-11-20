@@ -104,7 +104,7 @@ internal object BlockRules {
         if (line.contains("#?#")) return false
         if (line.contains("##") || line.contains("#@#")) {
             val (site, element) = line.split("##", "#@#", limit = 2).let { it[0] to it.getOrNull(1).orEmpty() }
-            if (site.isNotEmpty() && siteHost(site) == null) return false
+            if (site != site.trim() || (site.isNotEmpty() && siteHost(site) == null)) return false
             // A cosmetic selector legitimately contains whitespace: it is the descendant
             // combinator, and the picker's path fallback (`A > B > C`) always produces one.
             return isUsableSelector(element)
@@ -161,7 +161,7 @@ internal object BlockRules {
                 it == '{' || it == '}' || it == '(' || it == ')'
         }
 
-    private fun siteHost(host: String): String? {
+    internal fun siteHost(host: String): String? {
         val site = host.trim().lowercase(Locale.ROOT)
         if (site.isEmpty() || site.length > 253) return null
         if (site.none { it == '.' }) return null

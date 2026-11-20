@@ -38,133 +38,152 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
             return RestoredDownloads(emptyList(), emptySet())
         }
         var changed = false
-        runCatching {
-            val array = JSONArray(raw)
-            val limit = minOf(array.length(), MAX_METADATA_ENTRIES)
-            for (i in 0 until limit) {
-                val obj = array.optJSONObject(i) ?: continue
-                // A record from a newer build may use field meanings this one would misread.
-                // Skipping it loses a row; reinterpreting it would turn it into a different
-                // download, so the unknown version is dropped instead.
-                val version = obj.optInt("version", 0)
-                if (version > PERSIST_VERSION) {
-                    changed = true
-                    continue
-                }
-                // A record without the version field predates it, and rewriting the snapshot in
-                // the current format is also what applies the current URL and referer rules to
-                // it — otherwise a private URL recorded by an older build would sit in
-                // preferences until something else happened to write. Terminal records reach no
-                // other write, which is why the rewrite is forced here rather than left to chance.
-                if (version != PERSIST_VERSION) changed = true
-                // A record that predates the identity field carries the legacy pair instead, and is
-                // rewritten once in the new format with that pair dropped — which is also what
-                // applies the current URL and referer rules to a private URL an older build
-                // recorded in full. A field that is present but unreadable is a different case and
-                // is skipped below rather than migrated: falling back to the legacy pair would read
-                // a private record as ordinary, and then resume it against the cookie jar.
-                val identity = if (obj.has("identity")) {
-                    DownloadIdentity.decode(obj.optString("identity")) ?: run {
-                        changed = true
-                        continue
-                    }
-                } else {
-                    changed = true
-                    legacyIdentity(obj)
-                }
-                // An unrecognised enum is equally unreadable. Defaulting `backend` to
-                // LEGACY_SYSTEM made the record's status retryable as if the server had
-                // failed and then dropped it during reconciliation, taking its
-                // `destinationUri` with it; defaulting `status` to FAILED had the same shape.
-                val backend = runCatching {
-                    DownloadBackend.valueOf(obj.optString("backend"))
-                }.getOrNull() ?: run {
-                    changed = true
-                    continue
-                }
-                val id = obj.optLong("id", 0L)
-                if (id == 0L || (backend == DownloadBackend.LEGACY_SYSTEM && id < 0L)) continue
-                // A page-file record is stored under its placeholder address on purpose: the URL
-                // is the only surviving way to tell it apart from an ordinary task after a restart,
-                // and it is what keeps that record from ever being fetched. The prefix is validated
-                // rather than accepted blindly so a corrupted snapshot cannot smuggle in an address
-                // the rest of the app would treat as http(s).
-                val rawUrl = obj.optString("url")
-                val url = if (rawUrl.startsWith(PAGE_FILE_PREFIX)) {
-                    if (rawUrl.length <= MAX_URL_LENGTH + PAGE_FILE_PREFIX.length) rawUrl else continue
-                } else {
-                    validDownloadUrl(rawUrl) ?: continue
-                }
-                val filename = sanitizeFilename(obj.optString("filename"))
-                val userAgent = sanitizeHeader(
-                    obj.optString("userAgent"),
-                    MAX_USER_AGENT_LENGTH,
-                ).orEmpty()
-                val disposition = sanitizeHeader(
-                    obj.optString("contentDisposition"),
-                    MAX_CONTENT_DISPOSITION_LENGTH,
-                )
-                val mime = sanitizeMime(obj.optString("mimeType", "application/octet-stream"))
-                    .ifEmpty { "application/octet-stream" }
-                val referer = obj.optString("referer").let(::validHttpUrl)
-                val timestamp = obj.optLong("timestamp", 0L).takeIf { it > 0L }
-                    ?: System.currentTimeMillis()
-                val restoredStatus = runCatching {
-                    DownloadStatus.valueOf(obj.optString("status"))
-                }.getOrNull() ?: run {
-                    changed = true
-                    continue
-                }
-                val status = if (
-                    backend == DownloadBackend.LOCAL && restoredStatus.active
-                ) {
-                    changed = true
-                    // A consumed response cannot be recovered after process death. Re-request
-                    // only after the user sees the one-time-link warning and chooses Retry.
-                    if (identity.resumesAfterRestart && !obj.optBoolean("responseBacked", false)) interrupted.add(id)
-                    DownloadStatus.PAUSED
-                } else {
-                    restoredStatus
-                }
-                val destinationMode = runCatching {
-                    DownloadDestinationMode.valueOf(obj.optString("destinationMode"))
-                }.getOrDefault(DownloadDestinationMode.SYSTEM_DOWNLOADS)
-                metadata[id] = DownloadMetadata(
-                    id = id,
-                    backend = backend,
-                    url = persistedUrl(url, identity).also { if (it != url) changed = true },
-                    userAgent = userAgent,
-                    // Session cookies are deliberately memory-only. A retry re-reads the
-                    // WebView cookie jar instead of copying credentials into preferences.
-                    cookie = null,
-                    contentDisposition = disposition,
-                    mimeType = mime,
-                    filename = filename,
-                    referer = referer.takeIf { identity.persistSourceUrl }.also { if (it != referer) changed = true },
-                    timestamp = timestamp,
-                    status = status,
-                    unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
-                    responseBacked = obj.optBoolean("responseBacked", false),
-                    identity = identity,
-                    bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
-                    totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
-                    configuredThreadCount = DownloadSettingsRepository.normalizeThreadCount(
-                        obj.optInt("configuredThreadCount", 1),
-                    ),
-                    actualThreadCount = DownloadSettingsRepository.normalizeThreadCount(
-                        obj.optInt("actualThreadCount", 1),
-                    ),
-                    destinationMode = destinationMode,
-                    customTreeUri = obj.optString("customTreeUri").takeIf { it.isNotBlank() },
-                    destinationLabel = obj.optString("destinationLabel")
-                        .take(MAX_DESTINATION_LABEL_LENGTH)
-                        .ifBlank { SYSTEM_DIRECTORY_LABEL },
-                    destinationUri = obj.optString("destinationUri").takeIf { it.isNotBlank() },
-                    failure = DownloadFailure.entries.firstOrNull { it.name == obj.optString("failure") },
-                )
+        val array = try {
+            JSONArray(raw)
+        } catch (_: org.json.JSONException) {
+            prefs.edit { remove(KEY_ENTRIES) }
+            return RestoredDownloads(emptyList(), emptySet())
+        }
+        val limit = minOf(array.length(), MAX_METADATA_ENTRIES)
+        for (i in 0 until limit) {
+            val obj = array.optJSONObject(i) ?: continue
+            // A record from a newer build may use field meanings this one would misread.
+            // Skipping it loses a row; reinterpreting it would turn it into a different
+            // download, so the unknown version is dropped instead.
+            val version = obj.optInt("version", 0)
+            if (version > PERSIST_VERSION) {
+                changed = true
+                continue
             }
-            if (changed) save(metadata.values)
-        }.onFailure { prefs.edit { remove(KEY_ENTRIES) } }
+            // A record without the version field predates it, and rewriting the snapshot in
+            // the current format is also what applies the current URL and referer rules to
+            // it — otherwise a private URL recorded by an older build would sit in
+            // preferences until something else happened to write. Terminal records reach no
+            // other write, which is why the rewrite is forced here rather than left to chance.
+            if (version != PERSIST_VERSION) changed = true
+            // A record that predates the identity field carries the legacy pair instead, and is
+            // rewritten once in the new format with that pair dropped — which is also what
+            // applies the current URL and referer rules to a private URL an older build
+            // recorded in full. A field that is present but unreadable is a different case and
+            // is skipped below rather than migrated: falling back to the legacy pair would read
+            // a private record as ordinary, and then resume it against the cookie jar.
+            val identity = if (obj.has("identity")) {
+                DownloadIdentity.decode(obj.optString("identity")) ?: run {
+                    changed = true
+                    continue
+                }
+            } else {
+                changed = true
+                legacyIdentity(obj)
+            }
+            // An unrecognised enum is equally unreadable. Defaulting `backend` to
+            // LEGACY_SYSTEM made the record's status retryable as if the server had
+            // failed and then dropped it during reconciliation, taking its
+            // `destinationUri` with it; defaulting `status` to FAILED had the same shape.
+            val backend = runCatching {
+                DownloadBackend.valueOf(obj.optString("backend"))
+            }.getOrNull() ?: run {
+                changed = true
+                continue
+            }
+            val id = obj.optLong("id", 0L)
+            if (id == 0L || (backend == DownloadBackend.LEGACY_SYSTEM && id < 0L)) continue
+            // A page-file record is stored under its placeholder address on purpose: the URL
+            // is the only surviving way to tell it apart from an ordinary task after a restart,
+            // and it is what keeps that record from ever being fetched. The prefix is validated
+            // rather than accepted blindly so a corrupted snapshot cannot smuggle in an address
+            // the rest of the app would treat as http(s).
+            val rawUrl = obj.optString("url")
+            val url = when {
+                rawUrl.startsWith(PAGE_FILE_PREFIX) -> {
+                    if (!identity.isPrivate) {
+                        if (rawUrl.length <= MAX_URL_LENGTH + PAGE_FILE_PREFIX.length) rawUrl else continue
+                    } else {
+                        // Records written before this rule carry the blob's origin after the
+                        // marker; rewrite them with the marker alone.
+                        if (rawUrl != PAGE_FILE_PREFIX) changed = true
+                        PAGE_FILE_PREFIX
+                    }
+                }
+                identity.isPrivate -> {
+                    // An older build stored the address (without query) for private records.
+                    // Rewrite the snapshot so the address does not sit in preferences.
+                    if (rawUrl.isNotEmpty() || obj.optString("referer").isNotEmpty()) changed = true
+                    ""
+                }
+                else -> validDownloadUrl(rawUrl) ?: continue
+            }
+            val filename = sanitizeFilename(obj.optString("filename"))
+            val userAgent = sanitizeHeader(
+                obj.optString("userAgent"),
+                MAX_USER_AGENT_LENGTH,
+            ).orEmpty()
+            val disposition = sanitizeHeader(
+                obj.optString("contentDisposition"),
+                MAX_CONTENT_DISPOSITION_LENGTH,
+            )
+            val mime = sanitizeMime(obj.optString("mimeType", "application/octet-stream"))
+                .ifEmpty { "application/octet-stream" }
+            val referer = obj.optString("referer").let(::validHttpUrl)
+                .takeIf { identity.persistSourceUrl }
+            val timestamp = obj.optLong("timestamp", 0L).takeIf { it > 0L }
+                ?: System.currentTimeMillis()
+            val restoredStatus = runCatching {
+                DownloadStatus.valueOf(obj.optString("status"))
+            }.getOrNull() ?: run {
+                changed = true
+                continue
+            }
+            val status = if (
+                backend == DownloadBackend.LOCAL && restoredStatus.active
+            ) {
+                changed = true
+                // A consumed response cannot be recovered after process death. Re-request
+                // only after the user sees the one-time-link warning and chooses Retry.
+                if (identity.resumesAfterRestart && !obj.optBoolean("responseBacked", false)) interrupted.add(id)
+                DownloadStatus.PAUSED
+            } else {
+                restoredStatus
+            }
+            val destinationMode = runCatching {
+                DownloadDestinationMode.valueOf(obj.optString("destinationMode"))
+            }.getOrDefault(DownloadDestinationMode.SYSTEM_DOWNLOADS)
+            metadata[id] = DownloadMetadata(
+                id = id,
+                backend = backend,
+                url = url,
+                userAgent = userAgent,
+                // Session cookies are deliberately memory-only. A retry re-reads the
+                // WebView cookie jar instead of copying credentials into preferences.
+                cookie = null,
+                contentDisposition = disposition,
+                mimeType = mime,
+                outputMimeType = obj.optString("outputMimeType").takeIf { it.isNotEmpty() },
+                filename = filename,
+                referer = referer,
+                timestamp = timestamp,
+                status = status,
+                unmeteredOnly = obj.optBoolean("unmeteredOnly", false),
+                responseBacked = obj.optBoolean("responseBacked", false),
+                identity = identity,
+                bytesDownloaded = obj.optLong("bytesDownloaded", 0L).coerceAtLeast(0L),
+                totalBytes = obj.optLong("totalBytes", 0L).coerceAtLeast(0L),
+                configuredThreadCount = DownloadSettingsRepository.normalizeThreadCount(
+                    obj.optInt("configuredThreadCount", 1),
+                ),
+                actualThreadCount = DownloadSettingsRepository.normalizeThreadCount(
+                    obj.optInt("actualThreadCount", 1),
+                ),
+                destinationMode = destinationMode,
+                customTreeUri = obj.optString("customTreeUri").takeIf { it.isNotBlank() },
+                destinationLabel = obj.optString("destinationLabel")
+                    .take(MAX_DESTINATION_LABEL_LENGTH)
+                    .ifBlank { SYSTEM_DIRECTORY_LABEL },
+                destinationUri = obj.optString("destinationUri").takeIf { it.isNotBlank() },
+                failure = DownloadFailure.entries.firstOrNull { it.name == obj.optString("failure") },
+            )
+        }
+        if (changed) save(metadata.values)
         return RestoredDownloads(metadata.values.toList(), interrupted)
     }
 
@@ -180,10 +199,17 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
             )
         }
 
-    /** Private records retain the file, but never credentials, query tokens or the page address. */
-    private fun persistedUrl(url: String, identity: DownloadIdentity): String =
-        if (identity.persistSourceUrl) url
-        else DownloadValidation.redactCredentials(url.substringBefore('?').substringBefore('#'))
+    /**
+     * Private records retain the file and its management fields, but never the address they came
+     * from. A page-file record keeps its placeholder: that prefix is how it stays recognisable
+     * after a restart, and it is not a fetchable address.
+     */
+    private fun persistedUrl(url: String, identity: DownloadIdentity): String = when {
+        identity.persistSourceUrl -> url
+        // The page-file marker is what survives; the blob address behind it names the origin.
+        url.startsWith(PAGE_FILE_PREFIX) -> PAGE_FILE_PREFIX
+        else -> ""
+    }
 
     /** See [persistedUrl]: a private download does not keep the page it was started from. */
     private fun persistedReferer(entry: DownloadMetadata): String =
@@ -202,6 +228,7 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
                 .put("userAgent", entry.userAgent)
                 .put("contentDisposition", entry.contentDisposition)
                 .put("mimeType", entry.mimeType)
+                .put("outputMimeType", entry.outputMimeType)
                 .put("filename", entry.filename)
                 .put("referer", persistedReferer(entry))
                 .put("timestamp", entry.timestamp)

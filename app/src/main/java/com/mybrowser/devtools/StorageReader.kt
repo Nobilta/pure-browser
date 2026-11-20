@@ -29,39 +29,36 @@ internal class StorageReader(private val session: DevToolsSession) {
         }
         // Resolve the manager on the WebView's thread, but do the cookie IPC off it.
         val manager = withContext(Dispatchers.Main.immediate) {
-            // CookieManager.getInstance() is the default profile. A profile-isolated incognito
-            // WebView has its own manager; reading the default one would show normal cookies
-            // and miss the private page's cookies.
-            runCatching {
+            try {
                 if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
                     WebViewCompat.getProfile(session.view)?.cookieManager
-                } else null
-            }.getOrNull() ?: runCatching { CookieManager.getInstance() }.getOrNull()
+                } else CookieManager.getInstance()
+            } catch (_: RuntimeException) {
+                null
+            }
         } ?: return PageResult.Failed(null)
         return withContext(Dispatchers.IO) {
-            val rich = runCatching {
-                WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO)
-            }.getOrDefault(false)
-            if (rich) {
-                val info = runCatching { CookieManagerCompat.getCookieInfo(manager, boundedUrl) }
-                    .getOrNull()
-                if (info != null) {
-                    return@withContext PageResult.Ok(
-                        CookieResult(
-                            cookies = info.mapNotNull(::parseCookieInfoLine).sortedBy { it.name.lowercase() },
-                            richAttributes = true,
-                        )
-                    )
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO)) {
+                val info = try {
+                    CookieManagerCompat.getCookieInfo(manager, boundedUrl)
+                } catch (_: RuntimeException) {
+                    return@withContext PageResult.Failed(null)
                 }
-            }
-            // Fallback: CookieManager still returns HttpOnly names and values, but no attributes.
-            val header = runCatching { manager.getCookie(boundedUrl) }.getOrNull().orEmpty()
-            PageResult.Ok(
-                CookieResult(
-                    cookies = parseCookieHeader(header).sortedBy { it.name.lowercase() },
+                PageResult.Ok(CookieResult(
+                    cookies = info.mapNotNull(::parseCookieInfoLine).sortedBy { it.name.lowercase() },
+                    richAttributes = true,
+                ))
+            } else {
+                val header = try {
+                    manager.getCookie(boundedUrl)
+                } catch (_: RuntimeException) {
+                    return@withContext PageResult.Failed(null)
+                }
+                PageResult.Ok(CookieResult(
+                    cookies = parseCookieHeader(header.orEmpty()).sortedBy { it.name.lowercase() },
                     richAttributes = false,
-                )
-            )
+                ))
+            }
         }
     }
 

@@ -87,7 +87,7 @@ class DesktopSiteTest {
         assertFalse(SiteSettingsRepository(context).get(mobile).desktop)
     }
 
-    @Test fun privateDesktopChangesStayInsideThePrivateSession() = runBlocking {
+    @Test fun privateDesktopChoicesAreSharedWithoutSharingPermissions() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val normal = SiteSettingsRepository(context)
         normal.update(mobile) { it.copy(desktop = true, camera = SitePermission.ALLOW) }
@@ -96,8 +96,10 @@ class DesktopSiteTest {
         assertEquals(SitePermission.ASK, private.get(mobile).camera)
         private.update(desktop) { it.copy(desktop = false) }
         assertFalse(private.get(mobile).desktop)
-        assertTrue(normal.get(desktop).desktop)
-        assertTrue(SiteSettingsRepository(context).get(desktop).desktop)
+        assertFalse(normal.get(desktop).desktop)
+        assertFalse(SiteSettingsRepository(context).get(desktop).desktop)
+        assertEquals(SitePermission.ALLOW, normal.get(mobile).camera)
+        assertEquals(SitePermission.ASK, private.get(mobile).camera)
     }
 
     @Test fun keysNormalizeAliasesIdnAndDefaultPortsWithoutCollapsingOtherHosts() {

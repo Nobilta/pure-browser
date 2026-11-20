@@ -1,7 +1,7 @@
 package com.mybrowser.privacy
 
 import android.app.Application
-import android.view.View
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.webkit.WebViewFeature
 import org.junit.Assert.assertEquals
@@ -23,18 +23,20 @@ class PrivacyModeTest {
         }
     }
 
-    @Test fun autofillIsExcludedOnlyInThePrivateSession() {
+    @Test fun cacheModeAndEpochFollowThePrivateSession() {
         val context = RuntimeEnvironment.getApplication()
         val privacy = PrivacyMode(context)
         val view = WebView(context)
         privacy.applyTo(view)
-        assertEquals(View.IMPORTANT_FOR_AUTOFILL_AUTO, view.importantForAutofill)
+        assertEquals(WebSettings.LOAD_DEFAULT, view.settings.cacheMode)
+        val epoch = privacy.sessionEpoch
         privacy.enter()
+        privacy.enter()
+        assertEquals(epoch + 1, privacy.sessionEpoch)
         privacy.applyTo(view)
-        assertEquals(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS, view.importantForAutofill)
+        assertEquals(WebSettings.LOAD_NO_CACHE, view.settings.cacheMode)
         privacy.exit(wipeSharedStorage = false)
         privacy.applyTo(view)
-        assertEquals(View.IMPORTANT_FOR_AUTOFILL_AUTO, view.importantForAutofill)
-        view.destroy()
+        assertEquals(WebSettings.LOAD_DEFAULT, view.settings.cacheMode)
     }
 }

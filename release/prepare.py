@@ -56,49 +56,18 @@ def verified_signer(apk):
     return next(iter(signers))
 
 
-def verify_notes(version, notes):
-    verification = notes.read_text(encoding='utf-8').strip()
-    # Match a complete version token, not 0.14.1 inside 0.14.10 or 0.14.1-beta.
-    if not re.search(r'(?<![0-9A-Za-z.+_-])v?' + re.escape(version) + r'(?![0-9A-Za-z.+_-])', verification):
-        raise ValueError('the verification record must be nonempty and name version ' + version)
-
-
-def changelog_body(version):
-    """The section CHANGELOG.md holds for this version, without its heading.
-
-    The public change list lives in the changelog. Local verification notes are checked separately
-    and never included in the release page or the in-app update prompt.
-    """
-    lines = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8').splitlines()
-    named = re.compile(r'^##\s+' + re.escape(version) + r'\s*(?:-|$)')
-    unreleased = re.compile(r'^##\s+未发布\s*$')
-    # A named section is what the version bump writes; `未发布` is where the same work sits until
-    # then, so a release prepared before the rename still finds its notes.
-    start = next((i for i, line in enumerate(lines) if named.match(line)), None)
-    if start is None:
-        start = next((i for i, line in enumerate(lines) if unreleased.match(line)), None)
-    if start is None:
-        raise ValueError('CHANGELOG.md has no "## ' + version + '" or "## 未发布" section')
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
-    body = '\n'.join(lines[start + 1:end]).strip()
+def compose_notes(version, notes_file=None):
+    """Local builds need no release prose; public releases supply their reviewed change list."""
+    heading = 'Pure Browser ' + version + '\n'
+    if notes_file is None:
+        return heading
+    body = notes_file.read_text(encoding='utf-8').strip()
     if not body:
-        raise ValueError('The CHANGELOG.md section for ' + version + ' is empty')
-    return body
+        raise ValueError('The public release notes file is empty')
+    return heading + '\n' + body + '\n'
 
 
-def compose_notes(version):
-    """The release body: the changelog section for this version, and nothing else.
-
-    The release page and the update prompt inside the app both render this same text. The app
-    prompt is a plain Text widget, so a Markdown heading would appear literally as
-    ``# Pure Browser ...``; keep a plain version line instead. The updater requires the first
-    line to name the version. The verification record lives in release/notes.md: the process
-    requires it and checks that it belongs to this version, but it is not published.
-    """
-    return 'Pure Browser ' + version + '\n\n' + changelog_body(version) + '\n'
-
-
-def prepare(apk, output, notes=None):
+def prepare(apk, output, notes_file=None):
     if not apk.is_file() or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.apk', apk.name):
         raise ValueError('Choose the signed delivery APK with a filename safe for release assets')
     size = apk.stat().st_size
@@ -119,12 +88,7 @@ def prepare(apk, output, notes=None):
     if abis != {'arm64-v8a'}:
         raise ValueError('The official release currently ships arm64-v8a only: ' + str(sorted(abis)))
     checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
-    # `--notes` is the verification record (release/notes.md) the release process requires. It is
-    # checked against the version being shipped and kept as a local record; it is not part of the
-    # published body, which comes from CHANGELOG.md alone.
-    if notes is not None:
-        verify_notes(version, notes)
-    release_notes = compose_notes(version)
+    release_notes = compose_notes(version, notes_file)
     if len(release_notes) > 12_000:
         raise ValueError('Release notes exceed 12,000 characters')
     # These notes become the body of update.json, which is generated here and then published as an
@@ -152,22 +116,78 @@ def prepare(apk, output, notes=None):
     (output / 'SHA256SUMS').write_text(f'{checksum}  {apk.name}\n{manifest_hash}  update.json\n', encoding='utf-8')
     details = {'apk': str(apk), 'sha256': checksum, 'signerSha256': signer, 'tag': 'v' + version,
                'size': size, 'versionCode': code, 'versionName': version, 'minSdk': min_sdk, 'abi': 'arm64-v8a',
-               'releaseNotes': str(notes_path),
-               'verification': str(notes.resolve()) if notes else None}
+               'releaseNotes': str(notes_path)}
     (output / 'package-info.json').write_text(json.dumps(details, indent=2) + '\n', encoding='utf-8')
     return details
+
+
+def verify_prepared(apk, output):
+    """Ensure the mirror metadata still describes the exact APK being uploaded."""
+    apk = apk.resolve()
+    output = output.resolve()
+    info = json.loads((output / 'package-info.json').read_text(encoding='utf-8'))
+    manifest = json.loads((output / 'update.json').read_text(encoding='utf-8'))
+    if Path(info['apk']).resolve() != apk:
+        raise ValueError('package-info.json points to a different APK')
+    if info['abi'] != 'arm64-v8a' or info['tag'] != 'v' + info['versionName']:
+        raise ValueError('package-info.json has inconsistent release metadata')
+
+    signer = verified_signer(apk)
+    badging = run(android_tool('aapt2'), 'dump', 'badging', str(apk))
+    package = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging, re.M)
+    sdk = re.search(r"^(?:minSdkVersion|sdkVersion):'(\d+)'", badging, re.M)
+    if not package or package.groups() != ('com.mybrowser', str(info['versionCode']), info['versionName']):
+        raise ValueError('APK package version differs from package-info.json')
+    if not sdk or int(sdk[1]) != info['minSdk']:
+        raise ValueError('APK minimum SDK differs from package-info.json')
+    apk_bytes = apk.read_bytes()
+    apk_hash = hashlib.sha256(apk_bytes).hexdigest()
+    with zipfile.ZipFile(apk) as archive:
+        abis = {name.split('/')[1] for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')}
+    if abis != {info['abi']}:
+        raise ValueError('APK ABI differs from package-info.json')
+    if signer != info['signerSha256']:
+        raise ValueError('APK signing certificate differs from package-info.json')
+
+    artifacts = manifest.get('artifacts', [])
+    if (manifest.get('packageName') != 'com.mybrowser' or
+            manifest.get('versionCode') != info['versionCode'] or
+            manifest.get('versionName') != info['versionName'] or
+            len(artifacts) != 1 or artifacts[0].get('abi') != info['abi'] or
+            artifacts[0].get('assetName') != apk.name or
+            artifacts[0].get('size') != apk.stat().st_size or
+            artifacts[0].get('sha256') != apk_hash or manifest.get('minSdk') != info['minSdk']):
+        raise ValueError('update.json does not describe the prepared APK')
+
+    expected = {
+        apk.name: apk_hash,
+        'update.json': hashlib.sha256((output / 'update.json').read_bytes()).hexdigest(),
+    }
+    checksums = {}
+    for line in (output / 'SHA256SUMS').read_text(encoding='utf-8').splitlines():
+        checksum, separator, name = line.partition('  ')
+        if not separator or name in checksums:
+            raise ValueError('SHA256SUMS is malformed')
+        checksums[name] = checksum
+    if checksums != expected:
+        raise ValueError('SHA256SUMS does not match the APK and update.json')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apk', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT / 'outputs/release')
-    parser.add_argument('--notes', type=Path,
-                        help='验证记录（release/notes.md）：核对版本并留档，不进入发布说明；'
-                             '发布说明由本脚本从 CHANGELOG.md 取对应版本段落生成')
+    parser.add_argument('--release-notes', type=Path,
+                        help='public change list without a version heading; omit for a local test build')
+    parser.add_argument('--verify-prepared', action='store_true',
+                        help='verify existing mirror attachments against the signed APK')
     args = parser.parse_args()
     try:
-        details = prepare(args.apk.resolve(), args.output.resolve(), args.notes)
+        if args.verify_prepared:
+            verify_prepared(args.apk, args.output)
+            print('Prepared release attachments match the signed APK')
+            return
+        details = prepare(args.apk.resolve(), args.output.resolve(), args.release_notes)
     except (ValueError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
         parser.exit(1, 'Release preparation failed: ' + str(error) + '\n')
     print(json.dumps(details, ensure_ascii=False, indent=2))

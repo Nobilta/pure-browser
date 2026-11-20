@@ -1,5 +1,6 @@
 package com.mybrowser.ui.home
 
+import com.mybrowser.ui.components.BrowserTextField
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,6 +89,7 @@ internal fun HomeShortcutEditor(
         else -> null
     }
 
+    val urlError = result == ShortcutSaveResult.INVALID_URL || result == ShortcutSaveResult.DUPLICATE_URL
     if (confirmRemoval) {
         BrowserAlertDialog(
             onDismissRequest = { if (!saving) confirmRemoval = false },
@@ -161,16 +163,19 @@ internal fun HomeShortcutEditor(
                         }
                     }
                     if (imageError) Text(stringResource(R.string.home_shortcut_icon_failed), color = MaterialTheme.colorScheme.error)
-                    OutlinedTextField(value = title, onValueChange = { title = it.take(128); result = null },
-                        label = { Text(stringResource(R.string.bookmark_edit_title)) }, singleLine = true,
+                    BrowserTextField(value = title, onValueChange = { title = it.take(128); result = null },
+                        label = stringResource(R.string.bookmark_edit_title),
                         enabled = !saving, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = url, onValueChange = { url = it.take(8192); result = null },
-                        label = { Text(stringResource(R.string.bookmark_edit_url)) }, singleLine = true,
-                        enabled = !saving, isError = result == ShortcutSaveResult.INVALID_URL || result == ShortcutSaveResult.DUPLICATE_URL,
+                    BrowserTextField(value = url, onValueChange = { url = it.take(8192); result = null },
+                        label = stringResource(R.string.bookmark_edit_url),
+                        enabled = !saving, errorMessage = errorText?.takeIf { urlError }?.let { stringResource(it) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth())
-                    if (errorText != null) Text(stringResource(errorText), color = MaterialTheme.colorScheme.error)
+                    if (!urlError) errorText?.let {
+                        Text(stringResource(it), color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             },
             confirmButton = {

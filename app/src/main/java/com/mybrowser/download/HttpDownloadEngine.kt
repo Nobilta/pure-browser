@@ -261,13 +261,14 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         try {
             val code = connection.responseCode
             requireIdentityEncoding(connection)
-            if (code !in 200..299) throw DownloadHttpException(code)
+            if (code !in 200..299 || code == HttpURLConnection.HTTP_PARTIAL) throw DownloadHttpException(code)
+            if (maxBytes != null && connection.contentLengthLong > maxBytes) throw IOException("Resource exceeds $maxBytes bytes")
             var total = 0L
             connection.inputStream.use { input ->
                 val buffer = ByteArray(BUFFER_SIZE_BYTES)
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val count = input.read(buffer)
+                    val count = input.read(buffer, 0, rateLimiter.readSize(buffer.size))
                     if (count < 0) break
                     if (count == 0) continue
                     if (maxBytes != null && total + count > maxBytes) throw IOException("Resource exceeds $maxBytes bytes")
@@ -276,6 +277,8 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                     total += count
                 }
             }
+            val expected = connection.contentLengthLong
+            if (expected >= 0 && total != expected) throw IOException("Response length mismatch: expected $expected, got $total")
             return HttpFetch(connection.url.toExternalForm(), connection.contentType)
         } finally {
             releaseConnection(connection)
@@ -313,7 +316,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
             val buffer = ByteArray(BUFFER_SIZE_BYTES)
             while (true) {
                 currentCoroutineContext().ensureActive()
-                val count = input.read(buffer)
+                val count = input.read(buffer, 0, rateLimiter.readSize(buffer.size))
                 if (count < 0) break
                 if (count == 0) continue
                 if (declaredTotal > 0 && downloaded + count > declaredTotal) throw ResumeRejected("Full response exceeded Content-Length")
@@ -418,7 +421,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                     val buffer = ByteArray(BUFFER_SIZE_BYTES)
                     while (true) {
                         currentCoroutineContext().ensureActive()
-                        val count = input.read(buffer)
+                        val count = input.read(buffer, 0, rateLimiter.readSize(buffer.size))
                         if (count < 0) break
                         if (count == 0) continue
                         written += count
@@ -472,7 +475,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                 if (sameOrigin(cookieScope, current)) {
                     headers.cookie?.takeIf(String::isNotBlank)?.let { setRequestProperty("Cookie", it) }
                 }
-                val referer = source?.referer ?: headers.referer
+                val referer = if (navigation != null) source?.referer else headers.referer
                 referer?.takeIf(String::isNotBlank)?.let { setRequestProperty("Referer", it) }
                 range?.let { setRequestProperty("Range", it) }
                 validator?.let { setRequestProperty("If-Range", it) }

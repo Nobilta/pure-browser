@@ -54,13 +54,26 @@ class FullscreenVideoView(
     private val onChooseSpeed: (Float) -> Unit,
     private val onChooseTransform: (Boolean, VideoFit) -> Unit,
     private val castContent: @Composable () -> Unit,
-    /** Null in a private session, where background playback is never allowed. */
-    private val onToggleBackgroundPlayback: (() -> Unit)?,
+    private val backgroundPlayback: () -> Boolean,
+    private val onBackgroundPlaybackChange: (Boolean) -> Unit,
     private val onPictureInPicture: (() -> Unit)? = null,
 ) : FrameLayout(activity) {
     private val ui = Handler(Looper.getMainLooper())
-    /** Local copy: the preference is persisted, but the tint has to flip without a rebuild. */
-    private var backgroundPlayback by mutableStateOf(preferences.backgroundPlayback)
+    // In fullscreen Chromium receives window visibility through its custom view.
+    // Only that subtree needs the same policy as the inline BrowserWebView.
+    private val videoHost = object : FrameLayout(activity) {
+        override fun dispatchWindowVisibilityChanged(visibility: Int) {
+            super.dispatchWindowVisibilityChanged(if (keepMediaOnWindowHidden) VISIBLE else visibility)
+        }
+    }
+    var keepMediaOnWindowHidden = backgroundPlayback() && tracker.current.isPlaying
+        set(value) {
+            if (field == value) return
+            field = value
+            if (videoHost.isAttachedToWindow && videoHost.windowVisibility != VISIBLE) {
+                videoHost.dispatchWindowVisibilityChanged(videoHost.windowVisibility)
+            }
+        }
     private val audio = activity.getSystemService(AudioManager::class.java)
     private val accessibility = activity.getSystemService(AccessibilityManager::class.java)
     private val originalBrightness = activity.window.attributes.screenBrightness
@@ -110,7 +123,8 @@ class FullscreenVideoView(
         isFocusableInTouchMode = true
         activity.volumeControlStream = AudioManager.STREAM_MUSIC
         activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        addView(videoView, LayoutParams(-1, -1))
+        videoHost.addView(videoView, LayoutParams(-1, -1))
+        addView(videoHost, LayoutParams(-1, -1))
         addView(gestures, LayoutParams(-1, -1))
         gestures.visibility = GONE
         addView(controlsHost, LayoutParams(-1, -1))
@@ -161,13 +175,8 @@ class FullscreenVideoView(
                     onSpeed = { rate -> onChooseSpeed(rate) },
                     onMirror = { changeTransform(!mirror, fit) },
                     onFit = { chosen -> changeTransform(mirror, chosen) },
-                    backgroundPlayback = backgroundPlayback,
-                    onToggleBackgroundPlayback = onToggleBackgroundPlayback?.let {
-                        {
-                            backgroundPlayback = !backgroundPlayback
-                            it()
-                        }
-                    },
+                    backgroundPlayback = backgroundPlayback(),
+                    onBackgroundPlaybackChange = onBackgroundPlaybackChange,
                     castContent = castContent,
                 )
             }
@@ -188,6 +197,7 @@ class FullscreenVideoView(
     fun update(signal: MediaPlaybackTracker.Signal) {
         if (released) return
         state = signal
+        keepMediaOnWindowHidden = backgroundPlayback() && signal.isPlaying
         title = titleProvider().ifBlank { activity.getString(R.string.ui_video_playback) }
         if (!orientationChosen && preferences.landscapeFullscreen && state.isFullscreen && state.width > state.height && state.height > 0) {
             orientationChosen = true
@@ -398,10 +408,9 @@ class FullscreenVideoView(
         activity.requestedOrientation = originalOrientation
         activity.volumeControlStream = originalVolumeStream
         if (!keptScreenOn) activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        removeView(videoView)
+        videoHost.removeView(videoView)
     }
 
-    override fun onDetachedFromWindow() { release(); super.onDetachedFromWindow() }
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (!hasWindowFocus) cancelTransientControls()

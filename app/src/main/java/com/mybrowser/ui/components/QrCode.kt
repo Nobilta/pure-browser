@@ -12,14 +12,19 @@ import com.google.zxing.qrcode.QRCodeWriter
  * the dialog presents it on a white surface whatever the app theme is.
  */
 object QrCode {
-    fun encode(text: String, sizePx: Int = 720): Bitmap? = runCatching {
-        val matrix = QRCodeWriter().encode(
-            text,
-            BarcodeFormat.QR_CODE,
-            sizePx,
-            sizePx,
-            mapOf(EncodeHintType.MARGIN to 2, EncodeHintType.CHARACTER_SET to "UTF-8"),
-        )
+    fun encode(text: String, sizePx: Int = 720): Bitmap? {
+        if (text.isEmpty() || sizePx <= 0) return null
+        val matrix = try {
+            QRCodeWriter().encode(
+                text,
+                BarcodeFormat.QR_CODE,
+                sizePx,
+                sizePx,
+                mapOf(EncodeHintType.MARGIN to 2, EncodeHintType.CHARACTER_SET to "UTF-8"),
+            )
+        } catch (_: com.google.zxing.WriterException) {
+            return null
+        }
         val pixels = IntArray(matrix.width * matrix.height)
         for (y in 0 until matrix.height) {
             val row = y * matrix.width
@@ -27,6 +32,6 @@ object QrCode {
                 pixels[row + x] = if (matrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
             }
         }
-        Bitmap.createBitmap(pixels, matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
-    }.getOrNull()
+        return Bitmap.createBitmap(pixels, matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
+    }
 }

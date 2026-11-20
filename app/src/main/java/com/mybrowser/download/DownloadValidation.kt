@@ -33,10 +33,13 @@ internal object DownloadValidation {
     /** Removes userinfo without decoding or rewriting the resource path and query. */
     fun redactCredentials(url: String): String = url.replace(USER_INFO, "$1")
 
+    fun displaySource(origin: String?, referer: String?, url: String): String =
+        redactCredentials(validHttpUrl(origin) ?: validHttpUrl(referer) ?: url.substringBefore('#'))
+
     private val USER_INFO = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?#]*@")
 
     fun sanitizeFilename(raw: String): String =
-        FilenameParser.sanitize(raw, keepExtension = false)
+        FilenameParser.sanitize(raw)
 
     fun sanitizeHeader(raw: String?, maxLength: Int): String? = raw
         ?.filterNot { it == '\r' || it == '\n' || it.isISOControl() }

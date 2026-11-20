@@ -50,26 +50,45 @@ class DownloadMetadataStoreTest {
         assertTrue(store.load().entries.isEmpty())
     }
 
-    @Test fun privateFtpCredentialsAreRemovedOnSaveAndOnLoadingExistingRecords() {
+    @Test fun privateRecordsKeepTheirFileButNeverTheirAddress() {
         val store = DownloadMetadataStore(prefs)
-        val url = "ftp://private-user:secret@example.test/a%20b.bin?token=secret#fragment"
+        val url = "https://example.test/a%20b.bin?token=secret#fragment"
         val entry = record(1).copy(url = url, referer = "https://page.test/private",
             identity = DownloadIdentity.PrivateSession("private-test"))
         store.save(listOf(entry))
         var saved = JSONArray(prefs.getString("entries", null)).getJSONObject(0)
-        assertEquals("ftp://example.test/a%20b.bin", saved.getString("url"))
+        assertEquals("", saved.getString("url"))
+        assertEquals("", saved.getString("referer"))
         assertEquals(url, entry.url)
         // Simulate a terminal record written by the previous version; load must rewrite it now.
         saved.put("url", url).put("referer", entry.referer)
         prefs.edit { putString("entries", JSONArray().put(saved).toString()) }
         val restored = store.load().entries.single()
-        assertEquals("ftp://example.test/a%20b.bin", restored.url)
+        assertEquals("", restored.url)
         assertNull(restored.referer)
         saved = JSONArray(prefs.getString("entries", null)).getJSONObject(0)
-        assertEquals(restored.url, saved.getString("url"))
+        assertEquals("", saved.getString("url"))
         assertEquals("", saved.getString("referer"))
         store.save(listOf(entry.copy(identity = DownloadIdentity.Normal)))
         assertEquals(url, store.load().entries.single().url)
+    }
+
+    @Test fun aPrivatePageFileKeepsOnlyItsMarkerNeverTheBlobOrigin() {
+        val store = DownloadMetadataStore(prefs)
+        val blob = "blob:https://private-origin.example/1234"
+        val entry = record(1).copy(url = DownloadValidation.PAGE_FILE_PREFIX + blob,
+            identity = DownloadIdentity.PrivateSession("private-test"))
+        store.save(listOf(entry))
+        var saved = JSONArray(prefs.getString("entries", null)).getJSONObject(0)
+        assertEquals(DownloadValidation.PAGE_FILE_PREFIX, saved.getString("url"))
+        assertEquals(DownloadValidation.PAGE_FILE_PREFIX, store.load().entries.single().url)
+
+        // A record written before this rule still carries the blob address; load rewrites it.
+        saved.put("url", DownloadValidation.PAGE_FILE_PREFIX + blob)
+        prefs.edit { putString("entries", JSONArray().put(saved).toString()) }
+        assertEquals(DownloadValidation.PAGE_FILE_PREFIX, store.load().entries.single().url)
+        saved = JSONArray(prefs.getString("entries", null)).getJSONObject(0)
+        assertEquals(DownloadValidation.PAGE_FILE_PREFIX, saved.getString("url"))
     }
 
     @Test fun corruptAndOversizedPreferencesAreDiscardedBeforeTheNextSave() {

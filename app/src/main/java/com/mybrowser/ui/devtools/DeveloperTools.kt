@@ -25,7 +25,6 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -238,7 +237,7 @@ private fun EnhancedCaptureBar(
                 if (notice != null) Text(
                     notice,
                     Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = if (!capture.supported || capture.notice == CaptureNotice.INSTALL_FAILED)
                         MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -281,20 +280,21 @@ private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<Console
             }
         }
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(command, onCommandChange, Modifier.weight(1f),
-                placeholder = { Text(resources.getString(R.string.ui_enter_a_javascript_command)) }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onExecute() }))
+            com.mybrowser.ui.components.BrowserTextField(
+                value = command, onValueChange = onCommandChange, label = null,
+                modifier = Modifier.weight(1f),
+                accessibilityLabel = resources.getString(R.string.ui_enter_a_javascript_command),
+                placeholder = resources.getString(R.string.ui_enter_a_javascript_command),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onExecute() }),
+            )
             Spacer(Modifier.width(8.dp))
-            FilledTonalButton(
+            com.mybrowser.ui.components.BrowserActionPill(
+                text = resources.getString(R.string.ui_run),
                 onClick = onExecute,
                 enabled = canExecute && command.isNotBlank(),
-                shape = CircleShape,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Icon(painterResource(R.drawable.ic_ui_play), null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(resources.getString(R.string.ui_run))
-            }
+                iconRes = R.drawable.ic_ui_play,
+            )
         }
     }
 }
@@ -360,13 +360,13 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
                         if (request.isForMainFrame) append(textResources.getString(R.string.ui_main_document))
                         if (request.blocked) append(textResources.getString(R.string.ui_filter))
                     },
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = request.durationText(textResources) +
                         (request.pageLoadMs?.let { " · ${textResources.getString(R.string.dev_network_page_load)} $it ms" } ?: ""),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -376,7 +376,7 @@ internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkR
             request.errorDescription?.let { description ->
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

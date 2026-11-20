@@ -19,7 +19,7 @@ object UrlUtils {
         // errors and falls back to the Kotlin implementation.
         System.loadLibrary("mybrowser_url_utils")
         true
-    } catch (_: Throwable) {
+    } catch (_: UnsatisfiedLinkError) {
         false
     }
 
@@ -77,6 +77,9 @@ object UrlUtils {
         // this, values such as "https://" or "http:example.com" can be returned unchanged
         // and later mistaken for a page URL by the navigation policy.
         val explicitScheme = schemeOf(text)
+        if (explicitScheme == "ftp" && com.mybrowser.download.FtpTarget.parse(text) == null) {
+            return buildSearchUrl(text, searchTemplate)
+        }
         if ((explicitScheme == "http" || explicitScheme == "https") && !isHttpUrl(text)) {
             return buildSearchUrl(text, searchTemplate)
         }
@@ -402,8 +405,7 @@ object UrlUtils {
             val scheme = schemeOf(text)
             when {
                 scheme == "http" || scheme == "https" -> return isHttpUrl(text)
-                // The address becomes a download task; the download itself validates the shape.
-                scheme == "ftp" -> return hasOpaquePayload(text)
+                scheme == "ftp" -> return com.mybrowser.download.FtpTarget.parse(text) != null
                 scheme == "about" -> return hasOpaquePayload(text)
                 isTypedHandoff(text) -> return true
             }

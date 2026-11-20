@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +50,7 @@ fun BrowserActionPill(
     isToggle: Boolean = false,
     enabled: Boolean = true,
     selected: Boolean? = null,
+    description: String? = null,
 ) {
     val highlighted = selected ?: active
     val colors = MaterialTheme.colorScheme
@@ -109,6 +112,7 @@ fun BrowserActionPill(
             }
             Text(
                 text = text,
+                modifier = if (description == null) Modifier else Modifier.clearAndSetSemantics { contentDescription = description },
                 style = MaterialTheme.typography.labelLarge,
                 color = labelColor,
                 maxLines = 2,

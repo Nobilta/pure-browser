@@ -1,5 +1,8 @@
 package com.mybrowser.ui.menu
 
+import androidx.compose.foundation.selection.selectableGroup
+import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.components.BrowserTextField
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -32,7 +35,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
@@ -135,7 +137,7 @@ fun TabsSheet(
         onPrimaryAction = onNewTab,
         onDismiss = onDismiss,
         filterBar = {
-            Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(bottom = if (isIncognito || groups.isNotEmpty()) 8.dp else 0.dp)) {
                 if (isIncognito) Row(
                     modifier = Modifier
                         .padding(bottom = 8.dp)
@@ -158,13 +160,13 @@ fun TabsSheet(
                     )
                 }
                 if (groups.isNotEmpty()) Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FilterChip(groupFilter == null, { groupFilter = null },
-                        label = { Text(stringResource(R.string.tabs_all_groups)) })
+                    BrowserActionPill(stringResource(R.string.tabs_all_groups), { groupFilter = null },
+                        selected = activeGroupFilter == null)
                     groups.forEach { group ->
-                        FilterChip(groupFilter == group, { groupFilter = group }, label = { Text(group) })
+                        BrowserActionPill(group, { groupFilter = group }, selected = activeGroupFilter == group)
                     }
                 }
             }
@@ -220,8 +222,7 @@ fun TabsSheet(
     groupTarget?.let { target -> BrowserAlertDialog(onDismissRequest = { groupTarget = null },
         title = { Text(stringResource(R.string.tabs_group)) },
         text = { Column {
-            androidx.compose.material3.OutlinedTextField(groupName, { groupName = it.take(40) }, singleLine = true,
-                label = { Text(stringResource(R.string.tabs_group_name)) })
+            BrowserTextField(groupName, stringResource(R.string.tabs_group_name), { groupName = it.take(40) })
             Text(stringResource(R.string.tabs_group_hint), Modifier.padding(vertical = 8.dp))
             Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
                 groups.forEach { name -> TextButton(onClick = { groupName = name }) { Text(name) } }

@@ -32,24 +32,27 @@ internal data class FtpTarget(
     val path: String,
 ) {
     companion object {
-        private fun containsLineBreak(value: String) = value.any { it == '\r' || it == '\n' || it == '\u0000' }
+        private fun decodeUserInfo(value: String) =
+            java.net.URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
 
         fun parse(url: String): FtpTarget? = runCatching {
             val uri = URI(url)
             if (!uri.scheme.equals("ftp", ignoreCase = true)) return null
             val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+            val port = if (uri.port == -1) DEFAULT_PORT else uri.port
+            if (port !in 1..65535) return null
             val path = uri.path.orEmpty()
             if (path.isBlank() || path.endsWith("/")) return null
-            val userInfo = uri.userInfo.orEmpty()
-            val user = userInfo.substringBefore(':').ifBlank { ANONYMOUS_USER }
-            val password = if (userInfo.contains(':')) userInfo.substringAfter(':') else ANONYMOUS_PASSWORD
+            val userInfo = uri.rawUserInfo.orEmpty()
+            val user = decodeUserInfo(userInfo.substringBefore(':')).ifBlank { ANONYMOUS_USER }
+            val password = if (userInfo.contains(':')) decodeUserInfo(userInfo.substringAfter(':')) else ANONYMOUS_PASSWORD
             // These come from the URL percent-decoded and go into commands verbatim. FTP has no
             // quoting, so a line break in any of them would arrive as an extra command: the
             // address is refused instead.
-            if (listOf(path, user, password).any(::containsLineBreak)) return null
+            if (listOf(path, user, password).any { it.any(Char::isISOControl) }) return null
             FtpTarget(
                 host = host,
-                port = if (uri.port > 0) uri.port else DEFAULT_PORT,
+                port = port,
                 user = user,
                 password = password,
                 path = path,
@@ -103,23 +106,39 @@ internal class FtpDownloadEngine(
         try {
             session.connect()
             session.login(target)
-            session.command("TYPE I")
+            val binary = session.command("TYPE I")
+            if (binary.code !in 200..299) throw DownloadFtpException(binary.code, "FTP server refused binary mode")
             val total = session.size(target.path)
+            val modified = session.modified(target.path)
+            val identity = if (total != null && modified != null)
+                DownloadCheckpoint.digest("$url\n$total\n$modified") else null
+            val stateFile = File(tempDirectory, "ftp.state")
+            val previous = try {
+                String(java.nio.file.Files.readAllBytes(stateFile.toPath()), Charsets.UTF_8)
+            } catch (_: java.nio.file.NoSuchFileException) { null }
             val already = destination.length()
-            // Even a full-length part can belong to a RETR whose final reply was a failure.
-            val offset = if (total != null && already > 0 && already < total && session.rest(already)) already else 0L
+            // SIZE alone cannot identify a version, including same-size replacements.
+            // A full part may also belong to a RETR whose final reply failed.
+            val data = session.passive()
+            val offset = if (identity != null && identity == previous && total != null &&
+                already > 0 && already < total && session.rest(already)) already else 0L
             progress.update(offset, total ?: 0L, force = true)
-            val data = session.retrieve(target.path)
+            session.retrieve(target.path)
             var downloaded = offset
             try {
                 FileOutputStream(destination, offset > 0L).use { output ->
+                    // Truncate old bytes before recording a new identity. An incomplete marker
+                    // never matches, so an interrupted write safely starts from zero next time.
+                    if (identity != null) stateFile.writeText(identity)
+                    else java.nio.file.Files.deleteIfExists(stateFile.toPath())
                     val input = data.getInputStream()
                     val buffer = ByteArray(BUFFER_SIZE_BYTES)
                     while (true) {
                         currentCoroutineContext().ensureActive()
-                        val count = input.read(buffer)
+                        val count = input.read(buffer, 0, rateLimiter.readSize(buffer.size))
                         if (count < 0) break
                         if (count == 0) continue
+                        if (total != null && count > total - downloaded) throw IOException("FTP transfer exceeds declared size")
                         rateLimiter.acquire(count)
                         output.write(buffer, 0, count)
                         downloaded += count
@@ -137,6 +156,9 @@ internal class FtpDownloadEngine(
             }
             progress.update(downloaded, total ?: downloaded, force = true)
             return@withContext DownloadPayload(listOf(destination), total ?: downloaded, 1)
+        } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw error
         } finally {
             cancelGuard.cancel()
             session.close()
@@ -146,6 +168,10 @@ internal class FtpDownloadEngine(
     private companion object {
         const val BUFFER_SIZE_BYTES = 64 * 1024
     }
+}
+
+internal class DownloadFtpException(val code: Int, message: String) : IOException(message) {
+    val isTransient: Boolean get() = code in 400..499
 }
 
 private data class FtpReply(val code: Int, val text: String)
@@ -173,15 +199,15 @@ private class FtpSession(private val host: String, private val port: Int) : Clos
 
     fun login(target: FtpTarget) {
         val greeting = readReply()
-        if (greeting.code !in 200..299) throw IOException("FTP server refused the connection: ${greeting.text}")
+        if (greeting.code !in 200..299) throw DownloadFtpException(greeting.code, "FTP server refused the connection")
         val user = command("USER ${target.user}")
         when (user.code) {
             230 -> Unit
             331 -> {
                 val accepted = command("PASS ${target.password}")
-                if (accepted.code != 230) throw IOException("FTP login failed: ${accepted.text}")
+                if (accepted.code != 230) throw DownloadFtpException(accepted.code, "FTP login failed")
             }
-            else -> throw IOException("FTP login refused: ${user.text}")
+            else -> throw DownloadFtpException(user.code, "FTP login refused")
         }
     }
 
@@ -197,29 +223,31 @@ private class FtpSession(private val host: String, private val port: Int) : Clos
         return reply.text.substringAfter(' ', "").trim().toLongOrNull()?.takeIf { it >= 0 }
     }
 
+    fun modified(path: String): String? {
+        val reply = command("MDTM $path")
+        if (reply.code != 213) return null
+        return reply.text.substringAfter(' ', "").trim().takeIf {
+            it.matches(Regex("[0-9]{14}(\\.[0-9]+)?"))
+        }
+    }
+
     /** Whether the server will continue the next RETR at [offset]; 350 is the only "yes". */
     fun rest(offset: Long): Boolean = command("REST $offset").code == 350
 
-    fun retrieve(path: String): Socket {
-        val opened = passive()
+    fun retrieve(path: String) {
         val reply = command("RETR $path")
-        if (reply.code !in 125..150) {
-            forgetData(opened)
-            runCatching { opened.close() }
-            throw IOException("FTP download refused: ${reply.text}")
-        }
-        return opened
+        if (reply.code !in 125..150) throw DownloadFtpException(reply.code, "FTP download refused")
     }
 
     /** Reads the "transfer complete" reply that follows the data connection's end of stream. */
     fun finish() {
         val reply = readReply()
-        if (reply.code !in 200..299) throw IOException("FTP transfer failed: ${reply.text}")
+        if (reply.code !in 200..299) throw DownloadFtpException(reply.code, "FTP transfer failed")
     }
 
-    private fun passive(): Socket {
+    fun passive(): Socket {
         val reply = command("PASV")
-        if (reply.code != 227) throw IOException("FTP passive mode refused: ${reply.text}")
+        if (reply.code != 227) throw DownloadFtpException(reply.code, "FTP passive mode refused")
         val open = reply.text.indexOf('(')
         val close = reply.text.indexOf(')', open + 1)
         if (open < 0 || close < 0) throw IOException("Malformed FTP passive reply: ${reply.text}")
@@ -259,13 +287,18 @@ private class FtpSession(private val host: String, private val port: Int) : Clos
 
     private fun readReply(): FtpReply {
         val first = readLine() ?: throw IOException("FTP connection closed")
+        if (first.length < 3 || first.take(3).any { it !in '0'..'9' } ||
+            (first.length > 3 && first[3] !in " -")) throw IOException("Malformed FTP reply")
         val code = first.take(3).toIntOrNull()
             ?: throw IOException("Malformed FTP reply: $first")
         if (first.length > 3 && first[3] == '-') {
             // Multi-line replies repeat the code with a space on their last line.
             val terminator = "$code "
             var line = readLine() ?: throw IOException("FTP connection closed")
+            var length = first.length
             while (!line.startsWith(terminator)) {
+                length += line.length + 1
+                if (length > MAX_REPLY_LENGTH) throw IOException("FTP reply too long")
                 line = readLine() ?: throw IOException("FTP connection closed")
             }
             return FtpReply(code, line)
@@ -277,7 +310,7 @@ private class FtpSession(private val host: String, private val port: Int) : Clos
         val line = StringBuilder()
         while (true) {
             val value = reader.read()
-            if (value < 0) return if (line.isEmpty()) null else line.toString()
+            if (value < 0) return if (line.isEmpty()) null else throw java.io.EOFException("Incomplete FTP reply")
             if (value == '\n'.code) return line.toString().trimEnd('\r')
             if (line.length >= MAX_REPLY_LENGTH) throw IOException("FTP reply too long")
             line.append(value.toChar())

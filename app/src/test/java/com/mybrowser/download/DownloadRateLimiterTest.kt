@@ -7,6 +7,13 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DownloadRateLimiterTest {
+    @Test fun lowLimitUsesShortReads() {
+        val limiter = DownloadRateLimiter()
+        assertEquals(65_536, limiter.readSize(65_536))
+        limiter.setLimit(1024)
+        assertEquals(102, limiter.readSize(65_536))
+    }
+
     @Test fun concurrentTasksShareOnePayloadBudget() = runTest {
         val limiter = DownloadRateLimiter({ testScheduler.currentTime * 1_000_000 }, { delay(it) })
         limiter.setLimit(32 * 1024)

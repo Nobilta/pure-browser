@@ -49,9 +49,11 @@ class BrowserSessionState(application: Application) : AndroidViewModel(applicati
      */
     fun endPrivateSession() {
         if (privacy.isIncognito) app.mediaAccessSession.clear()
+        // PrivacyMode includes cache files in its asynchronous cleanup barrier. Delivered shares
+        // stay in their separate area until the next launch.
+        if (privacy.isIncognito) privacy.exit(wipeSharedStorage = !privacy.hasRealIsolation)
         app.downloadHandler.endPrivateScope()
         app.userScripts.endPrivateSession()
-        if (privacy.isIncognito) privacy.exit(wipeSharedStorage = !privacy.hasRealIsolation)
     }
 
     override fun onCleared() {

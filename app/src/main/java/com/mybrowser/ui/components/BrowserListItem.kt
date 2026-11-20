@@ -54,6 +54,8 @@ fun BrowserListItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     subtitle: String = "",
+    /** Supporting rows in settings keep a single line; lists that need context can ask for two. */
+    subtitleMaxLines: Int = 2,
     iconRes: Int? = null,
     leading: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
@@ -91,7 +93,7 @@ fun BrowserListItem(
                 this.role = Role.Switch
                 toggleableState = ToggleableState(toggleState)
             } else if (selected != null) {
-                this.role = Role.RadioButton
+                this.role = role ?: Role.RadioButton
                 this.selected = selected
             } else {
                 this.role = role ?: Role.Button
@@ -130,6 +132,7 @@ fun BrowserListItem(
         FlushRow(
             title = title,
             subtitle = subtitle,
+            subtitleMaxLines = subtitleMaxLines,
             iconRes = iconRes,
             leading = leading,
             contentColor = contentColor,
@@ -152,7 +155,7 @@ fun BrowserListItem(
                     subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = supportingColor,
-                    maxLines = 2,
+                    maxLines = subtitleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -172,7 +175,7 @@ fun BrowserListItem(
             containerColor = containerColor,
             headlineColor = contentColor,
             supportingColor = supportingColor,
-            leadingIconColor = contentColor,
+            leadingIconColor = leadingColorOverride ?: contentColor,
         ),
     )
 }
@@ -181,6 +184,7 @@ fun BrowserListItem(
 private fun FlushRow(
     title: String,
     subtitle: String,
+    subtitleMaxLines: Int,
     iconRes: Int?,
     leading: (@Composable () -> Unit)?,
     contentColor: Color,
@@ -213,7 +217,7 @@ private fun FlushRow(
                     subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = supportingColor,
-                    maxLines = 2,
+                    maxLines = subtitleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

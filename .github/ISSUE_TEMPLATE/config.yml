@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/Nobilta/pure-browser/security/advisories/new
     about: 私下提交安全问题，避免在公开 Issue 中披露利用细节
   - name: 功能与限制
-    url: https://github.com/Nobilta/pure-browser/blob/main/FEATURES.md
+    url: https://github.com/Nobilta/pure-browser/blob/main/docs/features.md
     about: 了解当前功能、使用方式和已知限制

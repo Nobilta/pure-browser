@@ -18,14 +18,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
-import android.content.Intent
 import com.mybrowser.download.DownloadDestination
+import com.mybrowser.download.DownloadValidation
 import com.mybrowser.download.DownloadSettings
 import com.mybrowser.download.DownloadSettingsRepository
 import com.mybrowser.download.DownloadDestinationMode
 import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.shell.BrowserDropdownMenu
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
@@ -45,33 +46,50 @@ fun DownloadConfirmDialog(
     request: DownloadRequestCoordinator.Request,
     isNewCopy: Boolean,
     settings: DownloadSettings,
+    directory: com.mybrowser.download.DownloadHandler.DirectorySelection,
     onConfirm: (retryResponse: Boolean, filename: String, destination: DownloadDestination) -> Unit,
     onCancel: () -> Unit,
-    onMessage: (String) -> Unit = {},
 ) {
     val textResources = localizedResources()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var filename by rememberSaveable(request.identity) { mutableStateOf(request.filename) }
-    var mode by rememberSaveable(request.identity) { mutableStateOf(settings.destinationMode) }
-    var treeUri by rememberSaveable(request.identity) { mutableStateOf(settings.customTreeUri) }
-    var treeLabel by rememberSaveable(request.identity) { mutableStateOf(settings.customDirectoryLabel) }
+    var mode by rememberSaveable(request.identity) { mutableStateOf(directory.destination?.mode ?: settings.destinationMode) }
+    var treeUri by rememberSaveable(request.identity) { mutableStateOf(directory.destination?.treeUri ?: settings.customTreeUri) }
+    var treeLabel by rememberSaveable(request.identity) { mutableStateOf(directory.destination?.label ?: settings.customDirectoryLabel) }
     var choosingDirectory by remember { mutableStateOf(false) }
-    val destination = DownloadDestination(mode, treeUri, DownloadDestination.labelFor(mode, treeLabel))
-    val directoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) scope.launch {
-            val label = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                    DownloadSettingsRepository.describeDirectory(context, uri)
-                }.getOrNull()
+    var directoryError by remember(request.identity) { mutableStateOf(false) }
+    var customDirectoryAvailable by remember(request.identity) { mutableStateOf(false) }
+    var checkingDirectory by remember(request.identity) { mutableStateOf(true) }
+    var confirming by remember(request.identity) { mutableStateOf(false) }
+    var directoryChoice by remember { mutableIntStateOf(0) }
+    LaunchedEffect(request.identity, treeUri, directoryChoice) {
+        checkingDirectory = true
+        try {
+            val chosen = treeUri?.let { directory.select(it.toUri()) }
+            customDirectoryAvailable = chosen != null
+            if (chosen != null) {
+                treeLabel = chosen.label
+                directoryError = false
             }
-            if (label != null) {
-                treeUri = uri.toString()
-                treeLabel = label
-                mode = DownloadDestinationMode.CUSTOM_DIRECTORY
-            } else onMessage(textResources.getString(R.string.ui_unable_to_use_the_selected_download_folder))
+        } catch (_: SecurityException) {
+            customDirectoryAvailable = false
+            directoryError = mode == DownloadDestinationMode.CUSTOM_DIRECTORY
+        } finally {
+            if (isActive) checkingDirectory = false
+        }
+    }
+    val destination = DownloadDestination(
+        mode,
+        treeUri.takeIf { mode == DownloadDestinationMode.CUSTOM_DIRECTORY },
+        DownloadDestination.labelFor(mode, treeLabel),
+    )
+    val directoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            checkingDirectory = true
+            treeUri = uri.toString()
+            mode = DownloadDestinationMode.CUSTOM_DIRECTORY
+            directoryChoice++ // Reauthorizing the same URI must also check its new grant.
         }
     }
     val responseUnavailable = request.response?.unavailable?.collectAsState()?.value
@@ -96,60 +114,89 @@ fun DownloadConfirmDialog(
                         null -> R.string.download_response_note
                     }), style = MaterialTheme.typography.bodySmall)
                 }
-                Row(Modifier.fillMaxWidth()) {
-                    Text(
-                        text = textResources.getString(R.string.download_confirm_source),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = request.sourceOrigin ?: request.referer ?: request.url.substringBefore('#'),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp).weight(1f),
-                        maxLines = 2,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
+                androidx.compose.material3.Surface(color = com.mybrowser.ui.theme.BrowserColors.recessedWell,
+                    shape = MaterialTheme.shapes.small) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(
+                                text = textResources.getString(R.string.download_confirm_source),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = DownloadValidation.displaySource(request.sourceOrigin, request.referer, request.url),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 8.dp).weight(1f),
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = request.contentLength?.let {
+                                textResources.getString(R.string.download_confirm_size,
+                                    com.mybrowser.core.formatBytes(it))
+                            } ?: textResources.getString(R.string.download_confirm_size_unknown),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = textResources.getString(R.string.download_confirm_destination, destination.displayDestinationLabel(textResources)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Text(
-                    text = request.contentLength?.let {
-                        textResources.getString(R.string.download_confirm_size,
-                            com.mybrowser.core.formatBytes(it))
-                    } ?: textResources.getString(R.string.download_confirm_size_unknown),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = textResources.getString(R.string.download_confirm_destination, destination.displayDestinationLabel(textResources)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 androidx.compose.foundation.layout.Box {
-                    BrowserActionPill(stringResource(R.string.download_choose_destination), { choosingDirectory = true })
+                    BrowserActionPill(stringResource(R.string.download_choose_destination), { choosingDirectory = true },
+                        enabled = !checkingDirectory && !confirming)
                     BrowserDropdownMenu(choosingDirectory, { choosingDirectory = false }) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.ui_system_downloads_folder)) }, onClick = {
+                            directoryError = false
                             mode = DownloadDestinationMode.SYSTEM_DOWNLOADS
                             choosingDirectory = false
                         })
-                        if (settings.destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY) DropdownMenuItem(
-                            text = { Text(settings.displayDestinationLabel(textResources)) },
+                        if (customDirectoryAvailable) DropdownMenuItem(
+                            text = { Text(com.mybrowser.download.localizeDownloadDirectory(textResources, DownloadDestination.labelFor(DownloadDestinationMode.CUSTOM_DIRECTORY, treeLabel))) },
                             onClick = {
-                                mode = settings.destinationMode; treeUri = settings.customTreeUri; treeLabel = settings.customDirectoryLabel
+                                directoryError = false
+                                mode = DownloadDestinationMode.CUSTOM_DIRECTORY
                                 choosingDirectory = false
                             },
                         )
-                        DropdownMenuItem(text = { Text(stringResource(R.string.ui_custom_folder)) }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.ui_choose_a_folder_with_write_access)) }, onClick = {
                             choosingDirectory = false
-                            directoryPicker.launch(treeUri?.toUri())
+                            directoryPicker.launch(treeUri?.takeIf { customDirectoryAvailable }?.toUri())
                         })
                     }
                 }
+                if (directoryError) Text(
+                    stringResource(R.string.ui_unable_to_keep_write_access_to_this_folder),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         },
         confirmButton = {
             // Capture the displayed action; expiry between rendering Download and the tap
             // must not silently authorize a new request.
-            TextButton(enabled = filename.isNotBlank(), onClick = { onConfirm(responseUnavailable != null, filename, destination) }) {
+            TextButton(enabled = filename.isNotBlank() && !confirming && !checkingDirectory &&
+                (mode == DownloadDestinationMode.SYSTEM_DOWNLOADS || customDirectoryAvailable), onClick = {
+                confirming = true
+                scope.launch {
+                    try {
+                        val writable = destination.mode != DownloadDestinationMode.CUSTOM_DIRECTORY ||
+                            withContext(Dispatchers.IO) {
+                                DownloadSettingsRepository.hasWritableGrant(context, destination.treeUri)
+                            }
+                        if (writable) onConfirm(responseUnavailable != null, filename, destination)
+                        else {
+                            customDirectoryAvailable = false
+                            directoryError = true
+                        }
+                    } finally { confirming = false }
+                }
+            }) {
                 Text(stringResource(if (responseUnavailable != null) R.string.ui_retry else if (isNewCopy) R.string.download_copy_action else R.string.download_confirm_action))
             }
         },

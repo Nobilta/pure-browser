@@ -90,7 +90,7 @@ internal class DownloadDestinationWriter(context: Context) {
     }
 
     fun delete(uriString: String?): Boolean {
-        val uri = uriString?.let { runCatching { it.toUri() }.getOrNull() } ?: return true
+        val uri = uriString?.toUri() ?: return true
         return runCatching {
             if (DocumentsContract.isDocumentUri(appContext, uri)) {
                 DocumentsContract.deleteDocument(resolver, uri)
@@ -135,7 +135,7 @@ internal class DownloadDestinationWriter(context: Context) {
         mimeType: String,
     ): PublishedDownload {
         val treeUri = settings.customTreeUri
-            ?.let { runCatching { it.toUri() }.getOrNull() }
+            ?.toUri()
             ?: throw IOException("Custom download directory is no longer available")
         val hasWritePermission = resolver.persistedUriPermissions.any {
             it.uri == treeUri && it.isWritePermission

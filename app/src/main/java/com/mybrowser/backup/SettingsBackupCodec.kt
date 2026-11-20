@@ -7,6 +7,8 @@ import com.mybrowser.data.BookmarkHtml
 import com.mybrowser.data.ImportedHistory
 import com.mybrowser.download.MAX_DOWNLOAD_THREADS
 import com.mybrowser.download.MIN_DOWNLOAD_THREADS
+import com.mybrowser.search.SearchEngineKind
+import com.mybrowser.search.SearchEngineManager
 import com.mybrowser.site.SiteSettingsRepository
 import org.json.JSONArray
 import org.json.JSONObject
@@ -62,7 +64,6 @@ object SettingsBackupCodec {
             browser.browserFullscreenEnabled?.let { group.put("browserFullscreenEnabled", it) }
             browser.video?.let { video ->
                 val v = JSONObject()
-                video.automaticPip?.let { v.put("automaticPip", it) }
                 video.backgroundPlayback?.let { v.put("backgroundPlayback", it) }
                 video.enhancedControls?.let { v.put("enhancedControls", it) }
                 video.verticalGestures?.let { v.put("verticalGestures", it) }
@@ -270,7 +271,6 @@ object SettingsBackupCodec {
                 validateBoostRate(video)
                 validatePreferredSpeed(video)
                 BackupVideo(
-                    automaticPip = optionalBoolean(video, "automaticPip"),
                     backgroundPlayback = optionalBoolean(video, "backgroundPlayback"),
                     enhancedControls = optionalBoolean(video, "enhancedControls"),
                     verticalGestures = optionalBoolean(video, "verticalGestures"),
@@ -312,43 +312,25 @@ object SettingsBackupCodec {
 
     private fun decodeSearch(group: JSONObject): BackupSearch = BackupSearch(
         currentEngineId = optionalString(group, "currentEngineId"),
-        customEngines = decodeEngines(group, "customEngines"),
+        customEngines = decodeEngines(group, "customEngines", SearchEngineKind.WEB),
         currentImageEngineId = optionalString(group, "currentImageEngineId"),
-        customImageEngines = decodeEngines(group, "customImageEngines"),
+        customImageEngines = decodeEngines(group, "customImageEngines", SearchEngineKind.IMAGE),
     )
 
-    private fun decodeEngines(group: JSONObject, key: String): List<BackupCustomEngine>? {
-        var engines: List<BackupCustomEngine>? = null
-        optionalArray(group, key)?.let { array ->
-            if (array.length() > 12) throw SettingsBackupException("Too many custom search engines")
-            engines = (0 until array.length()).map { index ->
-                val item = array.optJSONObject(index)
-                    ?: throw SettingsBackupException("search.$key[$index] is not an object")
-                val engine = BackupCustomEngine(
-                    id = requiredString(item, "id"),
-                    name = requiredString(item, "name"),
-                    template = requiredString(item, "template"),
-                    suggestUrlTemplate = optionalString(item, "suggestUrlTemplate"),
-                )
-                if (!Regex("custom_[A-Za-z0-9_]{1,60}").matches(engine.id)) {
-                    throw SettingsBackupException("Invalid engine id: ${engine.id}")
-                }
-                if (engine.name.isEmpty() || engine.name.length > 64) {
-                    throw SettingsBackupException("Engine name out of range")
-                }
-                if (engine.template.isEmpty() || engine.template.length > 2_048) {
-                    throw SettingsBackupException("Engine template out of range")
-                }
-                if (!com.mybrowser.search.SearchSuggestionProvider.isValidSuggestTemplate(engine.suggestUrlTemplate)) {
-                    throw SettingsBackupException("Invalid suggest URL template")
-                }
-                engine
-            }
-            val ids = engines!!.map { it.id }
-            val names = engines!!.map { it.name.lowercase() }
-            if (ids.size != ids.toSet().size || names.size != names.toSet().size) {
-                throw SettingsBackupException("Duplicate engine id or name")
-            }
+    private fun decodeEngines(group: JSONObject, key: String, kind: SearchEngineKind): List<BackupCustomEngine>? {
+        val array = optionalArray(group, key) ?: return null
+        if (array.length() > SearchEngineManager.MAX_CUSTOM_ENGINES) throw SettingsBackupException("Too many custom search engines")
+        val engines = (0 until array.length()).map { index ->
+            val item = array.optJSONObject(index) ?: throw SettingsBackupException("search.$key[$index] is not an object")
+            BackupCustomEngine(
+                id = requiredString(item, "id"),
+                name = requiredString(item, "name"),
+                template = requiredString(item, "template"),
+                suggestUrlTemplate = optionalString(item, "suggestUrlTemplate"),
+            )
+        }
+        if (!SearchEngineManager.isValidCustomEngineList(kind, engines.map { it.toEngine() })) {
+            throw SettingsBackupException("Invalid search.$key")
         }
         return engines
     }

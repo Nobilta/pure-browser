@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -46,9 +44,7 @@ import com.mybrowser.ui.components.BrowserGroupDivider
 import com.mybrowser.ui.components.BrowserListItem
 import com.mybrowser.ui.components.BrowserTileCard
 import com.mybrowser.ui.shell.BrowserBottomSheet
-import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserSheetHeader
-import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.theme.BrowserColors
 
 /**
@@ -184,92 +180,105 @@ private fun SiteSummaryCard(
         color = colors.surfaceContainerLow,
         border = BorderStroke(1.dp, BrowserColors.cardBorder),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(MaterialTheme.shapes.small)
-                    .clickable(enabled = canUsePageActions, role = Role.Button, onClick = onOpenSiteSettings)
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = colors.surfaceContainerHigh,
-                    modifier = Modifier.size(38.dp),
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)) {
+            val identity: @Composable (Modifier) -> Unit = { modifier ->
+                Row(
+                    modifier = modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(enabled = canUsePageActions, role = Role.Button, onClick = onOpenSiteSettings)
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        val trimmedTitle = title.trim()
-                        Text(
-                            text = if (trimmedTitle.isEmpty()) {
-                                "•"
-                            } else {
-                                trimmedTitle.substring(0, trimmedTitle.offsetByCodePoints(0, 1)).uppercase()
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = if (canUsePageActions) colors.primary else colors.onSurfaceVariant,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (canUsePageActions) {
-                            // The site card and the omnibar read the same SecurityLevel, so a
-                            // certificate failure cannot look like a plain-HTTP warning here.
-                            val (icon, tint) = when (securityLevel) {
-                                SecurityLevel.SECURE -> R.drawable.ic_ui_lock to BrowserColors.secure
-                                SecurityLevel.INSECURE, SecurityLevel.WARNING ->
-                                    R.drawable.ic_ui_warning to BrowserColors.warning
-                                SecurityLevel.DANGEROUS ->
-                                    R.drawable.ic_ui_close to colors.error
-                            }
-                            Icon(
-                                painter = painterResource(icon),
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = tint,
+                    Surface(
+                        shape = CircleShape,
+                        color = colors.surfaceContainerHigh,
+                        modifier = Modifier.size(38.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            val trimmedTitle = title.trim()
+                            Text(
+                                text = if (trimmedTitle.isEmpty()) {
+                                    "•"
+                                } else {
+                                    trimmedTitle.substring(0, trimmedTitle.offsetByCodePoints(0, 1)).uppercase()
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (canUsePageActions) colors.primary else colors.onSurfaceVariant,
                             )
-                            Spacer(Modifier.width(3.dp))
                         }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            text = host.ifBlank { stringResource(R.string.menu_title) },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
+                            title,
+                            style = MaterialTheme.typography.titleSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (canUsePageActions) {
+                                // The site card and the omnibar read the same SecurityLevel, so a
+                                // certificate failure cannot look like a plain-HTTP warning here.
+                                val (icon, tint) = when (securityLevel) {
+                                    SecurityLevel.SECURE -> R.drawable.ic_ui_lock to BrowserColors.secure
+                                    SecurityLevel.INSECURE, SecurityLevel.WARNING ->
+                                        R.drawable.ic_ui_warning to BrowserColors.warning
+                                    SecurityLevel.DANGEROUS ->
+                                        R.drawable.ic_ui_close to colors.error
+                                }
+                                Icon(
+                                    painter = painterResource(icon),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = tint,
+                                )
+                                Spacer(Modifier.width(3.dp))
+                            }
+                            Text(
+                                text = host.ifBlank { stringResource(R.string.menu_title) },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
-            QuickIcon(
-                icon = if (isCurrentPageBookmarked) R.drawable.ic_ui_bookmark_filled else R.drawable.ic_ui_bookmark_add,
-                description = stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark),
-                enabled = canUsePageActions,
-                active = isCurrentPageBookmarked,
-                onClick = onToggleBookmark,
-            )
-            QuickIcon(
-                icon = R.drawable.ic_ui_share,
-                description = stringResource(R.string.menu_share_page),
-                enabled = canUsePageActions,
-                onClick = onSharePage,
-            )
-            QuickIcon(
-                icon = R.drawable.ic_ui_qr,
-                description = stringResource(R.string.menu_page_qr),
-                enabled = canUsePageActions,
-                onClick = onShowPageQr,
-            )
+            val actions: @Composable () -> Unit = {
+                Row {
+                    QuickIcon(
+                        icon = if (isCurrentPageBookmarked) R.drawable.ic_ui_bookmark_filled else R.drawable.ic_ui_bookmark_add,
+                        description = stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark),
+                        enabled = canUsePageActions,
+                        active = isCurrentPageBookmarked,
+                        onClick = onToggleBookmark,
+                    )
+                    QuickIcon(
+                        icon = R.drawable.ic_ui_share,
+                        description = stringResource(R.string.menu_share_page),
+                        enabled = canUsePageActions,
+                        onClick = onSharePage,
+                    )
+                    QuickIcon(
+                        icon = R.drawable.ic_ui_qr,
+                        description = stringResource(R.string.menu_page_qr),
+                        enabled = canUsePageActions,
+                        onClick = onShowPageQr,
+                    )
+                }
+            }
+            if (maxWidth < 300.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale) {
+                Column {
+                    identity(Modifier.fillMaxWidth())
+                    Box(Modifier.align(Alignment.End)) { actions() }
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    identity(Modifier.weight(1f))
+                    actions()
+                }
+            }
         }
     }
 }
@@ -552,7 +561,6 @@ private fun FooterAction(
 @Composable
 fun MoreToolsSheet(
     canUsePageActions: Boolean,
-    isIncognito: Boolean,
     userScriptStatus: UserScriptStatus?,
     onPinWebsite: () -> Unit,
     onManageUserScripts: () -> Unit,
@@ -582,7 +590,7 @@ fun MoreToolsSheet(
                         iconRes = R.drawable.ic_ui_home,
                         title = stringResource(R.string.pin_website),
                         subtitle = "",
-                        enabled = canUsePageActions && !isIncognito,
+                        enabled = canUsePageActions,
                         onClick = onPinWebsite,
                     )
                     BrowserGroupDivider()

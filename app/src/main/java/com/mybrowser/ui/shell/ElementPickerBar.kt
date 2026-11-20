@@ -117,7 +117,7 @@ internal fun ElementPickerBar(
                     )
                     Text(
                         text = pluralStringResource(R.plurals.picker_matches, chosen.matchCount, chosen.matchCount),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }

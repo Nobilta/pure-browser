@@ -29,7 +29,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.devtools.BodyPreview
@@ -42,12 +41,12 @@ internal fun showToast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }
 
-internal fun copyText(context: Context, text: String, message: String? = null) {
+internal fun copyText(context: Context, text: String) {
     val clipboard = context.getSystemService(ClipboardManager::class.java)
-    val result = runCatching {
-        clipboard?.setPrimaryClip(ClipData.newPlainText("Pure", text))
+    val result = clipboard != null && runCatching {
+        clipboard.setPrimaryClip(ClipData.newPlainText("Pure", text))
     }.isSuccess
-    Toast.makeText(context, message ?: context.getString(
+    Toast.makeText(context, context.getString(
         if (result) R.string.dev_copied else R.string.dev_copy_failed
     ), Toast.LENGTH_SHORT).show()
 }
@@ -113,7 +112,7 @@ internal fun BodyStateLine(body: BodyPreview) {
             body.reason.labelOrNull?.let {
                 Spacer(Modifier.width(8.dp))
                 Text(resources.getString(it), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall)
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
         if (body.binary) {
@@ -144,9 +143,9 @@ internal fun HeaderList(headers: List<com.mybrowser.devtools.HeaderEntry>, note:
     }
     Column(Modifier.fillMaxWidth()) {
         SelectableText(headerText(headers), fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.labelSmall)
+            style = MaterialTheme.typography.bodySmall)
         note?.let {
-            Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall,
+            Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -155,7 +154,7 @@ internal fun HeaderList(headers: List<com.mybrowser.devtools.HeaderEntry>, note:
 @Composable
 internal fun ReasonText(reason: BodyReason) {
     reason.labelOrNull?.let {
-        Text(stringResource(it), style = MaterialTheme.typography.labelSmall,
+        Text(stringResource(it), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

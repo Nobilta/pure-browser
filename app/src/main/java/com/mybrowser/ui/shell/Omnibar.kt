@@ -12,7 +12,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -196,7 +195,7 @@ fun Omnibar(
                     )
                     if (!hasPrivateIsolation) Text(
                         text = stringResource(R.string.private_shared_short),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.padding(start = 4.dp),
                     )
@@ -310,7 +309,7 @@ fun Omnibar(
                     if (!isHomePage && isReaderActive) Box(
                         modifier = Modifier
                             .padding(end = 2.dp)
-                            .height(36.dp)
+                            .heightIn(min = 36.dp)
                             .widthIn(min = 44.dp)
                             .clip(CircleShape)
                             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onToggleReader)
@@ -321,7 +320,7 @@ fun Omnibar(
                     ) {
                         Row(
                             modifier = Modifier
-                                .height(28.dp)
+                                .heightIn(min = 28.dp)
                                 .widthIn(min = 44.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.secondaryContainer)
@@ -337,7 +336,7 @@ fun Omnibar(
                             )
                             Text(
                                 text = "×",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(start = 2.dp),
                             )

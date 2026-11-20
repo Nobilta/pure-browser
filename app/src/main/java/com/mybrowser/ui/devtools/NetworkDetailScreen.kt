@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
@@ -22,9 +21,7 @@ import com.mybrowser.core.NetworkRequestLog
 import com.mybrowser.core.formatBytes
 import com.mybrowser.devtools.BodyPreview
 import com.mybrowser.devtools.BodyReason
-import com.mybrowser.devtools.BodyState
 import com.mybrowser.devtools.DevToolsSession
-import com.mybrowser.devtools.HeaderEntry
 import com.mybrowser.devtools.NetworkRequestDetail
 import com.mybrowser.devtools.NetworkSource
 import com.mybrowser.devtools.QueryParameter
@@ -32,7 +29,6 @@ import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.localizedResources
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONTokener
 
 @Composable
 internal fun NetworkDetailScreen(
@@ -61,7 +57,7 @@ internal fun NetworkDetailScreen(
             detail?.let {
                 Text(
                     resources.getString(it.source.label),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -79,10 +75,12 @@ internal fun NetworkDetailScreen(
         val responseJson = isJson(detail.responseBody)
         var requestFormatted by rememberSaveable(detail.id) { mutableStateOf(true) }
         var responseFormatted by rememberSaveable(detail.id) { mutableStateOf(true) }
-        val requestExpanded = rememberExpanded(detail.requestBody.text)
-        val responseExpanded = rememberExpanded(detail.responseBody.text)
-        val requestRows = rememberJsonRows(detail.requestBody.text, requestExpanded)
-        val responseRows = rememberJsonRows(detail.responseBody.text, responseExpanded)
+        val requestDocument = if (requestJson) rememberJsonDocument(detail.requestBody.text) else null
+        val responseDocument = if (responseJson) rememberJsonDocument(detail.responseBody.text) else null
+        val requestExpanded = rememberExpanded(requestDocument)
+        val responseExpanded = rememberExpanded(responseDocument)
+        val requestRows = rememberJsonRows(requestDocument, requestExpanded)
+        val responseRows = rememberJsonRows(responseDocument, responseExpanded)
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 SectionCard(
@@ -146,7 +144,7 @@ internal fun NetworkDetailScreen(
                 BodyHeader(
                     title = stringResource(R.string.dev_network_request_body),
                     body = detail.requestBody,
-                    showFormat = requestJson,
+                    showFormat = requestDocument != null,
                     formatted = requestFormatted,
                     onToggleFormat = { requestFormatted = !requestFormatted },
                 )
@@ -176,7 +174,7 @@ internal fun NetworkDetailScreen(
                 BodyHeader(
                     title = stringResource(R.string.dev_network_response_body),
                     body = detail.responseBody,
-                    showFormat = responseJson,
+                    showFormat = responseDocument != null,
                     formatted = responseFormatted,
                     onToggleFormat = { responseFormatted = !responseFormatted },
                 )
@@ -190,7 +188,7 @@ internal fun NetworkDetailScreen(
                     if (detail.blocked) Text(
                         stringResource(R.string.ui_blocked),
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                     entry?.let { request ->
                         if (!request.isForMainFrame) TextButton(onClick = { onExplain(request) }) {
@@ -213,10 +211,10 @@ private fun QueryRow(parameter: QueryParameter) {
                 parameter.value.isEmpty() -> stringResource(R.string.dev_query_empty_value)
                 else -> parameter.value
             })
-        }, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+        }, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
         if (parameter.encodedDiffers) SelectableText(
             stringResource(R.string.dev_query_encoded, parameter.raw),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontFamily = FontFamily.Monospace,
         )
@@ -253,7 +251,7 @@ private fun BodyHeader(
                         append(resources.getQuantityString(R.plurals.dev_body_chars, body.text.length, body.text.length))
                     }
                 },
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -274,19 +272,29 @@ private fun isJson(body: BodyPreview): Boolean {
 }
 
 @Composable
-private fun rememberExpanded(text: String) = remember(text) {
+private fun rememberJsonDocument(text: String): JsonDocument? = key(text) {
+    val document by produceState<JsonDocument?>(null, text) {
+        value = withContext(Dispatchers.Default) { JsonDocument.parse(text) }
+    }
+    document
+}
+
+@Composable
+private fun rememberExpanded(document: JsonDocument?) = remember(document) {
     val map = mutableStateMapOf<String, Boolean>()
-    jsonInitialExpanded(text).forEach { map[it] = true }
+    document?.initialExpanded()?.forEach { map[it] = true }
     map
 }
 
 @Composable
-private fun rememberJsonRows(text: String, expanded: Map<String, Boolean>): List<JsonRow> {
-    val expandedSet = expanded.filterValues { it }.keys.toSet()
-    val state = produceState(emptyList<JsonRow>(), text, expandedSet) {
-        value = withContext(Dispatchers.Default) { jsonRows(text, expandedSet).orEmpty() }
+private fun rememberJsonRows(document: JsonDocument?, expanded: Map<String, Boolean>): List<JsonRow> {
+    val expandedSet by remember(expanded) { derivedStateOf { expanded.filterValues { it }.keys.toSet() } }
+    return key(document) {
+        val rows by produceState(emptyList<JsonRow>(), expandedSet) {
+            value = withContext(Dispatchers.Default) { document?.rows(expandedSet).orEmpty() }
+        }
+        rows
     }
-    return state.value
 }
 
 private fun LazyListScope.bodyRows(

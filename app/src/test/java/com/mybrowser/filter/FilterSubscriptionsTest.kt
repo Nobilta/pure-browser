@@ -353,6 +353,22 @@ class FilterSubscriptionsTest {
         assertNull(controller.subscriptions.value.single().error)
     }
 
+    @Test fun unsupportedSnapshotWithMatchingDigestDoesNotInterruptStartup() = runBlocking {
+        val lists = controller()
+        lists.add("Example", "https://example.com/list.txt")
+        val id = lists.subscriptions.value.single().id
+        val text = "! no valid rules"
+        val name = "$id-${TextDownloader.sha256(text)}.txt"
+        File(context.filesDir, "filter_subscriptions/$name").writeText(text)
+        val prefs = context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+        val manifest = JSONArray(prefs.getString("subscriptions_manifest", "[]"))
+        manifest.getJSONObject(0).put("file", name)
+        prefs.edit().putString("subscriptions_manifest", manifest.toString()).commit()
+        val restored = controller().also { it.initialize() }.subscriptions.value.single()
+        assertNull(restored.file)
+        assertEquals(0, restored.ruleCount)
+    }
+
     @Test fun corruptSnapshotsClearValidatorsAndReject304() = runBlocking {
         val controller = controller()
         controller.add("Example", "https://example.com/list.txt")
@@ -411,6 +427,9 @@ class FilterSubscriptionsTest {
         assertTrue(controller.remove(list.id))
         assertFalse(File(context.filesDir, "filter_subscriptions/" + list.file).exists())
         assertTrue(controller().also { it.initialize() }.subscriptions.value.isEmpty())
+        val counts = JSONObject(context.getSharedPreferences("filter_settings", Context.MODE_PRIVATE)
+            .getString("rule_counts", "{}"))
+        assertFalse(counts.keys().asSequence().any { it.startsWith("snapshot:${list.file}:") })
     }
 
     @Test fun globalFilteringPreferencePersists() {

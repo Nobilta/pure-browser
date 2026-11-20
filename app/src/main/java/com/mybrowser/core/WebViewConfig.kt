@@ -176,15 +176,14 @@ object WebViewConfig {
      *
      * The provider's back/forward cache is off by default in WebView and has to be turned on
      * per WebView; availability depends on the installed WebView version, so it is probed
-     * rather than inferred from the Android version. Private pages never enable it: a cached
-     * document outlives the session and cannot be flushed on exit, and this app only clears
-     * live documents. Reaching a page that is not cacheable (unload listeners, `no-store`)
-     * stays a reload, which is exactly the previous behaviour.
+     * rather than inferred from the Android version. Both normal and private WebViews use it;
+     * private session teardown destroys its WebViews, including their cached documents.
+     * The provider decides which navigations are cacheable; other pages reload as usual.
      */
-    fun applyBackForwardCache(webView: WebView, enabled: Boolean) {
+    fun applyBackForwardCache(webView: WebView) {
         runCatching {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE))
-                WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, enabled)
+                WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, true)
         }
     }
 

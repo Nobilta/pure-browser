@@ -124,6 +124,13 @@ class SettingsTransferTest {
             val backup = SettingsBackupCodec.decode(SettingsBackupCodec.encode(exported))
             assertEquals(custom.id, backup.settings.search!!.currentImageEngineId)
             assertEquals(custom.searchUrlTemplate, backup.settings.search!!.customImageEngines!!.single().template)
+            val invalid = backup.copy(settings = BackupSettings(search = BackupSearch(customImageEngines = listOf(
+                backup.settings.search!!.customImageEngines!!.single().copy(template = "https://example.com/no-placeholder"),
+            ))))
+            org.junit.Assert.assertThrows(SettingsBackupException::class.java) {
+                SettingsBackupCodec.decode(SettingsBackupCodec.encode(invalid))
+            }
+            org.junit.Assert.assertThrows(SettingsBackupException::class.java) { transfer.preview(invalid) }
             images.removeCustomEngine(custom.id)
             val result = transfer.apply(backup.copy(settings = BackupSettings(search = backup.settings.search)))
             assertTrue(result.failed.isEmpty())
@@ -529,8 +536,12 @@ class SettingsTransferTest {
         try {
             val exported = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
                 .collect("9.9.9")
-            assertEquals(null, exported.backup.settings.search)
-            assertTrue(exported.skippedGroups.contains("search"))
+            val search = requireNotNull(exported.backup.settings.search)
+            assertEquals(null, search.customEngines)
+            assertEquals(null, search.currentEngineId)
+            assertTrue(search.customImageEngines!!.isEmpty())
+            assertEquals("bing", search.currentImageEngineId)
+            assertTrue(exported.skippedGroups.contains("webSearch"))
         } finally {
             filter.close()
         }
@@ -882,8 +893,10 @@ class SettingsTransferTest {
         ))
         val filter = FilterController(context, 0)
         try {
-            val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context))
-                .apply(SettingsBackupCodec.decode(SettingsBackupCodec.encode(backup)))
+            org.junit.Assert.assertThrows(SettingsBackupException::class.java) {
+                SettingsBackupCodec.decode(SettingsBackupCodec.encode(backup))
+            }
+            val result = transfer(filter, FilterSubscriptions(context, filter), SiteSettingsRepository(context)).apply(backup)
             assertTrue(result.applied.isEmpty())
             assertEquals(listOf("search"), result.failed)
             assertEquals(ThemeMode.SYSTEM, BrowserPreferencesRepository(context).load().theme)

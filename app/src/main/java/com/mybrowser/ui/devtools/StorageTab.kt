@@ -3,13 +3,14 @@ package com.mybrowser.ui.devtools
 import androidx.compose.ui.res.pluralStringResource
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,9 +30,9 @@ import com.mybrowser.devtools.PageResult
 import com.mybrowser.devtools.StorageEntry
 import com.mybrowser.devtools.StorageSnapshot
 import com.mybrowser.ui.shell.BrowserIconAction
+import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.theme.BrowserColors
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -125,35 +126,35 @@ internal fun StorageTab(
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(tab == COOKIE_TAB, { tab = COOKIE_TAB; query = ""; appliedQuery = "" },
-                label = { Text(stringResource(R.string.dev_storage_cookies)) })
-            Spacer(Modifier.width(8.dp))
-            FilterChip(tab == LOCAL_TAB, { tab = LOCAL_TAB; query = ""; appliedQuery = "" },
-                label = { Text(stringResource(R.string.dev_storage_local)) })
-            Spacer(Modifier.width(8.dp))
-            FilterChip(tab == SESSION_TAB, { tab = SESSION_TAB; query = ""; appliedQuery = "" },
-                label = { Text(stringResource(R.string.dev_storage_session)) })
-            Spacer(Modifier.weight(1f))
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BrowserActionPill(stringResource(R.string.dev_storage_cookies),
+                    { tab = COOKIE_TAB; query = ""; appliedQuery = "" }, selected = tab == COOKIE_TAB)
+                BrowserActionPill(stringResource(R.string.dev_storage_local),
+                    { tab = LOCAL_TAB; query = ""; appliedQuery = "" }, selected = tab == LOCAL_TAB)
+                BrowserActionPill(stringResource(R.string.dev_storage_session),
+                    { tab = SESSION_TAB; query = ""; appliedQuery = "" }, selected = tab == SESSION_TAB)
+            }
             BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.dev_storage_refresh)) { refresh++ }
         }
         if (tab != COOKIE_TAB) {
             snapshot?.origin?.let { Text(
                 stringResource(R.string.dev_storage_origin, it),
                 Modifier.padding(horizontal = 16.dp),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             ) }
         }
         if (tab == COOKIE_TAB) Text(
             stringResource(R.string.dev_storage_cookie_scope),
             Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (tab == COOKIE_TAB && cookies?.richAttributes == false) Text(
             stringResource(R.string.dev_storage_cookie_fallback),
             Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Box(Modifier.padding(horizontal = 16.dp)) {
@@ -241,9 +242,11 @@ private fun CookieList(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onOpen: (CookieRow) -> Unit,
 ) {
-    val filtered = result?.cookies.orEmpty().filter {
-        query.isBlank() || it.name.contains(query, true) || it.value.contains(query, true) ||
-            it.domain.orEmpty().contains(query, true)
+    val filtered = remember(result, query) {
+        result?.cookies.orEmpty().filter {
+            query.isBlank() || it.name.contains(query, true) || it.value.contains(query, true) ||
+                it.domain.orEmpty().contains(query, true)
+        }
     }
     if (filtered.isEmpty()) {
         Text(stringResource(R.string.dev_storage_empty),
@@ -268,7 +271,7 @@ private fun CookieList(
                         Text(cookie.name, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                         Text(cookie.domain.orEmpty().ifBlank { stringResource(R.string.dev_storage_unknown) },
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(cookie.value.take(300).ifBlank { stringResource(R.string.dev_storage_empty) },
@@ -276,15 +279,15 @@ private fun CookieList(
                         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                     Row {
                         Text(cookie.path.orEmpty().ifBlank { stringResource(R.string.dev_storage_unknown) },
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(12.dp))
                         Text(cookie.expires ?: stringResource(R.string.dev_storage_unknown),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (cookie.httpOnly != null) Text(" · HttpOnly", style = MaterialTheme.typography.labelSmall,
+                        if (cookie.httpOnly != null) Text(" · HttpOnly", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (cookie.secure != null) Text(" · Secure", style = MaterialTheme.typography.labelSmall,
+                        if (cookie.secure != null) Text(" · Secure", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -313,7 +316,7 @@ private fun StorageList(
             pluralStringResource(R.plurals.dev_storage_total, snapshot?.total ?: entries.size, snapshot?.total ?: entries.size) +
                 if (snapshot?.truncated == true) " · " + stringResource(R.string.dev_storage_truncated, entries.size) else "",
             Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         LazyColumn(Modifier.fillMaxSize(), state = listState,
@@ -330,7 +333,7 @@ private fun StorageList(
                         Row {
                             Text(entry.name, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                            Text("${entry.valueChars}", style = MaterialTheme.typography.labelSmall,
+                            Text("${entry.valueChars}", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(entry.value.take(300).ifBlank { stringResource(R.string.dev_storage_empty) },
@@ -434,7 +437,7 @@ private fun StorageEntryDetail(
             DetailRow(stringResource(R.string.dev_storage_name), entry.name)
         }
         if (origin.isNotBlank()) SelectableText(stringResource(R.string.dev_storage_origin, origin),
-            Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelSmall,
+            Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (loading) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(24.dp))
@@ -443,7 +446,7 @@ private fun StorageEntryDetail(
         else {
             if (value != null && value!!.length < total) Text(
                 stringResource(R.string.dev_storage_value_truncated, value!!.length, total),
-                Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelSmall,
+                Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Surface(

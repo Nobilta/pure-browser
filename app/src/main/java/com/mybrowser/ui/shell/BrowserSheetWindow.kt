@@ -12,7 +12,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
@@ -448,7 +448,7 @@ private fun sheetDrag(
             settling?.cancel()
             dragging = false
             backVelocity = velocity
-            offset.floatValue = (progress.coerceIn(0f, 1f) * height()).coerceIn(0f, height().toFloat())
+            offset.floatValue = progress.coerceIn(0f, 1f) * height()
             return offset.floatValue
         }
 
@@ -460,7 +460,7 @@ private fun sheetDrag(
             // value of the enclosing reference, so testing that reference here proved nothing.)
             if (!ready()) return false
             backVelocity = velocity
-            offset.floatValue = (progress.coerceIn(0f, 1f) * height()).coerceIn(0f, height().toFloat())
+            offset.floatValue = progress.coerceIn(0f, 1f) * height()
             return true
         }
 
@@ -689,8 +689,8 @@ internal fun BrowserBottomSheet(
                         ) {
                             Box(
                                 Modifier.size(32.dp, 4.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)),
                             )
                         }
                         content()

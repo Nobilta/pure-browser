@@ -80,7 +80,7 @@ echo "运行发布工具测试..."
 
 echo "运行网页视频控制及用户脚本协议测试..."
 npm ci --prefix validation --no-audit --no-fund
-node --test validation/*.test.cjs
+node --test validation/node/*.test.cjs
 
 java_version="$(java -version 2>&1 | sed -n '1s/.*version \"\([^\"]*\)\".*/\1/p')"
 echo "Java: ${java_version:-unknown}"
@@ -158,14 +158,10 @@ hash="$(sha256_of "$delivery")"
 echo "Release APK: $delivery"
 echo "大小: ${size} bytes"
 echo "SHA-256: $hash"
-"$PYTHON" release/prepare.py --apk "$delivery" --notes release/notes.md
+"$PYTHON" release/prepare.py --apk "$delivery"
 
 if [[ "${INSTALL:-0}" == "1" ]]; then
-    require_command adb
-    adb install -r "$delivery"
-    adb shell am force-stop com.mybrowser || true
-    adb shell am start -W -n com.mybrowser/com.mybrowser.MainActivity >/dev/null
-    echo "已安装并启动 com.mybrowser。"
+    bash "$SCRIPT_DIR/scripts/install-apk.sh" "$delivery"
 fi
 
 echo "验证完成。设置 INSTALL=1 可在已连接设备上安装并启动。"

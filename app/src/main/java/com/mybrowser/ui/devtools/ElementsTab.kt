@@ -7,14 +7,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -22,19 +21,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
-import com.mybrowser.devtools.DevToolsBudgets
+import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.devtools.DevToolsSession
-import com.mybrowser.devtools.DomChildrenPage
 import com.mybrowser.devtools.DomNode
 import com.mybrowser.devtools.DomNodeKind
 import com.mybrowser.devtools.DomSearchResult
@@ -466,10 +461,11 @@ internal fun ElementsTab(
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(view == 0, { view = 0 }, label = { Text(resources.getString(R.string.dev_elements_dom)) })
-            Spacer(Modifier.width(8.dp))
-            FilterChip(view == 1, { view = 1 }, label = { Text(resources.getString(R.string.dev_elements_source)) })
-            Spacer(Modifier.weight(1f))
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BrowserActionPill(resources.getString(R.string.dev_elements_dom), { view = 0 }, selected = view == 0)
+                BrowserActionPill(resources.getString(R.string.dev_elements_source), { view = 1 }, selected = view == 1)
+            }
             if (view == 0) BrowserIconAction(R.drawable.ic_ui_refresh, resources.getString(R.string.dev_dom_refresh)) {
                 scope.launch {
                     domState.refresh()
@@ -540,7 +536,7 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
                             color = MaterialTheme.colorScheme.primary)
                         Text(result.preview, Modifier.padding(start = 8.dp).weight(1f),
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -549,11 +545,11 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             state.root?.let {
                 Text(pluralStringResource(R.plurals.dev_dom_child_count, it.childCount, it.childCount),
-                    Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } ?: Spacer(Modifier.weight(1f))
             if (state.selectedId != null) {
-                Text(state.selectedName, style = MaterialTheme.typography.labelSmall,
+                Text(state.selectedName, style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.tertiary)
                 TextButton(onClick = {
                     scope.launch {
@@ -637,7 +633,7 @@ private fun DomNodeRow(row: DomRow, state: DomTreeState, palette: List<androidx.
                         style = MaterialTheme.typography.bodySmall)
                     if (node.name == "iframe" || node.name == "frame") Text(
                         stringResource(R.string.dev_dom_frame_boundary),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -718,7 +714,7 @@ private fun SourceView(
             }
             if (page?.continued == true) Text(
                 stringResource(R.string.dev_source_continued),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

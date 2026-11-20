@@ -9,6 +9,8 @@ import com.mybrowser.R
 internal fun settingsGroupTitle(id: String): Int? = when (id) {
     "browser" -> R.string.settings_group_browser
     "home" -> R.string.settings_group_home
+    "webSearch" -> R.string.search_engine_web
+    "imageSearch" -> R.string.context_search_image
     "search" -> R.string.settings_group_search
     "downloads" -> R.string.settings_group_downloads
     "filtering" -> R.string.settings_group_filtering

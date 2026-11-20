@@ -1,7 +1,8 @@
 package com.mybrowser.ui.settings
 
+import androidx.compose.ui.text.style.TextOverflow
+import com.mybrowser.ui.components.BrowserTextField
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -60,7 +61,7 @@ private val SiteSettingsSaver = listSaver<SiteSettings, String>(
 
 @Composable
 fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Boolean, busy: Boolean,
-    onSave: (SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
+    onSave: ((SiteSettings) -> SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
     onClearSiteData: (() -> Unit)? = null, temporaryFilteringOff: Boolean = false,
     onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true,
     needsRepair: Boolean = false, onRepair: () -> Unit = {}) {
@@ -75,24 +76,25 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     var editingUserAgent by remember { mutableStateOf(false) }
     var userAgentDraft by remember { mutableStateOf("") }
     BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }, dragHandleOnly = true) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(.94f).padding(horizontal = 20.dp)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
             // Keep edge flings in the form. Sheet dragging and stretch overscroll
             // otherwise compete with its changing height/insets at the boundaries.
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null).padding(horizontal = 16.dp)) {
                 // Long origins and large fonts must not consume the fixed-height viewport.
                 Text(origin, style = MaterialTheme.typography.bodyMedium)
                 if (needsRepair) SiteStorageRepairNotice(busy, onRepair)
                 Text(stringResource(if (privateSession) R.string.site_private_scope else R.string.site_scope),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp))
-                if (onConnectionInfo != null) TextButton(onClick = onConnectionInfo) {
-                    Text(stringResource(R.string.site_connection_info))
-                }
+                if (onConnectionInfo != null) BrowserActionPill(
+                    stringResource(R.string.site_connection_info), onConnectionInfo,
+                )
                 SiteToggle(stringResource(R.string.site_filtering), draft.filtering, !busy) { draft = draft.copy(filtering = it) }
-                onTemporaryFilteringChange?.let { change -> TextButton(onClick = change, enabled = !busy) {
-                    Text(stringResource(if (temporaryFilteringOff) R.string.filter_resume_site else R.string.filter_pause_site))
-                } }
+                onTemporaryFilteringChange?.let { change -> BrowserActionPill(
+                    stringResource(if (temporaryFilteringOff) R.string.filter_resume_site else R.string.filter_pause_site),
+                    change, enabled = !busy,
+                ) }
                 SiteToggle(stringResource(R.string.site_javascript), draft.javaScript, !busy) { draft = draft.copy(javaScript = it) }
                 SiteToggle(stringResource(R.string.site_images), draft.images, !busy) { draft = draft.copy(images = it) }
                 SiteToggle(stringResource(R.string.site_third_party_cookies), draft.thirdPartyCookies, !busy) { draft = draft.copy(thirdPartyCookies = it) }
@@ -189,8 +191,14 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 }
                 Text(stringResource(R.string.site_os_permission_note), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { confirmReset = true }, enabled = !busy && !needsRepair) { Text(stringResource(R.string.site_reset)) }
-                if (onClearSiteData != null) TextButton(onClick = onClearSiteData, enabled = !busy) { Text(stringResource(R.string.clear_this_site)) }
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    BrowserActionPill(stringResource(R.string.site_reset), { confirmReset = true }, enabled = !busy && !needsRepair)
+                    if (onClearSiteData != null) BrowserActionPill(stringResource(R.string.clear_this_site), onClearSiteData, enabled = !busy)
+                }
             }
             if (editingUserAgent) {
                 val invalidUserAgent = userAgentDraft.any(Char::isISOControl)
@@ -198,15 +206,12 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 onDismissRequest = { editingUserAgent = false },
                 title = { Text(stringResource(R.string.site_user_agent_dialog)) },
                 text = {
-                    OutlinedTextField(
+                    BrowserTextField(
                         value = userAgentDraft,
                         onValueChange = { userAgentDraft = it.take(SiteSettingsRepository.MAX_USER_AGENT) },
-                        singleLine = true,
-                        isError = invalidUserAgent,
-                        supportingText = if (invalidUserAgent) {
-                            { Text(stringResource(R.string.site_user_agent_invalid)) }
-                        } else null,
-                        placeholder = { Text(stringResource(R.string.site_user_agent_hint)) },
+                        label = stringResource(R.string.site_user_agent),
+                        errorMessage = if (invalidUserAgent) stringResource(R.string.site_user_agent_invalid) else null,
+                        placeholder = stringResource(R.string.site_user_agent_hint),
                     )
                 },
                 confirmButton = {
@@ -226,7 +231,7 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
             )
             }
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 12.dp).height(IntrinsicSize.Min),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 BrowserActionPill(
@@ -236,12 +241,15 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 Button(
-                    onClick = { onSave(mergeSiteDraft(initial, draft, settings)) },
+                    onClick = {
+                        val submitted = draft
+                        onSave { current -> mergeSiteDraft(initial, submitted, current) }
+                    },
                     enabled = !busy && !needsRepair,
                     shape = CircleShape,
                     modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
                 ) {
-                    Text(stringResource(R.string.site_save_reload), maxLines = 2)
+                    Text(stringResource(R.string.site_save_reload), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

@@ -36,6 +36,8 @@ class ImageRefererTest {
             }
             record(mapOf("referer" to page))
             assertEquals(page, session.observedImageReferer("$image#part"))
+            record(mapOf("referer" to page + "x".repeat(DevToolsBudgets.HEADER_VALUE_CHARS)))
+            assertNull(session.observedImageReferer(image))
             record(emptyMap())
             assertEquals("", session.observedImageReferer(image))
             session.onDocumentStarted("https://next.example/")

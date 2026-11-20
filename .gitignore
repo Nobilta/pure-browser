@@ -25,8 +25,9 @@
 /PureBrowser-*.apk.tmp
 
 # Generated emulator screenshots, UI hierarchy dumps and diagnostic logs. Keep the
-# reproducible HTML/media fixtures in validation/ under version control.
+# reproducible HTML/media fixtures in validation/fixtures/ under version control.
 /validation/**/*.png
+!/validation/fixtures/*.png
 /validation/**/*.xml
 /validation/**/*.txt
 /validation/results/

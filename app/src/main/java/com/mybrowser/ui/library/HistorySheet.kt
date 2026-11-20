@@ -15,6 +15,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mybrowser.ui.components.BrowserGroupDivider
 import com.mybrowser.R
 import com.mybrowser.data.HistoryEntry
 import java.time.Instant
@@ -70,7 +71,7 @@ fun HistorySheet(
                             else -> dateFormatter.format(date)
                         }, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)
                             .padding(vertical = 12.dp), style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(entries, key = { it.id }) { entry ->
                         Row(Modifier.fillMaxWidth().clickable { onSelectHistory(entry.url) }.padding(vertical = 12.dp),
@@ -82,13 +83,12 @@ fun HistorySheet(
                                 Text(entry.url, style = MaterialTheme.typography.bodySmall, maxLines = 1,
                                     overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(timeFormatter.format(Instant.ofEpochMilli(entry.visitTime).atZone(zone)),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             LibraryItemMenu(onOpenNewTab = { onOpenNewTab(entry.url) }, onCopy = { onCopy(entry.url) },
                                 onDelete = { onDeleteHistory(entry.id) })
                         }
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f))
+                        BrowserGroupDivider(inset = 0.dp)
                     }
                 }
                 item { LibraryFooter(loading, hasMore, onLoadMore, error) }

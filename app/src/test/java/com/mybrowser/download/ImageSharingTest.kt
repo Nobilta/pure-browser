@@ -64,7 +64,12 @@ class ImageSharingTest {
     }
 
     private suspend fun share(path: String, navigation: MediaNavigation? = null, cookie: String? = null) = ImageSharing.share(activity,
-        "http://127.0.0.1:${server.address.port}$path", "test", navigation, cookie, "Share")
+        "http://127.0.0.1:${server.address.port}$path", "test", navigation, cookie, "Share",
+        privateSession = false, engine = HttpDownloadEngine(), sessionActive = { true })
+
+    private suspend fun privateShare(path: String, active: Boolean) = ImageSharing.share(activity,
+        "http://127.0.0.1:${server.address.port}$path", "test", null, null, "Share",
+        privateSession = true, engine = HttpDownloadEngine(), sessionActive = { active })
 
     private fun assertPngShare() {
         val chooser = shadowOf(activity).nextStartedActivity
@@ -76,6 +81,52 @@ class ImageSharingTest {
             assertTrue(it.getString(0).endsWith(".png"))
         }
         activity.contentResolver.openInputStream(uri)!!.use { assertArrayEquals(png, it.readBytes()) }
+    }
+
+    @Test fun aDeliveredPrivateShareLivesOutsideTheSessionDirectory() = runBlocking {
+        response("/image", "image/png", png)
+        assertTrue(privateShare("/image", active = true))
+        assertPngShare()
+        // The working directory is cleared when the session ends; a delivered file must not be.
+        assertTrue(File(directory, "private").listFiles().orEmpty().isEmpty())
+        assertEquals(1, File(directory, "share").listFiles().orEmpty().size)
+    }
+
+    @Test fun cancellationAfterTheMoveLeavesNoDeliveredFileBehind() = runBlocking {
+        response("/image", "image/png", png)
+        var checks = 0
+        val failure = runCatching {
+            ImageSharing.share(activity,
+                "http://127.0.0.1:${server.address.port}/image", "test", null, null, "Share",
+                privateSession = true,
+                engine = HttpDownloadEngine(), sessionActive = {
+                    checks++
+                    if (checks <= 2) true else throw kotlinx.coroutines.CancellationException("session ended")
+                })
+        }.exceptionOrNull()
+        assertTrue(failure is kotlinx.coroutines.CancellationException)
+        assertNull(shadowOf(activity).nextStartedActivity)
+        assertTrue(File(directory, "share").listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun aSessionThatEndsBeforeDeliveryDoesNotOpenAChooser() = runBlocking {
+        response("/image", "image/png", png)
+        var checks = 0
+        val result = ImageSharing.share(activity,
+            "http://127.0.0.1:${server.address.port}/image", "test", null, null, "Share",
+            privateSession = true, engine = HttpDownloadEngine(), sessionActive = { checks++ < 2 })
+        assertFalse(result)
+        assertNull(shadowOf(activity).nextStartedActivity)
+        // The IO check passed and the file was moved, so delivery must remove it again.
+        assertTrue(File(directory, "share").listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun aPrivateShareThatOutlivedItsSessionWritesNothing() = runBlocking {
+        response("/image", "image/png", png)
+        assertFalse(privateShare("/image", active = false))
+        assertNull(shadowOf(activity).nextStartedActivity)
+        assertTrue(File(directory, "private").listFiles().orEmpty().isEmpty())
+        assertTrue(File(directory, "share").listFiles().orEmpty().isEmpty())
     }
 
     @Test fun extensionlessPngUsesTheResponseTypeAndFilename() = runBlocking {

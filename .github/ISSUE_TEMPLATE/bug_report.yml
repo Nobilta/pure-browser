@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢反馈。可以先查看[现有功能和限制](https://github.com/Nobilta/pure-browser/blob/main/FEATURES.md)，
+        感谢反馈。可以先查看[现有功能和限制](https://github.com/Nobilta/pure-browser/blob/main/docs/features.md)，
         以及是否已有相同 Issue。不确定是否属于缺陷时，也欢迎说明实际遇到的问题。
         安全漏洞请通过[私密报告](https://github.com/Nobilta/pure-browser/security/advisories/new)提交。
   - type: input

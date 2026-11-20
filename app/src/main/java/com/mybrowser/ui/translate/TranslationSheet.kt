@@ -1,5 +1,7 @@
 package com.mybrowser.ui.translate
 
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +23,7 @@ import com.mybrowser.translate.TRANSLATION_TARGETS
 import com.mybrowser.translate.TranslationPageMode
 import com.mybrowser.translate.TranslationProvider
 import com.mybrowser.translate.TranslationSettings
+import com.mybrowser.ui.components.BrowserTextField
 import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.shell.BrowserBottomSheet
 import com.mybrowser.ui.shell.BrowserDropdownMenu
@@ -47,6 +50,7 @@ fun TranslationSheet(
     onRestorePage: () -> Unit,
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
+    onTranslated: () -> Unit,
 ) {
     val fullscreen = mode == TranslationSheetMode.SETTINGS
     val showAdvanced = fullscreen
@@ -64,7 +68,7 @@ fun TranslationSheet(
             onTranslatePage = onTranslatePage,
             onRestorePage = onRestorePage,
             onCancel = onCancel,
-            onDismiss = onDismiss,
+            onTranslated = onTranslated,
         )
     }
 
@@ -78,7 +82,7 @@ fun TranslationSheet(
                 BrowserSheetHeader(stringResource(R.string.translate_settings_title), onBack = onDismiss)
                 Column(
                     Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     content = content,
                 )
@@ -86,17 +90,17 @@ fun TranslationSheet(
         }
     } else {
         BrowserBottomSheet(onDismissRequest = onDismiss) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+            Column(Modifier.fillMaxWidth()) {
                 BrowserSheetHeader(
                     stringResource(R.string.translate_title),
-                    onDismiss = onDismiss,
+                    onBack = onDismiss,
                 )
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(max = 560.dp)
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 16.dp),
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     content = content,
                 )
@@ -118,7 +122,7 @@ private fun ColumnScope.TranslationFields(
     onTranslatePage: () -> Boolean,
     onRestorePage: () -> Unit,
     onCancel: () -> Unit,
-    onDismiss: () -> Unit,
+    onTranslated: () -> Unit,
 ) {
     var providerMenu by remember { mutableStateOf(false) }
     var targetMenu by remember { mutableStateOf(false) }
@@ -140,19 +144,21 @@ private fun ColumnScope.TranslationFields(
 
     Text(
         stringResource(R.string.translate_display_mode),
-        style = MaterialTheme.typography.labelSmall,
+        style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        BrowserActionPill(
+            text = stringResource(R.string.translate_mode_replace),
             selected = settings.pageMode == TranslationPageMode.REPLACE,
             onClick = { onSettingsChange(settings.copy(pageMode = TranslationPageMode.REPLACE)) },
-            label = { Text(stringResource(R.string.translate_mode_replace)) },
+            modifier = Modifier.weight(1f).fillMaxHeight(),
         )
-        FilterChip(
+        BrowserActionPill(
+            text = stringResource(R.string.translate_mode_compare),
             selected = settings.pageMode == TranslationPageMode.COMPARE,
             onClick = { onSettingsChange(settings.copy(pageMode = TranslationPageMode.COMPARE)) },
-            label = { Text(stringResource(R.string.translate_mode_compare)) },
+            modifier = Modifier.weight(1f).fillMaxHeight(),
         )
     }
 
@@ -210,10 +216,10 @@ private fun ColumnScope.TranslationFields(
                     onShowChange = { showKey = it },
                     onValueChange = { onSettingsChange(settings.copy(azureKey = it.take(512))) },
                 )
-                OutlinedTextField(
+                BrowserTextField(
                     value = settings.azureRegion,
                     onValueChange = { onSettingsChange(settings.copy(azureRegion = it.take(64))) },
-                    label = { Text(stringResource(R.string.translate_region)) },
+                    label = stringResource(R.string.translate_region),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -226,10 +232,10 @@ private fun ColumnScope.TranslationFields(
                 onValueChange = { onSettingsChange(settings.copy(deeplKey = it.take(512))) },
             )
             TranslationProvider.LIBRETRANSLATE -> {
-                OutlinedTextField(
+                BrowserTextField(
                     value = settings.libreEndpoint,
                     onValueChange = { onSettingsChange(settings.copy(libreEndpoint = it.take(2048))) },
-                    label = { Text(stringResource(R.string.translate_endpoint)) },
+                    label = stringResource(R.string.translate_endpoint),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
@@ -289,11 +295,11 @@ private fun ColumnScope.TranslationFields(
     if (!advanced) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
-                onClick = { if (onTranslatePage()) onDismiss() },
+                onClick = { if (onTranslatePage()) onTranslated() },
                 enabled = !busy && !pageTranslated && settings.configured,
                 shape = CircleShape,
                 modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
-            ) { Text(stringResource(R.string.translate_page), maxLines = 2) }
+            ) { Text(stringResource(R.string.translate_page), maxLines = 2, overflow = TextOverflow.Ellipsis) }
             BrowserActionPill(
                 text = stringResource(R.string.translate_restore),
                 enabled = !busy && pageTranslated,
@@ -317,10 +323,10 @@ private fun SecretField(
     onShowChange: (Boolean) -> Unit,
     onValueChange: (String) -> Unit,
 ) {
-    OutlinedTextField(
+    BrowserTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(label) },
+        label = label,
         singleLine = true,
         visualTransformation = if (show) androidx.compose.ui.text.input.VisualTransformation.None
         else PasswordVisualTransformation(),

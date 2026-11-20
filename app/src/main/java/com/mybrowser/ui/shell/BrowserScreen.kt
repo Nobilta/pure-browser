@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -166,6 +165,13 @@ fun BrowserScreen(
     val chromeForced = immersiveActive && state.isChromeRevealed
     var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
     var readerBarHeightPx by remember { mutableIntStateOf(0) }
+    val readerBarVisible = isReaderActive && chromeShown && !state.isOmnibarFocused && !state.isFindBarVisible &&
+        elementPicker == null && !translationVisible && !showHomeDashboard && state.pageFailure == null
+    val readerLift = if (readerBarVisible) with(LocalDensity.current) { readerBarHeightPx.toDp() } + 12.dp else 0.dp
+    val readerBottomInset = with(LocalDensity.current) { readerLift.roundToPx() }
+    LaunchedEffect(webView, isReaderActive, readerBottomInset) {
+        if (isReaderActive) com.mybrowser.reader.ReaderMode.setBottomInset(webView, readerBottomInset)
+    }
     LaunchedEffect(immersiveActive) { state.onImmersiveFullscreenChanged(immersiveActive) }
 
     // While immersive, back first leaves the revealed state (closing the find bar if it
@@ -389,6 +395,18 @@ fun BrowserScreen(
             }
 
             PageOverlay(
+                visible = readerBarVisible,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                enter = fadeIn(animationSpec = BrowserMotion.chromeFade()),
+                exit = fadeOut(animationSpec = BrowserMotion.chromeFade()),
+            ) {
+                ReaderStyleBar(readerStyle, onReaderStyleChange,
+                    Modifier.onSizeChanged { readerBarHeightPx = it.height })
+            }
+
+            PageOverlay(
                 // Not while a pick is running: this corner button is drawn over the picker's bar and
                 // would cover the end of it.
                 visible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused && !immersiveActive
@@ -396,7 +414,7 @@ fun BrowserScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                    .padding(16.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + readerLift),
                 enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                     scaleIn(animationSpec = BrowserMotion.chromeSpatial(), initialScale = 0.8f),
                 exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
@@ -481,7 +499,7 @@ fun BrowserScreen(
                         SmartSuggestions(
                             query = state.omnibarValue.text,
                             bookmarkManager = bookmarkManager,
-                            historyManager = if (isIncognito) null else historyManager,
+                            historyManager = historyManager,
                             searchEngine = searchEngine,
                             onlineSuggestionsEnabled = onlineSuggestionsEnabled,
                             suggestionProvider = suggestionProvider,
@@ -637,33 +655,15 @@ fun BrowserScreen(
         }
         }
     }
-    if (isReaderActive) {
-        val chrome = with(LocalDensity.current) { bottomChromeHeightPx.toDp() }
-        ReaderStyleBar(
-            style = readerStyle,
-            onChange = onReaderStyleChange,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(
-                        if (chromeShown) WindowInsetsSides.Horizontal
-                        else WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
-                    ),
-                )
-                .padding(horizontal = 16.dp)
-                .padding(bottom = (if (chromeShown) chrome else 0.dp) + 12.dp)
-                .onSizeChanged { readerBarHeightPx = it.height },
-        )
-    }
     if (snackbarHostState != null && !suppressSnackbar) {
         val bottomChromeHeight = with(LocalDensity.current) { bottomChromeHeightPx.toDp() }
         val fabVisible = mediaCount > 0 && !showHomeDashboard && !state.isOmnibarFocused &&
             !immersiveActive && elementPicker == null
-        val readerLift = if (isReaderActive) with(LocalDensity.current) { readerBarHeightPx.toDp() } + 12.dp else 0.dp
         val overlayLift = maxOf(readerLift, when {
             elementPicker != null -> 64.dp
             translationVisible -> 56.dp
-            fabVisible || (immersiveActive && !state.isChromeRevealed) -> 72.dp
+            fabVisible -> readerLift + 72.dp
+            immersiveActive && !state.isChromeRevealed -> 72.dp
             else -> 0.dp
         })
         SwipeDismissSnackbarHost(

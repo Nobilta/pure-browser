@@ -1,5 +1,7 @@
 package com.mybrowser.ui.player
 
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Box
 
 import android.content.res.Resources
@@ -111,7 +113,7 @@ fun CastSheet(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp).selectableGroup(),
         ) {
             item {
                 if (connectedDevice != null) RemotePlaybackControls(connectedDevice, playback, statusUnavailable,
@@ -248,11 +250,11 @@ private fun MediaRow(
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(20.dp).alpha(if (enabled) 1f else 0.38f),
         )
         Spacer(Modifier.width(16.dp))
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).alpha(if (enabled) 1f else 0.38f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Row(
@@ -269,7 +271,7 @@ private fun MediaRow(
                 if (isPlaying) {
                     Text(
                         text = stringResource(R.string.cast_playing),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
@@ -284,10 +286,10 @@ private fun MediaRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = onPlay, modifier = Modifier.testTag("cast_play")) {
+        TextButton(onClick = onPlay, enabled = enabled, modifier = Modifier.testTag("cast_play")) {
             Text(stringResource(R.string.cast_play))
         }
-        TextButton(onClick = onDownload, modifier = Modifier.testTag("cast_download")) {
+        TextButton(onClick = onDownload, enabled = enabled, modifier = Modifier.testTag("cast_download")) {
             Text(stringResource(R.string.download_confirm_action))
         }
     }

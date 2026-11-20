@@ -211,7 +211,7 @@ class FilterSubscriptions(
         _subscriptions.value = loaded.map { savedList ->
             // A disabled packaged list is not part of the engine's snapshot, and its count is
             // already in the manifest: reading and measuring it on every start buys nothing.
-            if (!savedList.enabled && savedList.file == null && savedList.ruleCount > 0 &&
+            if (savedList.builtIn && !savedList.enabled && savedList.file == null && savedList.ruleCount > 0 &&
                 savedList.countBuild == appVersionCode
             ) {
                 return@map savedList
@@ -225,12 +225,13 @@ class FilterSubscriptions(
             val list = if (saved is SavedPayload.Missing || saved is SavedPayload.Stale) {
                 savedList.copy(file = null, etag = null, modified = null, updatedAt = 0, checkedAt = 0)
             } else savedList
+            if (saved is SavedPayload.Unreadable) {
+                if (list.enabled) readBuiltInPayload(list)?.let { startupPayloads[list.id] = it }
+                return@map list.copy(error = appContext.getString(R.string.filter_snapshot_unreadable))
+            }
             val payload = (saved as? SavedPayload.Loaded)?.payload ?: readBuiltInPayload(list)
             if (payload == null) list.copy(ruleCount = 0, bytes = 0, etag = null, modified = null,
-                error = appContext.getString(
-                    if (saved is SavedPayload.Unreadable) R.string.filter_snapshot_unreadable
-                    else R.string.filter_missing_snapshot,
-                ))
+                error = appContext.getString(R.string.filter_missing_snapshot))
             else {
                 if (list.enabled) startupPayloads[list.id] = payload
                 list.copy(ruleCount = payload.rules, bytes = FilterController.utf8Bytes(payload.text).toInt(),
@@ -306,7 +307,7 @@ class FilterSubscriptions(
 
     private fun decode(value: JSONObject?, defaults: Subscription): Subscription {
         if (value == null) return defaults
-        val filename = value.optString("file").takeIf { SNAPSHOT.matches(it) && File(directory, it).isFile }
+        val filename = value.optString("file").takeIf { SNAPSHOT.matches(it) }
         return defaults.copy(enabled = value.optBoolean("enabled", defaults.enabled), file = filename,
             ruleCount = value.optInt("ruleCount", defaults.ruleCount),
             bytes = value.optInt("bytes", defaults.bytes),
@@ -600,8 +601,8 @@ class FilterSubscriptions(
     }
 
     private fun readRuleCounts() {
-        val stored = runCatching { JSONObject(prefs.getString(RULE_COUNTS_KEY, null) ?: "") }.getOrNull()
-            ?: return
+        val text = prefs.getString(RULE_COUNTS_KEY, null) ?: return
+        val stored = try { JSONObject(text) } catch (_: org.json.JSONException) { return }
         stored.keys().forEach { key ->
             // Keys are build-scoped; another build's measurements said nothing about this parser.
             val current = when {
@@ -641,13 +642,19 @@ class FilterSubscriptions(
         val name = list.file?.takeIf(SNAPSHOT::matches) ?: return SavedPayload.Missing
         val file = File(directory, name)
         if (!file.isFile) return SavedPayload.Missing
-        val text = runCatching {
+        val text = try {
             file.inputStream().use { TextDownloader.readText(it, FilterListFormat.MAX_BYTES) }
-        }.getOrNull() ?: return SavedPayload.Unreadable
+        } catch (_: IOException) {
+            return SavedPayload.Unreadable
+        }
         if (name != list.id + "-" + TextDownloader.sha256(text) + ".txt") return SavedPayload.Stale
         // The name carries the digest of these bytes, so it identifies them too; the build is part
         // of the key so a new parser re-validates each snapshot once instead of never.
-        return SavedPayload.Loaded(ValidatedPayload(text, ruleCount("snapshot:$name:$appVersionCode", text)))
+        return try {
+            SavedPayload.Loaded(ValidatedPayload(text, ruleCount("snapshot:$name:$appVersionCode", text)))
+        } catch (_: IOException) {
+            SavedPayload.Stale
+        }
     }
 
     /**
@@ -750,7 +757,7 @@ class FilterSubscriptions(
     private fun cleanup() {
         val keep = _subscriptions.value.mapNotNull { it.file }.toSet()
         directory.listFiles()?.filter { SNAPSHOT.matches(it.name) && it.name !in keep }?.forEach {
-            ruleCounts.remove("snapshot:${it.name}:$appVersionCode")
+            if (ruleCounts.remove("snapshot:${it.name}:$appVersionCode") != null) ruleCountsDirty = true
             it.delete()
         }
         // Dropping a file drops its measurement; persistRuleCounts writes only when that changed.

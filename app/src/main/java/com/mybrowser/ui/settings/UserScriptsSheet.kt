@@ -1,8 +1,10 @@
 package com.mybrowser.ui.settings
 
+import com.mybrowser.ui.components.BrowserGroupCard
+import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.components.BrowserTextField
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,7 +16,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
@@ -115,20 +116,24 @@ fun UserScriptsSheet(
     BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
             BrowserSheetHeader(res.getString(R.string.script_title), onBack = onDismiss)
-            Text(res.getString(R.string.script_summary), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+            Text(res.getString(R.string.script_summary), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
             // Scripts do run in incognito now; what is private is the data they save, which is
             // worth saying here rather than leaving the user to discover it a session later.
             if (isIncognito) Text(res.getString(R.string.script_status_incognito),
-                Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else if (pageUrl != null && !UrlUtils.isHttpUrl(pageUrl)) Text(res.getString(R.string.script_status_no_page),
-                Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
-            if (!fullRuntime) Text(res.getString(R.string.script_old_webview), Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
+            if (!fullRuntime) Text(res.getString(R.string.script_old_webview), Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                TextButton(onClick = { inputMode = "url" }, enabled = !busy) { Text(res.getString(R.string.script_import_url)) }
-                TextButton(onClick = { inputMode = "code" }, enabled = !busy) { Text(res.getString(R.string.script_paste)) }
-                TextButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) { Text(res.getString(R.string.script_import_file)) }
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BrowserActionPill(res.getString(R.string.script_import_url), { error = null; inputMode = "url" }, enabled = !busy)
+                BrowserActionPill(res.getString(R.string.script_paste), { error = null; inputMode = "code" }, enabled = !busy)
+                BrowserActionPill(res.getString(R.string.script_import_file), { picker.launch(arrayOf("*/*")) }, enabled = !busy)
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
@@ -136,13 +141,8 @@ fun UserScriptsSheet(
                 if (scripts.isEmpty()) item { Text(res.getString(R.string.script_empty), Modifier.padding(8.dp)) }
                 items(scripts, key = { it.metadata.id }) { script ->
                     val metadata = script.metadata
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = BorderStroke(1.dp, BrowserColors.cardBorder),
-                    ) {
-                        Column(Modifier.padding(14.dp)) {
+                    BrowserGroupCard(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(metadata.name, style = MaterialTheme.typography.titleMedium)
@@ -167,14 +167,17 @@ fun UserScriptsSheet(
                             Text((metadata.matches + metadata.includes).joinToString("\n"), maxLines = 3, style = MaterialTheme.typography.bodySmall)
                             if (!metadata.supported) Text(res.getString(R.string.script_unsupported, metadata.unsupported.joinToString(", ")),
                                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = { deleting = script }, enabled = !busy) { Text(res.getString(R.string.cd_delete)) }
-                                TextButton(onClick = { draft = ScriptDraft(script.source, script.sourceUrl, metadata, previewOnly = true) }) {
-                                    Text(res.getString(R.string.script_details))
-                                }
-                                if (script.sourceUrl != null) TextButton(onClick = { scope.launch { loadUrl(script.sourceUrl) } }, enabled = !busy) {
-                                    Text(res.getString(R.string.script_update))
-                                }
+                            FlowRow(Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                BrowserActionPill(res.getString(R.string.cd_delete),
+                                    { deleting = script }, enabled = !busy)
+                                BrowserActionPill(res.getString(R.string.script_details), {
+                                    error = null
+                                    draft = ScriptDraft(script.source, script.sourceUrl, metadata, previewOnly = true)
+                                }, enabled = !busy)
+                                if (script.sourceUrl != null) BrowserActionPill(res.getString(R.string.script_update),
+                                    { scope.launch { loadUrl(script.sourceUrl) } }, enabled = !busy)
                             }
                         }
                     }
@@ -190,11 +193,12 @@ fun UserScriptsSheet(
             title = { Text(res.getString(if (urlInput) R.string.script_import_url else R.string.script_paste)) },
             text = {
                 Column {
-                    OutlinedTextField(input, { if (it.length <= UserScriptMetadata.MAX_SOURCE_BYTES) input = it },
-                        label = { Text(if (urlInput) "URL" else "// ==UserScript==") },
+                    BrowserTextField(value = input, onValueChange = { if (it.length <= UserScriptMetadata.MAX_SOURCE_BYTES) input = it },
+                        label = res.getString(if (urlInput) R.string.bookmark_edit_url else R.string.script_paste),
+                        placeholder = if (urlInput) "" else "// ==UserScript==",
                         singleLine = urlInput, enabled = !busy,
+                        errorMessage = error,
                         modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp))
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = { TextButton(enabled = input.isNotBlank() && !busy, onClick = {
@@ -228,7 +232,11 @@ fun UserScriptsSheet(
                         color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                     if (replacing && !current.previewOnly) Text(res.getString(R.string.script_replace_notice), Modifier.padding(top = 8.dp))
                     Text(res.getString(R.string.script_source_preview), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 12.dp))
-                    Text(current.source.take(6000), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    Surface(Modifier.fillMaxWidth().padding(top = 8.dp), color = BrowserColors.recessedWell,
+                        shape = MaterialTheme.shapes.small) {
+                        Text(current.source.take(6000), Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },

@@ -434,6 +434,7 @@ class MainActivity : ComponentActivity(),
 
     /** HTTP and document state continue while only foreground UI/media ownership is suspended. */
     private fun backgroundPopupPage(page: PopupPage) {
+        ReaderMode.onPageStarted(page.view)
         val view = page.view
         (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = false
         pages.media.trackerOf(view)?.let { it.pauseAll(); it.setSuspended(true) }
@@ -443,6 +444,7 @@ class MainActivity : ComponentActivity(),
             override fun onStarted(url: String) {
                 // A background popup/opener can navigate while another tab owns the screen;
                 // its reader DOM is gone even though the foreground onPageStarted never fires.
+                ReaderMode.onPageStarted(view)
                 readerTabs.remove(page.tabId)
                 downloadRequests.startDocument(page.tabId)
                 // The popup’s old document is going away with its blob: addresses, so a
@@ -453,7 +455,10 @@ class MainActivity : ComponentActivity(),
                 page.certificateError = false
                 updatePopupDocument(page, url)
             }
-            override fun onHistory(url: String) { updatePopupDocument(page, url) }
+            override fun onHistory(url: String) {
+                updatePopupDocument(page, url)
+                syncReaderFromHistory(view, page.tabId)
+            }
             override fun onFinished(url: String) {
                 if (url != view.url || url != page.document.url) return
                 page.loading = false
@@ -510,7 +515,7 @@ class MainActivity : ComponentActivity(),
     }
     private fun pruneResidentTabs() {
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
-        pages.parked.retain(normalTabManager.tabs.map { it.id }.toSet())
+        pages.parked.retain(tabManager.tabs.map { it.id }.toSet())
         popupPages.retain(tabManager.tabs.map { it.id }.toSet()).forEach(::disposePopupPage)
     }
 
@@ -548,6 +553,8 @@ class MainActivity : ComponentActivity(),
 
     /** Fullscreen video state. */
     private var fullscreenView by mutableStateOf<FullscreenVideoView?>(null)
+    private var deferredFullscreenExit = false
+    private var fullscreenExitJob: Job? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
     private var pictureInPictureSession = false
     private lateinit var pipController: com.mybrowser.media.PictureInPictureController
@@ -699,8 +706,8 @@ class MainActivity : ComponentActivity(),
         // The process owns the check and the offer; this Activity only displays it (see App).
         (application as App).checkForStartupUpdate()
         pipController = com.mybrowser.media.PictureInPictureController(this,
-            { pages.current?.let(pages.media::trackerOf) }, { !privacy.isIncognito }, { fullscreenView },
-            { browserPreferences.video.automaticPip })
+            { pages.current?.let(pages.media::trackerOf) }, { fullscreenView },
+            { browserPreferences.video.backgroundPlayback })
         downloadHandler = app.downloadHandler
 
         pages.current = acquireFreshPage()
@@ -753,7 +760,7 @@ class MainActivity : ComponentActivity(),
                 }
                 val startupApp = application as App
                 val startupOffer by startupApp.startupUpdateOffer.collectAsState()
-                startupOffer?.takeIf { !privacy.isIncognito }?.let { offered ->
+                startupOffer?.let { offered ->
                     com.mybrowser.ui.settings.UpdatePanel(
                         onDismiss = { startupApp.dismissStartupUpdateOffer() },
                         offered = offered,
@@ -781,14 +788,22 @@ class MainActivity : ComponentActivity(),
                 }
                 // The single download confirmation; the request behind it lives in memory only.
                 downloadRequests.pending.collectAsState().value?.let { confirmation ->
-                    com.mybrowser.ui.download.DownloadConfirmDialog(
-                        request = confirmation.request,
-                        isNewCopy = confirmation.isNewCopy,
-                        settings = downloadSettings,
-                        onConfirm = ::confirmDownloadRequest,
-                        onCancel = downloadRequests::rejectPending,
-                        onMessage = { snackbar(it) },
-                    )
+                    androidx.compose.runtime.key(confirmation) {
+                        com.mybrowser.ui.download.DownloadConfirmDialog(
+                            request = confirmation.request,
+                            isNewCopy = confirmation.isNewCopy,
+                            directory = confirmation.directory,
+                            settings = downloadSettings,
+                            onConfirm = { retryResponse, filename, destination ->
+                                if (downloadRequests.pending.value === confirmation) {
+                                    confirmDownloadRequest(retryResponse, filename, destination)
+                                }
+                            },
+                            onCancel = {
+                                if (downloadRequests.pending.value === confirmation) downloadRequests.rejectPending()
+                            },
+                        )
+                    }
                 }
                 // Import preview: nothing is written until the user applies.
                 importCandidate?.let { (backup, summary) ->
@@ -1227,7 +1242,7 @@ class MainActivity : ComponentActivity(),
                             },
                             onChooseDownloadDirectory = {
                                 val initial = downloadSettings.customTreeUri
-                                    ?.let { runCatching { it.toUri() }.getOrNull() }
+                                    ?.toUri()
                                 downloadDirectoryLauncher.launch(initial)
                             },
                             onDownloadThreadCountChange = { count ->
@@ -1256,6 +1271,12 @@ class MainActivity : ComponentActivity(),
                                     it.copy(browserFullscreenEnabled = previous.browserFullscreenEnabled),
                                 )
                                 if (fullscreenChanged) setBrowserFullscreenEnabled(fullscreenTarget)
+                                if (it.video.backgroundPlayback != previous.video.backgroundPlayback) {
+                                    syncBackgroundPlayback()
+                                }
+                                // Paper set to "follow the app" resolves against this flag, and a
+                                // theme change does not reload the article that is already open.
+                                if (it.theme != previous.theme) applyReaderStyle()
                                 if (privateSuggestionsOff) {
                                     (application as App).searchSuggestionProvider.rotatePrivateSession()
                                 }
@@ -1285,19 +1306,13 @@ class MainActivity : ComponentActivity(),
                             onTranslatePage = translation::translatePage,
                             onRestorePage = translation::restore,
                             onCancel = translation::restore,
-                            onDismiss = {
-                                val fromSettings = sheetNavigation.routes.dropLast(1)
-                                    .any { it.destination == Sheet.SETTINGS }
-                                if (fromSettings) {
-                                    dismissSheet(entry)
-                                } else if (sheetNavigation.close(entry)) {
-                                    exitConfirmation.reset()
-                                }
+                            onDismiss = { dismissSheet(entry) },
+                            onTranslated = {
+                                if (sheetNavigation.close(entry)) exitConfirmation.reset()
                             },
                         )
                         Sheet.MORE_TOOLS -> MoreToolsSheet(
                             canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
-                            isIncognito = privacy.isIncognito,
                             userScriptStatus = currentUserScriptStatus(),
                             onPinWebsite = { sheetAction(entry) {
                                 if (!com.mybrowser.core.WebsiteShortcuts.pin(this, state.currentUrl, state.pageTitle.orEmpty(), tabManager.currentTab?.favicon))
@@ -1365,7 +1380,7 @@ class MainActivity : ComponentActivity(),
                         onShare = { url -> pageContextTarget = null; shareUrl(url) },
                         onSaveImage = { url -> pageContextTarget = null; downloadImage(url) },
                         onShareImage = { url -> pageContextTarget = null; shareImage(url) },
-                        onSearchImage = if (privacy.isIncognito) null else { url -> pageContextTarget = null; searchImage(url) },
+                        onSearchImage = { url -> pageContextTarget = null; searchImage(url) },
                         onBlockResource = { rule ->
                             pageContextTarget = null
                             addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))
@@ -1425,8 +1440,12 @@ class MainActivity : ComponentActivity(),
                 // Developer Tools
                 if (showManagedSites) {
                     val sites by activeSites.entries.collectAsState()
+                    val sharedSites by normalSites.entries.collectAsState()
+                    val displayedSites = androidx.compose.runtime.remember(sites, sharedSites, privacy.isIncognito) {
+                        (sites.keys + sharedSites.keys).associateWith(activeSites::get)
+                    }
                     val needsRepair by activeSites.needsRepair.collectAsState()
-                    ManagedSitesSheet(sites, onSelect = { showSiteOrigin = it }, onDismiss = { showManagedSites = false },
+                    ManagedSitesSheet(displayedSites, onSelect = { showSiteOrigin = it }, onDismiss = { showManagedSites = false },
                         needsRepair = needsRepair, busy = siteSettingsBusy, onRepair = ::repairSiteSettings)
                 }
                 if (sheet != Sheet.SITE_SETTINGS) {
@@ -1533,8 +1552,9 @@ class MainActivity : ComponentActivity(),
     private fun CurrentSiteSettings(siteOwner: BrowserSheetNavigation.Presentation? = null) {
         val origin = showSiteOrigin ?: return
         val sites by activeSites.entries.collectAsState()
+        val sharedSites by normalSites.entries.collectAsState()
         val needsRepair by activeSites.needsRepair.collectAsState()
-        val settings = androidx.compose.runtime.remember(sites, origin) { activeSites.get(origin) }
+        val settings = androidx.compose.runtime.remember(sites, sharedSites, origin) { activeSites.get(origin) }
         SiteSettingsSheet(origin, settings, privacy.isIncognito, siteSettingsBusy,
             needsRepair = needsRepair, onRepair = ::repairSiteSettings,
             defaultEnhancedPlayback = browserPreferences.video.enhancedControls,
@@ -1548,7 +1568,7 @@ class MainActivity : ComponentActivity(),
                     navigator.reload()
                 }
             },
-            onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin, SiteSettings()) },
+            onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin) { SiteSettings() } },
             onClearSiteData = { confirmClearSite(origin) },
             onConnectionInfo = if (origin == SiteOrigin.of(state.currentUrl)) ({
                 securityCertificate = SecurityChecker.certificateDetails(webView.certificate)
@@ -1578,7 +1598,8 @@ class MainActivity : ComponentActivity(),
         ) {
             isDefaultBrowser = DefaultBrowser.isDefault(this)
         }
-        fileChooser = com.mybrowser.core.WebFileChooser(this, { pages.current to permissionEpoch }) {
+        fileChooser = com.mybrowser.core.WebFileChooser(this, { pages.current to permissionEpoch },
+            { privacy.isIncognito }) {
             toast(getString(R.string.capture_failed))
         }
         runtimePermissionLauncher = registerForActivityResult(
@@ -1601,21 +1622,12 @@ class MainActivity : ComponentActivity(),
             if (uri == null || !::downloadSettingsRepository.isInitialized) {
                 return@registerForActivityResult
             }
-            val grantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            val granted = runCatching {
-                contentResolver.takePersistableUriPermission(uri, grantFlags)
-            }.isSuccess
-            if (!granted) {
-                toast(getString(R.string.ui_unable_to_keep_write_access_to_this_folder))
-                return@registerForActivityResult
-            }
             lifecycleScope.launch {
                 val label = withContext(Dispatchers.IO) {
                     downloadSettingsRepository.describeDirectory(uri)
                 }
                 val updated = runCatching {
-                    downloadSettingsRepository.useCustomDirectory(uri, label)
+                    downloadHandler.setDefaultDirectory(uri, label)
                 }.getOrElse {
                     Log.w("MainActivity", "Unable to save custom download directory", it)
                     toast(getString(R.string.ui_unable_to_use_the_selected_download_folder))
@@ -1671,9 +1683,9 @@ class MainActivity : ComponentActivity(),
         // instance defaults to the normal profile, which would silently drop an incognito
         // session back onto persistent storage.
         privacy.applyTo(view)
-        // Normal pages keep their departed document so Back does not rebuild it; private
-        // pages never do, because a cached document cannot be flushed when the session ends.
-        com.mybrowser.core.WebViewConfig.applyBackForwardCache(view, !privacy.isIncognito)
+        // BFCache is enabled in both modes; a private document survives only until the WebView
+        // itself is discarded at the session boundary, which is what removes it from memory.
+        com.mybrowser.core.WebViewConfig.applyBackForwardCache(view)
 
         // Apply desktop mode setting
         applySiteSettings(view, state.currentUrl)
@@ -1681,6 +1693,32 @@ class MainActivity : ComponentActivity(),
         pages.install(view, lifecycleScope, userScripts, filter, activeSites,
             isPrivate = { privacy.isIncognito }, excludedOrigins = temporaryFilterOrigins,
             fileListener = pageFileListener, onMediaSignal = ::applyMediaSignal)
+    }
+
+    /** Saves the choice and applies it to the page that is playing now, without waiting for a probe. */
+    private fun setBackgroundPlayback(enabled: Boolean) {
+        browserPreferences = preferencesRepository.update(transform = { current: BrowserPreferences ->
+            current.copy(video = current.video.copy(backgroundPlayback = enabled))
+        })
+        syncBackgroundPlayback()
+    }
+
+    private fun syncBackgroundPlayback() {
+        val view = pages.current ?: return
+        val signal = pages.media.trackerOf(view)?.current ?: return
+        updateMediaSession(view, signal)
+    }
+
+    private fun updateMediaSession(view: WebView, signal: MediaPlaybackTracker.Signal) {
+        val enabled = browserPreferences.video.backgroundPlayback
+        setMediaWindowVisibilityPolicy(view, signal.isPlaying && enabled)
+        systemMedia.update(this, signal, state.pageTitle.orEmpty(), privacy.isIncognito, enabled)
+        pipController.update()
+    }
+
+    private fun setMediaWindowVisibilityPolicy(view: WebView, keepPlaying: Boolean) {
+        (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden = keepPlaying
+        fullscreenView?.keepMediaOnWindowHidden = keepPlaying
     }
 
     /** What one probe signal means here: media store, system session, fullscreen host, speed. */
@@ -1696,11 +1734,8 @@ class MainActivity : ComponentActivity(),
                 return@runOnUiThread
             }
             hasVideo = signal.hasVideo
-            (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden =
-                signal.isPlaying && browserPreferences.video.backgroundPlayback && !privacy.isIncognito
             media.updatePlayback(signal)
-            systemMedia.update(this, signal, state.pageTitle.orEmpty(), privacy.isIncognito, browserPreferences.video.backgroundPlayback)
-            pipController.update()
+            updateMediaSession(view, signal)
             fullscreenView?.update(signal)
             val preferences = browserPreferences.video
             if (signal.isPlaying && !signal.isBoosting && preferences.rememberSpeed &&
@@ -1833,10 +1868,10 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun saveSiteSettings(origin: String, settings: SiteSettings) {
+    private fun saveSiteSettings(origin: String, transform: (SiteSettings) -> SiteSettings) {
         val owner = sheetNavigation.current?.takeIf { it.destination == Sheet.SITE_SETTINGS }
         runSiteSettingsMutation("Unable to save website settings") { repository ->
-            repository.update(origin) { settings }
+            repository.update(origin, transform)
             if (repository === activeSites && (SiteOrigin.of(state.currentUrl) == origin ||
                 repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
                 cancelWebsitePermissions()
@@ -1947,7 +1982,7 @@ class MainActivity : ComponentActivity(),
 
     private fun toggleDesktopMode() {
         val origin = SiteOrigin.of(state.currentUrl) ?: return
-        saveSiteSettings(origin, activeSites.get(origin).copy(desktop = !state.isDesktopMode))
+        saveSiteSettings(origin) { it.copy(desktop = !it.desktop) }
     }
 
     /**
@@ -1966,6 +2001,9 @@ class MainActivity : ComponentActivity(),
      */
     private fun setIncognitoEnabled(target: Boolean) {
         if (target == privacy.isIncognito || clearingData || privacy.isTransitioning) return
+        // The system owns the window in picture-in-picture and has no public "leave but stay"
+        // call; a mode switch here would tear down the page under the player.
+        if (isInPictureInPictureMode) return
         val previousWish = browserPreferences.incognitoEnabled
         lifecycleScope.launch {
             val saved = withContext(Dispatchers.IO) { preferencesRepository.saveIncognitoEnabled(target) }
@@ -1974,7 +2012,7 @@ class MainActivity : ComponentActivity(),
                 return@launch
             }
             if (target == privacy.isIncognito) return@launch
-            if (clearingData || privacy.isTransitioning) {
+            if (clearingData || privacy.isTransitioning || isInPictureInPictureMode) {
                 // The wish was persisted, but the switch cannot run now. Restore exactly the
                 // previous wish so the next cold start cannot enter a mode this session skipped.
                 if (target != previousWish) {
@@ -2128,18 +2166,17 @@ class MainActivity : ComponentActivity(),
         hasVideo = false
         rememberedVideo = null
         if (oldId != null && oldId != tab.id) {
-            // Invalidate a reader extraction that was still in flight for the old document;
-            // tab switches without a page start would otherwise let it land on a parked tab.
-            ReaderMode.onPageStarted()
             val previousFailure = state.pageFailure
             val previousPageFailed = previousFailure != null
             state.pageFailure = null
             pages.current?.let { old ->
                 val liveOld = popupPages[oldId]?.takeIf { it.view === old }
                 val liveTarget = popupPages[tab.id]
-                val keep = liveOld == null && !privacy.isIncognito && wasReady == oldId && !previousPageFailed &&
-                    !state.isLoading && normalTabManager.tabs.any { it.id == oldId }
-                val parked = if (!privacy.isIncognito) pages.parked.take(tab.id) else null
+                val keep = liveOld == null && wasReady == oldId && !previousPageFailed &&
+                    !state.isLoading && tabManager.tabs.any { it.id == oldId }
+                // Private pages are parked in the same store as normal ones; the session end
+                // path discards them with the rest of the private profile.
+                val parked = pages.parked.take(tab.id)
                 when {
                     liveOld != null -> {
                         liveOld.document = documentFor(state.currentUrl)
@@ -2391,16 +2428,23 @@ class MainActivity : ComponentActivity(),
         val observed = pages.devTools.sessionFor(webView)?.observedImageReferer(url)
         val navigation = com.mybrowser.tabs.MediaNavigation.create(url, page, observed)
         val cookie = privacy.cookiesFor(url)
+        val epoch = privacy.sessionEpoch
+        val privateSession = privacy.isIncognito
+        val userAgent = webView.settings.userAgentString
+        val sessionActive = { !privateSession || privacy.isIncognito && privacy.sessionEpoch == epoch }
         lifecycleScope.launch {
             val shared = com.mybrowser.download.ImageSharing.share(
                 context = this@MainActivity,
                 url = url,
-                userAgent = webView.settings.userAgentString,
+                userAgent = userAgent,
                 navigation = navigation,
                 cookie = cookie,
                 chooserTitle = getString(R.string.context_share_image),
+                privateSession = privateSession,
+                engine = downloadHandler.engine,
+                sessionActive = sessionActive,
             )
-            if (!shared) toast(getString(R.string.context_share_image_failed))
+            if (!shared && sessionActive()) toast(getString(R.string.context_share_image_failed))
         }
     }
 
@@ -2441,7 +2485,7 @@ class MainActivity : ComponentActivity(),
             toast(getString(R.string.ui_unable_to_start_the_download))
             return
         }
-        val origin = referer ?: state.currentUrl
+        val origin = com.mybrowser.download.DownloadValidation.validHttpUrl(referer ?: state.currentUrl)
         val request = com.mybrowser.download.DownloadRequestCoordinator.Request(
             url = url,
             filename = filename,
@@ -2451,7 +2495,7 @@ class MainActivity : ComponentActivity(),
             referer = origin,
             isPrivate = privacy.isIncognito,
             cookieHeader = privacy.cookiesFor(url),
-            sourceOrigin = com.mybrowser.site.SiteOrigin.of(origin),
+            sourceOrigin = origin?.let(com.mybrowser.site.SiteOrigin::of),
             contentLength = contentLength.takeIf { it >= 0 },
             response = response,
         )
@@ -2970,7 +3014,7 @@ class MainActivity : ComponentActivity(),
             tab.mediaNavigation = tab.mediaNavigation?.follow(url, isRedirect = false)
         }
         mediaResponseHandoff.retain(tabManager.currentTab?.mediaNavigation)
-        ReaderMode.onPageStarted()
+        ReaderMode.onPageStarted(webView)
         // Clear the tab that owns the view that navigated, not whichever tab happens to be
         // selected: tab switching updates the index before the new view is attached.
         (pages.ownerTabId ?: tabManager.currentTab?.id)?.let { readerTabs.remove(it) }
@@ -3061,6 +3105,7 @@ class MainActivity : ComponentActivity(),
     override fun onHistoryUpdated(url: String, canGoBack: Boolean, canGoForward: Boolean) {
         workerDocument = documentFor(url)
         state.onHistoryUpdated(url, canGoBack, canGoForward)
+        pages.ownerTabId?.let { syncReaderFromHistory(webView, it) }
         tabManager.currentTab?.url = url
         tabManager.notifyChanged()
         refreshBookmarkStatus(url)
@@ -3097,11 +3142,37 @@ class MainActivity : ComponentActivity(),
         if (description.isNotEmpty()) state.pageFailure = PageFailure(url, PageFailureKind.NETWORK, "$code: $description")
     }
 
-    /** Saves the choice, then repaints the page that is showing the article right now. */
+    /** Saves the choice and repaints every open article, including parked reader tabs. */
     private fun changeReaderStyle(style: com.mybrowser.reader.ReaderStyle) {
         readerStyle = style
         com.mybrowser.reader.ReaderStyle.save(this, style)
-        pages.current?.let { com.mybrowser.reader.ReaderMode.applyStyle(it, style) }
+        applyReaderStyle()
+    }
+
+    private fun applyReaderStyle() {
+        val style = readerStyle
+        val dark = isDarkUi()
+        val activeId = pages.ownerTabId ?: tabManager.currentTab?.id
+        readerTabs.forEach { (id, active) ->
+            if (active) {
+                val view = if (id == activeId) pages.current
+                    else pages.parked.peek(id)?.view ?: popupPages[id]?.view
+                view?.let { ReaderMode.applyStyle(it, style, dark) }
+            }
+        }
+    }
+
+    private fun ownsReaderView(tabId: String, view: WebView): Boolean =
+        (pages.current === view && pages.ownerTabId == tabId) || pages.parked.peek(tabId)?.view === view ||
+            popupPages[tabId]?.view === view
+
+    private fun syncReaderFromHistory(view: WebView, tabId: String) {
+        ReaderMode.readActive(view) { active ->
+            if (ownsReaderView(tabId, view)) {
+                setReaderActiveFor(tabId, active)
+                if (active) ReaderMode.applyStyle(view, readerStyle, isDarkUi())
+            }
+        }
     }
 
     private fun toggleReaderMode() {
@@ -3111,6 +3182,7 @@ class MainActivity : ComponentActivity(),
             // The callback is asynchronous and the user may have switched tabs or navigated
             // meanwhile. Record the result against the tab that owns the view, but only toast
             // and drive the visible chrome while that exact view is still the foreground one.
+            if (!ownsReaderView(ownerTabId, view)) return@toggle
             setReaderActiveFor(ownerTabId, outcome == ReaderMode.Outcome.ENTERED)
             if (view === pages.current && tabManager.currentTab?.id == ownerTabId) {
                 toast(getString(when (outcome) {
@@ -3525,11 +3597,8 @@ class MainActivity : ComponentActivity(),
             onChooseSpeed = ::applyPlaybackSpeed,
             onChooseTransform = ::rememberVideoTransform,
             castContent = { CurrentCastPicker(onDismiss = {}, embedded = true) },
-            onToggleBackgroundPlayback = if (privacy.isIncognito) null else ({
-                browserPreferences = preferencesRepository.update(transform = { current: BrowserPreferences ->
-                    current.copy(video = current.video.copy(backgroundPlayback = !current.video.backgroundPlayback))
-                })
-            }),
+            backgroundPlayback = { browserPreferences.video.backgroundPlayback },
+            onBackgroundPlaybackChange = ::setBackgroundPlayback,
             onPictureInPicture = if (pipController.isAvailable) ({ pipController.enter(); Unit }) else null,
         )
         fullscreenView = host
@@ -3562,11 +3631,29 @@ class MainActivity : ComponentActivity(),
 
     private fun leaveFullscreen() {
         val callback = fullscreenCallback
-        onExitFullscreen()
+        exitFullscreenNow()
         runCatching { callback?.onCustomViewHidden() }
     }
 
+    private fun deferFullscreenExitForBackgroundPlayback(): Boolean {
+        if (fullscreenView == null || !browserPreferences.video.backgroundPlayback || isFinishing || isDestroyed ||
+            isInPictureInPictureMode ||
+            (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) && hasWindowFocus()) ||
+            pages.current?.let(pages.media::trackerOf)?.current?.isPlaying != true
+        ) return false
+        deferredFullscreenExit = true
+        return true
+    }
+
     override fun onExitFullscreen() {
+        if (deferFullscreenExitForBackgroundPlayback()) return
+        exitFullscreenNow()
+    }
+
+    private fun exitFullscreenNow() {
+        fullscreenExitJob?.cancel()
+        fullscreenExitJob = null
+        deferredFullscreenExit = false
         val host = fullscreenView ?: return
         fullscreenView = null
         fullscreenCallback = null
@@ -3632,7 +3719,7 @@ class MainActivity : ComponentActivity(),
     // --- Navigation ---
 
     override fun onUserScriptUrl(url: String): Boolean {
-        val uri = runCatching { url.toUri() }.getOrNull() ?: return false
+        val uri = url.toUri()
         if (uri.scheme !in listOf("http", "https") || uri.path?.endsWith(".user.js", true) != true) return false
         scriptImportUrl = url
         showUserScripts = true
@@ -3932,10 +4019,9 @@ class MainActivity : ComponentActivity(),
 
     override fun setPlaying(playing: Boolean) {
         if (playing && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) &&
-            !isInPictureInPictureMode && (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)) return
+            !isInPictureInPictureMode && !browserPreferences.video.backgroundPlayback) return
         pages.current?.let { view ->
-            (view as? com.mybrowser.core.BrowserWebView)?.keepMediaOnWindowHidden =
-                playing && browserPreferences.video.backgroundPlayback && !privacy.isIncognito
+            setMediaWindowVisibilityPolicy(view, playing && browserPreferences.video.backgroundPlayback)
             if (playing) pages.media.trackerOf(view)?.setSuspended(false)
             if (playing) pages.media.trackerOf(view)?.setPlaying(true) else pages.media.trackerOf(view)?.pauseAll()
         }
@@ -3945,8 +4031,9 @@ class MainActivity : ComponentActivity(),
     override fun openIntent(): Intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     override fun onUserLeaveHint() {
-        if (android.os.Build.VERSION.SDK_INT < 31 && ::pipController.isInitialized && browserPreferences.video.automaticPip &&
-            pages.current?.let { pages.media.trackerOf(it)?.current?.isPlaying } == true) pipController.enter()
+        if (android.os.Build.VERSION.SDK_INT < 31 && ::pipController.isInitialized) {
+            pipController.enterAutomatically()
+        }
         super.onUserLeaveHint()
     }
 
@@ -3963,13 +4050,18 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun stopHiddenMedia() {
-        pages.current?.let { pages.media.trackerOf(it)?.setSuspended(true); it.onPause() }
+        pages.current?.let { view ->
+            setMediaWindowVisibilityPolicy(view, false)
+            pages.media.trackerOf(view)?.setSuspended(true)
+            view.onPause()
+        }
         systemMedia.detach(this)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
+            resolveDeferredFullscreenExit()
             // Dialog windows can clear immersive flags on older Android versions. Only the
             // video host may steal focus here; browser fullscreen must never grab it away
             // from the WebView or a half-typed omnibar draft.
@@ -4027,12 +4119,19 @@ class MainActivity : ComponentActivity(),
 
     override fun onStop() {
         persistNormalSession()
-        // A visible PiP Activity stays STARTED. Stopping it means the user closed
-        // or hid that player; background-playback preference must not revive it.
-        if (::privacy.isInitialized && (pictureInPictureSession ||
-                (!isInPictureInPictureMode && (privacy.isIncognito || !browserPreferences.video.backgroundPlayback)))) {
-            stopHiddenMedia()
-            if (pictureInPictureSession) leaveFullscreen()
+        // A visible PiP Activity normally stays STARTED, but some OEMs call onStop while the
+        // window is still pinned. Only a PiP that has actually gone away may silence the player,
+        // otherwise background-playback preference must not revive a closed PiP.
+        if (::privacy.isInitialized) {
+            val pipVisible = pictureInPictureSession && isInPictureInPictureMode
+            when {
+                pipVisible -> Unit
+                pictureInPictureSession -> {
+                    stopHiddenMedia()
+                    leaveFullscreen()
+                }
+                !browserPreferences.video.backgroundPlayback -> stopHiddenMedia()
+            }
         }
         super.onStop()
     }
@@ -4055,6 +4154,7 @@ class MainActivity : ComponentActivity(),
 
     /** Extreme pressure may end window communication, but keeps tabs/URLs recoverable. */
     private fun releaseBackgroundWindowsForMemory() {
+        readerTabs.keys.retainAll(setOfNotNull(pages.ownerTabId))
         pages.parked.clear()
         val released = popupPages.clear()
         released.forEach { page ->
@@ -4076,6 +4176,8 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onPause() {
+        fullscreenExitJob?.cancel()
+        fullscreenExitJob = null
         cast.setVisible(false)
         dismissPageContext()
         fullscreenView?.cancelTransientControls()
@@ -4096,7 +4198,30 @@ class MainActivity : ComponentActivity(),
         }
         downloadHandler.resumeInterrupted()
         pages.current?.onResume()
-        pages.current?.let { pages.media.trackerOf(it)?.setSuspended(false) }
+        val currentTracker = pages.current?.let(pages.media::trackerOf)
+        currentTracker?.setSuspended(false)
+        resolveDeferredFullscreenExit()
+    }
+
+    private fun resolveDeferredFullscreenExit() {
+        if (!deferredFullscreenExit || fullscreenExitJob?.isActive == true || !hasWindowFocus() ||
+            !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return
+        val tracker = pages.current?.let(pages.media::trackerOf)
+        if (tracker == null) {
+            leaveFullscreen()
+            return
+        }
+        tracker.probe()
+        fullscreenExitJob = lifecycleScope.launch {
+            kotlinx.coroutines.delay(750)
+            if (!hasWindowFocus()) return@launch
+            val signal = tracker.current
+            if (signal.isFullscreen && signal.isPlaying && browserPreferences.video.backgroundPlayback) {
+                deferredFullscreenExit = false
+                fullscreenView?.update(signal)
+                applyWindowInsetsPolicy()
+            } else leaveFullscreen()
+        }
     }
 
     override fun onDestroy() {
@@ -4224,6 +4349,9 @@ class MainActivity : ComponentActivity(),
         }
         // One coherent runtime refresh; the repositories are now the source of truth.
         browserPreferences = loadBrowserPreferences()
+        syncBackgroundPlayback()
+        // An imported theme can change what an already open article resolves its paper to.
+        applyReaderStyle()
         searchEngine = searchEngineManager.getCurrentEngine()
         availableSearchEngines = searchEngineManager.getAvailableEngines()
         imageSearchEngine = imageSearchEngineManager.getCurrentEngine()

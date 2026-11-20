@@ -3,6 +3,7 @@ package com.mybrowser.download
 import android.app.Application
 import android.content.Context
 import android.webkit.CookieManager
+import com.mybrowser.R
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -21,6 +22,30 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
+    @Test fun allRetryStatesResolveARevokedDirectoryToTheCurrentDefault() {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
+        val states = listOf("COMPLETED", "FAILED", "PAUSED")
+        prefs.edit().putString("entries", JSONArray().also { entries ->
+            states.forEachIndexed { index, status ->
+                entries.put(identityRecord(-900L - index, "https://example.test/$index", "$index.bin", status, "normal")
+                    .put("destinationMode", "CUSTOM_DIRECTORY")
+                    .put("customTreeUri", "content://provider/tree/revoked")
+                    .put("destinationLabel", "Revoked"))
+            }
+        }.toString()).commit()
+        val handler = DownloadHandler(context)
+        try {
+            states.forEachIndexed { index, _ ->
+                val retried = requireNotNull(handler.retry(-900L - index))
+                val entry = DownloadMetadataStore(prefs).load().entries.single { it.id == retried }
+                assertEquals(DownloadDestinationMode.SYSTEM_DOWNLOADS, entry.destinationMode)
+                assertNull(entry.customTreeUri)
+                assertEquals(SYSTEM_DIRECTORY_LABEL, entry.destinationLabel)
+            }
+        } finally { handler.close() }
+    }
+
     @Test fun ftpSourceLinksHideCredentialsWithoutChangingTheTransferAddress() {
         val context = RuntimeEnvironment.getApplication()
         val url = "ftp://user:p%40ss@example.test/a%20b.bin?q=x%2Fy#fragment"
@@ -52,6 +77,24 @@ class DownloadHandlerTest {
             assertEquals(DownloadFailure.UNSUPPORTED, failed.failure)
             assertEquals(1, requests.get())
         } finally { handler.close(); server.stop(0) }
+    }
+
+    @Test fun ftpPermanentRepliesAreNotRetriedAndKeepTheirCategory() = runBlocking {
+        val context = connectedContext()
+        for (code in listOf(530, 550)) {
+            FakeFtpServer(byteArrayOf(1), loginReply = if (code == 530) "530 denied" else "230 logged in",
+                retrieveReply = "550 file unavailable").use { server ->
+                val handler = DownloadHandler(context)
+                try {
+                    val id = requireNotNull(handler.enqueue(server.url(), null, null, null))
+                    val failed = withTimeout(5_000) {
+                        handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.FAILED } }
+                    }.single { it.id == id }
+                    assertEquals(if (code == 530) DownloadFailure.AUTHORIZATION else DownloadFailure.SERVER, failed.failure)
+                    assertEquals(1, server.commands.count { it.startsWith("USER ") })
+                } finally { handler.close() }
+            }
+        }
     }
 
     @Test fun httpRejectionsExposeAnActionableCategoryAndKeepItAfterRestart() = runBlocking {
@@ -231,7 +274,7 @@ class DownloadHandlerTest {
                 context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
                     .getString("entries", "[]"),
             ).getJSONObject(0)
-            assertEquals("https://private.example/file", saved.getString("url"))
+            assertEquals("", saved.getString("url"))
             assertEquals("", saved.getString("referer"))
             // The record itself survives, which is what the feature documentation promises.
             assertEquals("private.bin", saved.getString("filename"))
@@ -287,13 +330,8 @@ class DownloadHandlerTest {
         }
     }
 
-    /**
-     * The reported leak, end to end: a private download's URL must not survive anywhere on disk.
-     * The record JSON was redacted, but the resume sidecar beside the partial bytes still named it,
-     * so pausing a private task and leaving the session left the query string behind — and nothing
-     * removed it, because the directory is kept for as long as the record says "paused".
-     */
-    @Test fun aPausedPrivateDownloadLeavesNoUrlInItsPartialFiles() = runBlocking {
+    /** A paused private transfer keeps its partial data only until the session ends. */
+    @Test fun leavingPrivateSessionDeletesPausedPartialFiles() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val total = 4 * 1024 * 1024
         // Ranges and a validator, so the transfer takes the segmented path — the one that writes a
@@ -334,6 +372,8 @@ class DownloadHandlerTest {
             assertFalse("the sidecar must not name the URL: $text", text.contains("token"))
             assertFalse(text.contains("secret-value"))
             assertFalse(text.contains("127.0.0.1"))
+            handler.endPrivateScope()
+            withTimeout(10_000) { while (directory.exists()) delay(20) }
         } finally {
             handler.close(); server.stop(0)
             (server.executor as java.util.concurrent.ExecutorService).shutdownNow()
@@ -383,6 +423,51 @@ class DownloadHandlerTest {
      * the ordinary profile's jar. Nothing asserted this, so the branch could have been replaced by
      * a jar read and the whole suite stayed green.
      */
+    @Test fun privateCompletedCopiesKeepCredentialsUntilTheSessionEnds() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
+        server.createContext("/private-copy") { exchange ->
+            val cookie = exchange.requestHeaders.getFirst("Cookie").orEmpty()
+            seen.add(cookie)
+            if (cookie != "private=1") exchange.sendResponseHeaders(403, -1)
+            else {
+                exchange.sendResponseHeaders(200, 3)
+                exchange.responseBody.write(byteArrayOf(1, 2, 3))
+            }
+            exchange.close()
+        }
+        server.start()
+        val context = connectedContext()
+        val handler = DownloadHandler(context)
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/private-copy"
+            handler.rotatePrivateScope()
+            val id = (handler.enqueueOrGetExisting(url, null, null, null, referer = "https://private.test/page",
+                isPrivate = true, cookieHeader = "private=1") as DownloadHandler.EnqueueOutcome.Started).id
+            withTimeout(5_000) { handler.downloads.first { list -> list.any { it.id == id && it.status == DownloadStatus.COMPLETED } } }
+            CookieManager.getInstance().setCookie(url, "ordinary=2")
+            val copy = requireNotNull(handler.retry(id))
+            withTimeout(5_000) { handler.downloads.first { list -> list.any { it.id == copy && it.status == DownloadStatus.COMPLETED } } }
+            assertEquals(listOf("private=1", "private=1"), seen)
+            handler.endPrivateScope()
+            withTimeout(5_000) { handler.downloads.first { list -> list.filter { it.id == id || it.id == copy }.all { it.url.isEmpty() } } }
+            val metadata = DownloadHandler::class.java.getDeclaredField("metadata").apply { isAccessible = true }
+                .get(handler) as Map<*, *>
+            listOf(id, copy).forEach { taskId ->
+                val entry = metadata[taskId] as DownloadMetadata
+                assertNull(entry.cookie)
+                assertNull(entry.referer)
+                assertEquals("", entry.url)
+                assertEquals(DownloadStatus.COMPLETED, entry.status)
+                assertNotNull(entry.destinationUri)
+                assertNull(handler.retry(taskId))
+            }
+        } finally {
+            handler.close(); server.stop(0)
+            CookieManager.getInstance().removeAllCookies(null)
+        }
+    }
+
     @Test fun aPrivateRetryUsesTheSessionCookieAndNeverTheJar() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -419,10 +504,10 @@ class DownloadHandlerTest {
     }
 
     /**
-     * A private completion is not announced. The gate is one line, so it needed a test that fails
-     * when it goes: the running-notification title is pinned elsewhere, this is the posted one.
+     * A private completion is announced, but the posted notification never names the file: it
+     * outlives the session and is readable from the lock screen.
      */
-    @Test fun aPrivateCompletionIsNotAnnounced() = runBlocking {
+    @Test fun aPrivateCompletionIsAnnouncedWithoutNamingTheFile() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val payload = ByteArray(2_048) { 7 }
         server.createContext("/tiny") { exchange ->
@@ -439,7 +524,6 @@ class DownloadHandlerTest {
         val handler = DownloadHandler(context)
         try {
             val url = "http://127.0.0.1:${server.address.port}/tiny"
-            // Ordinary download: announced, which is also the control for the assertion below.
             val normalId = requireNotNull(handler.enqueue("$url?normal", null, null, null))
             withTimeout(10_000) {
                 handler.downloads.first { list -> list.any { it.id == normalId && it.status == DownloadStatus.COMPLETED } }
@@ -452,9 +536,13 @@ class DownloadHandlerTest {
             withTimeout(10_000) {
                 handler.downloads.first { list -> list.any { it.id == privateId && it.status == DownloadStatus.COMPLETED } }
             }
-            // It is announced after the snapshot is published, so a bare assertion would race.
-            delay(500)
-            assertEquals("a private completion must not be posted", afterNormal, notifications.activeNotifications.size)
+            withTimeout(5_000) {
+                while (notifications.activeNotifications.none { it.id == privateId.hashCode() }) delay(20)
+            }
+            val posted = notifications.activeNotifications.single { it.id == privateId.hashCode() }
+            assertEquals(context.getString(R.string.app_name),
+                posted.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
+            assertEquals(afterNormal + 1, notifications.activeNotifications.size)
         } finally {
             handler.close(); server.stop(0)
             (server.executor as java.util.concurrent.ExecutorService).shutdownNow()
@@ -506,9 +594,9 @@ class DownloadHandlerTest {
             // the second cut being dropped.
             assertEquals("https://normal.example/a?t=1", normal.getString("url"))
             assertEquals("https://normal.example/from", normal.getString("referer"))
-            assertEquals("https://private.example/b", private.getString("url"))
+            assertEquals("", private.getString("url"))
             assertEquals("", private.getString("referer"))
-            assertEquals("https://private.example/c", byName.getValue("c.bin").getString("url"))
+            assertEquals("", byName.getValue("c.bin").getString("url"))
         } finally {
             handler.close()
         }
@@ -665,7 +753,7 @@ class DownloadHandlerTest {
                 context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
                     .getString("entries", "[]"),
             ).getJSONObject(0)
-            assertEquals("https://private.example/f", saved.getString("url"))
+            assertEquals("", saved.getString("url"))
             assertEquals(1, saved.getInt("version"))
             // Normal browsing is not the session that created it, so it cannot be resumed —
             // the URL it would fetch is no longer the one the transfer started from.

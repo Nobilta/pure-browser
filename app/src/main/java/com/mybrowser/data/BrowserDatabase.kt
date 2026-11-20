@@ -66,11 +66,14 @@ class BrowserDatabase private constructor(context: Context) : SQLiteOpenHelper(
         // optional visit counter used by omnibar suggestions; older installations retain
         // every bookmark and history row.
         if (oldVersion < 2) {
-            runCatching {
-                db.execSQL(
-                    "ALTER TABLE history ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1",
-                )
+            val hasVisitCount = db.rawQuery("PRAGMA table_info(history)", null).use { columns ->
+                val nameColumn = columns.getColumnIndexOrThrow("name")
+                generateSequence { if (columns.moveToNext()) columns.getString(nameColumn) else null }
+                    .any { it == "visit_count" }
             }
+            if (!hasVisitCount) db.execSQL(
+                "ALTER TABLE history ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1",
+            )
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_time ON history(visit_time DESC)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_url ON history(url)")
         }
@@ -120,14 +123,9 @@ class BrowserDatabase private constructor(context: Context) : SQLiteOpenHelper(
 
         /** Releases one repository's reference without closing a helper still in use. */
         fun release(database: BrowserDatabase) = synchronized(lock) {
-            if (shared === database) {
-                references = (references - 1).coerceAtLeast(0)
-                if (references == 0) {
-                    shared = null
-                    database.close()
-                }
-            } else {
-                // Defensive fallback for a helper created by an older integration.
+            references--
+            if (references == 0) {
+                shared = null
                 database.close()
             }
         }

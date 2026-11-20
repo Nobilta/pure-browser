@@ -45,11 +45,8 @@ internal object HlsPlaylist {
      * weigh against it, and taking the first would silently save the lowest-quality rendition.
      */
     fun variant(text: String, base: String): String? {
-        // Long.MIN_VALUE, not -1: a variant that omits the (required) BANDWIDTH attribute still
-        // makes this a master playlist, and refusing to pick one would fail the whole download.
-        var bestBandwidth = Long.MIN_VALUE
-        var best: String? = null
-        var bestAudio: String? = null
+        data class Variant(val uri: String, val bandwidth: Long, val audio: String?)
+        val variants = mutableListOf<Variant>()
         var pendingAudio: String? = null
         val externalAudio = mutableSetOf<String>()
         val embeddedAudio = mutableSetOf<String>()
@@ -57,7 +54,7 @@ internal object HlsPlaylist {
         var sawStreamInfo = false
         for (line in text.lineSequence().map(String::trim)) {
             if (line.isEmpty()) continue
-            if (line.startsWith("#EXT-X-MEDIA:") && attribute(line, "TYPE") == "AUDIO") {
+            if (line.startsWith("#EXT-X-MEDIA:", ignoreCase = true) && attribute(line, "TYPE")?.equals("AUDIO", ignoreCase = true) == true) {
                 val groups = if (attribute(line, "URI") == null) embeddedAudio else externalAudio
                 attribute(line, "GROUP-ID")?.let(groups::add)
             }
@@ -69,41 +66,51 @@ internal object HlsPlaylist {
             }
             if (line.startsWith("#")) continue
             if (!sawStreamInfo) continue
-            if (pendingBandwidth > bestBandwidth) {
-                bestBandwidth = pendingBandwidth
-                best = resolve(base, line)
-                bestAudio = pendingAudio
-            }
+            variants += Variant(line, pendingBandwidth, pendingAudio)
             // The URI of one variant ends its declaration; a later bare line is not one.
             sawStreamInfo = false
             pendingBandwidth = -1L
         }
-        if (bestAudio in externalAudio && bestAudio !in embeddedAudio) {
-            throw UnsupportedHlsException("Separate HLS audio is not supported")
-        }
-        return best
+        if (variants.isEmpty()) return null
+        val best = variants.filter { it.audio !in externalAudio || it.audio in embeddedAudio }
+            .maxByOrNull { it.bandwidth } ?: throw UnsupportedHlsException("Separate HLS audio is not supported")
+        return resolve(base, best.uri)
     }
 
     fun media(text: String, base: String): Media {
         val items = mutableListOf<Item>()
         var sequence = 0L
         var key: Key? = null
+        var unsupportedKey = false
         var complete = false
-        var pendingInit: Item? = null
+        var pendingInitUri: String? = null
+        var pendingInitKey: Key? = null
         var expectingSegment = false
         for (line in text.lineSequence().map(String::trim)) {
             when {
                 line.isEmpty() -> Unit
                 line.startsWith("#EXT-X-MEDIA-SEQUENCE:", ignoreCase = true) ->
                     sequence = line.substringAfter(':').trim().toLongOrNull() ?: 0L
-                line.startsWith("#EXT-X-KEY:", ignoreCase = true) ->
-                    key = key(line.substringAfter(':'), base)
+                line.startsWith("#EXT-X-KEY:", ignoreCase = true) -> {
+                    val format = attribute(line, "KEYFORMAT")
+                    if (format == null || format.equals("identity", ignoreCase = true)) {
+                        key = key(line.substringAfter(':'), base)
+                        unsupportedKey = false
+                    } else {
+                        // Different KEYFORMAT tags offer alternative ways to obtain the same key.
+                        // Only another identity tag replaces the identity key (RFC 8216 4.3.2.4).
+                        unsupportedKey = true
+                    }
+                }
                 line.startsWith("#EXT-X-MAP:", ignoreCase = true) -> {
                     if (attribute(line, "BYTERANGE") != null) {
                         throw UnsupportedHlsException("HLS byte-range maps are not supported")
                     }
-                    pendingInit = attribute(line, "URI")?.let { Item(resolve(base, it), key, sequence) }
-                        ?: throw IOException("HLS playlist has an initialization segment without a URI")
+                    if (unsupportedKey && key == null) throw UnsupportedHlsException("Unsupported HLS key format")
+                    if (key != null && key.method.equals("AES-128", ignoreCase = true) && key.iv == null) throw UnsupportedHlsException("Encrypted HLS map requires an IV")
+                    pendingInitUri = attribute(line, "URI")?.let { resolve(base, it) }
+                        ?: throw UnsupportedHlsException("HLS playlist has an initialization segment without a URI")
+                    pendingInitKey = key
                 }
                 // A byte range addresses part of a file; appending the whole file would claim
                 // to have saved a segment it did not.
@@ -114,9 +121,11 @@ internal object HlsPlaylist {
                 line.startsWith("#") -> Unit
                 else -> {
                     if (!expectingSegment) continue
-                    if (pendingInit != null) {
-                        items += pendingInit
-                        pendingInit = null
+                    if (unsupportedKey && key == null) throw UnsupportedHlsException("Unsupported HLS key format")
+                    if (pendingInitUri != null) {
+                        items += Item(pendingInitUri, pendingInitKey, sequence)
+                        pendingInitUri = null
+                        pendingInitKey = null
                     }
                     items += Item(resolve(base, line), key, sequence)
                     sequence++
@@ -147,14 +156,16 @@ internal object HlsPlaylist {
     }
 
     private fun key(attributes: String, base: String): Key? {
-        val method = attributeValue(attributes, "METHOD").orEmpty()
-        if (method.isEmpty() || method.equals("NONE", ignoreCase = true)) return null
+        val method = attributeValue(attributes, "METHOD")
+            ?: throw UnsupportedHlsException("HLS key tag has no METHOD")
+        if (method.equals("NONE", ignoreCase = true)) return null
+        if (!method.equals("AES-128", ignoreCase = true)) throw UnsupportedHlsException("Unsupported HLS key method: $method")
         val uri = attributeValue(attributes, "URI")?.let { resolve(base, it) }
-            ?: throw IOException("HLS key tag has no URI")
+            ?: throw UnsupportedHlsException("HLS key tag has no URI")
         // An IV that is present but malformed is a broken playlist, not a request to derive one:
         // falling back to the segment number here would decrypt into bytes nobody could play.
         val iv = attributeValue(attributes, "IV")
-            ?.let { parseIv(it) ?: throw IOException("HLS key IV is not 16 bytes") }
+            ?.let { parseIv(it) ?: throw UnsupportedHlsException("HLS key IV is not 16 bytes") }
         return Key(method, uri, iv)
     }
 
@@ -189,5 +200,5 @@ internal object HlsPlaylist {
 
     private fun resolve(base: String, reference: String): String =
         runCatching { URI(base).resolve(reference.trim()).toString() }
-            .getOrElse { throw IOException("HLS playlist references an invalid URL") }
+            .getOrElse { throw UnsupportedHlsException("HLS playlist references an invalid URL") }
 }

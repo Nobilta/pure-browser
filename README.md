@@ -1,13 +1,13 @@
 # Pure 浏览器
 
-[中文](README.md) · [English](README.en.md)
+[中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md)
 
 [![CI](https://github.com/Nobilta/pure-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/Nobilta/pure-browser/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Nobilta/pure-browser)](https://github.com/Nobilta/pure-browser/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%2010%2B%20%C2%B7%20arm64--v8a-3ddc84)](#安装)
 
-Pure 浏览器是一款开源的 Android 浏览器，基于系统内置的 WebView，界面采用 Material Design 3 规范设计。
+Pure 浏览器是一款基于系统 WebView 的开源 Android 浏览器，采用 Material Design 3 构建界面，提供网页阅读、视频增强、广告过滤和开发者工具。
 
 **[下载最新版](https://github.com/Nobilta/pure-browser/releases/latest)** · [查看截图](#截图) · [反馈问题](https://github.com/Nobilta/pure-browser/issues)
 
@@ -15,19 +15,18 @@ Pure 浏览器是一款开源的 Android 浏览器，基于系统内置的 WebVi
 
 ## 核心功能
 
-- **增强型视频播放器**：支持倍速、亮度与音量手势、画中画、后台播放、DLNA 投屏；后台播放可在播放器更多菜单的「播放设置」中切换；网页媒体遵循页面自身的自动播放逻辑，摄像头与麦克风仍需授权。投屏列表中的所有资源均提供新标签播放和下载入口，播放及附件下载沿用可获取的原媒体请求来源信息，跳转遵守服务器的来源策略，支持 Basic HTTP 登录后的来源保持、证书确认和一次性附件下载。
-- **网页翻译**：支持全文双语对照翻译，选中翻译；内置免登录服务，也可配置自定义翻译API。
-- **本地纯文本**：支持打开常见文本文件（`text/plain`、YAML、JSON、XML、Markdown、CSV 等）。
-- **开发者工具**：控制台、网络请求详情、DOM 树与当前 DOM 源码、Cookies／Local Storage／Session Storage；全屏浏览，通过系统返回退出，控制台输出与详情文字支持长按选择复制；DOM 默认隐藏格式空白节点。增强采集按标签页开启并刷新，存储无需开启即可查看。
-- **广告过滤与用户脚本**：默认启用 EasyList、EasyPrivacy、EasyList China、CJX Annoyance 和 AdGuard Mobile Ads；另有默认关闭的 App 引导与 Cookie 提示过滤，可在设置中选择。可添加订阅、安装用户脚本；支持的 WebView 会提前应用元素隐藏规则，减少广告闪现。
-- **标签与书签**：标签分组与搜索、页内查找、书签导入导出；书签显示已缓存的网站图标，长按多选后可通过左侧手柄拖动排序。
-- **阅读与打印**：一键重排正文进入阅读模式；支持通过系统打印界面打印网页或另存为 PDF。
-- **下载管理**：下载前可修改文件名和本次保存目录，支持搜索、状态筛选、任务详情、批量暂停与继续，以及并发任务数和 HTTP 总限速；完成文件显示类型图标；完成通知定位对应任务，从菜单重新进入时显示最新任务。支持 FTP 与 HLS 点播下载，HLS 会取最高码率子列表并按序合并，TS 流保存为 `.ts`，分片 MP4 保存为 `.mp4`；直播、仅有独立音轨的列表和字节范围分段暂不支持。一次性附件中断后会提示重试限制，显式重试后遵循普通下载恢复规则。
-- **二维码与图片分享**：菜单可生成当前网址的二维码，长按图片可直接分享（最多 64 MiB，按响应类型保存）或在普通模式下反查，默认 Bing，可在搜索引擎设置中独立选择或自定义识图引擎；阅读模式提供字号、行距和纸张底色。
-- **沉浸全屏**：隐藏系统栏和工具栏，网页铺满屏幕。
-- **离线扫码**：支持使用相机或图片识别二维码，无需联网。
-- **个性化**：自定义首页、地址栏位置、主题和三种界面语言；可按站点设置浏览器标识；设置可导出到文件并在其他设备导入。
-- **隐私管理**：内置无痕浏览、按网站管理权限、清理浏览数据；无痕用户脚本存储按会话隔离；证书异常会提示风险，并优先提供返回安全页面的操作。
+- **增强型视频播放器**：倍速播放、亮度与音量手势、画中画和 DLNA 投屏。开启后台播放后，全屏视频可在锁屏时继续播放，返回桌面可进入画中画。
+- **阅读与翻译**：阅读模式提取正文，可调字号、行距和纸张底色；支持全文双语对照和选中文本翻译，内置免登录翻译服务，也可配置自定义 API。
+- **广告过滤与用户脚本**：内置 EasyList、EasyPrivacy 等过滤订阅，可选 App 引导与 Cookie 提示过滤，支持自定义订阅、手动屏蔽元素和安装用户脚本。
+- **标签、书签与历史**：标签搜索和分组、页内查找、书签文件夹与拖动排序、批量操作，以及书签导入导出和历史搜索。
+- **下载管理**：下载前修改文件名和保存目录，搜索和筛选任务、查看详情、批量暂停与继续，设置并发数和 HTTP 总限速；支持 HTTP(S)、FTP 及 HLS 点播下载。
+- **开发者工具**：查看控制台、网络请求、DOM 树与源码，以及 Cookies、Local Storage 和 Session Storage；支持搜索、刷新和复制内容。
+- **二维码与图片**：生成当前网页的二维码，使用相机或图片离线扫码；长按图片可保存、分享或以图搜图，识图引擎可独立选择或自定义。
+- **本地文本与打印**：只读查看纯文本、Markdown、JSON、XML、YAML、CSV 等文件；通过系统打印界面打印网页或另存为 PDF。
+- **个性化与全屏**：自定义首页、地址栏位置、浅深色主题和站点浏览器标识；支持简体中文、繁体中文和英文，可导入导出设置，也可隐藏工具栏与系统栏全屏浏览。
+- **无痕与隐私**：无痕访问不写入浏览历史，会话数据在退出时清理；主动保存的书签、设置、下载记录和文件保留。已接受的无痕下载可继续完成，但退出后不能跨会话续传或重试；支持网站权限管理和浏览数据清理。
+
+使用方法、WebView 兼容性、HLS 支持范围和无痕隔离限制见[功能说明](docs/features.md)。
 
 ## 截图
 
@@ -37,13 +36,15 @@ Pure 浏览器是一款开源的 Android 浏览器，基于系统内置的 WebVi
 |---|---|---|---|
 | <img src="docs/screenshots/zh/browsing.png" width="155" alt="浏览网页"> | <img src="docs/screenshots/zh/menu.png" width="155" alt="浏览器菜单"> | <img src="docs/screenshots/zh/tabs.png" width="155" alt="标签面板"> | <img src="docs/screenshots/zh/translation.png" width="155" alt="双语对照翻译"> |
 
-视频增强播放、本地文本、油猴脚本与开发者工具：
+本地文本、用户脚本与开发者工具：
 
-| 视频增强播放 | 本地纯文本 | 油猴脚本 | 开发者工具 |
-|---|---|---|---|
-| <img src="docs/screenshots/zh/video.png" width="300" alt="全屏视频增强播放"> | <img src="docs/screenshots/zh/text.png" width="155" alt="读取本地纯文本"> | <img src="docs/screenshots/zh/userscripts.png" width="155" alt="油猴脚本管理"> | <img src="docs/screenshots/zh/debug.png" width="155" alt="开发者工具控制台"> |
+| 本地纯文本 | 用户脚本 | 开发者工具 |
+|---|---|---|
+| <img src="docs/screenshots/zh/text.png" width="210" alt="读取本地纯文本"> | <img src="docs/screenshots/zh/userscripts.png" width="210" alt="用户脚本管理"> | <img src="docs/screenshots/zh/debug.png" width="210" alt="开发者工具控制台"> |
 
-详细功能、网站兼容性和无痕模式的限制见[功能说明](FEATURES.md)。
+横屏视频增强播放：
+
+<img src="docs/screenshots/zh/video.png" width="680" alt="横屏视频增强播放">
 
 ## 安装
 
@@ -61,12 +62,12 @@ Pure 浏览器是一款开源的 Android 浏览器，基于系统内置的 WebVi
 应用也会在启动时检查更新，你可以在「设置 → 关于」关闭自动检查，或手动检查更新。
 应用内更新优先使用 Gitee，网络或服务不可用时自动尝试 GitHub；检查与下载均自动切换，无需选择来源。
 
-每个版本的变化见[更新日志](CHANGELOG.md)。
+更新记录见[更新日志](docs/changelog.md)。
 
 ## 从源码构建
 
 项目使用 Kotlin、Jetpack Compose 和 Rust。构建支持 macOS、Linux 和 Windows，
-Windows 请在 Git Bash 中运行脚本。请先按[贡献指南](CONTRIBUTING.md#开发环境)准备 JDK、
+Windows 请在 Git Bash 中运行脚本。请先按[构建指南](docs/building.md#环境与版本来源)准备 JDK、
 Android SDK/NDK、Rust、Node.js 和 Python。
 
 ```bash
@@ -78,19 +79,20 @@ cd pure-browser
 ```
 
 调试版位于 `app/build/outputs/apk/debug/app-debug.apk`，可与正式版同时安装。
-默认构建 ARM64；模拟器配置见[测试指南](TESTING_GUIDE.md)，签名与发版见[发布指南](RELEASING.md)。
-快速检查包含发布脚本测试；`--release` 还会签名并验证正式包。正式版本在本机签名并完成模拟器回归，推送至 `main` 且 CI 通过后，
-使用 `release/publish.sh` 创建 GitHub Release 草稿，核对后手动发布为 latest。
+默认构建 ARM64；模拟器与 ABI 选择见[构建指南](docs/building.md#宿主设备和-apk-架构)，签名与发版见[发布指南](docs/releasing.md)。
+Windows Git Bash 如需指定 Python，可使用 `PYTHON=python ./build-and-test.sh --quick`。
+`--release` 需要先配置签名；测试选择、设备回归及脚本目录见[测试指南](docs/testing.md)。
 
-想了解代码组织，可以从[架构说明](ARCHITECTURE.md)开始；其中说明了页面宿主、导航、翻译调度、下载记录存储和设置公共控件的职责边界。
+代码组织见[架构说明](docs/architecture.md)，界面修改遵循 [UI 设计规范](docs/design-system.md)。
+涉及无痕的修改须遵循[无痕模式设计契约](docs/incognito-policy.md)：共享主动保存的成果与偏好，隔离会话数据，保留正常功能及已接受的下载。
 
 ## 反馈与贡献
 
 遇到问题或有功能建议，欢迎[提交 Issue](https://github.com/Nobilta/pure-browser/issues)。
 描述问题时，请附上应用版本、Android 版本和复现步骤。安全漏洞请按[安全策略](SECURITY.md)私下报告。
 
-欢迎通过 Pull Request 改进项目，开始前可以阅读[贡献指南](CONTRIBUTING.md)与[行为准则](CODE_OF_CONDUCT.md)。
+欢迎通过 Pull Request 改进项目，开始前可以阅读[开发约定](docs/testing.md#开发约定)与[行为准则](CODE_OF_CONDUCT.md)。
 
 ## 许可
 
-项目代码使用 [MIT 许可](LICENSE)。过滤规则和其他第三方组件的许可见[第三方说明](THIRD_PARTY_NOTICES.md)。
+项目代码使用 [MIT 许可](LICENSE)。过滤规则和其他第三方组件的许可见[第三方说明](docs/third-party-notices.md)。

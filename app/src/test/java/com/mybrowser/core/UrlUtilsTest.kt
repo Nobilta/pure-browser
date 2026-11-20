@@ -29,6 +29,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class UrlUtilsTest {
+    @Test fun malformedFtpInputIsASearch() {
+        for (input in listOf("ftp:", "ftp:notes", "ftp://", "ftp://host:70000/file")) {
+            assertFalse(UrlUtils.isNavigableInput(input))
+            assertEquals("https://search.test/?q=" + android.net.Uri.encode(input),
+                UrlUtils.normalizeOrSearch(input, "https://search.test/?q=%s"))
+        }
+        assertEquals("ftp://host/file", UrlUtils.normalizeOrSearch("ftp://host/file", "https://search.test/?q=%s"))
+    }
+
 
     private fun normalize(input: String) = UrlUtils.normalizeOrSearch(input, SEARCH)
 

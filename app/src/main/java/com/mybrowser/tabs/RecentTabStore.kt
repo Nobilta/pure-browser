@@ -17,6 +17,9 @@ class RecentTabStore<T>(private val dispose: (T) -> Unit) {
 
     fun take(id: String): T? = entries.remove(id)
 
+    /** Reads an entry without disturbing its position; null when the tab is not parked. */
+    fun peek(id: String): T? = entries[id]
+
     fun put(id: String, value: T) {
         entries.remove(id)?.let(dispose)
         entries[id] = value

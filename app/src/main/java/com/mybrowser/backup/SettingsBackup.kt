@@ -72,7 +72,6 @@ data class BackupBrowser(
 )
 
 data class BackupVideo(
-    val automaticPip: Boolean? = null,
     val backgroundPlayback: Boolean? = null,
     val enhancedControls: Boolean? = null,
     val verticalGestures: Boolean? = null,

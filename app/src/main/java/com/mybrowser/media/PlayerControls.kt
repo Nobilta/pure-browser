@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -89,7 +90,7 @@ internal fun PlayerControls(
     onMirror: () -> Unit,
     onFit: (VideoFit) -> Unit,
     backgroundPlayback: Boolean,
-    onToggleBackgroundPlayback: (() -> Unit)?,
+    onBackgroundPlaybackChange: (Boolean) -> Unit,
     castContent: @Composable () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -97,6 +98,7 @@ internal fun PlayerControls(
     var barHeight by remember { mutableIntStateOf(0) }
     BoxWithConstraints(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         val viewportHeight = maxHeight
+        val compactBar = maxWidth < 400.dp * density.fontScale
         val topBarVisible = state.visible && !state.locked
         AnimatedVisibility(
             visible = topBarVisible,
@@ -108,8 +110,8 @@ internal fun PlayerControls(
         ) {
             val iconCount = 3 + (if (onPictureInPicture != null) 1 else 0)
             val textWidth = maxWidth - 16.dp - 48.dp * iconCount
-            val compact = textWidth < 120.dp * density.fontScale
-            val showStatus = textWidth >= 280.dp * density.fontScale
+            val showStatus = maxWidth - 64.dp >= 280.dp * density.fontScale
+            val compact = textWidth < (if (showStatus) 280.dp else 180.dp) * density.fontScale
             val actions: @Composable RowScope.() -> Unit = {
                 onPictureInPicture?.let {
                     PlayerIcon(R.drawable.ic_ui_pip, stringResource(R.string.picture_in_picture), it)
@@ -118,7 +120,7 @@ internal fun PlayerControls(
                 PlayerIcon(
                     R.drawable.ic_ui_more, stringResource(R.string.player_video_menu),
                     onClick = { onMenu(if (state.menu == PlayerMenu.VIDEO) null else PlayerMenu.VIDEO) },
-                    tint = if (state.menu == PlayerMenu.VIDEO) colors.primary else null,
+                    active = state.menu == PlayerMenu.VIDEO,
                 )
             }
             Column(
@@ -229,6 +231,7 @@ internal fun PlayerControls(
                 if (state.menu != null) lastMenu = state.menu
                 AnimatedVisibility(
                     visible = state.menu != null,
+                    modifier = Modifier.weight(1f, fill = false),
                     enter = fadeIn(animationSpec = BrowserMotion.chromeFade()) +
                         scaleIn(animationSpec = BrowserMotion.chromeSpatial(),
                             transformOrigin = TransformOrigin(1f, 1f), initialScale = 0.92f),
@@ -240,13 +243,7 @@ internal fun PlayerControls(
                     val bar = with(density) { barHeight.toDp() }
                     val available = (viewportHeight - bar - 44.dp).coerceAtLeast(48.dp)
                     val popupWidth = if (menu == PlayerMenu.SPEED) 288.dp else 336.dp
-                    // The playback menu does not fit the strip above the
-                    // control bar on a landscape phone (~247 dp), so it is allowed to use the
-                    // viewport and overlap the bar. The speed and cast panels keep the cap they
-                    // were measured with.
-                    val popupHeight = if (menu == PlayerMenu.VIDEO) {
-                        (viewportHeight - 24.dp).coerceAtLeast(48.dp)
-                    } else minOf(360.dp, available)
+                    val popupHeight = minOf(360.dp, available)
                     val heading = stringResource(when (menu) {
                         PlayerMenu.SPEED -> R.string.playback_speed_title
                         PlayerMenu.CAST -> R.string.cd_cast
@@ -278,7 +275,7 @@ internal fun PlayerControls(
                                 PlayerMenu.SPEED -> SpeedPanel(state.rate, onSpeedPreview, onSpeed)
                                 PlayerMenu.CAST -> castContent()
                                 PlayerMenu.VIDEO -> VideoPanel(state.mirror, state.fit, onMirror, onFit,
-                                    backgroundPlayback, onToggleBackgroundPlayback)
+                                    backgroundPlayback, onBackgroundPlaybackChange)
                             }
                         }
                     }
@@ -298,6 +295,9 @@ internal fun PlayerControls(
                             onValueChangeFinished = onSeekFinished, enabled = state.canSeek,
                             modifier = Modifier.fillMaxWidth().height(48.dp)
                                 .semantics { contentDescription = seekLabel })
+                        if (compactBar) Text(state.position, Modifier.fillMaxWidth().testTag("player_position"),
+                            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                            color = colors.onSurfaceVariant)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val playLabel = stringResource(if (state.playing) R.string.ui_pause_video else R.string.ui_play_video)
@@ -316,7 +316,8 @@ internal fun PlayerControls(
                                         Modifier.size(24.dp))
                                 }
                             }
-                            Text(state.position, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            if (compactBar) Spacer(Modifier.weight(1f))
+                            else Text(state.position, Modifier.weight(1f).testTag("player_position"), maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                                 color = colors.onSurfaceVariant)
                             val speedLabel = PlaybackSpeed.label(state.rate)
@@ -417,7 +418,8 @@ private fun SpeedPanel(
     var draft by remember { mutableStateOf<Float?>(null) }
     val shown = (draft ?: rate).coerceIn(PlaybackSpeed.MIN, PlaybackSpeed.MAX)
     val heading = stringResource(R.string.playback_speed_title)
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp)) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.ui_current_playback_speed), Modifier.weight(1f),
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -442,9 +444,9 @@ private fun SpeedPanel(
                 .semantics { contentDescription = heading },
         )
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(PlaybackSpeed.label(PlaybackSpeed.MIN), style = MaterialTheme.typography.labelSmall,
+            Text(PlaybackSpeed.label(PlaybackSpeed.MIN), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(PlaybackSpeed.label(PlaybackSpeed.MAX), style = MaterialTheme.typography.labelSmall,
+            Text(PlaybackSpeed.label(PlaybackSpeed.MAX), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -472,59 +474,59 @@ private fun VideoPanel(
     onMirror: () -> Unit,
     onFit: (VideoFit) -> Unit,
     backgroundPlayback: Boolean,
-    onToggleBackgroundPlayback: (() -> Unit)?,
+    onBackgroundPlaybackChange: (Boolean) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        onToggleBackgroundPlayback?.let { toggle ->
-            PlayerToggleRow(stringResource(R.string.player_background_audio), backgroundPlayback,
-                "player_background_audio_row", toggle)
-        }
-        PlayerToggleRow(stringResource(R.string.player_mirror), mirror, "player_mirror_row", onMirror)
-        FIT_OPTIONS.forEach { option ->
-            val selected = fit == option.fit
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .selectable(selected = selected, role = Role.RadioButton) { onFit(option.fit) },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // A radio mark is an effect, not a movement: the glyph replaces itself and its
-                // tint fades across, so picking an option does not flicker the whole row.
-                AnimatedContent(
-                    targetState = selected,
-                    transitionSpec = {
-                        fadeIn(BrowserMotion.chromeFade()) togetherWith
-                            fadeOut(BrowserMotion.chromeFade())
-                    },
-                    label = "playerRadioMark",
-                ) { checked ->
-                    Icon(
-                        painterResource(if (checked) R.drawable.ic_ui_radio_checked else R.drawable.ic_ui_radio_unchecked),
-                        contentDescription = null,
-                        tint = animateColorAsState(
-                            targetValue = if (checked) colors.primary else colors.onSurfaceVariant,
-                            animationSpec = BrowserMotion.chromeFade(),
-                            label = "playerRadioTint",
-                        ).value,
-                        modifier = Modifier.size(20.dp),
-                    )
+        PlayerToggleRow(stringResource(R.string.player_background_audio), backgroundPlayback,
+            "player_background_audio_row", onBackgroundPlaybackChange)
+        PlayerToggleRow(stringResource(R.string.player_mirror), mirror, "player_mirror_row") { onMirror() }
+        Column(Modifier.selectableGroup()) {
+            FIT_OPTIONS.forEach { option ->
+                val selected = fit == option.fit
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .selectable(selected = selected, role = Role.RadioButton) { onFit(option.fit) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // A radio mark is an effect, not a movement: the glyph replaces itself and its
+                    // tint fades across, so picking an option does not flicker the whole row.
+                    AnimatedContent(
+                        targetState = selected,
+                        transitionSpec = {
+                            fadeIn(BrowserMotion.chromeFade()) togetherWith
+                                fadeOut(BrowserMotion.chromeFade())
+                        },
+                        label = "playerRadioMark",
+                    ) { checked ->
+                        Icon(
+                            painterResource(if (checked) R.drawable.ic_ui_radio_checked else R.drawable.ic_ui_radio_unchecked),
+                            contentDescription = null,
+                            tint = animateColorAsState(
+                                targetValue = if (checked) colors.primary else colors.onSurfaceVariant,
+                                animationSpec = BrowserMotion.chromeFade(),
+                                label = "playerRadioTint",
+                            ).value,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Text(stringResource(option.label), style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurface)
                 }
-                Spacer(Modifier.width(16.dp))
-                Text(stringResource(option.label), style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurface)
             }
         }
     }
 }
 
 @Composable
-private fun PlayerToggleRow(label: String, checked: Boolean, tag: String, onToggle: () -> Unit) {
+private fun PlayerToggleRow(label: String, checked: Boolean, tag: String, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = { onToggle() }),
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -568,10 +570,26 @@ private fun PlayerStatusStrip(time: String, battery: Int?, charging: Boolean, mo
 }
 
 @Composable
-private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, tint: Color? = null) {
+private fun PlayerIcon(icon: Int, description: String, onClick: () -> Unit, active: Boolean = false) {
+    if (active) {
+        // An open menu is a state, not a movement: same container and hairline as the speed and
+        // cast controls, so it does not read as a differently-styled button.
+        val colors = MaterialTheme.colorScheme
+        OutlinedIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(48.dp),
+            shape = CircleShape,
+            border = BorderStroke(1.dp, colors.primary),
+            colors = IconButtonDefaults.outlinedIconButtonColors(
+                containerColor = colors.secondaryContainer,
+                contentColor = colors.primary,
+            ),
+        ) { Icon(painterResource(icon), description, Modifier.size(24.dp)) }
+        return
+    }
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp),
         colors = IconButtonDefaults.iconButtonColors(
-            contentColor = tint ?: MaterialTheme.colorScheme.onSurface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
         )) {
         Icon(painterResource(icon), description, Modifier.size(24.dp))
     }

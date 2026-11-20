@@ -163,7 +163,6 @@ class SettingsTransfer(
         val imageEngines = SearchEngineManager(appContext, SearchEngineKind.IMAGE)
         val availableImageEngines = imageEngines.getAvailableEngines()
         val currentImageEngine = imageEngines.getCurrentEngine()
-        val searchCorrupt = engines.loadFailed || imageEngines.loadFailed
         val filteringCorrupt = filterSubscriptions.loadFailed || filterSubscriptions.userRulesLoadFailed
 
         // The library is capped, never refused: a device over the budget still gets a file,
@@ -211,7 +210,6 @@ class SettingsTransfer(
                     privateSearchSuggestionsEnabled = preferences.privateSearchSuggestionsEnabled,
                     browserFullscreenEnabled = preferences.browserFullscreenEnabled,
                     video = BackupVideo(
-                        automaticPip = preferences.video.automaticPip,
                         backgroundPlayback = preferences.video.backgroundPlayback,
                         enhancedControls = preferences.video.enhancedControls,
                         verticalGestures = preferences.video.verticalGestures,
@@ -228,13 +226,13 @@ class SettingsTransfer(
                     fixedUrl = home.fixedUrl,
                     restoreLastSession = home.restoreLastSession,
                 ),
-                search = if (searchCorrupt) null else BackupSearch(
-                    currentEngineId = currentEngine.id,
-                    customEngines = availableEngines.filter { it.isCustom }.map {
+                search = if (engines.loadFailed && imageEngines.loadFailed) null else BackupSearch(
+                    currentEngineId = currentEngine.id.takeUnless { engines.loadFailed },
+                    customEngines = availableEngines.takeUnless { engines.loadFailed }?.filter { it.isCustom }?.map {
                         BackupCustomEngine(it.id, it.name, it.searchUrlTemplate, it.suggestUrl)
                     },
-                    currentImageEngineId = currentImageEngine.id,
-                    customImageEngines = availableImageEngines.filter { it.isCustom }.map {
+                    currentImageEngineId = currentImageEngine.id.takeUnless { imageEngines.loadFailed },
+                    customImageEngines = availableImageEngines.takeUnless { imageEngines.loadFailed }?.filter { it.isCustom }?.map {
                         BackupCustomEngine(it.id, it.name, it.searchUrlTemplate)
                     },
                 ),
@@ -308,7 +306,8 @@ class SettingsTransfer(
             (omittedBookmarks + (bookmarkRows.size - keptBookmarks.size)).coerceAtLeast(0),
             (omittedHistory + (historyRows.size - keptHistory.size)).coerceAtLeast(0),
             buildList {
-                if (searchCorrupt) add("search")
+                if (engines.loadFailed) add("webSearch")
+                if (imageEngines.loadFailed) add("imageSearch")
                 if (filteringCorrupt) add("filtering")
                 if (sitesCorrupt) add("sites")
             },
@@ -316,6 +315,9 @@ class SettingsTransfer(
     }
 
     fun preview(backup: SettingsBackup): ImportPreview {
+        val invalid = validateForApply(backup)
+        if (invalid.isNotEmpty()) throw SettingsBackupException("Invalid settings: " + invalid.joinToString())
+
         val preferences = BrowserPreferencesRepository(appContext).load()
         val engines = SearchEngineManager(appContext)
         val settings = backup.settings
@@ -472,7 +474,6 @@ class SettingsTransfer(
                     browser.video?.let { video ->
                         val current = next.video
                         next = next.copy(video = current.copy(
-                            automaticPip = video.automaticPip ?: current.automaticPip,
                             backgroundPlayback = video.backgroundPlayback ?: current.backgroundPlayback,
                             enhancedControls = video.enhancedControls ?: current.enhancedControls,
                             verticalGestures = video.verticalGestures ?: current.verticalGestures,
@@ -608,6 +609,6 @@ class SettingsTransfer(
     }
 }
 
-private fun BackupCustomEngine.toEngine() = SearchEngine(
+internal fun BackupCustomEngine.toEngine() = SearchEngine(
     id = id, name = name, searchUrlTemplate = template, suggestUrl = suggestUrlTemplate, isCustom = true,
 )

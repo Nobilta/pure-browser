@@ -7,8 +7,8 @@ import android.content.Intent
 import android.webkit.MimeTypeMap
 import com.mybrowser.tabs.MediaNavigation
 import androidx.core.content.FileProvider
+import com.mybrowser.core.WebCaptureCache
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -30,53 +30,58 @@ internal object ImageSharing {
         navigation: MediaNavigation?,
         cookie: String?,
         chooserTitle: String,
+        privateSession: Boolean,
+        sessionActive: () -> Boolean,
+        engine: HttpDownloadEngine,
     ): Boolean = withContext(Dispatchers.IO) {
-        // Startup clears this directory, including images shared from a private session.
-        val directory = File(context.cacheDir, SHARE_DIRECTORY).apply { mkdirs() }
+        if (privateSession && !sessionActive()) return@withContext false
+        val directory = if (privateSession) WebCaptureCache.privateDirectory(context)
+        else WebCaptureCache.directory(context)
         var file = File(directory, "share-${java.util.UUID.randomUUID()}.tmp")
-        val mime: String
+        var delivered = false
         try {
             val fetched = FileOutputStream(file).use { sink ->
-                HttpDownloadEngine().fetchTo(url, DownloadRequestHeaders(userAgent.orEmpty(), cookie, null),
+                engine.fetchTo(url, DownloadRequestHeaders(userAgent.orEmpty(), cookie, null),
                     sink, maxBytes = MAX_IMAGE_BYTES, navigation = navigation)
             }
             val responseType = fetched.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
-            mime = when {
+            val mime = when {
                 responseType.startsWith("image/") -> responseType
                 responseType.isEmpty() || responseType == "application/octet-stream" -> mimeFor(fetched.url)
                 else -> throw IOException("The response is not an image")
             }
             val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "img"
-            val destination = File(directory, "${file.nameWithoutExtension}.$extension")
-            if (!file.renameTo(destination)) throw IOException("Unable to name the shared image")
+            if (privateSession && !sessionActive()) return@withContext false
+            val destination = File(WebCaptureCache.shareDirectory(context), "${file.nameWithoutExtension}.$extension")
+            if (!file.renameTo(destination)) throw IOException("Unable to move the shared image")
             file = destination
-        } catch (cancelled: CancellationException) {
-            file.delete()
-            throw cancelled
-        } catch (_: IOException) {
-            file.delete()
-            return@withContext false
-        }
-        val uri = FileProvider.getUriForFile(context, context.packageName + CAPTURE_AUTHORITY, file)
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(mime)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        // The chooser reads the URI from ClipData when it targets another app.
-        send.clipData = ClipData.newRawUri("image", uri)
-        withContext(Dispatchers.Main) {
-            try {
+            val uri = FileProvider.getUriForFile(context, context.packageName + CAPTURE_AUTHORITY, file)
+            val send = Intent(Intent.ACTION_SEND)
+                .setType(mime)
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // The chooser reads the URI from ClipData when it targets another app.
+            send.clipData = ClipData.newRawUri("image", uri)
+            withContext(Dispatchers.Main) {
+                // The session can end while the IO above finishes; check on the thread that
+                // actually opens the chooser, so a page from a finished session cannot surface one.
+                if (privateSession && !sessionActive()) return@withContext false
                 context.startActivity(Intent.createChooser(send, chooserTitle))
+                delivered = true
                 true
-            } catch (_: ActivityNotFoundException) {
-                file.delete()
-                false
             }
+        } catch (_: IOException) {
+            false
+        } catch (_: ActivityNotFoundException) {
+            false
+        } finally {
+            // Covers every way out of this section: cancellation while waiting for the main
+            // thread, a failed start, or a session that ended. A delivered file is left alone.
+            if (!delivered) file.delete()
         }
     }
 
-    /** The directory the FileProvider grant and the startup cleanup both cover. */
-    private const val SHARE_DIRECTORY = "web-capture"
+    /** The FileProvider authority, declared for the same cache path captures and uploads use. */
     private const val CAPTURE_AUTHORITY = ".captures"
 
     private const val MAX_IMAGE_BYTES = 64 * 1024 * 1024

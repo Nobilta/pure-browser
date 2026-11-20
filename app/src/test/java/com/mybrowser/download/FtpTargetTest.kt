@@ -7,6 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FtpTargetTest {
+    @Test fun `explicit FTP ports must be valid socket ports`() {
+        listOf(0, 65536, 70000).forEach { assertNull(FtpTarget.parse("ftp://files.test:$it/file.bin")) }
+        assertEquals(65535, FtpTarget.parse("ftp://files.test:65535/file.bin")?.port)
+    }
 
     @Test
     fun `credentials port and path come from the URL`() {
@@ -14,6 +18,7 @@ class FtpTargetTest {
 
         assertEquals("files.example.test", target.host)
         assertEquals(2121, target.port)
+        assertEquals("domain:user+", FtpTarget.parse("ftp://domain%3Auser+:pwd@files.example.test/report.pdf")?.user)
         assertEquals("alice", target.user)
         assertEquals("s3cret", target.password)
         // The path is decoded: FTP has no quoting, so the server is asked for the name it printed.
@@ -80,14 +85,14 @@ class HlsPlaylistTest {
     }
 
     @Test
-    fun `external audio on an unselected variant does not reject a self contained rendition`() {
+    fun `a higher bandwidth external audio variant yields to the best self contained rendition`() {
         val master = """
             #EXTM3U
             #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="external",URI="audio.m3u8"
             #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="embedded",NAME="In-band"
             #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="embedded",NAME="Alternative",URI="alternative.m3u8"
-            #EXT-X-STREAM-INF:BANDWIDTH=100,AUDIO="external"
-            low.m3u8
+            #EXT-X-STREAM-INF:BANDWIDTH=300,AUDIO="external"
+            external.m3u8
             #EXT-X-STREAM-INF:BANDWIDTH=200,AUDIO="embedded"
             high.m3u8
         """.trimIndent()
@@ -194,4 +199,34 @@ class HlsPlaylistTest {
             HlsPlaylist.defaultIv(0x2a4).joinToString("") { "%02x".format(it) },
         )
     }
+    @Test fun `identity keys survive alternate formats in either order and NONE clears encryption`() {
+        val identity = "#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\""
+        val alternate = "#EXT-X-KEY:METHOD=AES-128,URI=\"other.bin\",KEYFORMAT=\"other\""
+        for (keys in listOf("$identity\n$alternate", "$alternate\n$identity")) {
+            val media = HlsPlaylist.media("#EXTM3U\n$keys\n#EXTINF:4,\na.ts\n" +
+                "#EXT-X-KEY:METHOD=NONE\n#EXTINF:4,\nb.ts\n#EXT-X-ENDLIST", "https://example.com/list.m3u8")
+            assertEquals("https://example.com/key.bin", media.items[0].key?.uri)
+            assertNull(media.items[1].key)
+        }
+    }
+
+    @Test fun `deterministic playlist errors are unsupported instead of network failures`() {
+        for (tag in listOf(
+            "#EXT-X-KEY:METHOD=AES-128,URI=\"key\",KEYFORMAT=\"other\"",
+            "#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n#EXT-X-MAP:URI=\"init\"",
+            "#EXT-X-MAP:BYTERANGE=\"1@0\",URI=\"init\"",
+            "#EXT-X-MAP:OTHER=1",
+            "#EXT-X-KEY:METHOD=AES-128",
+            "#EXT-X-KEY:URI=\"key\"",
+            "#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"key\"",
+            "#EXT-X-KEY:METHOD=AES-128,URI=\"key\",IV=0xzz",
+            "#EXT-X-MAP:URI=\"bad uri\"",
+        )) {
+            val failure = runCatching {
+                HlsPlaylist.media("#EXTM3U\n$tag\n#EXTINF:4,\na.ts\n#EXT-X-ENDLIST", "https://example.com/list.m3u8")
+            }.exceptionOrNull()
+            assertTrue(tag, failure is UnsupportedHlsException)
+        }
+    }
+
 }

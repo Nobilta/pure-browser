@@ -1,5 +1,6 @@
 package com.mybrowser.ui.library
 
+import com.mybrowser.ui.components.BrowserTextField
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
@@ -207,7 +208,7 @@ fun BookmarksSheet(
                                     overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (query.isNotBlank() && bookmark.folderId != 0L) Text(
                                     folderPaths[bookmark.folderId].orEmpty().joinToString(" / ") { it.title },
-                                    style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             if (selecting) Checkbox(bookmark.id in selected, onCheckedChange = null)
                             else Box {
@@ -234,8 +235,8 @@ fun BookmarksSheet(
     }
     if (folderEditor) BrowserAlertDialog(onDismissRequest = { folderEditor = false },
         title = { Text(stringResource(if (editingFolder == null) R.string.bookmarks_new_folder else R.string.bookmarks_rename_folder)) },
-        text = { OutlinedTextField(folderName, { folderName = it.take(BookmarkFolders.MAX_NAME) }, singleLine = true,
-            label = { Text(stringResource(R.string.bookmarks_folder_name)) }) },
+        text = { BrowserTextField(folderName, stringResource(R.string.bookmarks_folder_name),
+            { folderName = it.take(BookmarkFolders.MAX_NAME) }) },
         confirmButton = { TextButton(enabled = folderName.isNotBlank(), onClick = {
             val folder = editingFolder; val name = folderName; val target = library.folderId
             library.mutate { if (folder == null) addFolder(name, target) else updateFolder(folder.id, name, folder.parentId) }

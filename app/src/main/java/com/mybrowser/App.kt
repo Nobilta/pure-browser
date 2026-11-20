@@ -150,7 +150,7 @@ class App : Application() {
         // The incognito screenshot guard is gone; drop the choice it stored.
         getSharedPreferences("browser_preferences", MODE_PRIVATE).edit { remove("protect_private_screens") }
         // Captures from a process that died have no surviving WebView consumer.
-        java.io.File(cacheDir, "web-capture").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
+        com.mybrowser.core.WebCaptureCache.clear(this)
 
         if (BuildFlags.DEBUG_STRICT_MODE) {
             enableStrictMode()

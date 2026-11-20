@@ -31,6 +31,14 @@ class SettingsBackupCodecTest {
         assertEquals(fullBackup(), decoded)
     }
 
+    @Test fun legacyAutoPipDoesNotEnableBackgroundPlayback() {
+        val old = edit { root ->
+            root.getJSONObject("settings").getJSONObject("browser").getJSONObject("video")
+                .put("automaticPip", true).put("backgroundPlayback", false)
+        }
+        assertEquals(false, SettingsBackupCodec.decode(old).settings.browser?.video?.backgroundPlayback)
+    }
+
     @Test fun downloadTransferLimitsValidateAndOlderBackupsLeaveThemUnset() {
         val old = edit { root -> root.getJSONObject("settings").getJSONObject("downloads").apply {
             remove("maxConcurrentDownloads"); remove("speedLimitKib")
@@ -397,7 +405,6 @@ class SettingsBackupCodecTest {
                 privateSearchSuggestionsEnabled = true,
                 browserFullscreenEnabled = true,
                 video = BackupVideo(
-                    automaticPip = true,
                     backgroundPlayback = false,
                     enhancedControls = true,
                     verticalGestures = true,

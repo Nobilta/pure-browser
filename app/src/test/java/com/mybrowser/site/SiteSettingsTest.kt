@@ -15,6 +15,27 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SiteSettingsTest {
+    @Test fun privateDisplayEditsUseImportedPreferencesAndKeepBothPermissionSets() = runBlocking {
+        val normal = SiteSettingsRepository(RuntimeEnvironment.getApplication())
+        val url = "https://example.com"
+        normal.update(url) { it.copy(camera = SitePermission.ALLOW) }
+        val private = normal.privateSession()
+        private.update(url) { it.copy(camera = SitePermission.BLOCK) }
+        normal.applyImported(mapOf(url to { it.copy(textZoom = 160, images = false, javaScript = false) }))
+
+        assertEquals(160, private.get(url).textZoom)
+        private.update(url) { it.copy(videoMirror = true) }
+
+        val publicSettings = normal.get(url)
+        assertEquals(160, publicSettings.textZoom)
+        assertFalse(publicSettings.images)
+        assertFalse(publicSettings.javaScript)
+        assertEquals(true, publicSettings.videoMirror)
+        assertEquals(SitePermission.ALLOW, publicSettings.camera)
+        assertEquals(SitePermission.BLOCK, private.get(url).camera)
+        assertEquals(publicSettings, SiteSettingsRepository(RuntimeEnvironment.getApplication()).get(url))
+    }
+
     @Test fun anUnreadableStoreIsKeptInsteadOfBeingResetByTheNextWrite() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val prefs = context.getSharedPreferences("site_settings", android.content.Context.MODE_PRIVATE)
@@ -161,7 +182,7 @@ class SiteSettingsTest {
         assertFalse(repo.get("https://example.com").useVideoMirror())
     }
 
-    @Test fun privatePlaybackOverridesDoNotChangeTheSavedWebsiteChoice() = runBlocking {
+    @Test fun privatePlaybackChoicesAreSavedForBothEnvironments() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val repo = SiteSettingsRepository(context)
         repo.update("https://example.com") { it.copy(enhancedPlayback = false) }
@@ -169,7 +190,7 @@ class SiteSettingsTest {
         assertFalse(private.get("https://example.com").useEnhancedPlayback(true))
         private.update("https://example.com") { it.copy(enhancedPlayback = true) }
         assertTrue(private.get("https://example.com").useEnhancedPlayback(false))
-        assertFalse(SiteSettingsRepository(context).get("https://example.com").useEnhancedPlayback(true))
+        assertTrue(SiteSettingsRepository(context).get("https://example.com").useEnhancedPlayback(false))
     }
 
     @Test fun originsNormalizeDefaultPortsAndInternationalHostsWithoutSharingGrants() {
@@ -200,7 +221,7 @@ class SiteSettingsTest {
         assertTrue(SiteSettingsRepository(context).entries.value.isEmpty())
     }
 
-    @Test fun privateChoicesNeverChangeNormalSettingsOrPersist() = runBlocking {
+    @Test fun privatePermissionsNeverChangeNormalPermissionsOrPersist() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val normal = SiteSettingsRepository(context)
         normal.update("https://example.com") { it.copy(camera = SitePermission.ALLOW, microphone = SitePermission.BLOCK, filtering = false) }
@@ -212,6 +233,24 @@ class SiteSettingsTest {
         private.reset("https://example.com")
         assertEquals(SitePermission.ASK, SiteSettingsRepository(context).get("https://private.example").location)
         assertEquals(SitePermission.ALLOW, normal.get("https://example.com").camera)
+        assertTrue(normal.get("https://example.com").filtering)
+        assertFalse(normal.entries.value.containsKey("https://private.example"))
+    }
+
+    @Test fun privateDisplayChangesPreservePublicAndPrivatePermissions() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val normal = SiteSettingsRepository(context)
+        normal.update("https://example.com") { it.copy(camera = SitePermission.ALLOW, externalApps = SitePermission.BLOCK) }
+        val private = normal.privateSession()
+        private.update("https://example.com") { it.copy(camera = SitePermission.BLOCK, externalApps = SitePermission.ALLOW,
+            textZoom = 140, videoMirror = true) }
+        val saved = SiteSettingsRepository(context).get("https://example.com")
+        assertEquals(140, saved.textZoom)
+        assertEquals(true, saved.videoMirror)
+        assertEquals(SitePermission.ALLOW, saved.camera)
+        assertEquals(SitePermission.BLOCK, saved.externalApps)
+        assertEquals(SitePermission.BLOCK, private.get("https://example.com").camera)
+        assertEquals(SitePermission.ALLOW, private.get("https://example.com").externalApps)
     }
 
     @Test fun concurrentChangesDoNotLoseOtherPermissionsAndClearingPreservesPagePreferences() = runBlocking {

@@ -212,10 +212,13 @@ internal class TranslationController(
             runCatching { mode.finish() }
             return
         }
-        selectionCaptureJob?.cancel()
+        if (selectionCaptureJob?.isActive == true) return
         selectionCaptureJob = scope.launch {
-            val text = runCatching { pageTranslator.selection(view) }.getOrDefault("")
-            runCatching { mode.finish() }
+            val text = try {
+                pageTranslator.selection(view)
+            } finally {
+                runCatching { mode.finish() }
+            }
             if (host.view !== view) return@launch
             startSelection(text)
         }

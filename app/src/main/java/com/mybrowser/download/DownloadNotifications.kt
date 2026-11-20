@@ -25,7 +25,9 @@ internal object DownloadNotifications {
         runCatching {
             manager.notify(TAG, item.id.hashCode(), Notification.Builder(context, DownloadTransferService.CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle(item.filename)
+                // A private task still reports completion; it just never names the file, because
+                // the notification outlives the session that caused it.
+                .setContentTitle(if (item.showsFilenameInNotification) item.filename else context.getString(R.string.app_name))
                 .setContentText(context.getString(R.string.download_complete_notification))
                 .setContentIntent(pending).setAutoCancel(true).setOnlyAlertOnce(true)
                 .setVisibility(Notification.VISIBILITY_PRIVATE).build())

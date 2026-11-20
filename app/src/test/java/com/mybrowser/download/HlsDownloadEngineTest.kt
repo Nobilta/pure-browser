@@ -15,7 +15,8 @@ import org.robolectric.annotation.Config
 import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
-import java.nio.file.Files
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -66,7 +67,35 @@ class HlsDownloadEngineTest {
 
     private fun url(path: String) = "http://127.0.0.1:${server.address.port}$path"
 
-    private fun directory() = Files.createTempDirectory("hls-test").toFile()
+    @get:Rule val temporary = TemporaryFolder()
+    private fun directory() = temporary.newFolder()
+
+    @Test fun unreadableStatePreservesExistingPart() = runBlocking {
+        routes["/one.m3u8"] = "#EXTM3U\n#EXTINF:1,\na.ts\n#EXT-X-ENDLIST".toByteArray()
+        routes["/a.ts"] = byteArrayOf(1, 2, 3)
+        val dir = directory()
+        val oldBytes = ByteArray(4096) { 42 }
+        java.io.File(dir, "part-0").writeBytes(oldBytes)
+        java.io.File(dir, "hls.state").mkdir()
+        val failure = runCatching {
+            HlsDownloadEngine(HttpDownloadEngine()).download(url("/one.m3u8"),
+                DownloadRequestHeaders("", null, null), 1, dir) { _, _, _ -> }
+        }.exceptionOrNull()
+        assertTrue(failure is IOException)
+        assertArrayEquals(oldBytes, java.io.File(dir, "part-0").readBytes())
+        assertEquals(setOf("/one.m3u8"), requests.keys)
+    }
+
+    @Test fun corruptStateRestartsPlaylist() = runBlocking {
+        routes["/one.m3u8"] = "#EXTM3U\n#EXTINF:1,\na.ts\n#EXT-X-ENDLIST".toByteArray()
+        routes["/a.ts"] = byteArrayOf(1, 2, 3)
+        val dir = directory()
+        java.io.File(dir, "part-0").writeBytes(ByteArray(4096))
+        java.io.File(dir, "hls.state").writeText("broken\nnot-a-number\n")
+        val result = HlsDownloadEngine(HttpDownloadEngine()).download(url("/one.m3u8"),
+            DownloadRequestHeaders("", null, null), 1, dir) { _, _, _ -> }
+        assertArrayEquals(routes["/a.ts"], result.parts.single().readBytes())
+    }
 
     @Test
     fun `external audio is refused before any video segment is saved`() = runBlocking {
@@ -84,6 +113,45 @@ class HlsDownloadEngineTest {
         assertTrue(failure is UnsupportedHlsException)
         assertEquals(setOf("/master.m3u8"), requests.keys)
         assertTrue(dir.listFiles()!!.isEmpty())
+    }
+
+    @Test
+    fun `alternate key formats do not replace the usable identity key`() = runBlocking {
+        val key = ByteArray(16) { it.toByte() }
+        val plain = "A segment with two ways to obtain its key".toByteArray()
+        routes["/identity.key"] = key
+        routes["/seg.ts"] = encrypt(plain, key, HlsPlaylist.defaultIv(0))
+        routes["/mixed.m3u8"] = """
+            #EXTM3U
+            #EXT-X-KEY:METHOD=AES-128,URI="identity.key",KEYFORMAT="identity"
+            #EXT-X-KEY:METHOD=AES-128,URI="alternate.key",KEYFORMAT="other"
+            #EXTINF:4,
+            seg.ts
+            #EXT-X-ENDLIST
+        """.trimIndent().toByteArray()
+        val result = HlsDownloadEngine(HttpDownloadEngine()).download(
+            url("/mixed.m3u8"), DownloadRequestHeaders("test", null, null), 1,
+            directory(), { _, _, _ -> },
+        )
+        assertArrayEquals(plain, result.parts.single().readBytes())
+        assertEquals(setOf("/mixed.m3u8", "/identity.key", "/seg.ts"), requests.keys)
+    }
+
+    @Test
+    fun `initialization map uses media sequence declared after the map`() {
+        val media = HlsPlaylist.media(
+            """
+            #EXTM3U
+            #EXT-X-MAP:URI="init.mp4"
+            #EXT-X-MEDIA-SEQUENCE:7
+            #EXTINF:4,
+            seg.m4s
+            #EXT-X-ENDLIST
+            """.trimIndent(),
+            "https://example.com/media.m3u8",
+        )
+
+        assertEquals(listOf(7L, 7L), media.items.map { it.sequence })
     }
 
     @Test
@@ -320,6 +388,25 @@ class HlsDownloadEngineTest {
     }
 
     @Test
+    fun changedPlaylistBaseDiscardsSegmentsFromPreviousAttempt() = runBlocking {
+        val playlist = "#EXTM3U\n#EXTINF:1,\none.ts\n#EXTINF:1,\ntwo.ts\n#EXT-X-ENDLIST".toByteArray()
+        for (base in listOf("a", "b")) {
+            routes["/$base/index.m3u8"] = playlist
+            routes["/$base/one.ts"] = "${base}1".toByteArray()
+            routes["/$base/two.ts"] = "${base}2".toByteArray()
+        }
+        val directory = directory()
+        val engine = HlsDownloadEngine(HttpDownloadEngine())
+        suspend fun download() = engine.download(url("/index.m3u8"), DownloadRequestHeaders("test", null, null),
+            1, directory) { _, _, _ -> }
+        redirects["/index.m3u8"] = "/a/index.m3u8"
+        failures += "/a/two.ts"
+        assertTrue(runCatching { download() }.exceptionOrNull() is IOException)
+        redirects["/index.m3u8"] = "/b/index.m3u8"
+        assertEquals("b1b2", download().parts.single().readText())
+    }
+
+    @Test
     fun `maps keep their own encryption across key rotation and clear transitions`() = runBlocking {
         val init = byteArrayOf(0, 0, 0, 20) + "ftypiso6".toByteArray() + ByteArray(4) + "iso6".toByteArray()
         val segment = "media segment bytes".toByteArray()
@@ -343,6 +430,24 @@ class HlsDownloadEngineTest {
                 assertEquals(HlsContainer.MP4, result.hlsContainer)
             } finally { dir.deleteRecursively() }
         }
+    }
+
+    @Test fun mp4DetectionSkipsLeadingBoxesWithoutSearchingInsidePayloads() {
+        val ftyp = byteArrayOf(0, 0, 0, 20) + "ftypiso6".toByteArray() + ByteArray(4) + "iso6".toByteArray()
+        val part = java.io.File(directory(), "part-0")
+        for (type in listOf("free", "skip", "pdin", "sidx")) {
+            part.writeBytes(byteArrayOf(0, 0, 0, 12) + type.toByteArray() + ByteArray(4) + ftyp)
+            assertEquals(HlsContainer.MP4, HlsContainer.detect(part))
+        }
+        part.writeBytes(byteArrayOf(0, 0, 0, 1) + "free".toByteArray() +
+            java.nio.ByteBuffer.allocate(8).putLong(20).array() + ByteArray(4) + ftyp)
+        assertEquals(HlsContainer.MP4, HlsContainer.detect(part))
+        for (size in listOf(0, 4, 1000)) {
+            part.writeBytes(java.nio.ByteBuffer.allocate(4).putInt(size).array() + "free".toByteArray() + ftyp)
+            assertEquals(HlsContainer.MPEG_TS, HlsContainer.detect(part))
+        }
+        part.writeBytes(byteArrayOf(0, 0, 0, 28) + "mdat".toByteArray() + ftyp)
+        assertEquals(HlsContainer.MPEG_TS, HlsContainer.detect(part))
     }
 
     private fun encrypt(plain: ByteArray, key: ByteArray, iv: ByteArray): ByteArray =

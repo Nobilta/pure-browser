@@ -167,9 +167,9 @@
     <string name="ui_search">搜索: %1$s</string>
     <string name="suggestion_visit_site">訪問 %1$s</string>
     <string name="ui_online_search_suggestions">搜索引擎線上聯想</string>
-    <string name="ui_online_search_suggestions_summary">輸入內容會發送給當前搜索引擎獲取建議</string>
+    <string name="ui_online_search_suggestions_summary">輸入會傳送給搜尋引擎。</string>
     <string name="ui_private_search_suggestions">無痕模式線上聯想</string>
-    <string name="ui_private_search_suggestions_summary">默認關閉；開啟後無痕模式輸入也會發送給搜索引擎</string>
+    <string name="ui_private_search_suggestions_summary">無痕輸入也會傳送；預設關閉。</string>
     <string name="ui_system_downloads_folder">系統下載目錄</string>
     <string name="ui_download_manager">下載管理</string>
     <string name="ui_items">%1$d 項</string>
@@ -183,8 +183,7 @@
     <string name="ui_download_interrupted_retry_available">已暫停 · %1$d%% · 可繼續下載</string>
     <string name="ui_cancel_download">取消下載</string>
     <string name="ui_retry">重試</string>
-    <string name="ui_delete_download">刪除下載</string>
-    <string name="ui_also_delete_local_files">同時刪除本地文件</string>
+    <string name="download_delete">刪除</string>
     <string name="ui_delete_records_and_files">刪除記錄和文件</string>
     <string name="ui_delete_records_only">僅刪除記錄</string>
     <string name="ui_shortcuts_homepage">導航首頁</string>
@@ -228,6 +227,7 @@
     <string name="ui_address_field">網址輸入框</string>
     <string name="ui_username">用戶名</string>
     <string name="ui_password">密碼</string>
+    <string name="ui_prompt_value">回覆內容</string>
     <string name="ui_authentication_required">需要身份驗證</string>
     <string name="ui_requires_a_login">%1$s 請求登錄%2$s</string>
     <string name="ui_sign_in">登錄</string>
@@ -251,8 +251,6 @@
     <string name="ui_variant">%1$s（變體 %2$d）</string>
     <string name="ui_restore_previous_pages">恢復上次網頁</string>
     <string name="ui_open_homepage_on_startup">啓動時打開主頁</string>
-    <string name="ui_ad_filtering_on">廣告過濾已開啓</string>
-    <string name="ui_ad_filtering_off">廣告過濾已關閉</string>
     <string name="ui_connections_2ad3d3">%1$s · %2$d 線程</string>
     <string name="ui_fullscreen_gestures_hold_for">全屏手勢 · 長按 %1$s</string>
     <string name="ui_use_webpage_controls">使用網頁控件</string>
@@ -273,10 +271,10 @@
     <string name="ui_block_requests_matching_built_in_and_custom_filter">攔截內置規則和自定義列表匹配的請求</string>
     <string name="ui_custom_ad_filter_rules">自定義廣告過濾規則</string>
     <string name="ui_add_and_manage_filter_lists">添加和管理過濾列表</string>
-    <string name="ui_confirm_before_clearing_cache_cookies_and_history">選擇後確認清除緩存、Cookie 和歷史記錄</string>
+    <string name="ui_confirm_before_clearing_cache_cookies_and_history">清除前會再次確認。</string>
     <string name="ui_fullscreen_experience">全屏體驗</string>
     <string name="ui_enhanced_video_controls">預設啟用增強播放</string>
-    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">僅在全螢幕時嘗試接管，可在網站設定中單獨開啟或關閉</string>
+    <string name="ui_playback_seeking_speed_and_lock_controls_switch_to">僅全螢幕接管，可按網站覆寫。</string>
     <string name="ui_rotate_landscape_videos_automatically">橫向視頻自動橫屏</string>
     <string name="ui_portrait_videos_stay_upright_orientation_is_restored_on">竪向視頻保持竪屏，退出後恢復方向</string>
     <string name="ui_fullscreen_gestures">全屏手勢</string>
@@ -289,12 +287,10 @@
     <string name="ui_hold_speed">長按速度</string>
     <string name="ui_tap_to_show_or_hide_controls_double_tap">輕觸顯示控件 · 輕點兩下播放或快進退</string>
     <string name="ui_remember_playback_speed">記住播放速度</string>
-    <string name="ui_use_the_selected_speed_for_future_videos_temporary">將選擇的速度用於之後播放的視頻；臨時倍速不保存</string>
+    <string name="ui_use_the_selected_speed_for_future_videos_temporary">用於後續影片；臨時倍速不儲存。</string>
     <string name="ui_default_playback_speed">默認播放速度</string>
     <string name="ui_pure_browser">Pure 瀏覽器</string>
     <string name="ui_appearance">外觀</string>
-    <string name="settings_privacy_incognito_off">無痕瀏覽未開啟</string>
-    <string name="settings_privacy_incognito_on">無痕瀏覽已開啟</string>
     <string name="ui_download_settings">下載設置</string>
     <string name="ui_save_location">保存位置</string>
     <string name="ui_save_to_the_device_downloads_folder">保存到設備的 Download 文件夾</string>
@@ -409,19 +405,19 @@
     <string name="filter_missing_snapshot">沒有可用規則，請更新此訂閱。</string>
     <string name="filter_update_failed">更新失敗，繼續使用之前的規則。</string>
     <string name="filter_operation_failed">無法下載或儲存規則，請檢查網址、網路、重複訂閱和儲存空間。</string>
-    <string name="filter_loaded_counts">已載入：%1$d 條網路規則 · %2$d 條元素隱藏規則</string>
+    <string name="filter_loaded_counts">網路規則 %1$d · 隱藏規則 %2$d</string>
     <string name="filter_reload_hint">部分進階規則語法暫不支援。</string>
     <string name="filter_update_all">更新已啟用規則</string>
     <string name="filter_update">更新</string>
     <string name="filter_auto_update">自動更新規則</string>
-    <string name="filter_auto_update_summary">每 7 天在不計流量的網路上更新，實際時間由 Android 背景排程決定。</string>
+    <string name="filter_auto_update_summary">每 7 天自動更新；時間由系統決定。</string>
     <string name="filter_built_in">內建訂閱</string>
     <string name="filter_source_rule_count">來源清單 %1$d 條規則（可能包含不支援的語法）</string>
     <string name="filter_packaged_snapshot">使用安裝包內的離線快照</string>
     <string name="filter_updated_at">規則更新：%1$s</string>
     <string name="filter_checked_at">最近檢查：%1$s</string>
     <string name="filter_user_rules">我的規則</string>
-    <string name="filter_user_rules_summary">你手動加入的規則。長按網頁上的圖片，或在選單裡封鎖元素。</string>
+    <string name="filter_user_rules_summary">手動加入，長按圖片或從選單封鎖。</string>
     <string name="filter_user_rules_empty">還沒有手動加入的規則。</string>
     <string name="filter_user_rule_remove">刪除這條規則</string>
     <string name="filter_user_rule_added">已封鎖：%1$s，重新載入後生效</string>
@@ -429,6 +425,9 @@
     <string name="filter_user_rule_invalid">這個位址無法產生封鎖規則</string>
     <string name="filter_user_rule_too_large">過濾資料已達上限，無法再加這條規則</string>
     <string name="filter_user_rule_full">手動規則數量已達上限</string>
+    <string name="filter_rule_group_all_sites">所有網站</string>
+    <string name="filter_rule_group_unknown">其他規則</string>
+    <string name="filter_rule_group_count">(%1$d)</string>
     <string name="filter_user_rule_failed">儲存失敗，未生效</string>
     <string name="filter_user_rule_hidden">已在本頁隱藏，重新載入後恢復。</string>
     <string name="filter_user_rule_hidden_none">頁面上已經沒有這張圖片了。</string>
@@ -497,7 +496,7 @@
     <string name="site_settings">網站設定</string>
     <string name="site_settings_summary">依網站管理權限、過濾與顯示</string>
     <string name="site_scope">桌面模式與同站的 m.、mobile. 和 www. 位址共用；其他設定、不同通訊協定和連接埠仍分別管理。</string>
-    <string name="site_private_scope">變更僅在本次私密瀏覽期間生效；桌面模式也適用於同站的 m.、mobile. 和 www. 位址。</string>
+    <string name="site_private_scope">頁面偏好會儲存並在兩種模式共用；網站權限僅在本次無痕工作階段有效。桌面模式也適用於此網站的 m.、mobile. 和 www. 位址。</string>
     <string name="site_connection_info">連線資訊</string>
     <string name="site_filtering">過濾此網站的廣告</string>
     <string name="site_javascript">JavaScript</string>
@@ -625,7 +624,6 @@
     <string name="download_blocked_limit">同一時間只顯示一個確認框</string>
     <string name="download_blocked_request">下載</string>
     <string name="download_unmetered">僅在不計流量的網路下載</string>
-    <string name="download_budget_summary">並行與重試上限，僅對新工作生效。</string>
     <string name="new_tab_shortcut">新增分頁</string>
     <string name="site_web_darkening">允許網頁自動深色</string>
     <string name="site_desktop_viewport">桌面檢視區寬度</string>
@@ -639,7 +637,7 @@
     <string name="browser_fullscreen_save_failed">無法儲存全屏偏好</string>
     <string name="preference_immediate">立即生效</string>
     <string name="swipe_tab_switch">滑動底列切換分頁</string>
-    <string name="swipe_tab_switch_summary">向左或向右滑動；也可透過分頁面板選擇分頁。</string>
+    <string name="swipe_tab_switch_summary">左右滑動切換分頁。</string>
     <string name="settings_search">搜尋設定</string>
     <string name="suggestion_fill">補全至輸入欄：%1$s</string>
     <string name="bookmarks_new_folder">新增資料夾</string>
@@ -681,12 +679,9 @@
     <string name="filter_pause_site">本次工作階段暫時停用此網站過濾</string>
     <string name="filter_resume_site">恢復此網站過濾</string>
     <string name="filter_explain_failed">無法分析此請求，請重新載入過濾清單後重試。</string>
-    <string name="system_settings">開啟系統設定</string>
     <string name="picture_in_picture">子母畫面</string>
-    <string name="automatic_pip">全螢幕影片自動子母畫面</string>
-    <string name="automatic_pip_summary">一般全螢幕影片播放時按主畫面鍵進入子母畫面，也可點選全螢幕子母畫面按鈕。</string>
     <string name="background_playback">允許背景播放</string>
-    <string name="background_playback_summary">一般網頁可在背景播放；無痕網頁不會。</string>
+    <string name="background_playback_summary">鎖定螢幕時繼續播放，全螢幕時返回主畫面進入子母畫面。</string>
     <string name="media_notification_channel">網頁媒體播放</string>
     <string name="script_resources">資源（安裝時下載，最多 8 個檔案，每個 256 KiB）：\n%1$s</string>
     <string name="download_file_unavailable">檔案不存在或資料夾授權失效，請重新下載。</string>
@@ -769,11 +764,11 @@
     <string name="site_repair">重設所有網站設定</string>
     <string name="site_repair_confirm">重設所有網站的權限和顯示偏好？書籤、歷史和網站資料將保留。</string>
     <string name="settings_export">導出設置</string>
-    <string name="settings_export_summary">將設定、書籤和歷史記錄保存為 JSON 文件</string>
+    <string name="settings_export_summary">將設定、書籤和歷史存成 JSON。</string>
     <string name="settings_exported">設置已導出</string>
     <string name="settings_export_failed">導出失敗</string>
     <string name="settings_import">導入設置</string>
-    <string name="settings_import_summary">應用本瀏覽器導出的設置文件；應用前會先預覽變更</string>
+    <string name="settings_import_summary">匯入前預覽變更。</string>
     <plurals name="settings_imported">
         <item quantity="other">已導入 %1$d 個設置分組</item>
     </plurals>
@@ -857,7 +852,7 @@
     <string name="translate_original">原文</string>
     <string name="translate_copy">複製</string>
     <string name="translate_close">關閉</string>
-    <string name="translate_settings_summary">選擇服務、目標語言和可選的 API key</string>
+    <string name="translate_settings_summary">選擇服務和目標語言。</string>
     <string name="welcome_title">歡迎使用 Pure Browser</string>
     <string name="welcome_body">一個把頁面還給你的輕量瀏覽器。</string>
     <string name="welcome_filter">需要時，廣告過濾和使用者腳本都在選單裡。</string>
@@ -1048,7 +1043,6 @@
     <string name="download_no_matches">沒有符合的下載工作</string>
     <string name="download_pause_selected">暫停所選工作</string>
     <string name="download_resume_selected">繼續或重試所選工作</string>
-    <string name="download_open">開啟檔案</string>
     <string name="download_more">更多下載操作</string>
     <string name="download_details">下載詳細資訊</string>
     <string name="download_copy_source">複製連結</string>
@@ -1071,12 +1065,12 @@
     <string name="filter_cjx_summary">補充過濾中文網站推廣與干擾元素；頁面操作異常時可關閉。</string>
     <string name="filter_mobile_ads_summary">補充過濾行動網頁廣告，與 EasyList 搭配使用。</string>
     <string name="filter_app_banners_summary">按需開啟：隱藏開啟或安裝 App 的引導，可能影響部分網站導覽。</string>
-    <string name="search_engine_web">網頁搜尋</string>
-    <string name="search_engine_add_custom">新增自訂</string>
-    <string name="image_search_engine_add">新增識圖引擎</string>
-    <string name="image_search_engine_url_hint">https://example.com/search?url={imageUrl}</string>
     <string name="filter_cookie_summary">按需開啟：隱藏 Cookie 提示，不代替你同意或拒絕，可能影響登入及嵌入內容。</string>
     <string name="reader_font_smaller">縮小字級</string>
     <string name="reader_font_larger">放大字級</string>
     <string name="download_error_unsupported">暫不支援儲存此串流。</string>
+    <string name="search_engine_web">網頁搜尋</string>
+    <string name="search_engine_add_custom">新增自訂</string>
+    <string name="image_search_engine_add">新增識圖引擎</string>
+    <string name="image_search_engine_url_hint">https://example.com/search?url={imageUrl}</string>
 </resources>

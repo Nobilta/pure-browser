@@ -1,9 +1,12 @@
 """Release failures must be caught before a draft or its attachments are uploaded."""
+import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 import gate
@@ -93,6 +96,20 @@ class ReleasePreparationTest(unittest.TestCase):
     certificate = ('Verified using v2 scheme (APK Signature Scheme v2): true\n'
                    'Number of signers: 1\nSigner #1 certificate SHA-256 digest: ' + 'A' * 64 + '\n')
 
+    def test_local_build_does_not_read_a_changelog_or_old_notes(self):
+        with patch.object(Path, 'read_text', side_effect=AssertionError('Local build read release prose')):
+            self.assertEqual(prepare.compose_notes('0.22.5'), 'Pure Browser 0.22.5\n')
+
+    def test_public_notes_use_the_supplied_changes_and_reject_empty_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notes = Path(directory) / 'changes.txt'
+            notes.write_text('改善阅读与下载。\n', encoding='utf-8')
+            self.assertEqual(prepare.compose_notes('0.23.0', notes),
+                             'Pure Browser 0.23.0\n\n改善阅读与下载。\n')
+            notes.write_text(' \n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'empty'):
+                prepare.compose_notes('0.23.0', notes)
+
     def test_valid_single_signer_is_normalized(self):
         with patch.object(prepare, 'android_tool', return_value='apksigner'), patch.object(prepare, 'run', return_value=self.certificate):
             self.assertEqual(prepare.verified_signer(Path('release.apk')), 'a' * 64)
@@ -110,17 +127,40 @@ class ReleasePreparationTest(unittest.TestCase):
                 with patch.object(prepare, 'run', return_value=certificate), self.assertRaises(ValueError):
                     prepare.verified_signer(Path('release.apk'))
 
-    def test_verification_record_requires_exact_nonempty_version(self):
+    def test_mirror_metadata_must_match_the_signed_apk(self):
         with tempfile.TemporaryDirectory() as directory:
-            notes = Path(directory) / 'notes.md'
-            for text in ('', ' \n', '# 0.14.10', '# 0.14.1.1', '# 0.14.1-beta', '# 10.14.1'):
-                notes.write_text(text, encoding='utf-8')
-                with self.subTest(text=text), self.assertRaises(ValueError):
-                    prepare.verify_notes('0.14.1', notes)
-            for text in ('# 0.14.1 验证记录', '# Pure Browser v0.14.1\nDevice: API 37'):
-                notes.write_text(text, encoding='utf-8')
-                prepare.verify_notes('0.14.1', notes)
-
+            root = Path(directory)
+            apk = root / 'PureBrowser-v0.14.1-release.apk'
+            output = root / 'release'
+            output.mkdir()
+            with zipfile.ZipFile(apk, 'w') as archive:
+                archive.writestr('lib/arm64-v8a/libbrowser.so', b'library')
+            checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
+            info = {'apk': str(apk), 'abi': 'arm64-v8a', 'tag': 'v0.14.1', 'versionCode': 42,
+                    'versionName': '0.14.1', 'signerSha256': 'a' * 64, 'minSdk': 29}
+            manifest = {'packageName': 'com.mybrowser', 'versionCode': 42, 'versionName': '0.14.1', 'minSdk': 29,
+                        'artifacts': [{'abi': 'arm64-v8a', 'assetName': apk.name,
+                                       'size': apk.stat().st_size, 'sha256': checksum}]}
+            (output / 'package-info.json').write_text(json.dumps(info), encoding='utf-8')
+            update = output / 'update.json'
+            update.write_text(json.dumps(manifest), encoding='utf-8')
+            update_hash = hashlib.sha256(update.read_bytes()).hexdigest()
+            (output / 'SHA256SUMS').write_text(
+                f'{checksum}  {apk.name}\n{update_hash}  update.json\n', encoding='utf-8')
+            def run(*command):
+                if command[0] == 'apksigner':
+                    return self.certificate
+                return "package: name='com.mybrowser' versionCode='42' versionName='0.14.1'\nminSdkVersion:'29'\n"
+            with patch.object(prepare, 'android_tool', side_effect=lambda name: name), \
+                    patch.object(prepare, 'run', side_effect=run):
+                prepare.verify_prepared(apk, output)
+                manifest['versionCode'] = 41
+                update.write_text(json.dumps(manifest), encoding='utf-8')
+                update_hash = hashlib.sha256(update.read_bytes()).hexdigest()
+                (output / 'SHA256SUMS').write_text(
+                    f'{checksum}  {apk.name}\n{update_hash}  update.json\n', encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'update.json'):
+                    prepare.verify_prepared(apk, output)
 
 if __name__ == '__main__':
     unittest.main()

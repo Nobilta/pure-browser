@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -12,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.mybrowser.ui.components.BrowserGroupDivider
 import com.mybrowser.R
 import com.mybrowser.privacy.*
 
@@ -26,15 +28,17 @@ fun ClearBrowsingDataDialog(privateMode: Boolean, isolated: Boolean, modernDelet
         title = { Text(stringResource(R.string.clear_data_title)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.clear_scope), style = MaterialTheme.typography.titleSmall)
-            ClearScope.entries.forEach { value ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(scope == value, !busy, Role.RadioButton) { scope = value },
-                    verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(scope == value, null, enabled = !busy)
-                    Text(stringResource(when(value) { ClearScope.CURRENT -> R.string.clear_current; ClearScope.NORMAL -> R.string.clear_normal; ClearScope.ALL -> R.string.clear_all_profiles }))
+            Column(Modifier.selectableGroup()) {
+                ClearScope.entries.forEach { value ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(scope == value, !busy, Role.RadioButton) { scope = value },
+                        verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(scope == value, null, enabled = !busy)
+                        Text(stringResource(when(value) { ClearScope.CURRENT -> R.string.clear_current; ClearScope.NORMAL -> R.string.clear_normal; ClearScope.ALL -> R.string.clear_all_profiles }))
+                    }
                 }
             }
             if (privateMode && !isolated) Text(stringResource(R.string.clear_shared_warning), style = MaterialTheme.typography.bodySmall)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            BrowserGroupDivider(inset = 0.dp)
             ClearDataType.entries.forEach { value ->
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value in types, !busy, Role.Checkbox) {
                     types = if (it) types + value else types - value
@@ -48,7 +52,7 @@ fun ClearBrowsingDataDialog(privateMode: Boolean, isolated: Boolean, modernDelet
                     }))
                 }
             }
-            if (ClearDataType.HISTORY in types) {
+            if (ClearDataType.HISTORY in types) Column(Modifier.selectableGroup()) {
                 HistoryPeriod.entries.forEach { value ->
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(period == value, !busy, Role.RadioButton) { period = value },
                         verticalAlignment = Alignment.CenterVertically) {

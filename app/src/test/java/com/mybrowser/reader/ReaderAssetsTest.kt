@@ -1,6 +1,7 @@
 package com.mybrowser.reader
 
 import android.app.Application
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,5 +20,10 @@ class ReaderAssetsTest {
         val controller = assets.open("reader.js").bufferedReader().use { it.readText() }
         assertTrue(readability.contains("function Readability"))
         assertTrue(controller.contains("__pureReaderState"))
+        // The controller is a persistent function, not a per-toggle payload, and the palette is
+        // resolved by Kotlin rather than by a page-side app-theme global.
+        assertTrue(controller.contains("window.__pureReaderToggle"))
+        assertFalse(controller.contains("__pureReaderDark"))
+        assertFalse(controller.contains("__pure_reader_css"))
     }
 }

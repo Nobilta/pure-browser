@@ -65,7 +65,7 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
         val items = resolved.media.items
         val part = File(tempDirectory, PART_NAME)
         val stateFile = File(tempDirectory, STATE_NAME)
-        val digest = DownloadCheckpoint.digest(resolved.text)
+        val digest = DownloadCheckpoint.digest(resolved.url + "\n" + resolved.text)
         val state = readState(stateFile)
         var index = 0
         var written = 0L
@@ -76,7 +76,9 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
             written = state.bytes
             RandomAccessFile(part, "rw").use { it.setLength(written) }
         } else {
-            part.delete()
+            // A restart can stop again before the first segment commits. The old playlist
+            // must never claim bytes being written for the new one.
+            java.nio.file.Files.deleteIfExists(stateFile.toPath())
         }
         val progress = TransferProgress(onProgress)
         progress.update(written, 0L, force = true)
@@ -171,13 +173,20 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
     private data class State(val digest: String, val index: Int, val bytes: Long)
 
     /** A half-written or corrupt state is the same as none: start the playlist again. */
-    private fun readState(file: File): State? = runCatching {
-        val lines = file.readLines()
-        State(lines[0], lines[1].toInt(), lines[2].toLong())
-    }.getOrNull()?.takeIf { it.index >= 0 && it.bytes >= 0 }
+    private fun readState(file: File): State? {
+        val lines = try {
+            java.nio.file.Files.readAllLines(file.toPath())
+        } catch (_: java.nio.file.NoSuchFileException) {
+            return null
+        }
+        if (lines.size != 3) return null
+        val index = lines[1].toIntOrNull()?.takeIf { it >= 0 } ?: return null
+        val bytes = lines[2].toLongOrNull()?.takeIf { it >= 0 } ?: return null
+        return State(lines[0], index, bytes)
+    }
 
     private fun writeState(file: File, state: State) {
-        file.writeText("${state.digest}\n${state.index}\n${state.bytes}\n")
+        writeAtomically(file, "${state.digest}\n${state.index}\n${state.bytes}\n")
     }
 
     companion object {
@@ -208,11 +217,21 @@ internal class HlsDownloadEngine(private val http: HttpDownloadEngine) : Downloa
             return collected.toString("UTF-8")
         }
 
-        /** Suggested name before the media container is known. */
+        internal fun writeAtomically(file: File, text: String) {
+            val pending = File(file.parentFile, file.name + ".new")
+            pending.writeText(text)
+            java.nio.file.Files.move(
+                pending.toPath(),
+                file.toPath(),
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+
         fun outputName(name: String): String {
             val lower = name.lowercase()
             return when {
-                lower.endsWith(".m3u8") -> name.dropLast(5) + ".ts"
+                lower.endsWith(".m3u8") || lower.endsWith(".m3u") -> name.substringBeforeLast('.') + ".ts"
                 '.' !in name -> "$name.ts"
                 else -> name
             }
@@ -227,7 +246,7 @@ internal enum class HlsContainer(val mimeType: String, private val extension: St
         val suffix = name.substringAfterLast('.', "").lowercase()
         val stem = when (suffix) {
             "" -> name
-            "ts", "mp4", "m3u8" -> name.substringBeforeLast('.')
+            "ts", "mp4", "m3u", "m3u8" -> name.substringBeforeLast('.')
             else -> return name
         }
         return FilenameParser.sanitize("$stem.$extension")
@@ -235,10 +254,26 @@ internal enum class HlsContainer(val mimeType: String, private val extension: St
 
     companion object {
         fun detect(part: File): HlsContainer = RandomAccessFile(part, "r").use { file ->
-            if (file.length() < 8) return MPEG_TS
-            file.seek(4)
-            // The first box of an HLS fragmented MP4 initialization section is 'ftyp'.
-            if (file.readInt() == 0x66747970) MP4 else MPEG_TS
+            val length = file.length()
+            var offset = 0L
+            while (length - offset >= 8) {
+                file.seek(offset)
+                var size = file.readInt().toLong() and 0xffffffffL
+                val type = file.readInt()
+                val header = if (size == 1L) {
+                    if (length - offset < 16) return MPEG_TS
+                    size = file.readLong()
+                    16L
+                } else 8L
+                if (size < header || size > length - offset) return MPEG_TS
+                if (type == 0x66747970) return MP4 // ftyp
+                // ISO BMFF allows padding/index boxes before its initialization section.
+                when (type) {
+                    0x66726565, 0x736b6970, 0x7064696e, 0x73696478 -> offset += size // free, skip, pdin, sidx
+                    else -> return MPEG_TS
+                }
+            }
+            MPEG_TS
         }
     }
 }

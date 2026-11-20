@@ -101,7 +101,7 @@ object MediaSniffer {
             else -> fromHeaders(headers) ?: return null
         }
 
-        val uri = runCatching { cleanUrl.toUri() }.getOrNull() ?: return null
+        val uri = cleanUrl.toUri()
         return Candidate(
             url = cleanUrl,
             kind = kind,

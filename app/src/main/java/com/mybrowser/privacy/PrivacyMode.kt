@@ -32,6 +32,10 @@ class PrivacyMode(private val appContext: android.content.Context) {
     var isIncognito: Boolean by mutableStateOf(false)
         private set
 
+    /** Increases on every entered session; late async work compares it to its captured value. */
+    @Volatile var sessionEpoch: Int = 0
+        private set
+
     /**
      * Whether the current incognito session has real storage isolation. False means the
      * fallback: data is wiped on exit but shared while open. Meaningless when
@@ -60,8 +64,6 @@ class PrivacyMode(private val appContext: android.content.Context) {
      * API 26, so current Android versions have nothing useful to toggle here.
      */
     fun applyTo(view: WebView): Boolean {
-        view.importantForAutofill = if (isIncognito) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
-            else android.view.View.IMPORTANT_FOR_AUTOFILL_AUTO
         if (!isIncognito) {
             view.settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
             return false
@@ -83,9 +85,8 @@ class PrivacyMode(private val appContext: android.content.Context) {
         }
 
         view.settings.apply {
-            // LOAD_NO_CACHE stops disk cache reads and writes for this WebView. With a
-            // profile this is belt-and-braces; without one it is the only thing keeping
-            // incognito pages out of the shared cache.
+            // Keep this policy until profile cache deletion is verified across provider
+            // versions and process restarts. Legacy WebViews still share the default cache.
             cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
         }
 
@@ -106,6 +107,7 @@ class PrivacyMode(private val appContext: android.content.Context) {
         if (isIncognito || isTransitioning) return
         IncognitoProfile.prepare()
         isIncognito = true
+        sessionEpoch++
     }
 
     /**
@@ -122,6 +124,9 @@ class PrivacyMode(private val appContext: android.content.Context) {
         hasRealIsolation = false
         lastCleanupSucceeded = false
         cleanup.enqueue {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                com.mybrowser.core.WebCaptureCache.clearPrivate(appContext)
+            }
             val cleaner = BrowsingDataCleaner(appContext)
             when {
                 wipeSharedStorage -> {

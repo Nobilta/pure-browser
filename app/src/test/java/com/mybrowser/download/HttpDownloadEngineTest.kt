@@ -15,6 +15,28 @@ import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
 
 class HttpDownloadEngineTest {
+    @Test fun fullResourceFetchRejectsPartialAndTruncatedBodies() {
+        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/partial") { exchange ->
+                exchange.responseHeaders.add("Content-Range", "bytes 0-2/100")
+                exchange.sendResponseHeaders(206, 3)
+                exchange.responseBody.use { it.write(byteArrayOf(1, 2, 3)) }
+            }
+            createContext("/short") { exchange ->
+                exchange.sendResponseHeaders(200, 100)
+                try { exchange.responseBody.write(byteArrayOf(1, 2, 3)) }
+                finally { exchange.close() }
+            }
+            start()
+        }
+        for (path in listOf("partial", "short")) assertThrows(java.io.IOException::class.java) {
+            runBlocking {
+                HttpDownloadEngine().fetchTo("http://127.0.0.1:${server!!.address.port}/$path",
+                    DownloadRequestHeaders("", null, null), ByteArrayOutputStream())
+            }
+        }
+    }
+
     @Test fun `a server ignoring Range supplies the only full response for a single use download`() = runBlocking {
         var requests = 0
         val expected = ByteArray(200_003) { (it % 239).toByte() }

@@ -79,6 +79,11 @@ data class SiteSettings(
         SiteCapability.PROTECTED_MEDIA -> copy(protectedMedia = permission)
     }
 
+    fun withPermissionsFrom(source: SiteSettings): SiteSettings = copy(
+        camera = source.camera, microphone = source.microphone, location = source.location,
+        protectedMedia = source.protectedMedia, externalApps = source.externalApps,
+    )
+
     fun forPrivateSession(): SiteSettings = SiteCapability.entries.fold(copy(
         externalApps = if (externalApps == SitePermission.BLOCK) externalApps else SitePermission.ASK,
     )) { settings, capability ->
@@ -91,42 +96,55 @@ data class SiteSettings(
 class SiteSettingsRepository private constructor(
     private val prefs: android.content.SharedPreferences?,
     initial: Map<String, SiteSettings>,
+    private val sharedPreferences: SiteSettingsRepository? = null,
 ) {
     constructor(context: Context) : this(
         context.applicationContext.getSharedPreferences("site_settings", Context.MODE_PRIVATE), emptyMap(),
     )
 
-    private val mutex = Mutex()
+    private val mutex: Mutex = sharedPreferences?.mutex ?: Mutex()
     private val stored = if (prefs == null) initial else decode(prefs.getString("sites", null))
     private val repairState = MutableStateFlow(prefs != null && stored == null)
     val needsRepair = repairState.asStateFlow()
     private val mutable = MutableStateFlow(Snapshot(stored ?: emptyMap()))
     val entries: StateFlow<Map<String, SiteSettings>> = mutable.asStateFlow()
 
-    fun get(url: String): SiteSettings = settingsFor(mutable.value, url)
+    fun get(url: String): SiteSettings {
+        val local = settingsFor(mutable.value, url)
+        return sharedPreferences?.get(url)?.withPermissionsFrom(local) ?: local
+    }
 
-    suspend fun update(url: String, transform: (SiteSettings) -> SiteSettings) = withContext(Dispatchers.IO) {
+    suspend fun update(url: String, transform: (SiteSettings) -> SiteSettings): Unit = withContext(Dispatchers.IO) {
         val origin = requireNotNull(SiteOrigin.of(url))
-        mutex.withLock {
-            val next = mutable.value.toMutableMap()
-            val desktopSite = requireNotNull(DesktopSite.of(origin))
-            val settings = transform(settingsFor(mutable.value, origin)).let {
-                it.copy(
-                    textZoom = it.textZoom.coerceIn(50, 200),
-                    desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024,
-                    userAgent = normalizeUserAgent(it.userAgent),
-                )
-            }
-            next[origin] = settings
-            // One display choice across existing aliases, committed atomically. Do
-            // not create extra origins or copy any permission to another host.
-            next.replaceAll { site, value ->
-                if (DesktopSite.of(site) == desktopSite) value.copy(desktop = settings.desktop, desktopWidth = settings.desktopWidth) else value
-            }
-            next.entries.removeAll { it.value == SiteSettings() }
-            require(next.size <= MAX_SITES) { "Site settings limit reached" }
-            save(next)
+        mutex.withLock { updateLocked(origin, transform) }
+    }
+
+    // Public preferences and private permission overlays share one write lock, including imports.
+    private fun updateLocked(origin: String, transform: (SiteSettings) -> SiteSettings) {
+        val next = mutable.value.toMutableMap()
+        val desktopSite = requireNotNull(DesktopSite.of(origin))
+        val previous = get(origin)
+        val settings = transform(previous).let {
+            it.copy(
+                textZoom = it.textZoom.coerceIn(50, 200),
+                desktopWidth = it.desktopWidth.takeIf { width -> width in DESKTOP_WIDTHS } ?: 1024,
+                userAgent = normalizeUserAgent(it.userAgent),
+            )
         }
+        next[origin] = settings
+        // One display choice across existing aliases, committed atomically. Do
+        // not create extra origins or copy any permission to another host.
+        next.replaceAll { site, value ->
+            if (DesktopSite.of(site) == desktopSite) value.copy(desktop = settings.desktop, desktopWidth = settings.desktopWidth) else value
+        }
+        next.entries.removeAll { it.value == SiteSettings() }
+        require(next.size <= MAX_SITES) { "Site settings limit reached" }
+        if (settings.withPermissionsFrom(previous) != previous) {
+            // Explicit page preferences are public saved choices. Private permission
+            // grants stay in this session and never replace the public permissions.
+            sharedPreferences?.updateLocked(origin) { settings.withPermissionsFrom(it) }
+        }
+        save(next)
     }
 
     suspend fun reset(url: String) = update(url) { SiteSettings() }
@@ -170,7 +188,8 @@ class SiteSettingsRepository private constructor(
         }
     }
 
-    fun privateSession() = SiteSettingsRepository(null, mutable.value.mapValues { it.value.forPrivateSession() })
+    fun privateSession() = SiteSettingsRepository(null,
+        mutable.value.mapValues { it.value.forPrivateSession() }, sharedPreferences = this)
 
     /** Discard an unreadable store only after the user confirms resetting settings. */
     suspend fun repair() = withContext(Dispatchers.IO) {
@@ -181,6 +200,10 @@ class SiteSettingsRepository private constructor(
     private fun save(next: Map<String, SiteSettings>, force: Boolean = false) {
         check(!repairState.value || force) { "Stored site settings are unreadable; reset them before saving" }
         val snapshot = Snapshot(next.toMap())
+        if (prefs == null) {
+            mutable.value = snapshot
+            return
+        }
         val json = JSONObject()
         next.forEach { (origin, settings) ->
             val entry = JSONObject().put("filtering", settings.filtering).put("javascript", settings.javaScript)
@@ -197,7 +220,7 @@ class SiteSettingsRepository private constructor(
         }
         val text = json.toString()
         require(text.length <= 512 * 1024) { "Site settings storage limit reached" }
-        prefs?.commitConfirmed(mapOf("sites" to text))
+        prefs.commitConfirmed(mapOf("sites" to text))
         mutable.value = snapshot
         repairState.value = false
     }

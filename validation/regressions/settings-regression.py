@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Verify categorized settings on the signed app using the shell UI helper."""
+import argparse
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("ux", ROOT / "tools/emulator-ux.py")
+ux = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ux)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--serial", required=True)
+parser.add_argument("--package", default="com.mybrowser")
+args = parser.parse_args()
+ux.ADB = ["adb", "-s", args.serial]
+ux.PACKAGE = args.package
+sdk = ux.adb("shell", "getprop", "ro.build.version.sdk")
+output = ROOT / "results"
+output.mkdir(exist_ok=True)
+checks = []
+
+
+def record(name):
+    checks.append(name)
+    print("PASS:", name, flush=True)
+
+
+def expect_selected(label):
+    root, _ = ux.nodes(await_labels=[label])
+    assert any((node.get("selected") == "true" or node.get("checked") == "true")
+               and ux.match(node, label) is not None for node in root.iter("node")), \
+        "Option is not selected: " + label
+
+
+def screenshot(name):
+    _, raw = ux.nodes()
+    (output / ("api" + sdk + "-settings-" + name + ".xml")).write_text(raw, encoding="utf-8")
+    data = subprocess.check_output(ux.ADB + ["exec-out", "screencap", "-p"], timeout=20)
+    (output / ("api" + sdk + "-settings-" + name + ".png")).write_bytes(data)
+
+
+def back():
+    ux.adb("shell", "input", "keyevent", "4")
+    time.sleep(.6)
+
+
+def restart():
+    ux.adb("shell", "am", "force-stop", ux.PACKAGE)
+    ux.launch("http://127.0.0.1:8875/browser-ux.html")
+
+
+try:
+    ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+    ux.adb("shell", "settings", "put", "system", "user_rotation", "0")
+    ux.adb("reverse", "tcp:8875", "tcp:8875")
+    restart()
+    ux.open_settings()
+    for name in ("通用", "外观", "隐私与数据", "内容与工具", "下载设置", "媒体播放", "关于与更新"):
+        ux.expect(name)
+    screenshot("root")
+    record("every root category is visible")
+    ux.tap("通用")
+    ux.tap("搜索引擎")
+    ux.tap("Google")
+    ux.expect("启动时恢复上次网页")
+    ux.tap("搜索引擎")
+    expect_selected("Google")
+    back()
+    record("search selection returns to the browsing category")
+    back()
+    ux.tap("外观")
+    ux.tap("应用主题")
+    ux.tap("深色")
+    ux.expect("应用主题")
+    screenshot("dark")
+    restart()
+    ux.open_settings("外观")
+    ux.tap("应用主题")
+    expect_selected("深色")
+    record("theme selection survives a process restart")
+    ux.tap("浅色")
+    screenshot("light")
+    ux.tap("应用主题")
+    ux.tap("跟随系统")
+    back()
+    ux.tap("内容与工具")
+    ux.tap("自定义广告过滤规则")
+    ux.expect("广告过滤设置")
+    back()
+    ux.expect("内容与工具")
+    ux.expect("自定义广告过滤规则")
+    record("filter management returns to the extensions category")
+    ux.tap("自定义广告过滤规则")
+    ux.launch("http://127.0.0.1:8875/browser-ux.html")
+    ux.expect("广告过滤设置", present=False)
+    record("an external navigation dismisses filter management")
+    ux.open_settings("下载设置")
+    root, _ = ux.nodes()
+    slider = next(n for n in root.iter("node") if ux.visible(n) and n.get("class") == "android.widget.SeekBar")
+    x1, y1, x2, y2 = ux.bounds(slider)
+    ux.adb("shell", "input", "tap", str(int(x1 + (x2 - x1) * .06)), str((y1 + y2) // 2))
+    ux.expect("Concurrent downloads: 1")
+
+    def speed_row():
+        prefixes = ux.resource_labels("download_speed_limit")
+        for _ in range(5):
+            root, _ = ux.nodes()
+            row = next((n for n in root.iter("node") if ux.visible(n)
+                        and any(n.get("text", "") in ux.labels(p) for p in prefixes)), None)
+            if row is not None:
+                return row
+            ux.swipe(root, downward=False)
+        raise AssertionError("Download speed setting missing")
+
+    ux.tap_node(speed_row())
+    ux.tap("512 KiB/s")
+    restart()
+    ux.open_settings("下载设置")
+    ux.expect("Concurrent downloads: 1")
+    # The row keeps a static title (so settings search can highlight it); the chosen value is the
+    # picker's selected option, like every other radio-style setting.
+    ux.tap_node(speed_row())
+    expect_selected("512 KiB/s")
+    screenshot("download-limits")
+    record("download concurrency and total speed limit survive a process restart")
+    rate_case = "rate-" + str(time.time_ns())[-10:]
+    ux.launch("http://127.0.0.1:8875/download-management-fixture.html?case=" + rate_case)
+    ux.tap("Quick file")
+    ux.tap("下载")
+    started = time.monotonic()
+    expected = hashlib.sha256(bytes(range(256)) * (6 * 1024 * 1024 // 256)).hexdigest()
+    path = "/sdcard/Download/pure-range-test-" + rate_case + "-quick.bin"
+    while True:
+        check = subprocess.run(ux.ADB + ["shell", "sha256sum", path], capture_output=True, text=True)
+        if check.returncode == 0 and check.stdout.split()[0] == expected:
+            break
+        assert time.monotonic() - started < 45, "Limited download did not produce the expected bytes"
+        time.sleep(.3)
+    elapsed = time.monotonic() - started
+    assert elapsed >= 9, "512 KiB/s limit did not throttle the 6 MiB transfer: " + str(elapsed)
+    record("512 KiB/s limits a real 6 MiB HTTP transfer with correct bytes (%.1f seconds)" % elapsed)
+    restart()
+    ux.open_settings("下载设置")
+    ux.tap_node(speed_row())
+    ux.tap(next(iter(ux.resource_labels("download_speed_unlimited"))))
+    # Return the task limit to the default, then exercise the separate connection slider.
+    back()
+    ux.tap("下载设置")
+    root, _ = ux.nodes()
+    slider = next(n for n in root.iter("node") if ux.visible(n) and n.get("class") == "android.widget.SeekBar")
+    x1, y1, x2, y2 = ux.bounds(slider)
+    ux.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+    ux.expect("Concurrent downloads: 3")
+    ux.swipe(ux.nodes()[0], downward=False)
+    ux.swipe(ux.nodes()[0], downward=False)
+    root, _ = ux.nodes()
+    slider = [n for n in root.iter("node") if ux.visible(n) and n.get("class") == "android.widget.SeekBar"][-1]
+    x1, y1, x2, y2 = ux.bounds(slider)
+    ux.adb("shell", "input", "tap", str(int(x1 + (x2 - x1) * .06)), str((y1 + y2) // 2))
+    time.sleep(.6)
+    ux.expect("1 线程")
+    ux.adb("shell", "input", "tap", str(int(x1 + (x2 - x1) * .94)), str((y1 + y2) // 2))
+    time.sleep(.6)
+    ux.expect("16 线程")
+    restart()
+    ux.open_settings("下载设置")
+    ux.swipe(ux.nodes()[0], downward=False)
+    ux.swipe(ux.nodes()[0], downward=False)
+    ux.expect("16 线程")
+    record("download connection count survives a process restart")
+    screenshot("downloads")
+    back()
+    ux.tap("媒体播放")
+    ux.expect("默认启用增强播放")
+    screenshot("video")
+    ux.adb("shell", "settings", "put", "system", "font_scale", "1.3")
+    time.sleep(1)
+    ux.expect("默认启用增强播放")
+    screenshot("large-font")
+    record("video settings remain accessible at 1.3 font scale")
+    ux.adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    time.sleep(1)
+    ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+    ux.adb("shell", "settings", "put", "system", "user_rotation", "1")
+    time.sleep(1.5)
+    screenshot("landscape")
+    if int(sdk) >= 34:
+        ux.expect("通用")
+        ux.expect("默认启用增强播放")
+        record("wide settings show category navigation beside the detail pane")
+finally:
+    ux.adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    ux.adb("shell", "settings", "put", "system", "user_rotation", "0")
+    ux.adb("shell", "settings", "put", "system", "accelerometer_rotation", "1")
+    (output / ("api" + sdk + "-settings.json")).write_text(json.dumps(checks, ensure_ascii=False, indent=2), encoding="utf-8")

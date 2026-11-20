@@ -18,7 +18,7 @@ import java.util.UUID
 
 /** PiP contains Chromium's existing fullscreen video, preserving cookies and decoding. */
 class PictureInPictureController(private val activity: Activity,
-    private val tracker: () -> MediaPlaybackTracker?, private val allowed: () -> Boolean,
+    private val tracker: () -> MediaPlaybackTracker?,
     private val fullscreen: () -> FullscreenVideoView?, private val automatic: () -> Boolean) {
     private val action = activity.packageName + ".pip." + UUID.randomUUID()
     private var sourceRectHint: Rect? = null
@@ -28,13 +28,20 @@ class PictureInPictureController(private val activity: Activity,
         }
     }
     private val supported = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
-    val isAvailable get() = supported && allowed()
+    val isAvailable get() = supported
     init { ContextCompat.registerReceiver(activity, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED) }
     fun enter(): Boolean {
         val state = tracker()?.current
         if (!isAvailable || fullscreen() == null || state?.hasVideo != true || !state.playbackAvailable) return false
         return runCatching { activity.enterPictureInPictureMode(parameters()) }.getOrDefault(false)
     }
+    private fun shouldAutoEnter(state: MediaPlaybackTracker.Signal?) =
+        automatic() && fullscreen() != null && state?.hasVideo == true && state.isPlaying
+
+    fun enterAutomatically() {
+        if (shouldAutoEnter(tracker()?.current)) enter()
+    }
+
     fun update() {
         if (supported) runCatching { activity.setPictureInPictureParams(parameters()) }
     }
@@ -63,7 +70,7 @@ class PictureInPictureController(private val activity: Activity,
         // pulse in PiP feeds the window offset back into its next transition.
         sourceRectHint?.let { builder.setSourceRectHint(Rect(it)) }
         if (android.os.Build.VERSION.SDK_INT >= 31) builder.setAutoEnterEnabled(
-            isAvailable && automatic() && fullscreen() != null && state.hasVideo && state.isPlaying)
+            shouldAutoEnter(state))
         return builder.build()
     }
     fun close() { activity.unregisterReceiver(receiver) }

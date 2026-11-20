@@ -15,7 +15,8 @@ import java.io.File
 import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.nio.file.Files
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 
 /**
  * FTP transfer against a server that speaks the few commands the client uses.
@@ -25,10 +26,21 @@ import java.nio.file.Files
  * arrived.
  */
 class FtpDownloadEngineTest {
+    @Test fun binaryModeRefusalStopsBeforeRetrievingAFile() = runBlocking {
+        FakeFtpServer(byteArrayOf(1, 2, 3), binaryReply = "504 TYPE I unavailable").use { server ->
+            val failure = runCatching {
+                FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("", null, null), 1,
+                    tempDirectory()) { _, _, _ -> }
+            }.exceptionOrNull()
+            assertTrue(failure is IOException)
+            assertTrue(server.commands.none { it.startsWith("RETR ") })
+        }
+    }
 
     private val payload = ByteArray(300_000) { (it % 251).toByte() }
 
-    private fun tempDirectory(): File = Files.createTempDirectory("ftp-test").toFile()
+    @get:Rule val temporary = TemporaryFolder()
+    private fun tempDirectory() = temporary.newFolder()
 
     @Test
     fun `anonymous login downloads one file and reports its size`() = runBlocking {
@@ -74,9 +86,13 @@ class FtpDownloadEngineTest {
 
     @Test
     fun `an interrupted transfer resumes at the bytes already on disk`() = runBlocking {
-        FakeFtpServer(payload).use { server ->
+        FakeFtpServer(payload, truncateTo = 120_000).use { server ->
             val directory = tempDirectory()
-            File(directory, "part-0").writeBytes(payload.copyOfRange(0, 120_000))
+            assertTrue(runCatching {
+                FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("test", null, null),
+                    1, directory) { _, _, _ -> }
+            }.exceptionOrNull() is IOException)
+            server.truncateTo = Int.MAX_VALUE
 
             val result = FtpDownloadEngine().download(
                 url = server.url(), headers = DownloadRequestHeaders("test", null, null),
@@ -84,8 +100,51 @@ class FtpDownloadEngineTest {
             )
 
             assertArrayEquals(payload, result.parts.single().readBytes())
-            assertTrue(server.commands.contains("REST 120000"))
+            assertTrue(server.commands.windowed(3).contains(listOf("PASV", "REST 120000", "RETR /dir/file.bin")))
             assertEquals(payload.size.toLong(), result.totalBytes)
+        }
+    }
+
+    @Test fun changedRemoteVersionsRestartWithoutMixingBytes() = runBlocking {
+        for (size in listOf(200_000, 300_000)) {
+            FakeFtpServer(ByteArray(200_000) { 1 }, truncateTo = 120_000).use { server ->
+                val directory = tempDirectory()
+                assertTrue(runCatching {
+                    FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("", null, null),
+                        1, directory) { _, _, _ -> }
+                }.exceptionOrNull() is IOException)
+                server.payload = ByteArray(size) { 2 }
+                server.modified = "20261120000001"
+                server.truncateTo = Int.MAX_VALUE
+                val result = FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("", null, null),
+                    1, directory) { _, _, _ -> }
+                assertArrayEquals(server.payload, result.parts.single().readBytes())
+                assertTrue(server.commands.none { it.startsWith("REST ") })
+            }
+        }
+    }
+
+    @Test fun missingVersionInformationRestartsPartialBytes() = runBlocking {
+        FakeFtpServer(payload, modified = null).use { server ->
+            val directory = tempDirectory()
+            File(directory, "part-0").writeBytes(ByteArray(120_000) { -1 })
+            val result = FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("", null, null),
+                1, directory) { _, _, _ -> }
+            assertArrayEquals(payload, result.parts.single().readBytes())
+            assertTrue(server.commands.none { it.startsWith("REST ") })
+        }
+    }
+
+    @Test fun ftpReplyCodesDistinguishTemporaryFromPermanentFailures() = runBlocking {
+        for (code in listOf(450, 550)) {
+            FakeFtpServer(payload, retrieveReply = "$code file unavailable").use { server ->
+                val failure = runCatching {
+                    FtpDownloadEngine().download(server.url(), DownloadRequestHeaders("", null, null),
+                        1, tempDirectory()) { _, _, _ -> }
+                }.exceptionOrNull() as DownloadFtpException
+                assertEquals(code, failure.code)
+                assertEquals(code == 450, failure.isTransient)
+            }
         }
     }
 
@@ -210,16 +269,20 @@ class FtpDownloadEngineTest {
 }
 
 /** Just enough of RFC 959 to serve one file, in the order the client drives it. */
-private class FakeFtpServer(
-    private val payload: ByteArray,
+internal class FakeFtpServer(
+    @Volatile var payload: ByteArray,
+    private val binaryReply: String = "200 binary mode",
     /** Bytes to send before holding the data connection open, so a read blocks. */
     private val stallAfter: Int = Int.MAX_VALUE,
     /** Announce the full entity but send only this many bytes, then still answer 226. */
-    private val truncateTo: Int = Int.MAX_VALUE,
+    @Volatile var truncateTo: Int = Int.MAX_VALUE,
     private val greeting: String = "220 fake ftp ready",
     private val finalReply: String = "226 transfer complete",
     private val supportsSize: Boolean = true,
     private val ignoresRest: Boolean = false,
+    @Volatile var modified: String? = "20261120000000",
+    private val loginReply: String = "230 logged in",
+    private val retrieveReply: String = "150 opening data connection",
 ) : Closeable {
     private val server = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
     val commands = java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -251,9 +314,10 @@ private class FakeFtpServer(
             commands += line
             when (line.substringBefore(' ').uppercase()) {
                 "USER" -> reply("331 password required")
-                "PASS" -> reply("230 logged in")
-                "TYPE" -> reply("200 binary mode")
+                "PASS" -> reply(loginReply)
+                "TYPE" -> reply(binaryReply)
                 "SIZE" -> reply(if (supportsSize) "213 ${payload.size}" else "500 SIZE unavailable")
+                "MDTM" -> reply(modified?.let { "213 $it" } ?: "502 not implemented")
                 "REST" -> {
                     offset = if (ignoresRest) 0 else line.substringAfter(' ').trim().toInt()
                     reply("350 restarting at $offset")
@@ -266,7 +330,12 @@ private class FakeFtpServer(
                 }
                 "RETR" -> {
                     val passive = data ?: throw IllegalStateException("RETR before PASV")
-                    reply("150 opening data connection")
+                    reply(retrieveReply)
+                    if (!retrieveReply.startsWith("150")) {
+                        passive.close()
+                        data = null
+                        continue
+                    }
                     passive.accept().use { socket ->
                         transferStarted = true
                         val remaining = payload.size - offset

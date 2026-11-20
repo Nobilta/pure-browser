@@ -2,8 +2,8 @@ name: CI
 
 # Runs the same entry points contributors run locally, on every push to the default branch and
 # every pull request, on all three supported host platforms. Signing and emulator regressions stay
-# out of CI by design: signing keys never enter CI (see RELEASING.md), and emulator stages run
-# locally with recorded results (see TESTING_GUIDE.md).
+# out of CI by design: signing keys never enter CI (see docs/releasing.md), and emulator stages run
+# locally with recorded results (see docs/testing.md).
 on:
   push:
     branches: [main]

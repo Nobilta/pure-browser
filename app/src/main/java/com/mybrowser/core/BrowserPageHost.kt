@@ -132,6 +132,7 @@ internal class BrowserPageHost(
     }
 
     fun suspend(view: WebView, onRendererGone: (WebView) -> Unit) {
+        com.mybrowser.reader.ReaderMode.onPageStarted(view)
         (view as? BrowserWebView)?.keepMediaOnWindowHidden = false
         media.trackerOf(view)?.setSuspended(true)
         view.onPause()
@@ -142,6 +143,7 @@ internal class BrowserPageHost(
     /** Detach channels before wiping a private profile or destroying its native contents. */
     fun detach(view: WebView) {
         val runtime = runtimes.remove(view) ?: return
+        com.mybrowser.reader.ReaderMode.onPageStarted(view)
         onReleased(view)
         devTools.detach(view)
         runtime.scripts?.close()

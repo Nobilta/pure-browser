@@ -58,7 +58,7 @@ data class DownloadSettings(
     val destinationLabel: String get() = DownloadDestination.labelFor(destinationMode, customDirectoryLabel)
 
     fun destination(): DownloadDestination =
-        DownloadDestination(destinationMode, customTreeUri, destinationLabel)
+        DownloadDestination(destinationMode, customTreeUri.takeIf { destinationMode == DownloadDestinationMode.CUSTOM_DIRECTORY }, destinationLabel)
 
     fun displayDestinationLabel(resources: Resources): String = localizeDownloadDirectory(resources, destinationLabel)
 }
@@ -69,6 +69,7 @@ class DownloadSettingsRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    internal val customTreeUri: String? get() = prefs.getString(KEY_CUSTOM_TREE_URI, null)
     val unmeteredOnly: Boolean get() = prefs.getBoolean("unmetered_only", false)
     val maxConcurrentDownloads: Int get() = prefs.getInt(KEY_CONCURRENT, DEFAULT_CONCURRENT_DOWNLOADS)
         .coerceIn(1, MAX_CONCURRENT_DOWNLOADS)
@@ -85,8 +86,7 @@ class DownloadSettingsRepository(context: Context) {
     }
 
     fun load(): DownloadSettings {
-        val treeUri = prefs.getString(KEY_CUSTOM_TREE_URI, null)
-            ?.takeIf { value -> runCatching { value.toUri().scheme == "content" }.getOrDefault(false) }
+        val treeUri = customTreeUri?.takeIf { it.toUri().scheme == "content" }
         val requestedMode = runCatching {
             DownloadDestinationMode.valueOf(
                 prefs.getString(KEY_DESTINATION_MODE, null).orEmpty(),
@@ -96,11 +96,7 @@ class DownloadSettingsRepository(context: Context) {
         // A copied preference or revoked provider grant must not make every future download
         // fail. Keep the remembered directory so the user can reselect it, but fall back to
         // public Downloads until a writable persisted grant exists again.
-        val hasWritableGrant = treeUri != null && appContext.contentResolver
-            .persistedUriPermissions
-            .any { permission ->
-                permission.uri.toString() == treeUri && permission.isWritePermission
-            }
+        val hasWritableGrant = hasWritableGrant(appContext, treeUri)
         val effectiveMode = if (
             requestedMode == DownloadDestinationMode.CUSTOM_DIRECTORY && hasWritableGrant
         ) {
@@ -114,7 +110,7 @@ class DownloadSettingsRepository(context: Context) {
             maxConcurrentDownloads = maxConcurrentDownloads,
             speedLimitKib = speedLimitKib,
             destinationMode = effectiveMode,
-            customTreeUri = treeUri,
+            customTreeUri = treeUri.takeIf { hasWritableGrant },
             customDirectoryLabel = prefs.getString(KEY_CUSTOM_DIRECTORY_LABEL, null),
             threadCount = normalizeThreadCount(
                 prefs.getInt(KEY_THREAD_COUNT, DEFAULT_DOWNLOAD_THREADS),
@@ -142,6 +138,13 @@ class DownloadSettingsRepository(context: Context) {
     fun useSystemDownloads(): DownloadSettings {
         prefs.edit { putString(KEY_DESTINATION_MODE, DownloadDestinationMode.SYSTEM_DOWNLOADS.name) }
         return load()
+    }
+
+    internal fun keepDirectoryGrant(uri: Uri) {
+        val resolver = appContext.contentResolver
+        if (resolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }) return
+        resolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
     }
 
     /** The caller must take a persistable read/write grant before invoking this method. */
@@ -180,20 +183,23 @@ class DownloadSettingsRepository(context: Context) {
     fun describeDirectory(uri: Uri): String = describeDirectory(appContext, uri)
 
     companion object {
+        fun hasWritableGrant(context: Context, treeUri: String?): Boolean =
+            treeUri != null && context.contentResolver.persistedUriPermissions.any {
+                it.uri.toString() == treeUri && it.isWritePermission
+            }
+
         /** Same label, callable where only a Context is at hand (no repository needed). */
         fun describeDirectory(context: Context, uri: Uri): String {
             val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
             val path = documentId
                 ?.takeIf { it.contains(':') }
-                ?.substringAfter(':', missingDelimiterValue = documentId)
+                ?.substringAfter(':')
                 ?.replace("/", " › ")
                 ?.trim()
                 .orEmpty()
             if (path.isNotEmpty()) return path.take(MAX_DIRECTORY_LABEL_LENGTH)
 
-            val documentUri = runCatching {
-                DocumentsContract.buildDocumentUriUsingTree(uri, requireNotNull(documentId))
-            }.getOrNull()
+            val documentUri = documentId?.let { DocumentsContract.buildDocumentUriUsingTree(uri, it) }
             if (documentUri != null) {
                 runCatching {
                     context.applicationContext.contentResolver.query(

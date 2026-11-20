@@ -37,7 +37,8 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
     }
 
     enum class BlockedReason { REJECTED, LIMIT, BUDGET, EXISTING }
-    data class Confirmation(val request: Request, val isNewCopy: Boolean)
+    data class Confirmation(val request: Request, val isNewCopy: Boolean,
+        val directory: DownloadHandler.DirectorySelection)
     data class BlockedEntry(val request: Request, val reason: BlockedReason) {
         val identity: String get() = request.identity
     }
@@ -62,7 +63,10 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         var noticed = false
         var overflowNoticed = false
         var overflow = 0
-        fun close() { pending?.request?.response?.close() }
+        fun close() {
+            pending?.request?.response?.close()
+            pending?.directory?.close()
+        }
     }
     private val documents = mutableMapOf<String, Document>()
     private var tabId = "initial"
@@ -77,14 +81,22 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
 
     fun selectTab(id: String) { tabId = id; publish() }
     fun startDocument(id: String) {
-        documents.remove(id)?.close()
+        discardDocument(id)
         if (id == tabId) publish()
     }
     fun retainTabs(ids: Set<String>) {
-        documents.keys.filterNot { it in ids }.forEach { documents.remove(it)?.close() }
+        documents.keys.filterNot { it in ids }.forEach(::discardDocument)
         if (tabId in ids) publish() else { _pending.value = null; _blocked.value = emptyList(); _overflow.value = 0 }
     }
-    fun resetTransientState() { documents.values.forEach { it.close() }; documents.clear(); publish() }
+    fun resetTransientState() {
+        documents.values.forEach(Document::close)
+        documents.clear()
+        publish()
+    }
+    private fun discardDocument(id: String) {
+        val removed = documents.remove(id) ?: return
+        removed.close()
+    }
     private fun publish() {
         _pending.value = document.pending
         _blocked.value = document.blocked
@@ -134,7 +146,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
             return interceptNotice()
         }
         if (!explicit) state.budget--
-        state.pending = Confirmation(request, existing?.second == DownloadStatus.COMPLETED)
+        state.pending = Confirmation(request, existing?.second == DownloadStatus.COMPLETED, handler.directorySelection())
         state.newCopy = explicit
         state.fromUser = fromUser
         if (fromUser) state.blocked = state.blocked.filterNot { it.identity == identity }
@@ -146,17 +158,22 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         val state = document
         val request = state.pending?.request ?: return DownloadHandler.EnqueueOutcome.Rejected
         val newCopy = state.newCopy
-        state.pending = null
-        state.newCopy = false
-        state.fromUser = false
-        publish()
-        return handler.enqueueOrGetExisting(
+        val outcome = handler.enqueueOrGetExisting(
             request.url, request.userAgent, request.contentDisposition, request.mimeType,
             referer = request.referer, isPrivate = request.isPrivate, cookieHeader = request.cookieHeader,
             newCopy = newCopy, pageFile = request.pageFile, response = request.response,
             retryResponse = retryResponse && request.response?.unavailable?.value != null,
             filename = filename, destination = destination,
-        ).also { if (it !is DownloadHandler.EnqueueOutcome.Started) request.response?.close() }
+        )
+        if (outcome != DownloadHandler.EnqueueOutcome.Rejected) {
+            if (outcome is DownloadHandler.EnqueueOutcome.Existing) request.response?.close()
+            state.pending?.directory?.close()
+            state.pending = null
+            state.newCopy = false
+            state.fromUser = false
+            publish()
+        }
+        return outcome
     }
 
     fun rejectPending() {
@@ -164,6 +181,7 @@ class DownloadRequestCoordinator(private val handler: DownloadHandler) {
         val request = state.pending?.request ?: return
         val fromUser = state.fromUser
         request.response?.close()
+        state.pending?.directory?.close()
         state.pending = null
         state.newCopy = false
         state.fromUser = false

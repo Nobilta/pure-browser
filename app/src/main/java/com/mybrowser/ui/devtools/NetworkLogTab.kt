@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -13,12 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
+import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.core.NetworkCategory
 import com.mybrowser.core.NetworkLogQuery
 import com.mybrowser.core.NetworkOutcome
 import com.mybrowser.core.NetworkRequestLog
 import com.mybrowser.devtools.DevToolsSession
-import com.mybrowser.devtools.EnhancedCaptureState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -79,26 +80,30 @@ internal fun NetworkLogTab(
         Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
             DevToolsSearchField(query, stringResource(R.string.dev_network_search)) { query = it }
         }
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(Modifier.selectableGroup(), contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(NetworkCategory.entries, key = { it.name }) { item ->
-                FilterChip(category == item, { category = item }, label = { Text("${labels.getValue(item)} ${counts[item] ?: 0}") })
+                BrowserActionPill("${labels.getValue(item)} ${counts[item] ?: 0}", { category = item }, selected = category == item)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Box {
-                TextButton(onClick = { statusMenu = true }) { Text(outcomes.getValue(outcome)) }
+                BrowserActionPill(outcomes.getValue(outcome), { statusMenu = true })
                 BrowserDropdownMenu(statusMenu, { statusMenu = false }) {
                     NetworkOutcome.entries.forEach { item ->
                         DropdownMenuItem(text = { Text(outcomes.getValue(item)) }, onClick = { outcome = item; statusMenu = false })
                     }
                 }
             }
-            Text(stringResource(R.string.dev_network_count, filtered.size, entries.size), Modifier.weight(1f),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { selectedId = null; onClear() }, enabled = entries.isNotEmpty()) {
-                Text(stringResource(R.string.ui_clear))
-            }
+            BrowserActionPill(stringResource(R.string.ui_clear), { selectedId = null; onClear() }, enabled = entries.isNotEmpty())
         }
+        Text(stringResource(R.string.dev_network_count, filtered.size, entries.size),
+            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (filtered.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(stringResource(if (entries.isEmpty()) R.string.ui_no_requests_yet_open_or_refresh_a_page else R.string.library_no_results),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Local fixture server with byte ranges and bounded playback telemetry on two origins."""
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+from collections import defaultdict, deque
+import argparse
+import json
+import mimetypes
+import re
+import threading
+import time
+import struct
+import sys
+import zlib
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.hostencoding import ensure_utf8
+
+ROOT = Path(__file__).resolve().parent
+APK_PATH = ROOT.parents[1] / 'app/build/outputs/apk/release/app-release.apk'
+EVENTS = defaultdict(lambda: deque(maxlen=600))
+LOCK = threading.Lock()
+FILTER_MODE = 'valid'
+
+def png_chunk(kind, payload):
+    return struct.pack('!I', len(payload)) + kind + payload + struct.pack('!I', zlib.crc32(kind + payload))
+
+IMAGE = (b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('!IIBBBBB', 160, 96, 8, 2, 0, 0, 0))
+         + png_chunk(b'IDAT', zlib.compress(b''.join(
+             b'\0' + bytes([40, 130, 90] if y < 48 else [230, 190, 70]) * 160 for y in range(96))))
+         + png_chunk(b'IEND', b''))
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        global FILTER_MODE
+        parsed = urlparse(self.path)
+        if parsed.path == '/__filter-mode':
+            mode = parse_qs(parsed.query).get('value', ['valid'])[0]
+            if mode not in ('valid', 'updated', 'invalid', 'offline'):
+                self.send_error(400); return
+            FILTER_MODE = mode
+            self.send_response(204); self.end_headers(); return
+        if parsed.path != '/__state':
+            self.send_error(404); return
+        length = int(self.headers.get('Content-Length', '0'))
+        if length > 16384:
+            self.send_error(413); return
+        value = json.loads(self.rfile.read(length))
+        value['receivedAt'] = time.time()
+        case = parse_qs(parsed.query).get('case', ['default'])[0][:80]
+        with LOCK:
+            EVENTS[case].append(value)
+        self.send_response(204); self.end_headers()
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path.startswith('/cast-referer/'):
+            case = parse_qs(parsed.query).get('case', ['default'])[0][:80]
+            expected = 'http://127.0.0.1:8875/cast-referrer-fixture.html?case=' + case
+            if case.startswith('origin-'):
+                expected = 'http://127.0.0.1:8875/'
+            elif case.startswith('none-'):
+                expected = ''
+            referer = self.headers.get('Referer', '')
+            is_cdn = self.headers.get('Host', '').startswith('localhost:')
+            if parsed.path == '/cast-referer/seed':
+                self.send_response(200)
+                self.send_header('Set-Cookie', 'cdn_session=seed; Path=/cast-referer/; SameSite=None; Secure')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            leak_check = parsed.path == '/cast-referer/leak-check'
+            has_cookie = ('cast_session=' + case) in self.headers.get('Cookie', '').split('; ')
+            if is_cdn:
+                values = self.headers.get('Cookie', '').split('; ')
+                has_cookie = 'cdn_session=seed' in values
+                # CookieManager requires HTTPS when storing Secure cookies, even for
+                # loopback. Verify response writes with a regular Lax cookie on the GET
+                # main navigation; cross-site media subrequests must not send that cookie.
+                if parsed.path.endswith('/cdn-final.mp4') and not self.headers.get('Range'):
+                    has_cookie = has_cookie and ('cdn_hop=' + case) in values
+            allowed = referer != expected if leak_check else referer == expected and has_cookie
+            with LOCK:
+                EVENTS['cast-referrer-' + case].append({
+                    'path': parsed.path, 'port': self.server.server_port, 'referer': referer,
+                    'host': self.headers.get('Host', ''), 'cookie': self.headers.get('Cookie', ''),
+                    'range': self.headers.get('Range', ''), 'hasCookie': has_cookie, 'allowed': allowed, 'receivedAt': time.time(),
+                })
+            if not allowed:
+                self.send_error(403, 'Unexpected Referer'); return
+            with LOCK:
+                armed = bool(EVENTS.get('media-failure-' + case))
+            if armed and case.startswith('failhttp-'):
+                self.send_error(403, 'Media denied'); return
+            if armed and (case.startswith('failtls-') or case.startswith('failoffline-')):
+                target = 'https://localhost:8877' if case.startswith('failtls-') else 'http://127.0.0.1:8879'
+                self.send_response(302)
+                self.send_header('Location', target + self.path)
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            if armed and case.startswith('failread-'):
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', '100000')
+                self.end_headers(); self.wfile.write(b'truncated')
+                self.close_connection = True; return
+            if leak_check:
+                body = b'<h1>No stale media Referer</h1>'
+                self.send_response(200); self.send_header('Content-Type', 'text/html')
+                self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if parsed.path in ('/cast-referer/cdn.mp4', '/cast-referer/cdn-session.mp4'):
+                self.send_response(302)
+                if is_cdn:
+                    self.send_header('Set-Cookie', 'cdn_hop=' + case + '; Path=/cast-referer/; SameSite=Lax')
+                next_path = 'cdn-final.mp4' if is_cdn else 'cdn-session.mp4'
+                self.send_header('Location', 'http://localhost:8876/cast-referer/' + next_path + '?case=' + case)
+                self.send_header('Referrer-Policy', 'unsafe-url')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            if parsed.path == '/cast-referer/redirect.mp4':
+                self.send_response(302)
+                self.send_header('Location', 'http://127.0.0.1:8876/cast-referer/final.mp4?case=' + case)
+                self.send_header('Referrer-Policy', 'unsafe-url')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            name = parsed.path.rsplit('/', 1)[-1].removesuffix('.mp4')
+            file = ROOT.parent / 'results' / (name + '.mp4') if name in ('large', 'boundary', 'over-limit') else ROOT / 'player-sample.mp4'
+            size = file.stat().st_size
+            match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+            start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
+            if start > end or start >= size:
+                self.send_response(416); self.send_header('Content-Range', f'bytes */{size}'); self.end_headers(); return
+            if match:
+                end = min(end, start + 64 * 1024 - 1)
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', 'video/mp4')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Content-Length', str(end - start + 1))
+            if match:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            try:
+                with file.open('rb') as stream:
+                    stream.seek(start)
+                    remaining = end - start + 1
+                    while remaining:
+                        chunk = stream.read(min(64 * 1024, remaining))
+                        if not chunk: break
+                        self.wfile.write(chunk); remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+        if parsed.path == '/__auth':
+            if self.headers.get('Authorization') != 'Basic dGVzdDpwdXJl':
+                self.send_response(401)
+                self.send_header('WWW-Authenticate', 'Basic realm="Pure fixture"')
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            body = b'<h1>Authentication completed</h1>'
+            self.send_response(200); self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == '/filter-marker.js':
+            with LOCK:
+                EVENTS['filter-requests'].append({'kind': 'marker', 'receivedAt': time.time()})
+            body = b'window.__pureFilterMarker=true;'
+            self.send_response(200); self.send_header('Content-Type', 'application/javascript')
+            self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+        if parsed.path == '/__filter-list':
+            mode = FILTER_MODE
+            etag = '"pure-' + mode + '"'
+            with LOCK:
+                EVENTS['filter-requests'].append({'kind': 'list', 'mode': mode,
+                    'validator': self.headers.get('If-None-Match'), 'receivedAt': time.time()})
+            if mode == 'offline':
+                self.send_error(503); return
+            if mode == 'invalid':
+                body = b'<html><body>Captive portal</body></html>'
+                content_type = 'text/html'
+            else:
+                if self.headers.get('If-None-Match') == etag:
+                    self.send_response(304); self.send_header('ETag', etag); self.end_headers(); return
+                body = ('[Adblock Plus 2.0]\n! Pure regression ' + mode + '\n'
+                        '||127.0.0.1:8875/filter-marker.js\n127.0.0.1###pure-filter-unit\n'
+                        + ('||pure-update-fixture.invalid^\n' if mode == 'updated' else '')).encode()
+                content_type = 'text/plain'
+            self.send_response(200); self.send_header('Content-Type', content_type)
+            self.send_header('ETag', etag); self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+        if parsed.path == '/productivity-fixture.html':
+            with LOCK:
+                EVENTS['context-requests'].append({'path': self.path, 'receivedAt': time.time()})
+        if parsed.path == '/context-image.png':
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', str(len(IMAGE)))
+            self.end_headers()
+            self.wfile.write(IMAGE)
+            return
+        if parsed.path in ('/download-open.png', '/download-open.apk', '/download-unknown.bin'):
+            # Serve the selected artifact directly; never keep another APK fixture copy.
+            query = parse_qs(parsed.query)
+            key = re.sub(r'[^a-zA-Z0-9-]', '', query.get('case', ['test'])[0])[:60]
+            unknown = parsed.path.endswith('.bin')
+            if parsed.path.endswith('.apk'):
+                apk = APK_PATH
+                if not apk.is_file():
+                    self.send_error(404); return
+                payload, mime, extension = apk.read_bytes(), 'application/vnd.android.package-archive', 'apk'
+            elif unknown:
+                payload, mime, extension = bytes(range(256)) * 8192, 'application/octet-stream', 'bin'
+            else:
+                payload, mime, extension = IMAGE, 'image/png', 'png'
+            size = len(payload)
+            match = None if unknown else re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+            start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
+            if start > end or start >= size:
+                self.send_response(416); self.end_headers(); return
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', mime)
+            self.send_header('Content-Disposition', 'attachment; filename="pure-open-' + key + '.' + extension + '"')
+            if not unknown:
+                self.send_header('Content-Length', str(end - start + 1))
+                self.send_header('Accept-Ranges', 'bytes')
+                self.send_header('ETag', '"pure-open-' + str(size) + '"')
+                if match: self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            try:
+                for position in range(start, end + 1, 32768):
+                    self.wfile.write(payload[position:min(position + 32768, end + 1)])
+                    self.wfile.flush()
+                    if unknown: time.sleep(.4)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+        if parsed.path in ('/download-test.bin', '/download-resume.bin'):
+            slow = parsed.path == '/download-resume.bin'
+            # The fixtures propagate their page query into the link, so every regression
+            # run downloads a fresh URL: the browser deduplicates by URL and would surface
+            # the previous run's record instead of starting a new transfer.
+            query = parse_qs(parsed.query)
+            run = re.sub(r'[^a-zA-Z0-9-]', '', (query.get('case') or query.get('visit') or [''])[0])[:24]
+            size = (48 if slow else 6) * 1024 * 1024
+            match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+            start, end = (int(match[1]), min(int(match[2]) if match[2] else size - 1, size - 1)) if match else (0, size - 1)
+            if start > end or start >= size:
+                self.send_response(416); self.end_headers(); return
+            with LOCK:
+                EVENTS['download-requests'].append({'start': start, 'end': end, 'receivedAt': time.time(),
+                    'path': parsed.path, 'ifRange': self.headers.get('If-Range')})
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            filename = ('pure-resume-test' if slow else 'pure-range-test') + (('-' + run) if run else '') + '.bin'
+            self.send_header('Content-Disposition', 'attachment; filename="' + filename + '"')
+            self.send_header('Content-Length', str(end - start + 1))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('ETag', '"pure-range-fixture-v1"')
+            if match:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            block = bytes(range(256)) * 256
+            try:
+                for position in range(start, end + 1, len(block)):
+                    count = min(len(block), end - position + 1)
+                    offset = position % 256
+                    self.wfile.write((block + block)[offset:offset + count])
+                    self.wfile.flush()
+                    time.sleep(.5 if slow else .03)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+        if parsed.path == '/__state':
+            case = parse_qs(parsed.query).get('case', ['default'])[0][:80]
+            with LOCK:
+                body = json.dumps(list(EVENTS[case])).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+        file = Path(self.translate_path(self.path))
+        match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
+        if match and file.is_file() and file.suffix in ['.mp4', '.webm', '.ts']:
+            size = file.stat().st_size
+            start = int(match[1]); end = min(int(match[2]) if match[2] else size - 1, size - 1)
+            if start >= size or start > end:
+                self.send_response(416); self.send_header('Content-Range', f'bytes */{size}'); self.end_headers(); return
+            self.send_response(206)
+            self.send_header('Content-Type', mimetypes.guess_type(file.name)[0] or 'application/octet-stream')
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.send_header('Content-Length', str(end-start+1))
+            self.end_headers()
+            with file.open('rb') as stream:
+                stream.seek(start); self.wfile.write(stream.read(end-start+1))
+            return
+        super().do_GET()
+
+if __name__ == '__main__':
+    ensure_utf8()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--apk', type=Path, default=APK_PATH,
+                        help='APK served by the download fixture (default: Gradle release output)')
+    APK_PATH = parser.parse_args().apk.resolve()
+    secondary = ThreadingHTTPServer(('127.0.0.1', 8876), Handler)
+    threading.Thread(target=secondary.serve_forever, daemon=True).start()
+    cert = ROOT.parent / 'results/referrer-tls-cert.pem'
+    key = ROOT.parent / 'results/referrer-tls-key.pem'
+    if cert.exists() and key.exists():
+        import ssl
+        tls = ThreadingHTTPServer(('127.0.0.1', 8877), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        tls.socket = context.wrap_socket(tls.socket, server_side=True)
+        threading.Thread(target=tls.serve_forever, daemon=True).start()
+    print('Fixtures available on loopback ports 8875 and 8876', flush=True)
+    ThreadingHTTPServer(('127.0.0.1', 8875), Handler).serve_forever()

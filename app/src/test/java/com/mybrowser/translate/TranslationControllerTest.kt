@@ -67,7 +67,54 @@ class TranslationControllerTest {
         override var ownerTabId: String? = "A"
         override var selectedTabId: String? = "A"
         override val panelVisible = true
-        override fun message(text: String) = Unit
+        val messages = mutableListOf<String>()
+        override fun message(text: String) { messages += text }
+    }
+
+    @Test fun navigationCancelsSelectionWithoutAnEmptySelectionMessage() = runTest {
+        var callback: ValueCallback<String>? = null
+        var captures = 0
+        val page = object : WebView(context) {
+            override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                captures++
+                callback = resultCallback
+            }
+        }
+        val host = Host(page)
+        var finished = false
+        val mode = object : android.view.ActionMode() {
+            override fun setTitle(title: CharSequence?) = Unit
+            override fun setTitle(resId: Int) = Unit
+            override fun setSubtitle(subtitle: CharSequence?) = Unit
+            override fun setSubtitle(resId: Int) = Unit
+            override fun setCustomView(view: android.view.View?) = Unit
+            override fun invalidate() = Unit
+            override fun finish() { finished = true }
+            override fun getMenu(): android.view.Menu = android.widget.PopupMenu(context, page).menu
+            override fun getTitle(): CharSequence = ""
+            override fun getSubtitle(): CharSequence = ""
+            override fun getCustomView(): android.view.View? = null
+            override fun getMenuInflater() = android.view.MenuInflater(context)
+        }
+        val controller = TranslationController(context, backgroundScope, host)
+        try {
+            controller.translateSelection(mode)
+            runCurrent()
+            assertNotNull(callback)
+            controller.translateSelection(mode)
+            runCurrent()
+            assertEquals(1, captures)
+            assertFalse(finished)
+            host.documentEpoch++
+            controller.onPageStarted()
+            runCurrent()
+            assertTrue(finished)
+            assertTrue(host.messages.isEmpty())
+            callback!!.onReceiveValue(JSONObject.quote("old document selection"))
+            runCurrent()
+            assertNull(controller.selectionOriginal)
+            assertTrue(host.messages.isEmpty())
+        } finally { controller.onPageStarted(); page.destroy() }
     }
 
     @Test fun stoppedProviderResultCannotWriteIntoARestartedSessionOrClearItsBusyState() = runTest {

@@ -11,9 +11,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import com.mybrowser.ui.components.BrowserActionPill
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -34,8 +31,8 @@ internal fun ReaderStyleBar(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.widthIn(max = 480.dp).fillMaxWidth().zIndex(1f),
-        shape = MaterialTheme.shapes.extraLarge,
+        modifier = modifier.widthIn(max = 480.dp).fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, BrowserColors.cardBorder),
         shadowElevation = 2.dp,
@@ -52,13 +49,13 @@ internal fun ReaderStyleBar(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             BrowserActionPill("A−", { onChange(style.copy(size = style.size - ReaderStyle.SIZE_STEP)) },
-                Modifier.semantics { contentDescription = smaller }, enabled = style.size > ReaderStyle.MIN_SIZE)
+                description = smaller, enabled = style.size > ReaderStyle.MIN_SIZE)
             BrowserActionPill("A+", { onChange(style.copy(size = style.size + ReaderStyle.SIZE_STEP)) },
-                Modifier.semantics { contentDescription = larger }, enabled = style.size < ReaderStyle.MAX_SIZE)
+                description = larger, enabled = style.size < ReaderStyle.MAX_SIZE)
             BrowserActionPill(spacing, { onChange(style.copy(lineHeight = nextLineHeight(style.lineHeight))) },
-                Modifier.semantics { contentDescription = spacingDescription })
+                description = spacingDescription)
             BrowserActionPill(paper, { onChange(style.copy(paper = nextPaper(style.paper))) },
-                Modifier.semantics { contentDescription = paperDescription })
+                description = paperDescription)
         }
     }
 }

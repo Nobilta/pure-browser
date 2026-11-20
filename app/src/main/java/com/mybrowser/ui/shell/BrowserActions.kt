@@ -84,7 +84,7 @@ internal fun BrowserIconAction(icon: Int, label: String, enabled: Boolean = true
  */
 @Composable
 internal fun BrowserActionRow(icon: Int, label: String, detail: String? = null, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp),
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(painterResource(icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(16.dp))
@@ -112,6 +112,7 @@ internal fun LibrarySearchField(
     label: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    maxLength: Int? = 256,
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
@@ -123,7 +124,7 @@ internal fun LibrarySearchField(
     ) {
         BasicTextField(
             value = query,
-            onValueChange = { onQueryChange(it.take(256)) },
+            onValueChange = { value -> onQueryChange(if (maxLength == null) value else value.take(maxLength)) },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
             cursorBrush = SolidColor(colors.primary),
@@ -183,7 +184,7 @@ internal fun LibrarySelectionBar(
         exit = fadeOut(animationSpec = BrowserMotion.chromeFade()) +
             shrinkVertically(animationSpec = BrowserMotion.chromeSpatial()),
     ) {
-        FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, itemVerticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val selectAll = stringResource(R.string.library_select_all)
                 Checkbox(
@@ -193,7 +194,8 @@ internal fun LibrarySelectionBar(
                 )
                 Text(countText)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.width(IntrinsicSize.Max), verticalAlignment = Alignment.CenterVertically, content = actions)
         }
     }
 }

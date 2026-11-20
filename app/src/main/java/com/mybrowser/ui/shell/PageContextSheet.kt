@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mybrowser.ui.components.BrowserGroupDivider
 import com.mybrowser.R
 import com.mybrowser.core.PageContextTarget
 import com.mybrowser.core.UrlUtils
@@ -22,7 +23,6 @@ import com.mybrowser.filter.BlockRules
  * chance to show them what it says — and the only way to tell which of two similar rows was the
  * broad one.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PageContextSheet(
     target: PageContextTarget,
@@ -31,7 +31,7 @@ fun PageContextSheet(
     onShare: (String) -> Unit,
     onSaveImage: (String) -> Unit,
     onShareImage: (String) -> Unit,
-    onSearchImage: ((String) -> Unit)?,
+    onSearchImage: (String) -> Unit,
     onBlockResource: (String) -> Unit,
     onBlockHost: (String) -> Unit,
     onHideHere: (String) -> Unit,
@@ -42,10 +42,10 @@ fun PageContextSheet(
             val url = target.linkUrl ?: target.imageUrl.orEmpty()
             Text(target.title.ifBlank { UrlUtils.hostOf(url).orEmpty() },
                 style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             Text(url, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp))
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
             target.linkUrl?.let { link ->
                 BrowserActionRow(R.drawable.ic_ui_add, stringResource(R.string.context_open_new_tab)) { onOpen(link, false) }
                 BrowserActionRow(R.drawable.ic_ui_tabs, stringResource(R.string.context_open_background)) { onOpen(link, true) }
@@ -53,13 +53,11 @@ fun PageContextSheet(
                 BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_link)) { onShare(link) }
             }
             target.imageUrl?.let { image ->
-                if (target.linkUrl != null) HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                if (target.linkUrl != null) BrowserGroupDivider(modifier = Modifier.padding(vertical = 8.dp))
                 BrowserActionRow(R.drawable.ic_ui_open_in_new, stringResource(R.string.context_open_image)) { onOpen(image, false) }
                 BrowserActionRow(R.drawable.ic_ui_download, stringResource(R.string.context_save_image)) { onSaveImage(image) }
                 BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_image)) { onShareImage(image) }
-                onSearchImage?.let { search ->
-                    BrowserActionRow(R.drawable.ic_ui_search, stringResource(R.string.context_search_image)) { search(image) }
-                }
+                BrowserActionRow(R.drawable.ic_ui_search, stringResource(R.string.context_search_image)) { onSearchImage(image) }
                 BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_image_link)) { onCopy(image) }
             }
             // One address, so one set of block rows: see PageContextTarget.blockAddress for why the
@@ -68,7 +66,7 @@ fun PageContextSheet(
             val addressRule = BlockRules.addressRule(address)
             val hostRule = BlockRules.hostRule(address)
             if (addressRule != null || hostRule != null || target.imageUrl != null) {
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                BrowserGroupDivider(modifier = Modifier.padding(vertical = 8.dp))
                 addressRule?.let { rule ->
                     BrowserActionRow(R.drawable.ic_ui_block, stringResource(R.string.context_block_address), rule) { onBlockResource(rule) }
                 }

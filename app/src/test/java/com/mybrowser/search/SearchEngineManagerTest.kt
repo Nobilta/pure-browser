@@ -15,6 +15,13 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SearchEngineManagerTest {
+    @Test fun importRejectsNamesThatCollideAfterTrimming() {
+        val custom = SearchEngine.BING.copy(id = "custom_bing", name = " Bing ", isCustom = true)
+        assertFalse(SearchEngineManager.isValidCustomEngineList(SearchEngineKind.WEB, listOf(custom)))
+        assertFalse(SearchEngineManager.isValidCustomEngineList(SearchEngineKind.WEB,
+            listOf(custom.copy(name = " Site "), custom.copy(id = "custom_site", name = "Site"))))
+    }
+
 
     private lateinit var manager: SearchEngineManager
 

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from hostencoding import ensure_utf8
+from tools.hostencoding import ensure_utf8
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'validation/results'
@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--resume', action='store_true', help='Reuse passed stages only for the same APK and emulator')
     parser.add_argument('--stages', nargs='+', help='Run named stages only; recorded in the suite manifest')
     parser.add_argument('--profile', choices=['fast', 'smoke', 'tabs', 'full'], default='smoke',
-                        help='fast, smoke (default), focused tab lifecycle, or the complete release matrix; --stages overrides it')
+                        help='fast, smoke (default), focused tab lifecycle, or all registered release stages; --stages overrides it')
     parser.add_argument('--cycles', type=int, help='Override menu/settings repeat counts for this run')
     parser.add_argument('--keep-going', action='store_true',
                         help='Run every selected stage and report all failures instead of stopping at the first')
@@ -70,8 +70,13 @@ def main():
             result = old
         else:
             summary.rename(OUT / (prefix + '-suite-' + str(time.time_ns()) + '.json'))
-    scripts = sorted((ROOT / 'validation').glob('*.py')) + sorted((ROOT / 'validation').glob('*.java')) + sorted((ROOT / 'validation').glob('*.html'))
-    test_hash = hashlib.sha256(b''.join(p.name.encode() + b'\0' + p.read_bytes() for p in scripts)).hexdigest()
+    validation = ROOT / 'validation'
+    source_dirs = [validation, *(validation / name for name in ('regressions', 'tools', 'fixtures'))]
+    source_types = {'.py', '.java', '.html', '.js', '.css', '.png', '.mp4', '.mpd', '.m3u8'}
+    scripts = sorted(p for directory in source_dirs for p in directory.iterdir()
+                     if p.is_file() and p.suffix in source_types)
+    test_hash = hashlib.sha256(b''.join(p.relative_to(validation).as_posix().encode() + b'\0' + p.read_bytes()
+                                       for p in scripts)).hexdigest()
     if args.resume:
         assert result.get('testSourcesSha256') == test_hash, 'Test definitions changed; start a new suite'
     result['testSourcesSha256'] = test_hash
@@ -82,10 +87,11 @@ def main():
     upgrade = [('update-launch', 'update-launch-regression.py'),
                ('system-media', 'system-media-regression.py'),
                ('capture', 'capture-regression.py'), ('resources', 'script-resources-regression.py'),
-               ('organization', 'system-upgrade-regression.py'), ('resident', 'resident-regression.py')]
+               ('organization', 'organization-regression.py'), ('resident', 'resident-regression.py')]
     if int(sdk) >= 37:
         upgrade.insert(0, ('profiles', 'profile-cleanup-regression.py'))
     stages = [('media-lifecycle', ['media-lifecycle-regression.py', '--output', str(OUT / (prefix + '-media-lifecycle'))]),
+              ('media-lockscreen', ['lifecycle-boundaries-regression.py', '--section', 'media', '--output', str(OUT / (prefix + '-media-lockscreen'))]),
               ('omnibar', ['omnibar-regression.py', '--output', str(OUT / (prefix + '-omnibar'))]),
               ('private-lifecycle', ['lifecycle-boundaries-regression.py', '--section', 'private', '--output', str(OUT / (prefix + '-private-lifecycle'))]),
               ('download-opening', ['download-opening-regression.py', '--output', str(OUT / (prefix + '-download-opening'))]),
@@ -104,6 +110,11 @@ def main():
               ('blob-download', ['blob-download-regression.py', '--output', str(OUT / (prefix + '-blob-download'))])]
     stages += [(name, [script, '--package', 'com.mybrowser', '--output', str(OUT / (prefix + '-' + name))])
                for name, script in upgrade]
+    additions = ['ftp-hls', 'reader-popup']
+    if int(sdk) >= 33:  # These fixtures switch per-app locales through Android's locale service.
+        additions += ['compact-ui', 'image-search', 'reader-sharing']
+    stages += [(name, [name + '-regression.py', '--output', str(OUT / (prefix + '-' + name))])
+               for name in additions]
     stages += [('site-storage', ['site-storage-regression.py']),
               ('desktop-mode', ['desktop-mode-regression.py']),
               ('menu-navigation', ['menu-navigation-regression.py']),
@@ -131,11 +142,16 @@ def main():
             # The fastest useful gate: address bar, normal/private tab lifecycle and settings.
             'fast': {'omnibar', 'resident', 'settings'},
             'smoke': {'omnibar', 'resident', 'browser', 'features-dialogs'},
-            'tabs': {'resident', 'media-lifecycle', 'private-lifecycle', 'menu-navigation', 'video-popup', 'video-popup-cross'},
+            'tabs': {'resident', 'media-lifecycle', 'media-lockscreen', 'private-lifecycle', 'menu-navigation', 'video-popup', 'video-popup-cross'},
         }
         stages = [(name, command) for name, command in stages if name in profiles[args.profile]]
     if shard:
         stages = [(name, command) for index, (name, command) in enumerate(stages) if index % shard[1] == shard[0] - 1]
+    # Compact selection checks use the completed FTP download. A single stage or shard
+    # can start on a fresh emulator, so include its fixture stage on the same device.
+    names = {name for name, _ in stages}
+    if 'compact-ui' in names and 'ftp-hls' not in names:
+        stages.insert(0, ('ftp-hls', ['ftp-hls-regression.py', '--output', str(OUT / (prefix + '-ftp-hls'))]))
     selected = [name for name, _ in stages]
     if args.resume:
         assert result.get('selectedStages', selected) == selected, 'Cannot resume with a different regression scope'
@@ -164,7 +180,7 @@ def main():
                 result['priorAttempts'].append(old)
                 result['stages'].remove(old)
         log = OUT / (prefix + '-' + name + '-' + str(time.time_ns()) + '.log')
-        command = [sys.executable, str(ROOT / 'validation' / arguments[0]), *arguments[1:]]
+        command = [sys.executable, str(ROOT / 'validation' / ('tools' if arguments[0] == 'emulator-ux.py' else 'regressions') / arguments[0]), *arguments[1:]]
         if name == 'menu-navigation':
             command += ['--cycles', str(menu_cycles)]
         elif name == 'settings-back':

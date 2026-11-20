@@ -2,7 +2,13 @@ package com.mybrowser.data
 
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+// BookmarkHtml loads the URL JNI library; use the same sandbox as its parser tests.
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = android.app.Application::class)
 class BookmarkHtmlTest {
     @Test
     fun `capped export drops rows instead of failing`() {

@@ -13,6 +13,27 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadSettingsTest {
+    @Test fun aWritableDirectoryRemainsSelectableWhenSystemDownloadsIsTheDefault() {
+        val tree = android.net.Uri.parse("content://provider/tree/primary%3AFilms")
+        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        context.contentResolver.takePersistableUriPermission(tree, flags)
+        repository.useCustomDirectory(tree, "Films")
+        val settings = repository.useSystemDownloads()
+        assertEquals(DownloadDestinationMode.SYSTEM_DOWNLOADS, settings.destinationMode)
+        assertEquals(tree.toString(), settings.customTreeUri)
+        assertEquals(tree.toString(), DownloadSettingsRepository(context).load().customTreeUri)
+        context.contentResolver.releasePersistableUriPermission(tree, flags)
+        assertEquals(null, repository.load().customTreeUri)
+        context.contentResolver.takePersistableUriPermission(tree, flags)
+        assertEquals(tree.toString(), repository.load().customTreeUri)
+    }
+
+    @Test fun aRevokedDefaultFallsBackWithoutOfferingTheRevokedDirectory() {
+        repository.useCustomDirectory(android.net.Uri.parse("content://provider/tree/missing"), "Missing")
+        val restored = DownloadSettingsRepository(context).load()
+        assertEquals(DownloadDestinationMode.SYSTEM_DOWNLOADS, restored.destinationMode)
+        assertEquals(null, restored.customTreeUri)
+    }
 
     private lateinit var context: Context
     private lateinit var repository: DownloadSettingsRepository

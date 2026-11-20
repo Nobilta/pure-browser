@@ -274,7 +274,7 @@ internal class DevToolsSession(
                 it.resourceType == ResourceType.IMAGE.ordinal && it.method == "GET" && it.url.substringBefore('#') == target
         } ?: return null
         return image.requestHeaders.firstOrNull { it.name.equals("Referer", true) }?.value
-            ?.takeIf { it.length < DevToolsBudgets.HEADER_VALUE_CHARS }.orEmpty()
+            .orEmpty().takeIf { it.length < DevToolsBudgets.HEADER_VALUE_CHARS }
     }
 
     fun recordNativeRequest(

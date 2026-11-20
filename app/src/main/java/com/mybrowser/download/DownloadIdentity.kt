@@ -37,22 +37,19 @@ sealed interface DownloadIdentity {
     val cookiePolicy: CookiePolicy
 
     /**
-     * Whether the persisted record keeps the download URL in full, and the page it was started
-     * from. A private session's URL and referer routinely carry tokens in their query strings, so
-     * only the part identifying the file is written — the session ends, the record does not.
+     * Whether the persisted record keeps the download URL and the page it was started from.
+     * A private record keeps neither: the session ends, the record does not, and an address left
+     * on disk is a trace even without its query. A page-file record is the exception — its
+     * placeholder is what keeps the record recognisable after a restart.
      */
     val persistSourceUrl: Boolean
 
     /**
-     * Whether finishing the task posts a completion notification.
+     * Whether a notification may name the file.
      *
-     * Separate from [showsFilenameInNotification] because they answer different questions: a later
-     * identity could announce a task without naming it. Both are false today for the same reason —
-     * a notification outlives the session that caused it and is readable from the lock screen.
+     * Both modes announce a finished download, but a private task's notification outlives the
+     * session that caused it and is readable from the lock screen, so it stays generic there.
      */
-    val notifyOnCompletion: Boolean
-
-    /** Whether a running transfer may name its file in the shared notification. */
     val showsFilenameInNotification: Boolean
 
     /** Whether a task interrupted by a process exit is resumed on the next launch. */
@@ -63,9 +60,9 @@ sealed interface DownloadIdentity {
      * now.
      *
      * A private task belongs to the session that created it: resuming it elsewhere would use that
-     * session's cookies and, because the persisted URL has no query, the wrong address. Any other
-     * session therefore refuses, including ordinary browsing, which is also what a record written
-     * before scopes existed compares against.
+     * session's cookies and, because a private record keeps no address, no fetchable location.
+     * Any other session therefore refuses, including ordinary browsing, which is also what a
+     * record written before scopes existed compares against.
      */
     fun canResumeIn(current: DownloadIdentity): Boolean
 
@@ -74,7 +71,6 @@ sealed interface DownloadIdentity {
         override val isPrivate = false
         override val cookiePolicy = CookiePolicy.READ_FROM_COOKIE_JAR
         override val persistSourceUrl = true
-        override val notifyOnCompletion = true
         override val showsFilenameInNotification = true
         override val resumesAfterRestart = true
         override fun canResumeIn(current: DownloadIdentity) = true
@@ -85,13 +81,12 @@ sealed interface DownloadIdentity {
      *
      * [scope] is empty only for a record migrated from a build that did not record one; no live
      * session can hold that value, so such a task is viewable and deletable but never resumed —
-     * its session's cookies are gone and its persisted URL no longer carries the query.
+     * its session's cookies and its address are both gone.
      */
     data class PrivateSession(val scope: String) : DownloadIdentity {
         override val isPrivate = true
         override val cookiePolicy = CookiePolicy.SESSION_ONLY
         override val persistSourceUrl = false
-        override val notifyOnCompletion = false
         override val showsFilenameInNotification = false
         override val resumesAfterRestart = false
 

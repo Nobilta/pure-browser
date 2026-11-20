@@ -8,6 +8,7 @@
 set -euo pipefail
 RELEASE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$RELEASE_ROOT"
+release_python="${PYTHON:-python3}"
 
 : "${GITEE_TOKEN:?Set GITEE_TOKEN to a Gitee personal access token with projects scope}"
 GITEE_REPO="${GITEE_REPO:-Nobilta/pure-browser}"
@@ -16,7 +17,7 @@ STATE_DIR="${TMPDIR:-/tmp}/pure-browser-release"
 mkdir -p "$STATE_DIR"
 
 package_info() {
-    python3 -c 'import json,sys; print(json.load(open("outputs/release/package-info.json"))[sys.argv[1]])' "$1"
+    "$release_python" -c 'import json,sys; print(json.load(open("outputs/release/package-info.json"))[sys.argv[1]])' "$1"
 }
 TAG="$(package_info tag)"
 APK="$(package_info apk)"
@@ -24,8 +25,16 @@ NOTES="$(package_info releaseNotes)"
 [[ -f "$APK" ]] || { echo "APK not found: $APK" >&2; exit 1; }
 [[ -f "$NOTES" ]] || { echo "Release notes not found: $NOTES" >&2; exit 1; }
 
+"$release_python" release/prepare.py --verify-prepared --apk "$APK" --output outputs/release
+
 lookup_code="$(curl -sS -o "$STATE_DIR/release.json" -w '%{http_code}' \
     -G "$API/releases/tags/$TAG" --data-urlencode "access_token=$GITEE_TOKEN")"
+
+# Gitee returns HTTP 200 with JSON null when the tag has no release.
+if [[ "$lookup_code" == 200 ]]; then
+    lookup_missing="$("$release_python" -c 'import json,sys; print(json.load(open(sys.argv[1])) is None)' "$STATE_DIR/release.json")"
+    [[ "$lookup_missing" != True ]] || lookup_code=404
+fi
 
 if [[ "$lookup_code" == 200 ]]; then
     echo "Gitee release $TAG already exists"
@@ -45,11 +54,11 @@ else
     exit 1
 fi
 
-release_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$STATE_DIR/release.json")"
+release_id="$("$release_python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$STATE_DIR/release.json")"
 
 curl -sS -o "$STATE_DIR/release.json" -G "$API/releases/$release_id" \
     --data-urlencode "access_token=$GITEE_TOKEN"
-python3 -c 'import json,sys; [print(a["name"]) for a in json.load(open(sys.argv[1])).get("assets", [])]' \
+"$release_python" -c 'import json,sys; [print(a["name"]) for a in json.load(open(sys.argv[1])).get("assets", [])]' \
     "$STATE_DIR/release.json" > "$STATE_DIR/assets.txt"
 
 upload() {
