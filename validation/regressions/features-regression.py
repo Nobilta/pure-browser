@@ -165,12 +165,13 @@ class Regression:
                 time.sleep(.5)
         raise AssertionError("Card action missing: " + label + " / " + action)
 
-    def input(self, index, text):
+    def input(self, index, text, masked=False):
         fields = [n for n in ux.nodes()[0].iter("node") if n.get("class") == "android.widget.EditText" and ux.visible(n)]
         self.click(fields[index])
         ux.adb("shell", "env", "CLASSPATH=" + ux.UI_PROBE, "app_process", "-Xusejit:false", "/system/bin",
                "com.mybrowser.validation.FastUiDump", "setText", base64.b64encode(text.encode()).decode())
-        assert any(n.get("class") == "android.widget.EditText" and n.get("text") == text
+        displayed = "•" * len(text) if masked else text
+        assert any(n.get("class") == "android.widget.EditText" and n.get("text") == displayed
                    for n in ux.nodes()[0].iter("node")), "Text input was not entered completely"
 
     def confirm_delete(self):
@@ -494,7 +495,7 @@ class Regression:
         ux.launch(self.base + "__auth")
         ux.expect("需要身份验证")
         self.input(0, "test")
-        self.input(1, "pure")
+        self.input(1, "pure", masked=True)
         self.snapshot("md3-http-auth")
         self.back()
         ux.tap("登录")
