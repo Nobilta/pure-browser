@@ -213,7 +213,9 @@ fun Omnibar(
                 ) { editing ->
                     if (!editing) {
                         val host = currentUrl?.let(UrlUtils::hostOf).orEmpty()
-                        val label = displayTitle.ifBlank {
+                        val label = if (com.mybrowser.text.LocalHtmlDocument.isLocalUrl(currentUrl))
+                            stringResource(R.string.local_html_file) + " · " + com.mybrowser.text.LocalHtmlDocument.displayName(currentUrl.orEmpty())
+                        else displayTitle.ifBlank {
                             host.ifBlank { stringResource(R.string.omnibar_hint) }
                         }
                         Box(

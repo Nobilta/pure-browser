@@ -44,6 +44,7 @@ import com.mybrowser.R
 import com.mybrowser.dlna.DlnaDevice
 import com.mybrowser.media.MediaSniffer
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.browserSheetDismiss
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
 
@@ -207,7 +208,7 @@ fun CastSheet(
 @Composable
 private fun CastContainer(embedded: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
     if (embedded) content() else BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
-        BrowserSheetHeader(stringResource(R.string.menu_cast), onBack = onDismiss)
+        BrowserSheetHeader(stringResource(R.string.menu_cast), onBack = browserSheetDismiss())
         Box(Modifier.weight(1f, fill = false)) { content() }
     }
 }

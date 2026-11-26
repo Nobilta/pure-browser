@@ -96,6 +96,7 @@ object DeviceDescription {
         }
 
         var friendlyName = ""
+        var urlBase: String? = null
         var manufacturer: String? = null
         var avTransportPath: String? = null
         var renderingControlPath: String? = null
@@ -112,6 +113,9 @@ object DeviceDescription {
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
                 XmlPullParser.START_TAG -> when (parser.name.lowercase()) {
+                    "urlbase" -> if (parser.depth == 2) {
+                        urlBase = parser.nextText().trim().takeIf { it.isNotEmpty() }
+                    }
                     "service" -> {
                         inService = true
                         serviceType = null
@@ -150,12 +154,13 @@ object DeviceDescription {
         }
 
         val control = avTransportPath ?: return null
+        val base = urlBase?.let { absolute(reply.location, it) } ?: reply.location
         return DlnaDevice(
             usn = reply.usn,
             friendlyName = friendlyName,
             manufacturer = manufacturer,
-            controlUrl = absolute(reply.location, control) ?: return null,
-            renderingControlUrl = renderingControlPath?.let { absolute(reply.location, it) },
+            controlUrl = absolute(base, control) ?: return null,
+            renderingControlUrl = renderingControlPath?.let { absolute(base, it) },
             avTransportServiceType = avTransportType,
             renderingServiceType = renderingType,
         )

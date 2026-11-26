@@ -116,7 +116,7 @@ fun BrowserListItem(
         onLongClick != null -> shaped.combinedClickable(
             interactionSource = interaction,
             indication = ripple(),
-            role = role,
+            role = role ?: Role.Button,
             onClick = onClick,
             onLongClick = onLongClick,
         )
@@ -124,7 +124,7 @@ fun BrowserListItem(
             interactionSource = interaction,
             indication = ripple(),
             enabled = true,
-            role = role,
+            role = role ?: Role.Button,
             onClick = onClick,
         )
     }

@@ -9,24 +9,57 @@ import java.nio.charset.CodingErrorAction
  *
  * Chrome/WebView already renders an HTTP `text/plain` response; this is only for local
  * content URIs, where there is no server charset. The order is BOM, then UTF-8, then
- * GB18030 (the common Chinese fallback), then Latin-1, which cannot fail.
+ * GB18030 (the common Chinese fallback), then Latin-1, which cannot fail. HTML checks
+ * its declared charset after the BOM.
  */
 internal object TextDecoder {
     private val UTF8 = Charsets.UTF_8
     private val GB18030 = Charset.forName("GB18030")
     private val LATIN1 = Charsets.ISO_8859_1
 
-    fun decode(bytes: ByteArray): String {
+    fun decode(bytes: ByteArray, html: Boolean = false): String {
         if (bytes.isEmpty()) return ""
         val bom = bom(bytes)
+        val declared = if (html && bom == null) htmlCharset(bytes) else null
         val raw = when {
             bom != null -> decode(bytes, bom.first, bom.second, bytes.size)
+            declared != null -> lenient(bytes, declared)
             else -> strict(bytes, UTF8) ?: strict(bytes, GB18030) ?: lenient(bytes, LATIN1)
         }
         return raw
             .removePrefix("\uFEFF")
             .replace("\r\n", "\n")
             .replace('\r', '\n')
+    }
+
+    /** HTML prescans the first 1024 bytes; a BOM takes precedence over meta declarations. */
+    private fun htmlCharset(bytes: ByteArray): Charset? {
+        val head = String(bytes, 0, minOf(bytes.size, 1024), LATIN1)
+        // Consume comments and quoted attributes as a whole so their text is not another tag.
+        val tags = Regex("""<!--.*?(?:-->|$)|<([a-z][^\s/>]*)(?=[\s/>])((?:"[^"]*"|'[^']*'|[^'">])*)>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val attribute = Regex("""([^\s/=<>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?""")
+        for (tag in tags.findAll(head)) {
+            if (!tag.groupValues[1].equals("meta", ignoreCase = true)) continue
+            val attributes = HashMap<String, String>()
+            for (match in attribute.findAll(tag.groupValues[2])) {
+                attributes.putIfAbsent(match.groupValues[1].lowercase(),
+                    match.groups[2]?.value ?: match.groups[3]?.value ?: match.groups[4]?.value.orEmpty())
+            }
+            val label = attributes["charset"] ?: attributes["content"]
+                ?.takeIf { attributes["http-equiv"].equals("content-type", ignoreCase = true) }
+                ?.let { Regex("charset\\s*=\\s*['\"]?([^\\s'\";/>]+)", RegexOption.IGNORE_CASE)
+                    .find(it)?.groupValues?.get(1) } ?: continue
+            val name = when (label.trim().lowercase()) {
+                "gb2312", "gbk" -> "GB18030"
+                "iso-8859-1", "latin1", "us-ascii" -> "windows-1252"
+                "utf-16", "utf-16le", "utf-16be" -> "UTF-8"
+                else -> label.trim()
+            }
+            try { return Charset.forName(name) }
+            catch (_: IllegalArgumentException) { /* Unsupported declarations use normal detection. */ }
+        }
+        return null
     }
 
     /** BOM bytes plus the charset they announce. */

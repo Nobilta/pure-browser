@@ -23,6 +23,7 @@ import com.mybrowser.devtools.DevToolsSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.localizedResources
 
@@ -32,6 +33,7 @@ internal fun NetworkLogTab(
     onClear: () -> Unit,
     onExplain: (NetworkRequestLog) -> Unit,
     session: DevToolsSession?,
+    header: @Composable () -> Unit = {},
 ) {
     val resources = localizedResources()
     var query by rememberSaveable { mutableStateOf("") }
@@ -76,9 +78,15 @@ internal fun NetworkLogTab(
         )
         return
     }
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-            DevToolsSearchField(query, stringResource(R.string.dev_network_search)) { query = it }
+    DevToolsPage(controls = {
+        header()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                DevToolsSearchField(query, stringResource(R.string.dev_network_search)) { query = it }
+            }
+            BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.ui_clear), entries.isNotEmpty()) {
+                selectedId = null; onClear()
+            }
         }
         LazyRow(Modifier.selectableGroup(), contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -99,18 +107,18 @@ internal fun NetworkLogTab(
                     }
                 }
             }
-            BrowserActionPill(stringResource(R.string.ui_clear), { selectedId = null; onClear() }, enabled = entries.isNotEmpty())
+            Text(stringResource(R.string.dev_network_count, filtered.size, entries.size),
+                Modifier.align(Alignment.CenterVertically),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(stringResource(R.string.dev_network_count, filtered.size, entries.size),
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }) {
         if (filtered.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(stringResource(if (entries.isEmpty()) R.string.ui_no_requests_yet_open_or_refresh_a_page else R.string.library_no_results),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState,
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp)) {
+            contentPadding = PaddingValues(bottom = 16.dp)) {
             items(filtered, key = { it.id }, contentType = { "request" }) { request ->
-                NetworkRequestItem(request, onExplain) { selectedId = request.id }
+                NetworkRequestItem(request) { selectedId = request.id }
             }
         }
     }

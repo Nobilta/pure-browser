@@ -52,4 +52,16 @@ class PlainTextLoaderTest {
         assertEquals(TextContent.Failed(R.string.plain_text_open_failed),
             PlainTextLoader.load(RuntimeEnvironment.getApplication(), Uri.parse("file:///sample.txt")))
     }
+
+    @Test fun longNamesRetainTheirExtensionForPreviewDetection() {
+        val context = RuntimeEnvironment.getApplication()
+        for ((extension, format) in listOf("md" to TextFormat.MARKDOWN, "json" to TextFormat.JSON, "xml" to TextFormat.XML)) {
+            val name = "a".repeat(120) + "." + extension
+            val uri = Uri.parse("content://text.test/$name")
+            shadowOf(context.contentResolver).registerInputStream(uri, ByteArrayInputStream("text".toByteArray()))
+            val content = PlainTextLoader.load(context, uri, "text/plain") as TextContent.Ready
+            assertEquals(format, content.format)
+            assertEquals(name.take(120), content.title)
+        }
+    }
 }

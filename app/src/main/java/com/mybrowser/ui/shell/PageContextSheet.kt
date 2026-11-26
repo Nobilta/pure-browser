@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -14,6 +14,7 @@ import com.mybrowser.R
 import com.mybrowser.core.PageContextTarget
 import com.mybrowser.core.UrlUtils
 import com.mybrowser.filter.BlockRules
+import com.mybrowser.text.LocalHtmlDocument
 
 /**
  * What a long press on the page offers.
@@ -37,28 +38,43 @@ fun PageContextSheet(
     onHideHere: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    BrowserBottomSheet(onDismissRequest = onDismiss) {
+    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    BrowserBottomSheet(onDismissRequest = { onDismiss(); pendingAction?.invoke() }) {
+        val dismiss = browserSheetDismiss()
+        fun perform(action: () -> Unit) {
+            if (pendingAction == null) {
+                pendingAction = action
+                dismiss()
+            }
+        }
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             val url = target.linkUrl ?: target.imageUrl.orEmpty()
-            Text(target.title.ifBlank { UrlUtils.hostOf(url).orEmpty() },
+            val local = LocalHtmlDocument.isLocalUrl(url)
+            val displayUrl = if (local) LocalHtmlDocument.displayName(url) else url
+            Text(target.title.takeUnless(LocalHtmlDocument::isLocalUrl).orEmpty()
+                .ifBlank { if (local) displayUrl else UrlUtils.hostOf(url).orEmpty() },
                 style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            Text(url, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            Text(displayUrl, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
             target.linkUrl?.let { link ->
-                BrowserActionRow(R.drawable.ic_ui_add, stringResource(R.string.context_open_new_tab)) { onOpen(link, false) }
-                BrowserActionRow(R.drawable.ic_ui_tabs, stringResource(R.string.context_open_background)) { onOpen(link, true) }
-                BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_link)) { onCopy(link) }
-                BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_link)) { onShare(link) }
+                BrowserActionRow(R.drawable.ic_ui_add, stringResource(R.string.context_open_new_tab)) { perform { onOpen(link, false) } }
+                BrowserActionRow(R.drawable.ic_ui_tabs, stringResource(R.string.context_open_background)) { perform { onOpen(link, true) } }
+                if (!LocalHtmlDocument.isLocalUrl(link)) {
+                    BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_link)) { perform { onCopy(link) } }
+                }
+                BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_link)) { perform { onShare(link) } }
             }
             target.imageUrl?.let { image ->
                 if (target.linkUrl != null) BrowserGroupDivider(modifier = Modifier.padding(vertical = 8.dp))
-                BrowserActionRow(R.drawable.ic_ui_open_in_new, stringResource(R.string.context_open_image)) { onOpen(image, false) }
-                BrowserActionRow(R.drawable.ic_ui_download, stringResource(R.string.context_save_image)) { onSaveImage(image) }
-                BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_image)) { onShareImage(image) }
-                BrowserActionRow(R.drawable.ic_ui_search, stringResource(R.string.context_search_image)) { onSearchImage(image) }
-                BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_image_link)) { onCopy(image) }
+                BrowserActionRow(R.drawable.ic_ui_open_in_new, stringResource(R.string.context_open_image)) { perform { onOpen(image, false) } }
+                BrowserActionRow(R.drawable.ic_ui_download, stringResource(R.string.context_save_image)) { perform { onSaveImage(image) } }
+                BrowserActionRow(R.drawable.ic_ui_share, stringResource(R.string.context_share_image)) { perform { onShareImage(image) } }
+                if (!LocalHtmlDocument.isLocalUrl(image)) {
+                    BrowserActionRow(R.drawable.ic_ui_search, stringResource(R.string.context_search_image)) { perform { onSearchImage(image) } }
+                    BrowserActionRow(R.drawable.ic_ui_copy, stringResource(R.string.context_copy_image_link)) { perform { onCopy(image) } }
+                }
             }
             // One address, so one set of block rows: see PageContextTarget.blockAddress for why the
             // image wins when the press was on one that is also a link.
@@ -68,13 +84,13 @@ fun PageContextSheet(
             if (addressRule != null || hostRule != null || target.imageUrl != null) {
                 BrowserGroupDivider(modifier = Modifier.padding(vertical = 8.dp))
                 addressRule?.let { rule ->
-                    BrowserActionRow(R.drawable.ic_ui_block, stringResource(R.string.context_block_address), rule) { onBlockResource(rule) }
+                    BrowserActionRow(R.drawable.ic_ui_block, stringResource(R.string.context_block_address), rule) { perform { onBlockResource(rule) } }
                 }
                 hostRule?.let { rule ->
-                    BrowserActionRow(R.drawable.ic_ui_shield, stringResource(R.string.context_block_host), rule) { onBlockHost(rule) }
+                    BrowserActionRow(R.drawable.ic_ui_shield, stringResource(R.string.context_block_host), rule) { perform { onBlockHost(rule) } }
                 }
                 target.imageUrl?.let { image ->
-                    BrowserActionRow(R.drawable.ic_ui_close, stringResource(R.string.context_hide_this_page), resourceName(image)) { onHideHere(image) }
+                    BrowserActionRow(R.drawable.ic_ui_close, stringResource(R.string.context_hide_this_page), resourceName(image)) { perform { onHideHere(image) } }
                 }
             }
         }

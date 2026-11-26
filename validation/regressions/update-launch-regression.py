@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Launch-time update prompt: it must be offered once per process and survive a rebuild.
+"""Launch update offers survive Activity recreation and return in a new browser session.
 
-Needs a rooted AVD (the dedicated emulator images allow `adb root`). The check seeds the app's
-cached release manifest, so it never downloads anything, and it restores the manifest cache, the
-night-mode setting and the app process afterwards. The fake release is never downloaded or
-installed: the check stops at the prompt.
-
-Why it exists: the offer used to live in Activity state with the request in the Activity's
-lifecycleScope, so a configuration change cancelled the check or dropped an unanswered offer
-while the process-level claim stayed consumed — the prompt disappeared for the rest of the
-process. Run this stage through validation/run-regressions.py; see docs/testing.md.
+Needs a rooted dedicated AVD, startup update checks enabled, and a reachable published release
+newer than the installed APK. No manifest cache or fake production entry point is used. The test
+stops at the offer and never downloads or installs a release. With no newer published release,
+this stage cannot exercise the prompt and fails with an explicit prerequisite message.
+Run through validation/run-regressions.py; see docs/testing.md.
 """
 import argparse
 import importlib.util
@@ -25,8 +21,6 @@ spec.loader.exec_module(ux)
 
 PACKAGE = 'com.mybrowser'
 PREFS = '/data/data/%s/shared_prefs/app_updates.xml' % PACKAGE
-NEW_VERSION_CODE = 999_999
-NEW_VERSION_NAME = '9.9.9'
 
 
 def main():
@@ -102,25 +96,15 @@ def main():
         if shell('ls', PREFS, tolerate_failure=True).strip() == PREFS:
             original_prefs = shell('cat', PREFS)
 
-        manifest = json.dumps({
-            'schemaVersion': 1, 'channel': 'stable', 'packageName': PACKAGE,
-            'versionCode': NEW_VERSION_CODE, 'versionName': NEW_VERSION_NAME, 'minSdk': 29,
-            'releaseNotes': 'Fixture release used by update-launch-regression.',
-            'artifacts': [{'abi': 'arm64-v8a', 'assetName': 'PureBrowser-v%s-release.apk' % NEW_VERSION_NAME,
-                           'size': 1024, 'sha256': '0' * 64}],
-        }, separators=(',', ':'))
         shell('am', 'force-stop', PACKAGE)
-        write_prefs('<?xml version=\'1.0\' encoding=\'utf-8\' standalone=\'yes\' ?>\n<map>\n'
-                    '    <long name="checked_at" value="%d" />\n'
-                    '    <string name="source">GITEE</string>\n'
-                    '    <string name="manifest">%s</string>\n</map>\n'
-                    % (int(time.time() * 1000), manifest), 'app_updates.xml')
+        write_prefs("<?xml version='1.0' encoding='utf-8'?><map />", 'app_updates.xml')
 
         shell('am', 'start', '-W', '-n', PACKAGE + '/.MainActivity')
-        assert wait_for_prompt(), 'The launch check did not offer the cached release'
+        assert wait_for_prompt(60), ('No startup offer: this stage requires startup checks enabled and a reachable '
+                                     'published release newer than the installed APK; prompt lifecycle was not exercised')
         pid_before = process_id()
         (args.output / 'before.xml').write_text(ux.nodes()[1], encoding="utf-8")
-        record('the process offers the update it finds in the cached manifest')
+        record('the session offers the update returned by a fresh network check')
 
         # A configuration change rebuilds the Activity in the same process; the offer must not be
         # cancelled or dropped with it.
@@ -145,19 +129,29 @@ def main():
             'The process was replaced instead of rebuilt: before=%s after=%s' % (pid_before, pid_after)
         assert survived, 'The update offer disappeared after the configuration rebuild'
         record('the offer survives a configuration rebuild in the same process')
+        ux.tap('Close')
+        shell('cmd', 'uimode', 'night', night)
+        time.sleep(2)
+        assert not prompt_present(), 'An answered offer was shown again after Activity recreation'
+        record('an answered offer stays dismissed across recreation')
+        # The menu exit finishes the Activity without killing its process.
+        ux.menu_item('Exit')
+        shell('am', 'start', '-W', '-n', PACKAGE + '/.MainActivity')
+        assert process_id() == pid_before, 'Reopening replaced the process; session reset was not exercised'
+        assert wait_for_prompt(60), 'Reopening the browser did not check and offer the release again'
+        record('a new window checks again in the same process')
         (args.output / 'result.json').write_text(json.dumps({
             'checks': checks, 'passed': True, 'promptBefore': True, 'promptAfter': survived,
             'pidBefore': pid_before, 'pidAfter': pid_after, 'sameProcess': pid_before == pid_after,
-            'fakeVersion': NEW_VERSION_NAME,
         }, indent=2), encoding="utf-8")
     finally:
+        shell('am', 'force-stop', PACKAGE, tolerate_failure=True)
         if rooted:
             shell('cmd', 'uimode', 'night', original_night, tolerate_failure=True)
             if original_prefs is not None:
                 write_prefs(original_prefs, 'app_updates-original.xml')
             else:
                 shell('rm', '-f', PREFS, tolerate_failure=True)
-        shell('am', 'force-stop', PACKAGE, tolerate_failure=True)
         (args.output / 'last-screen.png').write_bytes(
             subprocess.check_output(ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20))
 

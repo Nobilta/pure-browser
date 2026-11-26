@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import sys
 import subprocess
 import time
 
@@ -16,13 +17,14 @@ spec.loader.exec_module(ux)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--serial', required=True)
 parser.add_argument('--package', default='com.mybrowser')
+parser.add_argument('--layout-only', action='store_true', help='Only check 320dp/200% and landscape layouts')
 parser.add_argument('--port', type=int, default=8875, help='Local static fixture server port')
 args = parser.parse_args()
 assert args.serial.startswith('emulator-'), 'Use a local test emulator'
 ux.ADB = ['adb', '-s', args.serial]
 ux.PACKAGE = args.package
 sdk = ux.adb('shell', 'getprop', 'ro.build.version.sdk')
-stem = ROOT / 'results' / ('api' + sdk + '-devtools')
+stem = ROOT / 'results' / ('api' + sdk + '-devtools' + ('-layout' if args.layout_only else ''))
 apk = ux.adb('shell', 'pm', 'path', ux.PACKAGE).partition(':')[2].strip()
 result = {'serial': args.serial, 'sdk': sdk,
           'apkSha256': ux.adb('shell', 'sha256sum', apk).split()[0], 'checks': [], 'error': None}
@@ -53,9 +55,15 @@ def snapshot(name):
     return struct.unpack('>II', png[16:24])
 
 
+def labelled_field(node, resource):
+    # Compose can expose the label on a semantic child of the editable node.
+    return (ux.visible(node) and node.get('class') == 'android.widget.EditText' and
+            any(child.get('content-desc') in ux.resource_labels(resource) for child in node.iter()))
+
+
 def enter(command):
     root, _ = ux.nodes()
-    field = next(n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText')
+    field = next(n for n in root.iter('node') if labelled_field(n, 'ui_enter_a_javascript_command'))
     x1, y1, x2, y2 = ux.bounds(field)
     ux.adb('shell', 'input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     # `input text` goes through the device shell, which ends the argument at the first
@@ -69,7 +77,7 @@ def enter(command):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass  # An old ART helper can fail while shutting down after the edit already landed.
         if any(n.get('text') == command for n in ux.nodes()[0].iter('node')
-               if n.get('class') == 'android.widget.EditText'):
+               if labelled_field(n, 'ui_enter_a_javascript_command')):
             time.sleep(.3)
             return
         time.sleep(.25)
@@ -86,14 +94,24 @@ def copy_console_entry(fragment):
     node = next(node for node in root.iter('node') if ux.visible(node)
                 and node.get('class') == 'android.widget.TextView' and fragment in node.get('text', ''))
     expected = node.get('text')
+    # A webpage log selects body and its secondary metadata as one entry.
+    if fragment == 'pure-audit-hidden':
+        parent = {child: owner for owner in root.iter('node') for child in owner}
+        owner = parent[node]
+        expected = '\n'.join(n.get('text') for n in owner.iter('node') if n.get('text'))
     x1, y1, x2, y2 = ux.bounds(node)
     x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
     ux.adb('shell', 'input', 'swipe', x, y, x, y, '1200')
     # Android's floating text toolbar is a separate accessibility window.
     for label in ('Select all', 'Copy'):
-        root, _ = ux.window_nodes()
-        action = ux.match(root, label)
-        assert action is not None, 'Text selection action missing: ' + label
+        deadline = time.monotonic() + 20
+        while True:
+            root, _ = ux.window_nodes()
+            action = ux.match(root, label)
+            if action is not None:
+                break
+            assert time.monotonic() < deadline, 'Text selection action missing: ' + label
+            time.sleep(.2)
         ux.tap_node(action)
         time.sleep(.3)
     # Dismiss the system clipboard preview outside the bottom input area.
@@ -101,8 +119,7 @@ def copy_console_entry(fragment):
     enter('')
     ux.adb('shell', 'input', 'keyevent', '279')  # Paste into the visible console field.
     root, _ = ux.nodes()
-    field = next(node for node in root.iter('node') if ux.visible(node)
-                 and node.get('class') == 'android.widget.EditText')
+    field = next(node for node in root.iter('node') if labelled_field(node, 'ui_enter_a_javascript_command'))
     assert field.get('text') == expected, 'Clipboard does not match the complete console entry'
     enter('')
     back()
@@ -137,7 +154,68 @@ def orient(rotation):
     raise AssertionError('System did not apply requested display rotation: ' + rotation)
 
 
+def choose_tab(label):
+    for _ in range(5):
+        root, _ = ux.nodes()
+        if ux.match(root, label) is not None:
+            ux.tap(label)
+            return
+        anchor = next(n for n in root.iter('node') if ux.visible(n) and n.get('text') in ('Console', 'Network', 'Elements', 'Storage'))
+        left, top, right, bottom = ux.bounds(anchor)
+        width = int(ux.adb('shell', 'wm', 'size').split()[-1].split('x')[0])
+        ux.adb('shell', 'input', 'swipe', str(width - 30), str((top + bottom) // 2), '30', str((top + bottom) // 2), '300')
+    raise AssertionError('Tab inaccessible: ' + label)
+
+
+def compact_layout_checks():
+    font = ux.adb('shell', 'settings', 'get', 'system', 'font_scale')
+    try:
+        orient('0')
+        ux.adb('shell', 'wm', 'size', '960x1600')
+        ux.adb('shell', 'wm', 'density', '480')
+        ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '2.0')
+        ux.adb('shell', 'cmd', 'uimode', 'night', 'yes')
+        ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
+        ux.launch(f'http://127.0.0.1:{args.port}/browser-ux.html')
+        open_devtools()
+        snapshot('compact-dark-console')
+        choose_tab('Network')
+        wait_text('browser-ux.html')
+        ux.tap('browser-ux.html')
+        ux.expect('Developer tools', present=False)
+        ux.expect('Request details')
+        snapshot('compact-dark-network-detail')
+        ux.tap('Back')
+        choose_tab('Elements')
+        ux.expect('Enable and reload')
+        snapshot('compact-dark-elements-guide')
+        ux.tap('Enable and reload')
+        # The half-height controls can scroll independently from the DOM content.
+        wait_text('<html')
+        snapshot('compact-dark-dom')
+        record('320dp at 200% text in dark mode keeps root content, capture action and one detail header accessible')
+        orient('1')
+        root, _ = ux.nodes()
+        controls = next(n for n in root.iter('node') if n.get('scrollable') == 'true' and ux.match(n, 'Developer tools') is not None)
+        left, top, right, bottom = ux.bounds(controls)
+        x = str((left + right) // 2)
+        ux.adb('shell', 'input', 'swipe', x, str(bottom - 12), x, str(top + 12), '450')
+        ux.expect('Inspect element')
+        ux.expect('Refresh DOM')
+        snapshot('compact-dark-landscape-dom')
+        record('Landscape at 200% text keeps DOM actions reachable by scrolling the controls')
+    finally:
+        ux.adb('shell', 'wm', 'size', 'reset')
+        ux.adb('shell', 'wm', 'density', 'reset')
+        ux.adb('shell', 'settings', 'put', 'system', 'font_scale', font if font != 'null' else '1.0')
+        ux.adb('shell', 'cmd', 'uimode', 'night', 'no')
+        orient('0')
+
+
 try:
+    if args.layout_only:
+        compact_layout_checks()
+        sys.exit(0)
     orient('0')
     ux.adb('reverse', f'tcp:{args.port}', f'tcp:{args.port}')
     ux.adb('shell', 'am', 'force-stop', ux.PACKAGE)
@@ -163,7 +241,7 @@ try:
     copy_console_entry('6*7\n42')
     record('console execution results support long-press selection and clipboard copy')
     ux.tap('Elements')
-    ux.expect('Enable capture above to view DOM and source.')
+    ux.expect('Enable capture to view DOM and source.')
     snapshot('elements-guide')
     ux.tap('Storage')
     wait_text('Cookies')
@@ -177,18 +255,38 @@ try:
         ux.expect('Local Storage')
     record('scrolling toward the top repeatedly does not dismiss fullscreen developer tools')
     root, _ = ux.nodes()
-    field = next(n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText')
+    field = next(n for n in root.iter('node') if labelled_field(n, 'dev_storage_search'))
     before = ux.bounds(field)
     ux.tap_node(field)
     time.sleep(.4)
     root, _ = ux.nodes()
-    focused = next(n for n in root.iter('node') if ux.visible(n) and n.get('class') == 'android.widget.EditText')
+    focused = next(n for n in root.iter('node') if labelled_field(n, 'dev_storage_search'))
     assert ux.bounds(focused) == before, 'Search field moved or resized after focus'
     back()
     record('search keeps the same bounds before and after focus')
     ux.tap('Console')
     wait_text('6*7\n42')
     record('elements guide and storage load; console results survive tab changes')
+    enter("for(var i=0;i<30;i++)console.log('scroll-check-'+i)")
+    back()
+    ux.tap('Run')
+    wait_text('scroll-check-29')
+    root, _ = ux.nodes()
+    listing = max((n for n in root.iter('node') if n.get('scrollable') == 'true'), key=lambda n: ux.bounds(n)[3] - ux.bounds(n)[1])
+    left, top, right, bottom = ux.bounds(listing)
+    x = str((left + right) // 2)
+    ux.adb('shell', 'input', 'swipe', x, str(top + (bottom - top) // 4), x, str(bottom - (bottom - top) // 4), '450')
+    time.sleep(.6)
+    def visible_logs():
+        return [n.get('text') for n in ux.nodes()[0].iter('node') if ux.visible(n) and n.get('text', '').startswith('scroll-check-')]
+    before = visible_logs()
+    assert before, 'Log scroll did not reveal page messages'
+    ux.tap('Network')
+    ux.tap('Console')
+    assert visible_logs() == before, 'Returning to Console jumped away from its reading position'
+    record('Console retains its reading position across tool tab changes after command execution')
+
+    ux.tap('Clear')
     enter("setTimeout(()=>console.log('pure-audit-hidden'),4000)")
     back()
     ux.tap('Run')
@@ -216,6 +314,7 @@ try:
         back()
         ux.expect('Developer tools')
         ux.expect('Network')
+        wait_text('10+10\n20')
         if cycle < 2:
             orient('0')
     record('three landscape keyboard cycles keep Run accessible and show the latest result')
@@ -242,6 +341,7 @@ try:
     ux.expect('Pure UX shared Page')
     snapshot('external-shared')
     record('a shared URL closes diagnostics and reveals the shared destination')
+    compact_layout_checks()
 except Exception as error:
     result['error'] = str(error)
     snapshot('failure-' + str(time.time_ns()))

@@ -206,3 +206,18 @@ test('a blank tap with nothing chosen selects nothing and reports nothing', () =
   assert.equal(api.state().depth, 0);
   assert.equal(posts.filter((payload) => payload.type === 'pick').length, 0);
 });
+
+test('inspection highlights the actual node without hiding any match and can inspect body', () => {
+  const { api, events, target, body, nodes } = fixture();
+  api.start({ inspect: true });
+  const event = { cancelable: true, stopPropagation() {}, preventDefault() {},
+    touches: [{ clientX: 5, clientY: 5 }], changedTouches: [{ clientX: 5, clientY: 5 }] };
+  events.touchstart.forEach(handler => handler(event));
+  events.touchend.forEach(handler => handler(event));
+  assert.equal(api.selectedNode(), target);
+  assert.ok(!Object.values(nodes).some(node => (node.textContent || '').includes('display:none!important')));
+  assert.equal(api.step(1), true);
+  assert.equal(api.selectedNode(), body);
+  api.stop();
+  assert.equal(api.selectedNode(), null);
+});

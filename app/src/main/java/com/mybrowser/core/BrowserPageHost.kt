@@ -15,6 +15,7 @@ import com.mybrowser.media.MediaPlaybackTracker
 import com.mybrowser.media.MediaTrackerRegistry
 import com.mybrowser.site.SiteSettings
 import com.mybrowser.site.SiteSettingsRepository
+import com.mybrowser.site.SiteOrigin
 import com.mybrowser.tabs.RecentTabStore
 import com.mybrowser.userscript.UserScriptRuntime
 import com.mybrowser.userscript.UserScriptStore
@@ -31,6 +32,28 @@ internal class BrowserPageHost(
     var readyTabId: String? = null
     val media = MediaTrackerRegistry()
     val devTools = DevToolsController()
+    private val localDocuments = java.util.concurrent.ConcurrentHashMap<WebView, androidx.webkit.WebViewAssetLoader>()
+
+    fun bindLocalDocument(view: WebView, document: com.mybrowser.text.LocalHtmlDocument?) {
+        if (document == null) localDocuments.remove(view)
+        else localDocuments[view] = document.loader(view.context.applicationContext)
+    }
+
+    fun localResponse(view: WebView, request: android.webkit.WebResourceRequest, documentUrl: String): android.webkit.WebResourceResponse? {
+        val uri = request.url
+        if (!com.mybrowser.text.LocalHtmlDocument.isLocalUrl(uri.toString())) return null
+        if (!request.isForMainFrame) {
+            // WebView also intercepts iframe requests, without exposing their initiating frame.
+            // Require a same-origin source; keeping the binding must only enable local pages/Back.
+            val source = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Origin", true) }?.value
+                ?: request.observedReferer().orEmpty()
+            val origin = SiteOrigin.of(uri.toString())
+            if (origin != SiteOrigin.of(documentUrl) || origin != SiteOrigin.of(source)) {
+                return com.mybrowser.text.LocalHtmlDocument.missing()
+            }
+        }
+        return localDocuments[view]?.shouldInterceptRequest(uri) ?: com.mybrowser.text.LocalHtmlDocument.missing()
+    }
 
     data class ParkedPage(val view: WebView, val settings: SiteSettings, val filtering: Boolean)
     val parked = RecentTabStore<ParkedPage> { discard(it.view) }
@@ -78,7 +101,7 @@ internal class BrowserPageHost(
             it.install()
             it.startScript()
         }
-        UserScriptRuntime(view, scripts, scope, isPrivate, isCurrent = { current === view }).also {
+        UserScriptRuntime(view, scripts, scope, isPrivate).also {
             runtime.scripts = it
             it.install()
         }
@@ -146,6 +169,7 @@ internal class BrowserPageHost(
         com.mybrowser.reader.ReaderMode.onPageStarted(view)
         onReleased(view)
         devTools.detach(view)
+        localDocuments.remove(view)
         runtime.scripts?.close()
         runtime.cosmetic?.close()
         media.remove(view)?.close()

@@ -293,6 +293,7 @@ data class StorageSnapshot(
     val nextOffset: Int? = null,
     /** Key-set fingerprint at the time this page was read; detects inserts/removals. */
     val keysToken: String = "",
+    val documentId: Long = 0,
 )
 
 data class StorageValue(

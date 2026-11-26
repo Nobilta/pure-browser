@@ -143,6 +143,33 @@ test('rejected writes restore the previous local value', async () => {
   await assert.rejects(pending, /rejected/);
   assert.equal(api.GM_getValue('count'), 2);
 });
+
+test('page replacements of GM data helpers never receive private storage', async () => {
+  const f = fixture();
+  f.inject({ grants: ['GM_getValue', 'GM_setValue', 'GM_listValues', 'GM_deleteValue'],
+    needsStorage: true, values: '{"credential":"other-site-secret","config":{"items":[1,2]}}' });
+  vm.runInContext(`
+    globalThis.seen = [];
+    for (const [owner, name] of [[Object, 'defineProperty'], [Object, 'keys'],
+        [Array, 'isArray'], [Array.prototype, 'push'], [Promise, 'resolve']]) {
+      const original = owner[name];
+      owner[name] = function (...args) {
+        seen[seen.length] = args[0];
+        return Reflect.apply(original, this, args);
+      };
+    }
+  `, f.context);
+  const api = f.context.apis[0];
+  assert.equal((await api.GM.getValue('config')).items[1], 2);
+  assert.equal((await api.GM.listValues()).length, 2);
+  const write = api.GM.setValue('visits', 1);
+  f.reply(); await write;
+  const deletion = api.GM.deleteValue('credential');
+  f.reply(1, false);
+  await assert.rejects(deletion, /rejected/);
+  assert.equal(api.GM_getValue('credential'), 'other-site-secret');
+  assert.equal(f.context.seen.length, 0);
+});
 test('prototype keys are isolated values and objects are copied on read', async () => {
   const f = fixture();
   f.inject({ grants: ['GM_getValue', 'GM_setValue'], needsStorage: true });
@@ -151,6 +178,28 @@ test('prototype keys are isolated values and objects are copied on read', async 
   const read = api.GM_getValue('__proto__'); read.answer = 0;
   assert.equal(api.GM_getValue('__proto__').answer, 42);
   assert.equal(api.GM_getValue('answer', 'none'), 'none');
+});
+test('async GM reads do not expose private JSON values to prototype then getters', async () => {
+  const f = fixture();
+  f.inject({ grants: ['GM_getValue', 'GM_listValues'], needsStorage: true,
+    values: '{"config":{"secret":"keep"},"list":["private"],"explicit":{"then":"stored"}}' });
+  vm.runInContext(`
+    globalThis.seen = [];
+    Object.defineProperty(Object.prototype, 'then', { configurable: true, get() {
+      seen[seen.length] = this;
+      return undefined;
+    } });
+  `, f.context);
+  const api = f.context.apis[0];
+  assert.equal((await api.GM.getValue('config')).secret, 'keep');
+  assert.equal((await api.GM.getValue('list'))[0], 'private');
+  assert.deepEqual(Array.from(await api.GM.listValues()), ['config', 'list', 'explicit']);
+  assert.equal((await api.GM.getValue('explicit')).then, 'stored');
+  assert.equal(f.context.seen.length, 0);
+  assert.equal(JSON.stringify(await api.GM.getValue('config')), '{"secret":"keep"}');
+  assert.deepEqual(Object.keys(await api.GM.getValue('config')), ['secret']);
+  assert.equal(Object.hasOwn(api.GM_getValue('config'), 'then'), false);
+  assert.equal(await api.GM.getValue('missing', { then(resolve) { resolve('fallback'); } }), 'fallback');
 });
 test('delete is acknowledged and missing values return defaults', async () => {
   const f = fixture();

@@ -308,8 +308,18 @@ class Regression:
         ux.tap('导出书签')
         name = 'pure-capability-bookmarks-api' + self.sdk + '-' + str(time.time_ns()) + '.html'
         self.downloads_directory()
-        self.enter_text(name)
-        ux.tap('Save')
+        old_font = ux.adb('shell', 'settings', 'get', 'system', 'font_scale')
+        try:
+            # Recreate the background browser while the system document picker owns the result.
+            ux.adb('shell', 'settings', 'put', 'system', 'font_scale', '1.1' if old_font != '1.1' else '1.0')
+            ux.expect('Save')
+            # DocumentsUI restores its suggested name after a configuration change.
+            self.enter_text(name)
+            ux.expect(name)
+            ux.tap('Save')
+            ux.expect('OK', timeout=15)
+        finally:
+            ux.adb('shell', 'settings', 'put', 'system', 'font_scale', old_font)
         deadline = time.monotonic() + 10
         text = ''
         path = '/sdcard/Download/' + name
@@ -326,6 +336,73 @@ class Regression:
         self.snapshot('exported')
         self.record('SAF exports escaped UTF-8 HTML with exactly one imported URL and no executable link',
                     file=path, sha256=hashlib.sha256(text.encode()).hexdigest())
+        self.record('Export completes after Activity recreation while the document picker is open')
+        ux.adb('shell', 'rm', '-f', path, '/sdcard/Download/' + fixture)
+        self.back()
+
+    def history(self):
+        marker = 'history-bulk-' + str(time.time_ns())
+        urls = [self.base + 'capabilities-fixture.html?' + marker + '=' + str(i) for i in range(3)]
+        control = self.base + 'capabilities-fixture.html?history-control=' + marker
+        for url in urls + [control]:
+            ux.launch(url)
+            ux.expect('Pure capability article')
+        ux.menu_item('History')
+        self.enter_text('?' + marker)
+        self.back()
+
+        def hold(label):
+            x1, y1, x2, y2 = ux.bounds(ux.match(ux.nodes()[0], label))
+            timeout = ux.adb('shell', 'settings', 'get', 'secure', 'long_press_timeout')
+            ux.adb('shell', 'input', 'swipe', str((x1+x2)//2), str((y1+y2)//2),
+                   str((x1+x2)//2), str((y1+y2)//2), str(max(650, int(timeout or '400') + 150)))
+
+        hold(urls[0])
+        ux.expect('Selected: 1')
+        ux.tap_resource('library_select_all')
+        ux.expect('Selected: 3')
+        ux.tap(urls[1])
+        ux.expect('Selected: 2')
+        ux.tap_resource('cd_delete')
+        ux.expect('Delete selected history entries?')
+        ux.tap('Cancel')
+        ux.expect('Selected: 2')
+        for url in urls:
+            ux.expect(url)
+        ux.tap_resource('cd_delete')
+        ux.tap('Delete')
+        ux.expect(urls[1])
+        for url in (urls[0], urls[2]):
+            ux.expect(url, present=False)
+        self.snapshot('selected-deleted')
+        self.record('History long press, select all, deselect, cancel and confirmed deletion preserve the unselected result')
+
+        hold(urls[1])
+        ux.expect('Selected: 1')
+        _, top, right, bottom = ux.stable_display_bounds(ux.nodes()[0])
+        ux.adb('shell', 'input', 'swipe', '1', str((top+bottom)//2), str(right*3//5), str((top+bottom)//2), '500')
+        ux.expect('Selected: 1', present=False)
+        ux.expect(urls[1])
+        hold(urls[1])
+        self.back()
+        ux.expect('Selected: 1', present=False)
+        ux.expect(urls[1])
+        hold(urls[1])
+        self.enter_text('history-control=' + marker)
+        self.back()
+        ux.expect('Selected: 1', present=False)
+        ux.expect(control)
+        self.record('Back exits history selection; changing the query clears selection and unrelated history remains')
+        self.back()
+        ux.open_settings()
+        self.enter_text(marker)
+        ux.expect('No matching entries')
+        self.snapshot('settings-no-results')
+        self.enter_text('Theme')
+        ux.expect('No matching entries', present=False)
+        ux.expect('App theme')
+        self.record('Settings search shows empty feedback and recovers when the query matches')
+        self.back()
         self.back()
 
     def download_requests(self, since):
@@ -452,6 +529,8 @@ class Regression:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
-    parser.add_argument('--section', required=True, choices=['site','permissions','bookmarks','downloads','layout'])
+    parser.add_argument('--package', default='com.mybrowser')
+    parser.add_argument('--section', required=True, choices=['site','permissions','bookmarks','history','downloads','layout'])
     args = parser.parse_args()
+    ux.PACKAGE = args.package
     Regression(args.serial, args.section).run()

@@ -48,12 +48,7 @@ class UpdateRepository internal constructor(
     suspend fun check(): Release? = withContext(Dispatchers.IO) { checkLock.withLock {
         if (!supported) throw Failure(Problem.INCOMPATIBLE)
         try {
-            val age = now() - preferences.getLong("checked_at", 0)
-            val source = Source.entries.find { it.name == preferences.getString("source", null) }
-            val manifestText = if (age in 0 until CACHE_MS) preferences.getString("manifest", null) else null
-            val release = if (manifestText != null && source != null) {
-                parse(JSONObject(manifestText), Build.SUPPORTED_ABIS.toList(), Build.VERSION.SDK_INT, source)
-            } else withFallback(Source.GITEE) { selected ->
+            val release = withFallback(Source.GITEE) { selected ->
                 // Gitee has no latest/download asset redirect. Resolve its stable tag first.
                 val tag = if (selected == Source.GITEE) {
                     val latest = JSONObject(text(selected, GITEE_LATEST))
@@ -67,10 +62,10 @@ class UpdateRepository internal constructor(
                 val release = parse(manifest, Build.SUPPORTED_ABIS.toList(), Build.VERSION.SDK_INT, selected)
                 if (tag != null && tag != "v${release.versionName}") throw Failure(Problem.INVALID)
                 preferences.edit {
-                    putString("manifest", manifest.toString())
-                    putString("source", selected.name)
-                    putLong("checked_at", now())
                     remove(selected.retryKey)
+                    remove("manifest")
+                    remove("source")
+                    remove("checked_at")
                 }
                 release
             }
@@ -249,7 +244,6 @@ class UpdateRepository internal constructor(
         const val RELEASES = "https://gitee.com/Nobilta/pure-browser/releases"
         const val MANIFEST = "$REPOSITORY/releases/latest/download/update.json"
         internal const val GITEE_LATEST = "https://gitee.com/api/v5/repos/Nobilta/pure-browser/releases/latest"
-        private const val CACHE_MS = 5 * 60_000L
         private val checkLock = Mutex()
         private val downloadLock = Mutex()
         private val hosts = setOf("gitee.com", "foruda.gitee.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")

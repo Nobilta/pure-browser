@@ -18,7 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -45,7 +44,6 @@ import com.mybrowser.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** The visible page owns Back; changing a route never tears down the dialog window. */
@@ -75,6 +73,7 @@ internal class SheetPresentation(
     private val publishShape: (SheetShape) -> Unit,
     /** Closes this window the way Back does; a sheet's dismissal drag ends here too. */
     val dismiss: () -> Unit,
+    val dismissEnabled: Boolean = true,
 ) {
     /** The surface this route replaced, non-null only while a container change settles. */
     fun replacedShape(fullscreen: Boolean): SheetShape? =
@@ -179,6 +178,10 @@ internal val LocalSheetDepth = staticCompositionLocalOf { 1 }
 @Composable
 internal fun browserSheetInsets(): WindowInsets = LocalSheetInsets.current ?: WindowInsets.safeDrawing
 
+/** Close after page-local Back handling or a successful action; callers keep their input guards. */
+@Composable
+internal fun browserSheetDismiss(): () -> Unit = LocalSheetPresentation.current.dismiss
+
 @Composable
 internal fun BrowserSheetWindow(
     progress: SheetWindowProgress,
@@ -194,6 +197,7 @@ internal fun BrowserSheetWindow(
      * window (and its scrim) alive for another 250 ms after the user has seen it go.
      */
     composeDrivenExit: Boolean,
+    hidden: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val window = remember { SheetWindowState() }
@@ -211,6 +215,23 @@ internal fun BrowserSheetWindow(
         dismissOnClickOutside = false,
     )) {
         ApplySheetSystemBars(fullscreen = true, windowExitAnimation = !composeDrivenExit)
+        // Keep the route composed while the existing picker receives touches in the Activity.
+        val dialogView = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.DisposableEffect(hidden, dialogView) {
+            val dialogWindow = (dialogView.parent as androidx.compose.ui.window.DialogWindowProvider).window
+            val flags = android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            if (hidden) {
+                dialogWindow.addFlags(flags)
+                dialogWindow.decorView.visibility = android.view.View.INVISIBLE
+            }
+            onDispose {
+                if (hidden) {
+                    dialogWindow.clearFlags(flags)
+                    dialogWindow.decorView.visibility = android.view.View.VISIBLE
+                }
+            }
+        }
         CompositionLocalProvider(
             LocalSheetWindow provides window,
             LocalSheetInsets provides contentInsets,
@@ -223,33 +244,26 @@ internal fun BrowserSheetWindow(
 }
 
 @Composable
-private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+private fun SheetWindowContent(onDismissRequest: () -> Unit, dismissEnabled: Boolean = true, content: @Composable () -> Unit) {
     val window = LocalSheetWindow.current
     if (window == null) {
-        // A window a page opens by itself (a picker) has nothing above it to drive its progress, so
-        // it runs its own entrance. Its exit is still the window animation: only the route host
-        // retains a page after the route is gone. Like the route host, it waits for the first
-        // layout so the entrance is not spent on an unmeasured, invisible surface.
+        // An independent window owns both transitions and stays composed until exit completes.
+        // Wait for layout so entrance is not spent on an unmeasured, invisible surface.
         val progress = remember { SheetWindowProgress() }
         var measured by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            snapshotFlow { measured }.first { it }
-            progress.visibility.animateTo(1f, progress.arriveSpec())
-        }
-        // The exit is driven here too, by the same progress that carried the surface in, so the
-        // platform window animation and Compose never add two displacements to one dismissal.
-        val scope = rememberCoroutineScope()
         var closing by remember { mutableStateOf(false) }
         val dismiss by rememberUpdatedState(onDismissRequest)
-        val close: () -> Unit = {
-            if (!closing) {
-                closing = true
-                scope.launch {
-                    progress.visibility.animateTo(0f, progress.departSpec())
-                    dismiss()
-                }
+        LaunchedEffect(measured, closing) {
+            if (closing) {
+                val carried = progress.takeCarried()
+                if (carried == null) progress.visibility.animateTo(0f, progress.departSpec())
+                else progress.visibility.animateTo(0f, BrowserMotion.resume(), initialVelocity = -carried)
+                dismiss()
+            } else if (measured) {
+                progress.visibility.animateTo(1f, progress.arriveSpec())
             }
         }
+        val close = { closing = true }
         // A sheet opened by a page has no route host above it to supply the snackbar state. Give
         // it one, so `LocalSnackbarHostState.current?.showSnackbar(...)` inside the sheet is not a
         // silent no-op.
@@ -257,8 +271,8 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
         val host = LocalSnackbarHostState.current ?: fallbackHost
         BrowserSheetWindow(progress, close, onMeasured = { measured = true },
             composeDrivenExit = true) {
-            CompositionLocalProvider(LocalSnackbarHostState provides host) {
-                SheetWindowContent(close, content)
+            CompositionLocalProvider(LocalSnackbarHostState provides host, LocalSheetExiting provides closing) {
+                SheetWindowContent(close, dismissEnabled, content)
             }
         }
     } else {
@@ -268,14 +282,15 @@ private fun SheetWindowContent(onDismissRequest: () -> Unit, content: @Composabl
         val depth = LocalSheetDepth.current
         SideEffect { window.hasPresentedContent = true }
         val dismiss by rememberUpdatedState(onDismissRequest)
+        val canDismiss by rememberUpdatedState(dismissEnabled)
         DisposableEffect(window, owner) {
-            window.attach(owner) { dismiss() }
+            window.attach(owner) { if (canDismiss) dismiss() }
             onDispose { window.detach(owner) }
         }
         val publish: (SheetShape) -> Unit = remember(window) { { shape -> window.lastShape = shape } }
         CompositionLocalProvider(
             LocalSheetWindow provides null,
-            LocalSheetPresentation provides SheetPresentation(first, previous, depth, publish, dismiss),
+            LocalSheetPresentation provides SheetPresentation(first, previous, depth, publish, dismiss, dismissEnabled),
             content = content,
         )
     }
@@ -324,7 +339,7 @@ private fun sheetMotion(fullscreen: Boolean, color: Color, height: Int): SheetMo
         }
     }
     // A full-window page is not something a user drags away; a panel is.
-    val drag: SheetDrag? = if (fullscreen) null else remember(progress) {
+    val drag: SheetDrag? = if (fullscreen || !presentation.dismissEnabled) null else remember(progress) {
         sheetDrag(
             scope = scope,
             density = density,
@@ -579,10 +594,12 @@ internal fun BrowserBottomSheet(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
     dragHandleOnly: Boolean = false,
+    dismissEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    SheetWindowContent(onDismissRequest) {
+    SheetWindowContent(onDismissRequest, dismissEnabled) {
         val dismissLabel = stringResource(R.string.ui_close)
+        val dismiss = browserSheetDismiss()
         val safeInsets = browserSheetInsets()
         val measured = LocalSheetMeasured.current
         var surfaceHeight by remember { mutableIntStateOf(0) }
@@ -631,10 +648,10 @@ internal fun BrowserBottomSheet(
             Box(Modifier.matchParentSize()
                 .graphicsLayer { alpha = motion.visibility.value.coerceIn(0f, 1f) }
                 .background(scrim.copy(alpha = BrowserMotion.SCRIM_ALPHA))
-                .pointerInput(onDismissRequest) { detectTapGestures { onDismissRequest() } }
+                .pointerInput(dismiss, dismissEnabled) { detectTapGestures { if (dismissEnabled) dismiss() } }
                 .semantics {
                     contentDescription = dismissLabel
-                    onClick { onDismissRequest(); true }
+                    onClick { if (dismissEnabled) dismiss(); dismissEnabled }
                 })
             motion.replaced?.let { replaced -> ReplacedSurface(replaced, { 1f - motion.content.value }, shape) }
             Box(Modifier.fillMaxSize()

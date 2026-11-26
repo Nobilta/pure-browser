@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.browserSheetDismiss
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.shell.userItemMotion
@@ -62,7 +63,7 @@ fun FilterSettingsSheet(controller: FilterSubscriptions, filterController: Filte
     }
     BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-            BrowserSheetHeader(res.getString(R.string.ui_ad_filter_settings), onBack = onDismiss) {
+            BrowserSheetHeader(res.getString(R.string.ui_ad_filter_settings), onBack = browserSheetDismiss()) {
                 Switch(enabled, onCheckedChange = filterController::setEnabled,
                     modifier = Modifier.semantics { contentDescription = res.getString(R.string.ui_ad_filter_settings) })
             }

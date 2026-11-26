@@ -48,6 +48,8 @@ def run(args):
         def reply(self, body, kind):
             self.send_response(200); self.send_header('Content-Type', kind)
             self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(body)))
+            if urlparse(self.path).path == '/strict-csp':
+                self.send_header('Content-Security-Policy', "style-src 'none'")
             self.end_headers(); self.wfile.write(body)
         def do_GET(self):
             path = urlparse(self.path).path
@@ -156,16 +158,17 @@ def run(args):
         write_remote(directory+'/files/filter_subscriptions/'+snapshot_name, RULES.encode())
         configure(); case('cold first paint, dynamic insertion and head replacement')
         if not args.expect_flash:
+            case('strict CSP still permits browser cosmetic filtering', '/strict-csp')
             case('redirect uses destination rules', '/redirect')
             case('element hiding exception', '/elemhide', False, False)
             case('generic hiding exception retains scoped rules', '/generichide', False, True)
             case('document exception also permits network', '/document', False, False, False)
             case('popup first paint', '/opener', popup=True)
-            ux.menu_item('Website settings')
+            ux.menu_item(ux._translations[0]['site_settings'])
             ux.tap('Temporarily disable filtering for this site')
             ux.adb('shell', 'input', 'keyevent', '4'); time.sleep(.5)
             case('temporary site exception', generic_hidden=False, scoped_hidden=False, network_blocked=False)
-            ux.menu_item('Website settings'); ux.tap('Resume filtering for this site')
+            ux.menu_item(ux._translations[0]['site_settings']); ux.tap('Resume filtering for this site')
             ux.adb('shell', 'input', 'keyevent', '4'); time.sleep(.5)
             case('resuming site filtering')
             ux.menu_item(ux._translations[0]["menu_incognito_short"])
@@ -182,6 +185,7 @@ def run(args):
             else: write_remote(path, data)
         ux.adb('shell', 'rm', '-f', directory+'/files/filter_subscriptions/'+snapshot_name)
         server.shutdown(); server.server_close()
+        ux.adb('reverse', '--remove', f'tcp:{PORT}')
         name = 'cosmetic-flash-' + ('baseline-' if args.expect_flash else '') + args.serial + '.json'
         (output/name).write_text(json.dumps(result, ensure_ascii=False, indent=2))
 

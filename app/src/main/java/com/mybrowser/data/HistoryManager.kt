@@ -118,9 +118,11 @@ class HistoryManager(context: Context) {
     }
 
     @Synchronized
-    fun removeHistory(id: Long): Int {
-        if (closed) return 0
-        return db.writableDatabase.delete("history", "id = ?", arrayOf(id.toString()))
+    fun removeHistory(ids: Set<Long>) {
+        check(!closed)
+        db.writableDatabase.transaction {
+            ids.forEach { delete("history", "id = ?", arrayOf(it.toString())) }
+        }
     }
 
     @Synchronized

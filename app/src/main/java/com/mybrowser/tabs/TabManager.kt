@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import androidx.core.graphics.createBitmap
 import com.mybrowser.core.UrlUtils
+import com.mybrowser.text.LocalHtmlDocument
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -64,8 +65,11 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
     fun createTab(url: String = "", select: Boolean = true, title: String = "", openerTabId: String? = null,
                   mediaNavigation: MediaNavigation? = null): String {
         if (_tabs.size >= maxTabs) return currentTab?.id.orEmpty()
-        val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url), title = title.take(MAX_TAB_TITLE_LENGTH),
-            group = currentTab?.group.orEmpty(), openerTabId = openerTabId?.takeIf { id -> _tabs.any { it.id == id } },
+        val opener = _tabs.firstOrNull { it.id == openerTabId }
+        val tab = TabState(id = UUID.randomUUID().toString(), url = safeTabUrl(url),
+            title = LocalHtmlDocument.displayTitle(url, title).take(MAX_TAB_TITLE_LENGTH),
+            group = currentTab?.group.orEmpty(), openerTabId = opener?.id,
+            localHtml = opener?.localHtml?.takeIf { url.isBlank() || LocalHtmlDocument.isLocalUrl(url) },
             mediaNavigation = mediaNavigation?.takeIf { it.matches(url) })
         _tabs += tab
         if (select || currentIndex < 0) { currentIndex = _tabs.lastIndex; rememberSelection() }
@@ -157,7 +161,7 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
             android.util.Log.w("TabManager", "Could not save the page state for " + tab.id, it)
         }
         webView.url?.takeIf { it.isNotBlank() }?.let { tab.url = it }
-        webView.title?.takeIf { it.isNotBlank() }?.let { tab.title = it }
+        webView.title?.takeIf { it.isNotBlank() }?.let { tab.title = LocalHtmlDocument.displayTitle(tab.url, it) }
         changed()
     }
 
@@ -198,8 +202,8 @@ class TabManager(private val maxTabs: Int = MAX_TABS) {
             array.put(
                 JSONObject()
                     .put("id", tab.id.take(MAX_TAB_ID_LENGTH))
-                    .put("url", safeTabUrl(tab.url))
-                    .put("title", sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH)).put("group", tab.group),
+                    .put("url", if (com.mybrowser.text.LocalHtmlDocument.isLocalUrl(tab.url)) "" else safeTabUrl(tab.url))
+                    .put("title", if (com.mybrowser.text.LocalHtmlDocument.isLocalUrl(tab.url)) "" else sanitizePersistedText(tab.title, MAX_TAB_TITLE_LENGTH)).put("group", tab.group),
             )
         }
         return Bundle().apply {

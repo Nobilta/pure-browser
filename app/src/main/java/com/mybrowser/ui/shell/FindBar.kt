@@ -23,6 +23,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.mybrowser.ui.components.BrowserGroupDivider
@@ -40,6 +43,7 @@ fun FindBar(
 ) {
     val textResources = localizedResources()
     val focusRequester = remember { FocusRequester() }
+    val searchLabel = textResources.getString(R.string.ui_find_in_page)
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -61,6 +65,7 @@ fun FindBar(
                 onValueChange = onQueryChange,
                 modifier = Modifier
                     .weight(1f)
+                    .semantics { contentDescription = searchLabel }
                     .focusRequester(focusRequester),
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = MaterialTheme.colorScheme.onSurface,
@@ -73,6 +78,7 @@ fun FindBar(
                     if (query.isEmpty()) {
                         Text(
                             text = textResources.getString(R.string.ui_find_in_page),
+                            modifier = Modifier.clearAndSetSemantics { },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -53,6 +53,24 @@ test('an empty document has no translation work', t => {
   assert.deepEqual(ready(w), []);
 });
 
+test('one mutation batch scans a shared paragraph region once', async t => {
+  const w = page(t, '<main>' + '<p>Existing paragraph</p>'.repeat(40) + '</main>');
+  const main = w.document.querySelector('main');
+  w.__pureTranslateCompareStart();
+  await tick();
+  const getStyle = w.getComputedStyle.bind(w);
+  let reads = 0;
+  w.getComputedStyle = element => { reads++; return getStyle(element); };
+  for (let i = 0; i < 20; i++) {
+    const p = w.document.createElement('p');
+    p.textContent = 'New paragraph ' + i;
+    main.appendChild(p);
+  }
+  await tick();
+  assert.ok(reads < 1000, 'the same region must not be rescanned for every appended paragraph: ' + reads);
+  assert.equal(w.__pureTranslation.compareBlocks.size, 60);
+});
+
 test('removing a nested block merges source groups without retaining a child translation', async t => {
   const w = page(t, '<div id="outer">Leading <span><div id="block">Middle</div>Trailing</span></div>');
   w.__pureTranslateCompareStart();

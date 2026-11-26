@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +75,7 @@ import com.mybrowser.home.ShortcutSaveResult
 import com.mybrowser.search.SearchEngine
 import com.mybrowser.search.SearchSuggestionProvider
 import com.mybrowser.ui.home.HomeDashboard
+import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.translate.TranslationFloatingBar
 
 /**
@@ -96,6 +99,8 @@ fun BrowserScreen(
     onMenu: () -> Unit,
     onTabs: () -> Unit,
     tabCount: Int,
+    onViewLocalSource: (() -> Unit)? = null,
+    onChooseLocalResources: (() -> Unit)? = null,
     isVideoFullscreen: Boolean = false,
     translationVisible: Boolean = false,
     translationTranslating: Boolean = false,
@@ -118,6 +123,7 @@ fun BrowserScreen(
     onPickerParent: () -> Unit = {},
     onPickerChild: () -> Unit = {},
     onPickerBlock: (Boolean) -> Unit = {},
+    inspectPicking: Boolean = false,
     onPickerCancel: () -> Unit = {},
     isIncognito: Boolean = false,
     hasPrivateIsolation: Boolean = false,
@@ -258,6 +264,20 @@ fun BrowserScreen(
                 }
             }
 
+            if (onViewLocalSource != null && !state.isOmnibarFocused) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BrowserActionPill(
+                        text = stringResource(R.string.text_show_original),
+                        onClick = onViewLocalSource, modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    if (onChooseLocalResources != null) BrowserActionPill(
+                        text = stringResource(R.string.local_html_choose_folder), onClick = onChooseLocalResources,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
+            }
+
             // Absent rather than empty outside 1..99: a zero-width or full bar sitting
             // under the omnibar reads as a stalled page.
             AnimatedVisibility(
@@ -366,6 +386,7 @@ fun BrowserScreen(
                     onParent = onPickerParent,
                     onChild = onPickerChild,
                     onBlock = onPickerBlock,
+                    inspect = inspectPicking,
                     onCancel = onPickerCancel,
                 )
             }

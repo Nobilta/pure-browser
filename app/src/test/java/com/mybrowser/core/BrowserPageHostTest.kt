@@ -14,6 +14,44 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class BrowserPageHostTest {
+    @Test fun localBindingSurvivesNavigationButRemoteDocumentsCannotUseItForSubresources() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val host = BrowserPageHost(activity.get()) { }
+        val uri = android.net.Uri.parse("content://html.test/index.html")
+        fun stream() = shadowOf(activity.get().contentResolver).registerInputStream(uri,
+            java.io.ByteArrayInputStream("<h1>local</h1>".toByteArray()))
+        stream()
+        val document = com.mybrowser.text.LocalHtmlDocument.open(activity.get(), uri)
+        try {
+            val view = host.acquire({}, { false })
+            host.bindLocalDocument(view, document)
+            fun request(mainFrame: Boolean, headers: Map<String, String> = emptyMap()) = object : android.webkit.WebResourceRequest {
+                override fun getUrl() = android.net.Uri.parse(document.url)
+                override fun isForMainFrame() = mainFrame
+                override fun isRedirect() = false
+                override fun hasGesture() = false
+                override fun getMethod() = "GET"
+                override fun getRequestHeaders() = headers
+            }
+            val localHeaders = mapOf("Referer" to document.url)
+            assertEquals(404, host.localResponse(view, request(false, localHeaders), "https://remote.test/")!!.statusCode)
+            for (headers in listOf(emptyMap(), mapOf("Referer" to "https://remote.test/"),
+                    mapOf("Origin" to "https://remote.test/"), mapOf("Origin" to "null"))) {
+                assertEquals(404, host.localResponse(view, request(false, headers), document.url)!!.statusCode)
+            }
+            for ((main, source, headers) in listOf(Triple(true, "https://remote.test/", emptyMap()),
+                    Triple(false, document.url, localHeaders),
+                    Triple(false, document.url, mapOf("Origin" to com.mybrowser.site.SiteOrigin.of(document.url)!!)))) {
+                stream()
+                val response = host.localResponse(view, request(main, headers), source)!!
+                assertEquals("text/html", response.mimeType)
+                assertEquals("<h1>local</h1>", response.data.bufferedReader().use { it.readText() })
+                assertEquals("same-origin", response.responseHeaders["Referrer-Policy"])
+            }
+            host.discard(view)
+        } finally { host.close(); activity.pause().stop().destroy() }
+    }
+
     @Test fun failedConfigurationReleasesTheSameViewBeforeEvictionAndRetry() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup()
         val events = mutableListOf<String>()

@@ -223,3 +223,81 @@ test('whitespace filtering leaves raw page offsets, node ids and search paths in
     assert.ok(JSON.parse(api.domHtml(target.id)).html.includes('child-120'));
   });
 });
+
+test('inspection and edits preserve actual node identity, full values, children and source freshness', () => {
+  const dom = new JSDOM('<!doctype html><html><body><p class="same">first</p><p class="same">second<b>child</b></p></body></html>', {
+    url: 'https://example.test/', runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  window.__bridge = { postMessage() {} };
+  window.CSS = { supports: (name, value) => name === 'color' && value.trim() === 'red' };
+  window.eval(fs.readFileSync(path.join(__dirname, '../../app/src/main/assets/devtools-capture.js'), 'utf8')
+    .replace('__BRIDGE__', '__bridge').replace('__TOKEN__', 'test').replace('__NAMESPACE__', '__dom'));
+  const api = window.__dom;
+  const selected = window.document.querySelectorAll('.same')[1];
+  const child = selected.lastChild;
+  const longValue = 'long'.repeat(3000);
+  selected.setAttribute('data-long', longValue);
+  window.__pureElementPicker = { selectedNode: () => selected };
+  window.CSS.supports = () => { throw new Error('Page override must not be called'); };
+  const picked = JSON.parse(api.domPicked());
+  selected.getBoundingClientRect = () => ({ x: 10.123456, y: -0.00001, width: 100.666666, height: 48 });
+  const details = JSON.parse(api.domDetails(picked.id));
+  assert.equal(details.box.split('\n').slice(0, 2).join('\n'), 'x: 10.12, y: 0\n100.67 × 48 px');
+  assert.equal(details.supportsInlineStyle, true);
+  assert.equal(details.attributes.find(a => a.name === 'data-long').value, longValue);
+  assert.equal(details.doc, api.doc);
+  const sourceBefore = JSON.parse(api.sourceInfo()).sourceId;
+  assert.equal(JSON.parse(api.domEdit(picked.id, 'attribute', 'data-long', 'edited')).ok, true);
+  api.domEdit(picked.id, 'style', 'color', 'red !important');
+  assert.equal(selected.style.getPropertyPriority('color'), 'important');
+  assert.ok(JSON.parse(api.domEdit(picked.id, 'style', 'color', 'invalid-color')).error);
+  assert.ok(JSON.parse(api.domEdit(picked.id, 'style', '', '')).error);
+  assert.equal(JSON.parse(api.domEdit(picked.id, 'style', ' color ', ' red ')).ok, true);
+  api.domEdit(picked.id, 'style', ' color ', '   ');
+  assert.equal(selected.style.color, '');
+  const textId = JSON.parse(api.domChildren(picked.id, 0, 100)).nodes.find(n => n.kind === 'text').id;
+  api.domEdit(textId, 'text', '', 'changed');
+  assert.equal(selected.firstChild.nodeValue, 'changed');
+  assert.equal(selected.lastChild, child, 'editing a text node must preserve child elements');
+  assert.equal(window.document.querySelector('.same').textContent, 'first');
+  assert.notEqual(JSON.parse(api.sourceInfo()).sourceId, sourceBefore);
+  assert.equal(JSON.parse(api.domEdit(picked.id, 'text', '', 'erase children')).invalid, true);
+  api.domEdit(picked.id, 'attribute', 'data-long', null);
+  assert.equal(selected.hasAttribute('data-long'), false);
+  selected.replaceWith(window.document.createElement('p'));
+  assert.equal(JSON.parse(api.domEdit(picked.id, 'attribute', 'id', 'wrong')).invalid, true);
+  api.reset();
+  api.domRoot();
+  assert.equal(JSON.parse(api.domEdit(picked.id, 'attribute', 'id', 'wrong')).invalid, true);
+  dom.window.close();
+});
+
+test('XML element details retain attributes and layout without offering unsupported inline styles', () => {
+  const dom = new JSDOM('<?xml version="1.0"?><document id="target"><title>hello</title></document>', {
+    url: 'https://example.test/document.xml', contentType: 'text/xml', runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  // jsdom's getComputedStyle assumes every Element has .style, unlike the browser API.
+  window.getComputedStyle = () => ({
+    0: 'display', length: 1,
+    getPropertyValue: name => name === 'display' ? 'block' : '',
+  });
+  window.__bridge = { postMessage() {} };
+  window.eval(fs.readFileSync(path.join(__dirname, '../../app/src/main/assets/devtools-capture.js'), 'utf8')
+    .replace('__BRIDGE__', '__bridge').replace('__TOKEN__', 'test').replace('__NAMESPACE__', '__dom'));
+  const api = window.__dom;
+  const root = JSON.parse(api.domRoot()).root;
+  const details = JSON.parse(api.domDetails(root.id));
+  assert.equal(details.supportsInlineStyle, false);
+  assert.deepEqual(details.attributes, [{ name: 'id', value: 'target' }]);
+  assert.deepEqual(details.styles, []);
+  assert.ok(details.box.includes('box-sizing:'));
+  assert.deepEqual(details.computed, [{ name: 'display', value: 'block' }]);
+  assert.equal(JSON.parse(api.domEdit(root.id, 'attribute', 'id', 'edited')).ok, true);
+  assert.equal(JSON.parse(api.domDetails(root.id)).attributes[0].value, 'edited');
+  assert.equal(JSON.parse(api.domEdit(root.id, 'style', 'color', 'red')).invalid, true);
+  assert.equal(JSON.parse(api.domEdit(root.id, 'style', 'color', null)).invalid, true);
+  assert.equal(window.document.documentElement.hasAttribute('style'), false);
+  dom.window.close();
+});

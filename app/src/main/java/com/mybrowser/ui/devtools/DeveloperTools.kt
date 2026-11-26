@@ -10,7 +10,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
+import com.mybrowser.ui.components.BrowserActionPill
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,6 +45,11 @@ import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.browserSheetInsets
 import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.BrowserSheetHeader
+import com.mybrowser.ui.shell.BrowserIconAction
+import com.mybrowser.ui.shell.BrowserDropdownMenu
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.theme.BrowserColors
 import kotlinx.coroutines.CancellationException
@@ -64,10 +73,12 @@ internal fun DeveloperTools(
     consoleEntries: List<ConsoleLogEntry>,
     onClearConsole: () -> Unit,
     onReloadPage: () -> Unit,
+    onInspectNode: () -> Unit,
     pageUrl: String?,
     onConsoleVisibility: (Boolean) -> Unit,
     onExplainFilter: (NetworkRequestLog) -> Unit,
     onDismiss: () -> Unit,
+    onFeedback: (String) -> Unit,
 ) {
     val resources = localizedResources()
     val session = remember(webView, devTools) { devTools.sessionFor(webView) }
@@ -82,6 +93,7 @@ internal fun DeveloperTools(
     val tabStates = rememberSaveableStateHolder()
     val domState = remember(session) { session?.let { DomTreeState(it) } }
     val sourceState = remember(session) { session?.let { SourceViewerState(it) } }
+    val storageState = remember(session, capture.documentId) { StorageTabState() }
     DisposableEffect(selectedTab, session) {
         session?.setNetworkVisible(selectedTab == 1)
         onConsoleVisibility(selectedTab == 0)
@@ -94,6 +106,7 @@ internal fun DeveloperTools(
         val expression = command.trim()
         if (expression.isNotEmpty() && webView != null) {
             command = ""
+            session?.rememberCommand(expression)
             val owner = identity
             scope.launch {
                 val result = try {
@@ -114,6 +127,7 @@ internal fun DeveloperTools(
             if (it.enable()) onReloadPage()
         }
     }
+    CompositionLocalProvider(LocalDevToolsFeedback provides onFeedback) {
     BrowserFullscreenSheet(onDismissRequest = onDismiss) {
         // Compose handles IME insets. Platform auto-pan would additionally move the whole
         // window when the landscape console hides its toolbar as the keyboard opens.
@@ -134,15 +148,12 @@ internal fun DeveloperTools(
         // Measure inside the dialog after its insets have been consumed. Activity IME
         // visibility can lag behind this window during rotation or keyboard animation.
         val compactInput = selectedTab == 0 && maxHeight < 260.dp
-        Column(Modifier.fillMaxSize()) {
+        val header: @Composable () -> Unit = {
             if (!compactInput) {
-                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools), onBack = onDismiss)
-                EnhancedCaptureBar(
-                    capture = capture,
-                    onEnable = enableCapture,
-                    onStop = { session?.disable() },
-                )
-                PrimaryTabRow(selectedTabIndex = selectedTab, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                BrowserSheetHeader(resources.getString(R.string.menu_developer_tools), onBack = onDismiss,
+                    actions = { CaptureControl(capture, enableCapture, { session?.disable() }) })
+                PrimaryScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 0.dp,
+                    containerColor = MaterialTheme.colorScheme.surface) {
                     listOf(R.string.ui_console, R.string.ui_network, R.string.dev_tab_elements, R.string.dev_tab_storage)
                         .forEachIndexed { index, label ->
                             Tab(selected = selectedTab == index, onClick = { selectedTab = index },
@@ -152,6 +163,8 @@ internal fun DeveloperTools(
                         }
                 }
             }
+        }
+        Column(Modifier.fillMaxSize()) {
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
@@ -162,23 +175,27 @@ internal fun DeveloperTools(
                 tabStates.SaveableStateProvider(tab) {
                     when (tab) {
                         0 -> ConsoleTab(consoleEntries, evaluations, command, { command = it.take(MAX_COMMAND_CHARS) }, execute,
-                            webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput)
+                            webView != null, { evaluations = emptyList(); onClearConsole() }, !compactInput,
+                            session?.commandHistory.orEmpty(), header)
                         1 -> NetworkLogTab(
                             entries = networkEntries,
                             onClear = { session?.clearNetwork() },
                             onExplain = onExplainFilter,
                             session = session,
+                            header = header,
                         )
                         2 -> ElementsTab(
                             session = session,
                             capture = capture,
                             domState = domState,
                             sourceState = sourceState,
+                            onInspectNode = onInspectNode,
+                            onEnableCapture = enableCapture,
+                            header = header,
                         )
-                        3 -> StorageTab(
-                            session = session,
-                            pageUrl = pageUrl,
-                        )
+                        3 -> key(session, capture.documentId) {
+                            StorageTab(session = session, pageUrl = pageUrl, state = storageState, header = header)
+                        }
                     }
                 }
             }
@@ -186,205 +203,203 @@ internal fun DeveloperTools(
         }
     }
 
+    }
 }
 
 @Composable
-private fun EnhancedCaptureBar(
-    capture: EnhancedCaptureState,
-    onEnable: () -> Unit,
-    onStop: () -> Unit,
-) {
+private fun CaptureControl(capture: EnhancedCaptureState, onEnable: () -> Unit, onStop: () -> Unit) {
     val resources = localizedResources()
-    Surface(color = BrowserColors.recessedWell, modifier = Modifier.fillMaxWidth()) {
-        Column {
-            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val enabled = capture.enabled
-                    Text(
-                        when {
-                            capture.installing -> resources.getString(R.string.dev_enhanced_installing)
-                            enabled && capture.ready -> resources.getString(R.string.dev_enhanced_ready)
-                            enabled -> resources.getString(R.string.dev_enhanced_document_pending)
-                            capture.stopped -> resources.getString(R.string.dev_enhanced_stopped)
-                            else -> resources.getString(R.string.dev_enhanced_off)
-                        },
-                        Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (enabled) BrowserColors.secure else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (enabled) {
-                        TextButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp)) {
-                            Text(resources.getString(R.string.dev_enhanced_stop))
-                        }
-                    } else {
-                        Button(
-                            onClick = onEnable,
-                            enabled = capture.supported && !capture.installing,
-                            shape = CircleShape,
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text(resources.getString(R.string.dev_enhanced_enable), maxLines = 1) }
-                    }
-                }
-                val notice = when {
-                    !capture.supported -> resources.getString(R.string.dev_enhanced_limited)
-                    capture.notice == CaptureNotice.HTTP_ONLY -> resources.getString(R.string.dev_enhanced_http_only)
-                    capture.notice == CaptureNotice.SCRIPT_MISSING -> resources.getString(R.string.dev_enhanced_script_missing)
-                    capture.notice == CaptureNotice.INSTALL_FAILED -> resources.getString(
-                        R.string.dev_enhanced_install_failed, capture.errorDetail.orEmpty())
-                    else -> null
-                }
-                if (notice != null) Text(
-                    notice,
-                    Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (!capture.supported || capture.notice == CaptureNotice.INSTALL_FAILED)
-                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    var expanded by remember { mutableStateOf(false) }
+    val status = resources.getString(when {
+        capture.installing -> R.string.dev_enhanced_installing
+        capture.enabled && capture.ready -> R.string.dev_enhanced_ready
+        capture.enabled -> R.string.dev_enhanced_document_pending
+        capture.stopped -> R.string.dev_enhanced_stopped
+        else -> R.string.dev_enhanced_off
+    })
+    Box {
+        BrowserIconAction(if (capture.enabled) R.drawable.ic_ui_stop else R.drawable.ic_ui_play,
+            status) { expanded = true }
+        BrowserDropdownMenu(expanded, { expanded = false }) {
+            Text(status, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (capture.enabled) BrowserColors.secure else MaterialTheme.colorScheme.onSurfaceVariant)
+            DropdownMenuItem(
+                text = { Text(resources.getString(if (capture.enabled) R.string.dev_enhanced_stop else R.string.dev_enhanced_enable)) },
+                enabled = capture.enabled || (capture.supported && !capture.installing),
+                onClick = { expanded = false; if (capture.enabled) onStop() else onEnable() },
+            )
+            val notice = when {
+                !capture.supported -> resources.getString(R.string.dev_enhanced_limited)
+                capture.notice == CaptureNotice.HTTP_ONLY -> resources.getString(R.string.dev_enhanced_http_only)
+                capture.notice == CaptureNotice.SCRIPT_MISSING -> resources.getString(R.string.dev_enhanced_script_missing)
+                capture.notice == CaptureNotice.INSTALL_FAILED -> resources.getString(
+                    R.string.dev_enhanced_install_failed, capture.errorDetail.orEmpty())
+                else -> null
             }
-            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+            notice?.let { Text(it, Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
 
 @Composable
 private fun ConsoleTab(entries: List<ConsoleLogEntry>, evaluations: List<ConsoleLine>, command: String,
-    onCommandChange: (String) -> Unit, onExecute: () -> Unit, canExecute: Boolean, onClear: () -> Unit, showHeader: Boolean) {
+    onCommandChange: (String) -> Unit, onExecute: () -> Unit, canExecute: Boolean, onClear: () -> Unit, showHeader: Boolean, history: List<String>, header: @Composable () -> Unit) {
     val resources = localizedResources()
     val scroll = rememberLazyListState()
-    LaunchedEffect(evaluations.lastOrNull()?.id) {
-        if (evaluations.isNotEmpty()) scroll.scrollToItem(entries.size + evaluations.lastIndex)
+    var query by rememberSaveable { mutableStateOf("") }
+    var level by rememberSaveable { mutableStateOf<ConsoleLogLevel?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
+    val filtered = remember(entries, query, level, resources) {
+        entries.filter { (level == null || it.level == level) &&
+            formatConsoleEntry(it, resources).contains(query, ignoreCase = true) }
     }
-    Column(Modifier.fillMaxSize()) {
-        if (showHeader) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(resources.getString(R.string.ui_console_5633ea, entries.size + evaluations.size), Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = onClear) { Text(resources.getString(R.string.ui_clear)) }
+    val filteredEvaluations = remember(evaluations, query) {
+        evaluations.filter { it.text.contains(query, ignoreCase = true) }
+    }
+    var lastEvaluation by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(evaluations.lastOrNull()?.id) {
+        val newest = evaluations.lastOrNull()?.id
+        if (newest != lastEvaluation) {
+            lastEvaluation = newest
+            val index = filteredEvaluations.indexOfLast { it.id == newest }
+            if (index >= 0) scroll.scrollToItem(filtered.size + index)
         }
-        Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-            color = BrowserColors.recessedWell, shape = MaterialTheme.shapes.medium) {
-            LazyColumn(state = scroll, contentPadding = PaddingValues(12.dp)) {
-                if (entries.isEmpty() && evaluations.isEmpty()) item {
-                    Text(resources.getString(R.string.ui_no_console_output), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                items(entries, key = { "log-${it.id}" }, contentType = { "log" }) { entry ->
-                    SelectableText(remember(entry, resources) { formatConsoleEntry(entry, resources) },
-                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
-                        color = consoleColor(entry.level), modifier = Modifier.padding(vertical = 2.dp))
-                }
-                items(evaluations, key = { "eval-${it.id}" }, contentType = { "evaluation" }) { line ->
-                    SelectableText(line.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(vertical = 2.dp))
+    }
+    if (showHistory) com.mybrowser.ui.shell.BrowserAlertDialog(
+        onDismissRequest = { showHistory = false },
+        title = { Text(resources.getString(R.string.dev_console_history)) },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                items(history) { expression ->
+                    BrowserActionPill(expression, { onCommandChange(expression); showHistory = false },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
                 }
             }
+        },
+        confirmButton = { TextButton(onClick = { showHistory = false }) { Text(resources.getString(R.string.ui_close)) } },
+    )
+    DevToolsPage(controls = {
+            header()
+            if (showHeader) Column {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        DevToolsSearchField(query, resources.getString(R.string.dev_console_search)) { query = it }
+                    }
+                    BrowserIconAction(R.drawable.ic_ui_delete, resources.getString(R.string.ui_clear),
+                        enabled = entries.isNotEmpty() || evaluations.isNotEmpty(), onClick = onClear)
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup()
+                    .padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BrowserActionPill(resources.getString(R.string.dev_console_all), { level = null }, selected = level == null)
+                    ConsoleLogLevel.entries.forEach { item ->
+                        val label = when (item) {
+                            ConsoleLogLevel.LOG -> R.string.dev_console_log
+                            ConsoleLogLevel.INFO -> R.string.dev_console_info
+                            ConsoleLogLevel.WARNING -> R.string.dev_console_warning
+                            ConsoleLogLevel.ERROR -> R.string.dev_console_error
+                            ConsoleLogLevel.DEBUG -> R.string.dev_console_debug
+                            ConsoleLogLevel.TIP -> R.string.dev_console_tip
+                        }
+                        BrowserActionPill(resources.getString(label), { level = item }, selected = level == item)
+                    }
+                }
+            }
+    }) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(state = scroll, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                    if (filtered.isEmpty() && filteredEvaluations.isEmpty()) item {
+                        Text(resources.getString(R.string.ui_no_console_output), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    items(filtered, key = { "log-${it.id}" }, contentType = { "log" }) { entry ->
+                        ConsoleEntry(entry)
+                        HorizontalDivider(color = BrowserColors.cardBorder)
+
+                    }
+                    items(filteredEvaluations, key = { "eval-${it.id}" }, contentType = { "evaluation" }) { line ->
+                        SelectableText(line.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 2.dp))
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BrowserIconAction(R.drawable.ic_ui_history, resources.getString(R.string.dev_console_history),
+                    enabled = history.isNotEmpty()) { showHistory = true }
+                com.mybrowser.ui.components.BrowserTextField(
+                    value = command, onValueChange = onCommandChange, label = null,
+                    modifier = Modifier.weight(1f),
+                    accessibilityLabel = resources.getString(R.string.ui_enter_a_javascript_command),
+                    placeholder = resources.getString(R.string.ui_enter_a_javascript_command),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onExecute() }),
+                )
+                Spacer(Modifier.width(8.dp))
+                com.mybrowser.ui.components.BrowserActionPill(
+                    text = resources.getString(R.string.ui_run),
+                    onClick = onExecute,
+                    enabled = canExecute && command.isNotBlank(),
+                    iconRes = R.drawable.ic_ui_play,
+                )
+            }
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            com.mybrowser.ui.components.BrowserTextField(
-                value = command, onValueChange = onCommandChange, label = null,
-                modifier = Modifier.weight(1f),
-                accessibilityLabel = resources.getString(R.string.ui_enter_a_javascript_command),
-                placeholder = resources.getString(R.string.ui_enter_a_javascript_command),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onExecute() }),
-            )
-            Spacer(Modifier.width(8.dp))
-            com.mybrowser.ui.components.BrowserActionPill(
-                text = resources.getString(R.string.ui_run),
-                onClick = onExecute,
-                enabled = canExecute && command.isNotBlank(),
-                iconRes = R.drawable.ic_ui_play,
-            )
+}
+
+@Composable
+private fun ConsoleEntry(entry: ConsoleLogEntry) {
+    val resources = localizedResources()
+    var expanded by rememberSaveable(entry.id) { mutableStateOf(false) }
+    SelectionContainer {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Text(entry.message.ifBlank { resources.getString(R.string.ui_empty_message) },
+                fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                color = consoleColor(entry.level))
+            val source = remember(entry.sourceId, entry.lineNumber, expanded) {
+                val location = if (expanded) entry.sourceId else entry.sourceId.substringAfterLast('/').ifBlank { entry.sourceId }
+                "$location:${entry.lineNumber.coerceAtLeast(0)}"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(entry.level.name, style = MaterialTheme.typography.labelSmall, color = consoleColor(entry.level))
+                if (entry.sourceId.isNotBlank()) {
+                    Text(source, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    BrowserIconAction(R.drawable.ic_ui_info, resources.getString(R.string.dev_console_source)) { expanded = !expanded }
+                }
+            }
         }
     }
 }
 
 @Composable
-internal fun NetworkRequestItem(request: NetworkRequestLog, onExplain: (NetworkRequestLog) -> Unit, onOpen: () -> Unit) {
-    val textResources = localizedResources()
+internal fun NetworkRequestItem(request: NetworkRequestLog, onOpen: () -> Unit) {
+    val resources = localizedResources()
+    val name = remember(request.url) { Uri.parse(request.url).lastPathSegment?.takeIf { it.isNotBlank() }
+        ?: Uri.parse(request.url).host ?: request.url }
     val statusColor = when {
         request.blocked -> BrowserColors.warning
         request.statusCode != null && request.statusCode in 200..399 -> BrowserColors.secure
         request.statusCode != null || request.errorCode != null || request.failed -> MaterialTheme.colorScheme.error
-        request.cancelled -> BrowserColors.warning
-        else -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Card(
-        onClick = onOpen,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(1.dp, BrowserColors.cardBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = (if (request.methodKnown && request.method.isNotBlank()) request.method
-                        else textResources.getString(R.string.dev_storage_unknown)) +
-                        " · " + textResources.getString(com.mybrowser.core.NetworkCategory.of(request).label) +
-                        " · " + textResources.getString(
-                            if (request.pageScript) R.string.dev_enhanced_source_page_script
-                            else R.string.dev_enhanced_source_webview
-                        ),
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                Text(
-                    text = request.statusText(textResources),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = statusColor,
-                )
+    Surface(onClick = onOpen, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium)
+                Text(request.statusText(resources), color = statusColor, style = MaterialTheme.typography.labelMedium)
             }
-            Text(
-                text = request.url,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = buildString {
-                        append(request.sizeText(textResources))
-                        if (request.isForMainFrame) append(textResources.getString(R.string.ui_main_document))
-                        if (request.blocked) append(textResources.getString(R.string.ui_filter))
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = request.durationText(textResources) +
-                        (request.pageLoadMs?.let { " · ${textResources.getString(R.string.dev_network_page_load)} $it ms" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (!request.isForMainFrame) TextButton(onClick = { onExplain(request) }) {
-                Text(textResources.getString(R.string.filter_explain))
-            }
-            request.errorDescription?.let { description ->
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
+            Text(listOf(
+                if (request.methodKnown) request.method else resources.getString(R.string.dev_storage_unknown),
+                resources.getString(com.mybrowser.core.NetworkCategory.of(request).label),
+                request.durationText(resources), request.sizeText(resources),
+                resources.getString(if (request.pageScript) R.string.dev_enhanced_source_page_script else R.string.dev_enhanced_source_webview),
+            ).joinToString(" · "), Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            request.errorDescription?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
     }
+    HorizontalDivider(color = BrowserColors.cardBorder, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 private data class ConsoleLine(val id: Long, val text: String)

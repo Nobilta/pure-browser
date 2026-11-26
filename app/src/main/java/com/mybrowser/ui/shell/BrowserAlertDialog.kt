@@ -10,7 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.BasicAlertDialog
@@ -49,6 +50,7 @@ import com.mybrowser.ui.theme.BrowserColors
  * Only the presentation is this wrapper's business — the window dims the background with the app's
  * scrim token, and the answer callback still runs exactly once, at commit.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BrowserAlertDialog(
     onDismissRequest: () -> Unit,
@@ -60,7 +62,9 @@ internal fun BrowserAlertDialog(
     text: (@Composable () -> Unit)? = null,
     properties: DialogProperties = DialogProperties(),
     buttonsInColumn: Boolean = false,
+    scrollableContent: Boolean = false,
 ) {
+    val scrollContent = buttonsInColumn || scrollableContent
     val shown = remember { Animatable(0f) }
     val scale = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -113,18 +117,22 @@ internal fun BrowserAlertDialog(
                             LocalContentColor provides AlertDialogDefaults.textContentColor,
                             LocalTextStyle provides MaterialTheme.typography.bodyMedium,
                         ) {
-                            val textModifier = if (buttonsInColumn) Modifier else Modifier.weight(1f, fill = false)
+                            val textModifier = if (scrollContent) Modifier else Modifier.weight(1f, fill = false)
                             Box(textModifier.padding(bottom = 24.dp).align(Alignment.Start)) { it() }
                         }
                     }
                 }
-                if (buttonsInColumn) {
+                if (scrollContent) {
                     // A large title must scroll with the body on short screens, keeping both
-                    // safety decisions visible even with the largest system font setting.
+                    // actions visible even with the largest system font setting.
                     Column(
                         modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                         content = dialogContent,
                     )
+                } else {
+                    dialogContent()
+                }
+                if (buttonsInColumn) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -133,12 +141,13 @@ internal fun BrowserAlertDialog(
                         dismissButton?.let { it() }
                     }
                 } else {
-                    dialogContent()
-                    Box(Modifier.align(Alignment.End)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            dismissButton?.let { it() }
-                            confirmButton()
-                        }
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        dismissButton?.let { it() }
+                        confirmButton()
                     }
                 }
             }

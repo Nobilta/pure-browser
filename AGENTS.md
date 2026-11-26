@@ -16,6 +16,11 @@
 - Keep Gradle operations serial in one checkout. Match APK ABI to the device. Emulators must run
   headless (`-no-window -no-audio`); stop the task's emulator and QA helper processes after validation,
   including on failure. Do not stop unrelated user processes or silently overwrite an existing AVD.
+  Prefer an existing compatible, idle project QA AVD; do not create one for every task. Create a
+  temporary AVD only when no suitable device exists or API/ABI coverage or concurrent isolation requires it.
+  Track the AVDs and processes created or started by the task. After success, failure or interruption,
+  stop and delete task-created temporary AVDs to release memory and disk space. Keep the shared QA AVD
+  definition for reuse, clean up the task's test data, and do not stop or delete devices used by others.
 - Validate according to [the testing guide](docs/testing.md). Application changes require relevant
   automated and local device checks, then a signed installable release APK. Documentation-only work
   needs content/link checks; tooling-only work needs the affected tooling checks, not an app rebuild.

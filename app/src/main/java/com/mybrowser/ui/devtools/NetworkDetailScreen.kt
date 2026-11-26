@@ -25,6 +25,7 @@ import com.mybrowser.devtools.DevToolsSession
 import com.mybrowser.devtools.NetworkRequestDetail
 import com.mybrowser.devtools.NetworkSource
 import com.mybrowser.devtools.QueryParameter
+import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.localizedResources
 import kotlinx.coroutines.Dispatchers
@@ -45,23 +46,7 @@ internal fun NetworkDetailScreen(
         session.network.snapshot().firstOrNull { it.id == requestId }
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = onBack)
-            Text(
-                stringResource(R.string.dev_network_detail_title),
-                Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            detail?.let {
-                Text(
-                    resources.getString(it.source.label),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        BrowserSheetHeader(stringResource(R.string.dev_network_detail_title), onBack = onBack)
         if (detail == null) {
             EmptyState(stringResource(R.string.dev_network_record_gone))
             return@Column

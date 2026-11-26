@@ -440,6 +440,7 @@ object UrlUtils {
      */
     fun forDisplay(url: String): String {
         if (url == "about:blank") return ""
+        if (com.mybrowser.text.LocalHtmlDocument.isLocalUrl(url)) return com.mybrowser.text.LocalHtmlDocument.displayName(url)
         var s = url.trim()
         if (s.startsWith("https://", ignoreCase = true)) s = s.substring(8)
         // Only remove the slash from a bare HTTPS authority.  A path, query or fragment

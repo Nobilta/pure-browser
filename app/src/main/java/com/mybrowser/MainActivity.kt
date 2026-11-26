@@ -157,6 +157,7 @@ import com.mybrowser.home.HomepageMode
 import com.mybrowser.security.CertificateDetails
 import com.mybrowser.security.SecurityChecker
 import com.mybrowser.tabs.TabManager
+import com.mybrowser.text.LocalHtmlDocument
 import com.mybrowser.text.PlainTextActivity
 import com.mybrowser.text.PlainTextMimeTypes
 import com.mybrowser.data.BookmarkManager
@@ -478,6 +479,7 @@ class MainActivity : ComponentActivity(),
             }
             override fun onIntercept(request: WebResourceRequest): WebResourceResponse? {
                 val document = page.document
+                pages.localResponse(view, request, document.url)?.let { return it }
                 return if (filter.shouldBlock(request, document.url, document.filtering,
                         classifyResourceType(request), countForPage = false)) BLOCKED_RESPONSE else null
             }
@@ -580,6 +582,7 @@ class MainActivity : ComponentActivity(),
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
     private lateinit var runtimePermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var downloadDirectoryLauncher: ActivityResultLauncher<Uri?>
+    private lateinit var localHtmlDirectoryLauncher: ActivityResultLauncher<Uri?>
     private lateinit var settingsExportLauncher: ActivityResultLauncher<String>
     private lateinit var settingsImportLauncher: ActivityResultLauncher<Array<String>>
 
@@ -703,8 +706,8 @@ class MainActivity : ComponentActivity(),
         if (Sheet.HISTORY in restoredDestinations) historyLibrary.search("")
         downloadSettingsRepository = DownloadSettingsRepository(this)
         downloadSettings = downloadSettingsRepository.load()
-        // The process owns the check and the offer; this Activity only displays it (see App).
-        (application as App).checkForStartupUpdate()
+        // The retained browser session owns the request and unanswered offer.
+        sessionState.checkForStartupUpdate(browserPreferences.autoCheckUpdates)
         pipController = com.mybrowser.media.PictureInPictureController(this,
             { pages.current?.let(pages.media::trackerOf) }, { fullscreenView },
             { browserPreferences.video.backgroundPlayback })
@@ -715,6 +718,53 @@ class MainActivity : ComponentActivity(),
         // destination in a new tab without overwriting the page the user left behind, and an
         // external protocol or userscript import cannot leave the restored tab unloaded.
         loadCurrentTab()
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                sessionState.localHtmlOpenResults.collect { results ->
+                    sessionState.consumeLocalHtmlOpenResults()
+                    for (result in results) {
+                        if (tabManager !== result.owner) continue
+                        val document = result.document
+                        if (document == null) { toast(getString(R.string.plain_text_open_failed)); continue }
+                        val current = tabManager.currentTab
+                        val reuseHome = current != null && (current.url.isBlank() || navigator.isHomeDocument(current.url))
+                        if (!reuseHome && !tabManager.canCreateTab) { toast(getString(R.string.ui_tab_limit_reached)); continue }
+                        if (reuseHome) {
+                            current!!.url = document.url
+                            current.title = document.name
+                            current.savedState = null
+                            current.favicon = null
+                            current.thumbnail = null
+                            current.mediaNavigation = null
+                            tabManager.notifyChanged()
+                        } else {
+                            saveCurrentTab()
+                            tabManager.createTab(document.url, title = document.name)
+                        }
+                        tabManager.currentTab!!.localHtml = document
+                        dismissIncomingNavigationSurfaces()
+                        stopDepartingPage()
+                        loadCurrentTab()
+                    }
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                sessionState.localHtmlDirectoryResult.collect { result ->
+                    if (result == null) return@collect
+                    sessionState.consumeLocalHtmlDirectoryResult()
+                    if (tabManager.tabs.none { it.localHtml === result.document }) return@collect
+                    if (result.saved && tabManager.currentTab?.localHtml === result.document && result.document.matches(state.currentUrl)) {
+                        tabManager.currentTab?.reloadOnSelect = false
+                        navigator.reload()
+                    }
+                    toast(getString(if (result.saved) R.string.local_html_folder_selected else R.string.local_html_folder_failed))
+                }
+            }
+        }
 
         // Register the fallback before Compose, including when restoring open settings.
         setUpBackHandling()
@@ -758,21 +808,21 @@ class MainActivity : ComponentActivity(),
                         dismissButton = { TextButton(onClick = { finish() }) { Text(getString(R.string.ui_exit_browser)) } },
                     )
                 }
-                val startupApp = application as App
-                val startupOffer by startupApp.startupUpdateOffer.collectAsState()
+                val startupOffer by sessionState.startupUpdateOffer.collectAsState()
                 startupOffer?.let { offered ->
                     com.mybrowser.ui.settings.UpdatePanel(
-                        onDismiss = { startupApp.dismissStartupUpdateOffer() },
+                        onDismiss = { sessionState.dismissStartupUpdateOffer() },
                         offered = offered,
                         installAfterDownload = true,
                     )
                 }
                 // The import runs in the process, so its outcome can land after the window that
                 // started it is gone. Whichever window is showing consumes and reports it once.
-                val importOutcome by startupApp.importOutcome.collectAsState()
+                val processApp = application as App
+                val importOutcome by processApp.importOutcome.collectAsState()
                 LaunchedEffect(importOutcome) {
                     importOutcome?.let { outcome ->
-                        startupApp.consumeImportOutcome()
+                        processApp.consumeImportOutcome()
                         reportImportedSettings(outcome)
                     }
                 }
@@ -874,6 +924,18 @@ class MainActivity : ComponentActivity(),
                         openSheet(Sheet.TABS)
                     },
                     tabCount = tabManager.count,
+                    onViewLocalSource = tabManager.currentTab?.localHtml
+                        ?.takeIf { it.matches(state.currentUrl) }
+                        ?.let { document -> {
+                            startActivity(Intent(this@MainActivity, com.mybrowser.text.PlainTextActivity::class.java)
+                                .setDataAndType(document.uri, "text/html")
+                                .putExtra(com.mybrowser.text.PlainTextActivity.RETURN_TO_PAGE, true))
+                        } },
+                    onChooseLocalResources = tabManager.currentTab?.localHtml
+                        ?.takeIf { it.matches(state.currentUrl) }?.let { document -> {
+                            sessionState.pendingLocalHtmlDirectory = document
+                            localHtmlDirectoryLauncher.launch(document.resourceTree)
+                        } },
                     isVideoFullscreen = fullscreenView != null,
                     translationVisible = !translation.closing &&
                         (translation.sessionActive || translation.pageTranslated || translation.hasPending),
@@ -909,7 +971,8 @@ class MainActivity : ComponentActivity(),
                     elementPicker = elementPicker,
                     onPickerParent = { pickerOwner?.let { view -> pages.pickerFor(view)?.step(towardsParent = true) } },
                     onPickerChild = { pickerOwner?.let { view -> pages.pickerFor(view)?.step(towardsParent = false) } },
-                    onPickerBlock = ::blockPickedElement,
+                    onPickerBlock = { if (inspectPicking) inspectPickedElement() else blockPickedElement(it) },
+                    inspectPicking = inspectPicking,
                     onPickerCancel = ::stopElementPicker,
                     isIncognito = privacy.isIncognito,
                     hasPrivateIsolation = privacy.hasRealIsolation,
@@ -945,7 +1008,7 @@ class MainActivity : ComponentActivity(),
                     suppressSnackbar = sheet != null,
                 )
 
-                BrowserSheetHost(sheetNavigation, snackbarHostState = snackbarHostState) { entry ->
+                BrowserSheetHost(sheetNavigation, snackbarHostState = snackbarHostState, hidden = inspectPicking) { entry ->
                     // The outline the page draws is the app's own accent, so a pick reads as part of
                     // the browser rather than as something the page put there. Both of these have to
                     // be read while a composition is available: the action they belong to runs later,
@@ -966,16 +1029,17 @@ class MainActivity : ComponentActivity(),
                             isBrowserFullscreen = browserPreferences.browserFullscreenEnabled,
                             isCurrentPageBookmarked = currentPageBookmarked,
                             canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
-                            siteTitle = state.pageTitle?.takeIf { it.isNotBlank() }
-                                ?: UrlUtils.hostOf(state.currentUrl).orEmpty(),
-                            siteHost = UrlUtils.hostOf(state.currentUrl).orEmpty(),
+                            siteTitle = LocalHtmlDocument.displayTitle(state.currentUrl, state.pageTitle.orEmpty())
+                                .ifBlank { UrlUtils.hostOf(state.currentUrl).orEmpty() },
+                            siteHost = if (LocalHtmlDocument.isLocalUrl(state.currentUrl)) getString(R.string.local_html_file) else UrlUtils.hostOf(state.currentUrl).orEmpty(),
+                            isLocalPage = LocalHtmlDocument.isLocalUrl(state.currentUrl),
                             securityLevel = SecurityChecker.getSecurityLevel(state.currentUrl, hasCertificateWarning),
                             isReaderActive = readerActive,
                             isTranslateActive = translation.sessionActive || translation.pageTranslated,
                             onToggleReader = { sheetAction(entry, ::toggleReaderMode) },
                             onSharePage = { if (UrlUtils.isHttpUrl(state.currentUrl)) shareUrl(state.currentUrl) },
                             onShowPageQr = {
-                                if (UrlUtils.isHttpUrl(state.currentUrl)) sheetAction(entry) { showPageQr = true }
+                                if (!LocalHtmlDocument.isLocalUrl(state.currentUrl) && UrlUtils.isHttpUrl(state.currentUrl)) sheetAction(entry) { showPageQr = true }
                             },
                             onBlockElement = {
                                 sheetAction(entry) {
@@ -1102,8 +1166,8 @@ class MainActivity : ComponentActivity(),
                             onSelectHistory = { url ->
                                 sheetAction(entry) { navigator.navigate(url) }
                             },
-                            onDeleteHistory = { id ->
-                                updateLibrary({ historyManager.removeHistory(id) }, ::loadHistory)
+                            onDeleteHistory = { ids ->
+                                updateLibrary({ historyManager.removeHistory(ids) }, ::loadHistory)
                             },
                             onClearAll = {
                                 dialogs.confirm(this, getString(R.string.history_clear),
@@ -1129,6 +1193,13 @@ class MainActivity : ComponentActivity(),
                             onCancelDownload = downloadPresenter::cancel,
                             onPauseDownload = downloadPresenter::pause,
                             onRetryDownload = downloadPresenter::retry,
+                            onCanUpdateLink = downloadPresenter::canUpdateLink,
+                            onUpdateLink = { id, url ->
+                                downloadPresenter.updateLink(id, url) { target ->
+                                    val manager = if (privacy.isIncognito) privacy.cookieManagerForCurrentProfile() else null
+                                    withContext(Dispatchers.IO) { runCatching { manager?.getCookie(target) }.getOrNull() }
+                                }
+                            },
                             onDeleteDownload = downloadPresenter::delete,
                             onClearCompleted = downloadPresenter::clearCompleted,
                         )
@@ -1315,7 +1386,8 @@ class MainActivity : ComponentActivity(),
                             canUsePageActions = UrlUtils.isHttpUrl(state.currentUrl),
                             userScriptStatus = currentUserScriptStatus(),
                             onPinWebsite = { sheetAction(entry) {
-                                if (!com.mybrowser.core.WebsiteShortcuts.pin(this, state.currentUrl, state.pageTitle.orEmpty(), tabManager.currentTab?.favicon))
+                                if (LocalHtmlDocument.isLocalUrl(state.currentUrl)) toast(getString(R.string.local_html_session_only))
+                                else if (!com.mybrowser.core.WebsiteShortcuts.pin(this, state.currentUrl, state.pageTitle.orEmpty(), tabManager.currentTab?.favicon))
                                     toast(getString(R.string.shortcut_unavailable))
                             } },
                             onManageUserScripts = { sheetAction(entry) { showUserScripts = true } },
@@ -1338,9 +1410,11 @@ class MainActivity : ComponentActivity(),
                                 consoleEntries = consoleEntries,
                                 onClearConsole = consoleLogs::clear,
                                 onReloadPage = { navigator.reload() },
+                                onInspectNode = { startElementPicker(pickerAccent, pickerInset, inspect = true) },
                                 onExplainFilter = { filterExplanation = it },
                                 pageUrl = state.currentUrl,
                                 onConsoleVisibility = { consoleLogs.setVisible(it) },
+                                onFeedback = { toast(it) },
                                 onDismiss = { dismissSheet(entry) }
                             )
                         }
@@ -1375,21 +1449,19 @@ class MainActivity : ComponentActivity(),
 
                 pageContextTarget?.let { target ->
                     PageContextSheet(target,
-                        onOpen = { url, background -> pageContextTarget = null; openUrlInNewTab(url, background) },
-                        onCopy = { url -> pageContextTarget = null; copyToClipboard(url) },
-                        onShare = { url -> pageContextTarget = null; shareUrl(url) },
-                        onSaveImage = { url -> pageContextTarget = null; downloadImage(url) },
-                        onShareImage = { url -> pageContextTarget = null; shareImage(url) },
-                        onSearchImage = { url -> pageContextTarget = null; searchImage(url) },
+                        onOpen = { url, background -> openUrlInNewTab(url, background) },
+                        onCopy = { url -> copyToClipboard(url) },
+                        onShare = { url -> shareUrl(url) },
+                        onSaveImage = { url -> downloadImage(url) },
+                        onShareImage = { url -> shareImage(url) },
+                        onSearchImage = { url -> searchImage(url) },
                         onBlockResource = { rule ->
-                            pageContextTarget = null
                             addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))
                         },
                         onBlockHost = { rule ->
-                            pageContextTarget = null
                             addUserRule(rule, getString(R.string.filter_user_rule_added, subjectOf(rule)))
                         },
-                        onHideHere = { url -> pageContextTarget = null; hideImageForNow(url) },
+                        onHideHere = { url -> hideImageForNow(url) },
                         onDismiss = { pageContextTarget = null })
                 }
 
@@ -1568,7 +1640,8 @@ class MainActivity : ComponentActivity(),
                     navigator.reload()
                 }
             },
-            onSave = { saveSiteSettings(origin, it) }, onReset = { saveSiteSettings(origin) { SiteSettings() } },
+            onSave = { transform, close -> saveSiteSettings(origin, close, transform) },
+            onReset = { close -> saveSiteSettings(origin, close) { SiteSettings() } },
             onClearSiteData = { confirmClearSite(origin) },
             onConnectionInfo = if (origin == SiteOrigin.of(state.currentUrl)) ({
                 securityCertificate = SecurityChecker.certificateDetails(webView.certificate)
@@ -1643,6 +1716,12 @@ class MainActivity : ComponentActivity(),
                     toast(getString(R.string.ui_folder_access_is_unavailable_using_the_system_downloads))
                 }
             }
+        }
+        localHtmlDirectoryLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            val document = sessionState.pendingLocalHtmlDirectory
+            sessionState.pendingLocalHtmlDirectory = null
+            if (uri == null || document == null || tabManager.tabs.none { it.localHtml === document }) return@registerForActivityResult
+            sessionState.saveLocalHtmlDirectory(document, uri)
         }
     }
 
@@ -1758,6 +1837,7 @@ class MainActivity : ComponentActivity(),
         if (pickerOwner === view) {
             pickerOwner = null
             elementPicker = null
+            inspectPicking = false
         }
     }
 
@@ -1838,6 +1918,7 @@ class MainActivity : ComponentActivity(),
 
     private fun runSiteSettingsMutation(
         failureLogMessage: String,
+        onSuccess: () -> Unit = {},
         block: suspend (SiteSettingsRepository) -> Unit,
     ) {
         if (siteSettingsBusy) return
@@ -1851,9 +1932,11 @@ class MainActivity : ComponentActivity(),
             } catch (error: Exception) {
                 Log.w("MainActivity", failureLogMessage, error)
                 toast(getString(R.string.site_save_failed))
+                return@launch
             } finally {
                 siteSettingsBusy = false
             }
+            onSuccess()
         }
     }
 
@@ -1868,21 +1951,24 @@ class MainActivity : ComponentActivity(),
         }
     }
 
-    private fun saveSiteSettings(origin: String, transform: (SiteSettings) -> SiteSettings) {
+    private fun saveSiteSettings(origin: String, onSaved: (() -> Unit)? = null, transform: (SiteSettings) -> SiteSettings) {
         val owner = sheetNavigation.current?.takeIf { it.destination == Sheet.SITE_SETTINGS }
-        runSiteSettingsMutation("Unable to save website settings") { repository ->
+        runSiteSettingsMutation("Unable to save website settings", onSuccess = {
+            if (showSiteOrigin == origin && (owner == null || sheetNavigation.isCurrent(owner))) {
+                if (owner == null && onSaved != null) onSaved()
+                else {
+                    showSiteOrigin = null
+                    // Save returns to the refreshed page; Back keeps the parent menu.
+                    if (owner != null) sheetAction(owner) {}
+                }
+            }
+        }) { repository ->
             repository.update(origin, transform)
             if (repository === activeSites && (SiteOrigin.of(state.currentUrl) == origin ||
                 repository.get(state.currentUrl).desktop != state.isDesktopMode)) {
                 cancelWebsitePermissions()
                 applySiteSettings(webView, state.currentUrl)
                 navigator.reload()
-            }
-            if (showSiteOrigin == origin && (owner == null || sheetNavigation.isCurrent(owner))) {
-                showSiteOrigin = null
-                // Saving explicitly refreshes the page; cancelling uses Back and
-                // returns to the menu. Do not leave the refreshed page under a scrim.
-                if (owner != null) sheetAction(owner) {}
             }
         }
     }
@@ -1957,6 +2043,7 @@ class MainActivity : ComponentActivity(),
         mediaProbeJob?.cancel()
         media.clear(); hasVideo = false; rememberedVideo = null
         tabManager.createTab(openerTabId = openerId)
+        pages.bindLocalDocument(popup, tabManager.currentTab?.localHtml)
         exitConfirmation.reset()
         pages.ownerTabId = tabManager.currentTab?.id
         pages.ownerTabId?.let(downloadRequests::selectTab)
@@ -1981,6 +2068,7 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun toggleDesktopMode() {
+        if (LocalHtmlDocument.isLocalUrl(state.currentUrl)) return
         val origin = SiteOrigin.of(state.currentUrl) ?: return
         saveSiteSettings(origin) { it.copy(desktop = !it.desktop) }
     }
@@ -2145,6 +2233,8 @@ class MainActivity : ComponentActivity(),
         cancelPendingSslError()
         if (navigationReadiness.awaitScripts { loadCurrentTab(); translation.refresh() }) return
         val tab = tabManager.currentTab ?: return
+        val reloadLocalResources = tab.reloadOnSelect && tab.localHtml?.matches(tab.url) == true
+        tab.reloadOnSelect = false
         pruneReaderTabs()
         translation.onTabChanging(tab.id, tabManager.tabs.mapTo(HashSet()) { it.id })
         downloadRequests.retainTabs(tabManager.tabs.map { it.id }.toSet())
@@ -2210,9 +2300,10 @@ class MainActivity : ComponentActivity(),
                         state.onPageFinished(url, webView.canGoBack(), webView.canGoForward())
                         pages.readyTabId = tab.id.takeIf { liveTarget.failure == null }
                     }
-                    state.onTitleChanged(webView.title ?: tab.title)
+                    state.onTitleChanged(LocalHtmlDocument.displayTitle(url, webView.title ?: tab.title))
                     refreshBookmarkStatus(url)
                     startPlayingVideoDetection()
+                    if (reloadLocalResources) navigator.reload()
                     popupPages.releaseIfUnlinked(tab.id)?.alive = false
                     return
                 }
@@ -2221,13 +2312,13 @@ class MainActivity : ComponentActivity(),
                     currentCertificateError = false
                     state.onPageStarted(tab.url)
                     applySiteSettings(webView, tab.url)
-                    if (parked.settings != activeSites.get(tab.url) || parked.filtering != (workerDocument.filtering && filter.enabled.value)) {
+                    if (reloadLocalResources || parked.settings != activeSites.get(tab.url) || parked.filtering != (workerDocument.filtering && filter.enabled.value)) {
                         navigator.reload()
                     } else {
                         clearHistoryOnNextFinish = false
                         pages.readyTabId = tab.id
                         state.onPageFinished(tab.url, webView.canGoBack(), webView.canGoForward())
-                        state.onTitleChanged(webView.title ?: tab.title)
+                        state.onTitleChanged(LocalHtmlDocument.displayTitle(tab.url, webView.title ?: tab.title))
                         refreshBookmarkStatus(tab.url)
                         startPlayingVideoDetection()
                     }
@@ -2247,6 +2338,7 @@ class MainActivity : ComponentActivity(),
             pages.current = acquireFreshPage()
         }
         pages.current?.let { pages.media.trackerOf(it)?.reset() }
+        pages.bindLocalDocument(webView, tab.localHtml)
         applySiteSettings(webView, tab.url)
         val restored = tabManager.loadCurrentState(webView)
         clearHistoryOnNextFinish = !restored
@@ -2286,6 +2378,8 @@ class MainActivity : ComponentActivity(),
      * current when the capture started, so a fast switch cannot write it to the wrong tab.
      */
     private fun captureCurrentThumbnail() {
+        // Page commits can arrive after a file preview covers this window and releases its surface.
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
         val tab = tabManager.currentTab ?: return
         val view = pages.current ?: return
         if (sheet != null || view.width <= 0 || view.height <= 0) return
@@ -2392,6 +2486,16 @@ class MainActivity : ComponentActivity(),
     }
 
     private fun shareUrl(url: String) {
+        if (LocalHtmlDocument.isLocalUrl(url)) {
+            val document = tabManager.currentTab?.localHtml?.takeIf { it.matches(url) }
+            if (document == null) { toast(getString(R.string.context_share_unavailable)); return }
+            val send = Intent(Intent.ACTION_SEND).setType("text/html").putExtra(Intent.EXTRA_STREAM, document.uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            send.clipData = ClipData.newRawUri(document.name, document.uri)
+            try { startActivity(Intent.createChooser(send, getString(R.string.context_share_link))) }
+            catch (_: SecurityException) { toast(getString(R.string.context_share_unavailable)) }
+            return
+        }
         if (!UrlUtils.isHttpUrl(url)) return
         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
         runCatching { startActivity(Intent.createChooser(send, getString(R.string.context_share_link))) }
@@ -2424,7 +2528,11 @@ class MainActivity : ComponentActivity(),
 
     /** Shares the picture itself: an image URL often answers with a login page, not the bytes. */
     private fun shareImage(url: String) {
-        val page = state.currentUrl.takeIf { UrlUtils.isHttpUrl(it) && it != url }
+        if (LocalHtmlDocument.isLocalUrl(url)) {
+            toast(getString(R.string.context_share_image_failed))
+            return
+        }
+        val page = state.currentUrl.takeIf { UrlUtils.isHttpUrl(it) && !LocalHtmlDocument.isLocalUrl(it) && it != url }
         val observed = pages.devTools.sessionFor(webView)?.observedImageReferer(url)
         val navigation = com.mybrowser.tabs.MediaNavigation.create(url, page, observed)
         val cookie = privacy.cookiesFor(url)
@@ -2479,13 +2587,16 @@ class MainActivity : ComponentActivity(),
         referer: String? = null,
         response: com.mybrowser.download.DownloadResponse? = null,
     ) {
-        val filename = downloadHandler.previewFilename(url, contentDisposition, mimeType)
+        // Virtual local resources are served only inside WebView, never by the HTTP engine.
+        val filename = if (LocalHtmlDocument.isLocalUrl(url)) null
+            else downloadHandler.previewFilename(url, contentDisposition, mimeType)
         if (filename == null) {
             response?.close()
             toast(getString(R.string.ui_unable_to_start_the_download))
             return
         }
         val origin = com.mybrowser.download.DownloadValidation.validHttpUrl(referer ?: state.currentUrl)
+            ?.takeUnless(LocalHtmlDocument::isLocalUrl)
         val request = com.mybrowser.download.DownloadRequestCoordinator.Request(
             url = url,
             filename = filename,
@@ -2564,7 +2675,9 @@ class MainActivity : ComponentActivity(),
      * known yet, and the page's own progress display is what the user has already seen.
      */
     private fun submitPageFileRequest(offer: com.mybrowser.download.PageFileOffer) {
-        if (pageFileSourceFor(offer) == null) return
+        val source = pageFileSourceFor(offer) ?: return
+        // Inspection is asynchronous; submit() would otherwise assign a late offer to the new tab.
+        if (!source.isOwnedBy(pages.current)) return
         val placeholder = com.mybrowser.download.DownloadValidation.PAGE_FILE_PREFIX + offer.url
         val request = com.mybrowser.download.DownloadRequestCoordinator.Request(
             url = placeholder,
@@ -2670,6 +2783,7 @@ class MainActivity : ComponentActivity(),
     /** Opens the editor with the URL and title currently shown by the WebView. */
     private fun openBookmarkEditor(addToHome: Boolean = false) {
         val url = state.currentUrl.takeUnless { it == ABOUT_BLANK }.orEmpty()
+        if (LocalHtmlDocument.isLocalUrl(url)) { toast(getString(R.string.local_html_session_only)); return }
         val title = state.pageTitle?.trim().orEmpty()
             .ifBlank { webView.title?.trim().orEmpty() }
             .ifBlank { UrlUtils.hostOf(url).orEmpty() }
@@ -2699,7 +2813,7 @@ class MainActivity : ComponentActivity(),
             scheme == "about" && normalized != ABOUT_BLANK -> true
             else -> false
         }
-        if (!accepted) {
+        if (!accepted || LocalHtmlDocument.isLocalUrl(normalized)) {
             toast(getString(R.string.bookmark_invalid_url))
             return
         }
@@ -2866,7 +2980,7 @@ class MainActivity : ComponentActivity(),
 
     private fun addToHistory(url: String, title: String) {
         // Don't add to history in incognito mode or for special URLs
-        if (privacy.isIncognito) return
+        if (privacy.isIncognito || LocalHtmlDocument.isLocalUrl(url)) return
         if (navigator.isHomeDocument(url)) return
         if (url.isBlank()) return
 
@@ -3078,13 +3192,14 @@ class MainActivity : ComponentActivity(),
             clearHistoryOnNextFinish = false
         }
         state.onPageFinished(url, !resetHistory && canGoBack, !resetHistory && canGoForward)
-        state.onTitleChanged(webView.title)
+        val title = LocalHtmlDocument.displayTitle(url, webView.title)
+        state.onTitleChanged(if (LocalHtmlDocument.isLocalUrl(url)) title else webView.title)
         pages.devTools.sessionFor(pages.current)?.onPageFinished(url)
         if (state.isDesktopMode) WebViewConfig.applyDesktopViewport(webView, activeSites.get(url).desktopWidth)
         // Update current tab URL and title
         tabManager.currentTab?.let { tab ->
             tab.url = url
-            tab.title = webView.title ?: url
+            tab.title = title
             tabManager.notifyChanged()
         }
         // Add to history (only in normal mode)
@@ -3396,6 +3511,7 @@ class MainActivity : ComponentActivity(),
         leaveFullscreen()
         pages.discard(webView)
         pages.current = acquireFreshPage()
+        pages.bindLocalDocument(this.webView, tabManager.currentTab?.localHtml)
         if (lastUrl != ABOUT_BLANK && rendererRecovery.shouldReload(tabManager.currentTab?.id.orEmpty(), SystemClock.elapsedRealtime())) {
             navigator.load(lastUrl)
         } else if (lastUrl != ABOUT_BLANK) {
@@ -3411,8 +3527,9 @@ class MainActivity : ComponentActivity(),
      * context. UI failure callbacks must still belong to the same active load.
      */
     override fun onInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-        val mediaGeneration = media.pageGeneration
         val document = workerDocument
+        pages.localResponse(view, request, document.url)?.let { return it }
+        val mediaGeneration = media.pageGeneration
         val resourceType = classifyResourceType(request)
         val session = pages.devTools.sessionFor(view)
         val requestId = session?.recordNativeRequest(request, document.url, resourceType)
@@ -3536,9 +3653,10 @@ class MainActivity : ComponentActivity(),
     }
 
     override fun onTitleChanged(title: String?) {
-        state.onTitleChanged(title)
+        val displayTitle = LocalHtmlDocument.displayTitle(webView.url.orEmpty(), title)
+        state.onTitleChanged(if (LocalHtmlDocument.isLocalUrl(webView.url)) displayTitle else title)
         // Update current tab title
-        tabManager.currentTab?.title = title ?: webView.url ?: ""
+        tabManager.currentTab?.title = displayTitle
         tabManager.notifyChanged()
     }
 
@@ -3620,6 +3738,7 @@ class MainActivity : ComponentActivity(),
      * choice in its own store, so it disappears with the session like every other site setting.
      */
     private fun rememberVideoTransform(mirror: Boolean, fit: com.mybrowser.core.VideoFit) {
+        if (LocalHtmlDocument.isLocalUrl(state.currentUrl)) return
         val origin = SiteOrigin.of(state.currentUrl) ?: return
         lifecycleScope.launch {
             runCatching { activeSites.update(origin) { it.copy(videoMirror = mirror, videoFit = fit) } }
@@ -3691,7 +3810,7 @@ class MainActivity : ComponentActivity(),
     override fun onBackgroundTitleChanged(view: WebView, title: String?) {
         val id = popupPages.idOf { it.alive && it.view === view } ?: return
         tabManager.tabs.firstOrNull { it.id == id }?.let {
-            it.title = title ?: it.url
+            it.title = LocalHtmlDocument.displayTitle(it.url, title)
             tabManager.notifyChanged()
         }
     }
@@ -3744,6 +3863,19 @@ class MainActivity : ComponentActivity(),
 
     // --- Intents ---
 
+    /** An incoming page must be visible even when a settings dialog was left open. */
+    private fun dismissIncomingNavigationSurfaces() {
+        sheetNavigation.clear()
+        showFilterSettings = false
+        showUserScripts = false
+        showSiteOrigin = null
+        showManagedSites = false
+        showSecurityDialog = false
+        bookmarkDocuments.dismissPreview()
+        scriptImportUrl = null
+        bookmarkDraft = null
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -3756,6 +3888,16 @@ class MainActivity : ComponentActivity(),
      * alone, because that is a task switch rather than a request to navigate.
      */
     private fun handleIntent(intent: Intent) {
+        @Suppress("DEPRECATION")
+        val fileUri = if (intent.action == Intent.ACTION_VIEW) intent.data
+            else if (intent.action == Intent.ACTION_SEND) intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri else null
+        val fileType = intent.type ?: fileUri?.takeIf { it.scheme == "content" }?.let {
+            try { contentResolver.getType(it) } catch (_: SecurityException) { null }
+        }
+        if (fileUri?.scheme == "content" && LocalHtmlDocument.accepts(fileType)) {
+            sessionState.openLocalHtml(fileUri)
+            return
+        }
         if (intent.action == com.mybrowser.download.DownloadTransferService.ACTION_SHOW_DOWNLOAD) {
             val id = intent.getLongExtra(com.mybrowser.download.DownloadTransferService.EXTRA_DOWNLOAD_ID, 0L)
             downloadFocusId = id.takeIf { it != 0L }
@@ -3771,7 +3913,7 @@ class MainActivity : ComponentActivity(),
                 try { contentResolver.getType(it) } catch (_: SecurityException) { null }
             }
             if (stream != null && PlainTextMimeTypes.accepts(type)) {
-                val forward = Intent(this, PlainTextActivity::class.java).setData(stream)
+                val forward = Intent(this, PlainTextActivity::class.java).setDataAndType(stream, type)
                 // A forwarded URI grant is carried through ClipData on current Android;
                 // addFlags alone lets ActivityManager reject the grant.
                 forward.clipData = ClipData.newRawUri(null, stream)
@@ -3804,15 +3946,7 @@ class MainActivity : ComponentActivity(),
                 // keep whatever bottom sheet was open. Close transient surfaces first so the
                 // destination page is immediately visible (and cannot be covered by a stale
                 // bookmark/cast sheet).
-                sheetNavigation.clear()
-                showFilterSettings = false
-                showUserScripts = false
-                showSiteOrigin = null
-                showManagedSites = false
-                showSecurityDialog = false
-                bookmarkDocuments.dismissPreview()
-                scriptImportUrl = null
-                bookmarkDraft = null
+                dismissIncomingNavigationSurfaces()
                 navigator.openIncoming(url)
             }
         }
@@ -3862,6 +3996,7 @@ class MainActivity : ComponentActivity(),
                 if (fullscreenView?.handleBack() != true) leaveFullscreen()
                 return true
             }
+            inspectPicking -> { stopElementPicker(); return true }
             sheetNavigation.current != null -> {
                 dismissSheet(sheetNavigation.current!!)
                 return true
@@ -3916,6 +4051,7 @@ class MainActivity : ComponentActivity(),
                     fullscreenView != null -> {
                         if (fullscreenView?.handleBack() != true) leaveFullscreen()
                     }
+                    inspectPicking -> stopElementPicker()
                     sheetNavigation.current != null -> dismissSheet(sheetNavigation.current!!)
                     // A pick is the last thing put over the page and has no other way out: the page
                     // cannot be touched while it is running, so cancel it before anything the page
@@ -4560,6 +4696,7 @@ class MainActivity : ComponentActivity(),
      */
     private var elementPicker by mutableStateOf<ElementPickerState?>(null)
     private var pickerOwner: WebView? = null
+    private var inspectPicking by mutableStateOf(false)
 
     /** Null for a WebView that was never configured, which is what [ElementPicker.start] refuses. */
     private fun pickerFor(view: WebView): ElementPicker? = pages.pickerFor(view)
@@ -4584,10 +4721,11 @@ class MainActivity : ComponentActivity(),
     }
 
     /** Starts a pick: the page outlines what a finger is over, and the bar writes the rule. */
-    private fun startElementPicker(accent: Int, bottomInset: Int) {
+    private fun startElementPicker(accent: Int, bottomInset: Int, inspect: Boolean = false) {
         val target = pages.current ?: return
         if (elementPicker != null) return
         pickerOwner = target
+        inspectPicking = inspect
         val started = pickerFor(target)?.start(
             accent, bottomInset,
             onSelection = { selection ->
@@ -4601,10 +4739,14 @@ class MainActivity : ComponentActivity(),
                 // The page can refuse after start() has already answered true — an embedded frame
                 // looks like a page until its own script runs. This is the only place the reason is
                 // known; without it the bar would vanish with no explanation.
+                inspectPicking = false
                 if (reason == ElementPicker.End.REFUSED) toast(getString(R.string.picker_unavailable))
             },
+            inspect = inspect,
         )
         if (started != true) {
+            inspectPicking = false
+            pickerOwner = null
             toast(getString(R.string.picker_unavailable))
             return
         }
@@ -4614,6 +4756,20 @@ class MainActivity : ComponentActivity(),
     private fun stopElementPicker() {
         pickerOwner?.let { pages.pickerFor(it)?.stop() }
         elementPicker = null
+        pickerOwner = null
+        inspectPicking = false
+    }
+
+    private fun inspectPickedElement() {
+        val target = pickerOwner ?: return
+        val session = pages.devTools.sessionFor(target) ?: return
+        lifecycleScope.launch {
+            val result = session.dom.picked()
+            if (pickerOwner !== target || !inspectPicking) return@launch
+            stopElementPicker()
+            if (result is com.mybrowser.devtools.PageResult.Ok) session.inspectedNode = result.value
+            else toast(getString(R.string.dev_dom_stale))
+        }
     }
 
     /**

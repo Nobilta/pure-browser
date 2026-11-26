@@ -1,16 +1,21 @@
 package com.mybrowser.ui.devtools
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
@@ -97,14 +102,20 @@ internal fun JsonRowView(row: JsonRow, onToggle: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth()
-            .padding(start = (row.depth.coerceAtMost(30) * 12).dp, top = 1.dp, bottom = 1.dp),
+            .padding(start = (row.depth.coerceAtMost(16) * 8).dp, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (row.expandable) {
-            Text(if (row.expanded) "▾" else "▸", Modifier.width(40.dp).clickable { onToggle(row.path) }.padding(vertical = 10.dp),
-                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            IconButton(onClick = { onToggle(row.path) }, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_ui_chevron),
+                    stringResource(if (row.expanded) R.string.dev_dom_collapse else R.string.dev_dom_expand, row.label),
+                    Modifier.size(24.dp).rotate(if (row.expanded) 90f else 0f),
+                    tint = colors.onSurfaceVariant,
+                )
+            }
         } else {
-            Text(" ", Modifier.width(40.dp))
+            Spacer(Modifier.width(48.dp))
         }
         SelectableText(
             (if (row.label.isNotEmpty()) "${row.label}: " else "") +

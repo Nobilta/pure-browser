@@ -37,7 +37,7 @@ internal object DevToolsBudgets {
     const val SOURCE_PAGE_CHARS = 64 * 1024
     const val SOURCE_PAGE_LINES = 1_000
 
-    /** Storage listing limits; the full value is read on demand. */
+    /** Storage listing limits; keys must fit the preview limit whole, full values are read on demand. */
     const val STORAGE_ITEMS = 500
     const val STORAGE_VALUE_PREVIEW_CHARS = 64 * 1024
     const val STORAGE_TOTAL_PREVIEW_CHARS = 1024 * 1024

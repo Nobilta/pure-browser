@@ -30,6 +30,10 @@ class DownloadPresenter(
         if (handler.retry(id) == null) notify(context.getString(R.string.ui_unable_to_retry_this_download))
     }
 
+    suspend fun canUpdateLink(id: Long): Boolean = handler.canUpdateLink(id)
+    suspend fun updateLink(id: Long, url: String, privateCookieFor: suspend (String) -> String?): Boolean =
+        handler.updateLink(id, url, privateCookieFor)
+
     fun delete(id: Long, deleteFile: Boolean) {
         handler.delete(id, deleteFile) { result ->
             when {

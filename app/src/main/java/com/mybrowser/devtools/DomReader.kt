@@ -3,6 +3,7 @@ package com.mybrowser.devtools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 /**
@@ -70,6 +71,45 @@ internal class DomReader(private val session: DevToolsSession) {
             DomSearchResults(results, json.optBoolean("truncated"))
         }
 
+    suspend fun picked(): PageResult<DomSearchResult> = read({ ns ->
+        DevToolsJs.callFunction(ns, "domPicked")
+    }) { json -> DomSearchResult(json.getString("id"), json.getString("name"), "", "", entries(json.optJSONArray("path"))) }
+
+    suspend fun details(nodeId: String): PageResult<DomDetails> {
+        val expected = session.documentId
+        return read({ ns -> DevToolsJs.callFunction(ns, "domDetails", JSONObject.quote(nodeId)) }) { json ->
+            fun pairs(key: String): List<DomAttribute> {
+                val array = json.optJSONArray(key) ?: return emptyList()
+                val names = HashSet<String>()
+                return List(array.length()) { index ->
+                    val item = array.getJSONObject(index)
+                    val name = item.getString("name")
+                    if (!names.add(name)) throw JSONException("Duplicate DOM detail name")
+                    DomAttribute(name, item.getString("value"))
+                }
+            }
+            DomDetails(nodeId, expected, json.getString("doc"), json.getString("kind"),
+                pairs("attributes"), pairs("styles"), pairs("computed"), json.optString("box"),
+                if (json.has("text")) json.getString("text") else null, json.getBoolean("supportsInlineStyle"))
+        }
+    }
+
+    suspend fun edit(details: DomDetails, kind: String, name: String, value: String?): PageResult<Unit> {
+        val namespace = session.namespace() ?: return PageResult.Unavailable
+        val script = DevToolsJs.call(namespace,
+            "if(a.doc!==${JSONObject.quote(details.pageToken)})return {invalid:true};" +
+                "return a.domEdit(${JSONObject.quote(details.nodeId)},${JSONObject.quote(kind)}," +
+                "${JSONObject.quote(name)},${value?.let(JSONObject::quote) ?: "null"});")
+        val raw = session.evaluateInDocument(script, details.documentId) ?: return PageResult.Unavailable
+        val decoded = DevToolsJs.decode(raw) ?: return PageResult.Unavailable
+        val json = runCatching { JSONObject(decoded) }.getOrNull() ?: return PageResult.Failed(null)
+        return when {
+            json.optBoolean("invalid") -> PageResult.Invalid
+            json.optBoolean("ok") -> PageResult.Ok(Unit)
+            else -> PageResult.Failed(json.optString("error"))
+        }
+    }
+
     private suspend fun <T> read(
         build: (String) -> String,
         parse: (JSONObject) -> T?,
@@ -89,7 +129,8 @@ internal class DomReader(private val session: DevToolsSession) {
                 return@withContext PageResult.Failed(it.take(256))
             }
             if (json.has("empty") && json.optBoolean("empty")) return@withContext PageResult.Invalid
-            val value = parse(json) ?: return@withContext PageResult.Failed(null)
+            val value = try { parse(json) } catch (_: JSONException) { null }
+                ?: return@withContext PageResult.Failed(null)
             PageResult.Ok(value)
         }
     }
@@ -136,3 +177,9 @@ internal class DomReader(private val session: DevToolsSession) {
         return result
     }
 }
+
+internal data class DomDetails(
+    val nodeId: String, val documentId: Long, val pageToken: String, val kind: String,
+    val attributes: List<DomAttribute>, val styles: List<DomAttribute>, val computed: List<DomAttribute>,
+    val box: String, val text: String?, val supportsInlineStyle: Boolean,
+)

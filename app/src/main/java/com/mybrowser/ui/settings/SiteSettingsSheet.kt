@@ -27,6 +27,7 @@ import com.mybrowser.core.VideoFit
 import com.mybrowser.site.*
 import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.browserSheetDismiss
 import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.BrowserSheetHeader
@@ -61,7 +62,7 @@ private val SiteSettingsSaver = listSaver<SiteSettings, String>(
 
 @Composable
 fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Boolean, busy: Boolean,
-    onSave: ((SiteSettings) -> SiteSettings) -> Unit, onReset: () -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
+    onSave: ((SiteSettings) -> SiteSettings, () -> Unit) -> Unit, onReset: (() -> Unit) -> Unit, onConnectionInfo: (() -> Unit)?, onDismiss: () -> Unit,
     onClearSiteData: (() -> Unit)? = null, temporaryFilteringOff: Boolean = false,
     onTemporaryFilteringChange: (() -> Unit)? = null, defaultEnhancedPlayback: Boolean = true,
     needsRepair: Boolean = false, onRepair: () -> Unit = {}) {
@@ -75,9 +76,10 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
     var confirmReset by remember { mutableStateOf(false) }
     var editingUserAgent by remember { mutableStateOf(false) }
     var userAgentDraft by remember { mutableStateOf("") }
-    BrowserBottomSheet(onDismissRequest = { if (!busy) onDismiss() }, dragHandleOnly = true) {
+    BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true, dismissEnabled = !busy) {
+        val dismiss = browserSheetDismiss()
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-            BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
+            BrowserSheetHeader(stringResource(R.string.site_settings), onBack = { if (!busy) dismiss() })
             // Keep edge flings in the form. Sheet dragging and stretch overscroll
             // otherwise compete with its changing height/insets at the boundaries.
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState(), overscrollEffect = null).padding(horizontal = 16.dp)) {
@@ -237,13 +239,13 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 BrowserActionPill(
                     text = stringResource(R.string.action_cancel),
                     enabled = !busy,
-                    onClick = onDismiss,
+                    onClick = dismiss,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 Button(
                     onClick = {
                         val submitted = draft
-                        onSave { current -> mergeSiteDraft(initial, submitted, current) }
+                        onSave({ current -> mergeSiteDraft(initial, submitted, current) }, dismiss)
                     },
                     enabled = !busy && !needsRepair,
                     shape = CircleShape,
@@ -253,14 +255,14 @@ fun SiteSettingsSheet(origin: String, settings: SiteSettings, privateSession: Bo
                 }
             }
         }
+        if (confirmReset) com.mybrowser.ui.shell.BrowserConfirmDialog(
+            title = stringResource(R.string.site_reset),
+            message = stringResource(R.string.site_reset_confirm, origin),
+            confirmText = stringResource(R.string.site_reset),
+            onConfirm = { confirmReset = false; onReset(dismiss) },
+            onDismiss = { confirmReset = false },
+        )
     }
-    if (confirmReset) com.mybrowser.ui.shell.BrowserConfirmDialog(
-        title = stringResource(R.string.site_reset),
-        message = stringResource(R.string.site_reset_confirm, origin),
-        confirmText = stringResource(R.string.site_reset),
-        onConfirm = { confirmReset = false; onReset() },
-        onDismiss = { confirmReset = false },
-    )
 }
 
 @Composable
@@ -269,7 +271,7 @@ fun ManagedSitesSheet(sites: Map<String, SiteSettings>, onSelect: (String) -> Un
     var query by rememberSaveable { mutableStateOf("") }
     BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
-            BrowserSheetHeader(stringResource(R.string.site_settings), onBack = onDismiss)
+            BrowserSheetHeader(stringResource(R.string.site_settings), onBack = browserSheetDismiss())
             if (needsRepair) SiteStorageRepairNotice(busy, onRepair)
             LibrarySearchField(query, stringResource(R.string.site_search), onQueryChange = { query = it })
             val origins = remember(sites, query) { sites.keys.filter { it.contains(query, true) }.sorted() }

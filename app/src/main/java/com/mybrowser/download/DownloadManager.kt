@@ -855,9 +855,33 @@ class DownloadHandler(context: Context) : Closeable {
         interrupted.toList().forEach { id -> if (interrupted.remove(id) && id !in fromPageTasks) retry(id) }
     }
 
-    fun retry(id: Long): Long? = synchronized(taskLock) {
+    fun retry(id: Long): Long? = restart(id)
+
+    /** Private cookies are obtained for the new URL from the requesting browser session. */
+    suspend fun updateLink(id: Long, url: String, privateCookieFor: suspend (String) -> String?): Boolean {
+        val clean = validHttpUrl(url) ?: return false
+        if (!canUpdateLink(id)) return false
+        val privateCookie = if (metadata[id]?.identity?.isPrivate == true) privateCookieFor(clean) else null
+        return restart(id, clean, privateCookie) != null
+    }
+
+    /** Read the checkpoint on demand, never while publishing progress snapshots. */
+    suspend fun canUpdateLink(id: Long): Boolean = withContext(Dispatchers.IO) {
+        val entry = metadata[id] ?: return@withContext false
+        canUpdateLink(entry) && DownloadCheckpoint.read(temporaryDirectory(id), entry.url) != null
+    }
+
+    private data class ReplacementLink(val url: String, val cookie: String?)
+
+    private fun canUpdateLink(entry: DownloadMetadata): Boolean =
+        entry.backend == DownloadBackend.LOCAL && entry.identity.canResumeIn(sessionIdentity) &&
+            entry.status in setOf(DownloadStatus.PAUSED, DownloadStatus.FAILED) &&
+            validHttpUrl(entry.url) != null && !HlsDownloadEngine.handles(entry.url, entry.mimeType)
+
+    private fun restart(id: Long, replacementUrl: String? = null, privateCookie: String? = null): Long? = synchronized(taskLock) {
         if (closed || id in deleting) return null
         val old = metadata[id] ?: return null
+        if (replacementUrl != null && (!canUpdateLink(old) || HlsDownloadEngine.handles(replacementUrl, old.mimeType))) return null
         // A page file can never be fetched again: its bytes were handed over by the document that
         // built them and that document is gone. Offering a resume would only produce a failure.
         if (isPageFile(old)) return null
@@ -885,6 +909,10 @@ class DownloadHandler(context: Context) : Closeable {
                 EnqueueOutcome.Rejected -> null
             }
         }
+        val replacement = replacementUrl?.let {
+            ReplacementLink(it, if (old.identity.isPrivate) sanitizeHeader(privateCookie, MAX_COOKIE_LENGTH)
+                else cookieFor(old.copy(url = it)))
+        }
         val cookie = cookieFor(old)
         if (!metadata.replace(id, old, old.copy(
                 status = DownloadStatus.QUEUED,
@@ -900,13 +928,13 @@ class DownloadHandler(context: Context) : Closeable {
             ))) return null
         val previous = jobs[id]
         previous?.cancel()
-        launchTransfer(id)
+        launchTransfer(id, replacement)
         persistMetadata()
         publishSnapshots()
         id
     }
 
-    private fun launchTransfer(id: Long) = synchronized(taskLock) {
+    private fun launchTransfer(id: Long, replacement: ReplacementLink? = null) = synchronized(taskLock) {
         if (closed || id in deleting || metadata[id]?.status?.active != true) return@synchronized
         val writerLock = transferLocks.computeIfAbsent(id) { Mutex() }
         val job = transferScope.launch(start = CoroutineStart.LAZY) {
@@ -914,11 +942,11 @@ class DownloadHandler(context: Context) : Closeable {
                 val entry = metadata[id]
                 if (entry?.status?.active == true) {
                     val response = responses[id]
-                    val host = entry.url.toUri().host.orEmpty()
+                    val host = (replacement?.url ?: entry.url).toUri().host.orEmpty()
                     if (response == null) {
                         awaitNetwork(id, entry.unmeteredOnly)
                         tasks.acquire(host).use {
-                            if (metadata[id]?.status?.active == true) performDownload(id)
+                            if (metadata[id]?.status?.active == true) performDownload(id, replacement)
                         }
                     } else {
                         // Bound only the acquisition, never the transfer. A response already
@@ -1185,8 +1213,8 @@ class DownloadHandler(context: Context) : Closeable {
         if (!accepted) destinationWriter.delete(published.uri.toString())
     }
 
-    private suspend fun performDownload(id: Long) {
-        val entry = metadata[id] ?: return
+    private suspend fun performDownload(id: Long, replacement: ReplacementLink? = null) {
+        var entry = metadata[id] ?: return
         val response = responses[id]
         val tempDirectory = temporaryDirectory(id)
         val transferJob = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[Job])
@@ -1216,7 +1244,23 @@ class DownloadHandler(context: Context) : Closeable {
                         lastProgressPersist.compareAndSet(previous, now)
                     ) persistMetadata()
                 }
-            val payload = if (response != null) {
+            val payload = if (replacement != null) {
+                updateTransfer(id, transferJob) { it.copy(status = DownloadStatus.DOWNLOADING) }
+                publishSnapshots()
+                val referer = com.mybrowser.tabs.MediaNavigation.create(replacement.url, entry.referer)?.referer
+                val headers = DownloadRequestHeaders(entry.userAgent, replacement.cookie, referer)
+                val (checkpoint, entityUrl) = engine.replacementCheckpoint(entry.url, replacement.url, headers, tempDirectory)
+                synchronized(taskLock) {
+                    transferJob.ensureActive()
+                    if (jobs[id] !== transferJob) throw CancellationException()
+                    checkpoint.save(tempDirectory)
+                    entry = requireNotNull(metadata[id]).copy(url = replacement.url, cookie = replacement.cookie, referer = referer)
+                    metadata[id] = entry
+                }
+                persistMetadata()
+                publishSnapshots()
+                engine.resumeReplacement(entry.url, headers, tempDirectory, checkpoint, entityUrl, onProgress)
+            } else if (response != null) {
                 if (!networkAllowed(entry.unmeteredOnly, response.network)) response.discard(DownloadResponse.Unavailable.NETWORK)
                 if (!response.start()) throw java.io.IOException("The original download response is no longer available")
                 synchronized(taskLock) {
@@ -1286,6 +1330,7 @@ class DownloadHandler(context: Context) : Closeable {
                 metadata.computeIfPresent(id) { _, current ->
                     if (jobs[id] === transferJob && current.status.active)
                         current.copy(status = DownloadStatus.FAILED, failure = when {
+                            error is DownloadLinkMismatch -> DownloadFailure.CANNOT_RESUME
                             error is UnsupportedHlsException -> DownloadFailure.UNSUPPORTED
                             current.status == DownloadStatus.SAVING || error is SecurityException -> DownloadFailure.STORAGE
                             response?.unavailable?.value != null -> DownloadFailure.SOURCE_UNAVAILABLE
@@ -1312,6 +1357,10 @@ class DownloadHandler(context: Context) : Closeable {
             persistMetadata()
             publishSnapshots()
             if (latest?.status == DownloadStatus.COMPLETED) DownloadNotifications.completed(appContext, localItem(latest))
+            else if (latest?.status == DownloadStatus.FAILED && latest.failure in setOf(
+                    DownloadFailure.AUTHORIZATION, DownloadFailure.NOT_FOUND, DownloadFailure.CANNOT_RESUME)) {
+                DownloadNotifications.needsLink(appContext, localItem(latest))
+            }
         }
     }
 
@@ -1515,18 +1564,21 @@ class DownloadHandler(context: Context) : Closeable {
     }
 
     internal fun releaseUnusedDirectoryGrants() = synchronized(taskLock) {
-        val resolver = appContext.contentResolver
-        val retained = metadata.values.mapNotNullTo(HashSet()) { it.customTreeUri }
-        settingsRepository.customTreeUri?.let(retained::add)
-        pendingDirectories.mapNotNullTo(retained) { it.destination?.treeUri }
-        resolver.persistedUriPermissions.filter { android.provider.DocumentsContract.isTreeUri(it.uri) &&
-            it.uri.toString() !in retained }.forEach { grant ->
-            val flags = (if (grant.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
-                (if (grant.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
-            try {
-                resolver.releasePersistableUriPermission(grant.uri, flags)
-            } catch (_: SecurityException) {
-                Unit
+        synchronized(com.mybrowser.text.LocalHtmlResources) {
+            val resolver = appContext.contentResolver
+            val retained = metadata.values.mapNotNullTo(HashSet()) { it.customTreeUri }
+            retained += com.mybrowser.text.LocalHtmlResources.retainedTrees(appContext)
+            settingsRepository.customTreeUri?.let(retained::add)
+            pendingDirectories.mapNotNullTo(retained) { it.destination?.treeUri }
+            resolver.persistedUriPermissions.filter { android.provider.DocumentsContract.isTreeUri(it.uri) &&
+                it.uri.toString() !in retained }.forEach { grant ->
+                val flags = (if (grant.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                    (if (grant.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                try {
+                    resolver.releasePersistableUriPermission(grant.uri, flags)
+                } catch (_: SecurityException) {
+                    Unit
+                }
             }
         }
     }

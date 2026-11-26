@@ -1,14 +1,17 @@
 package com.mybrowser.ui.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -29,6 +32,9 @@ import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibraryFooter
 import com.mybrowser.ui.shell.LibraryItemMenu
 import com.mybrowser.ui.shell.LibrarySearchField
+import com.mybrowser.ui.shell.LibrarySelectionBar
+import com.mybrowser.ui.shell.libraryItemSelection
+import com.mybrowser.ui.shell.BrowserConfirmDialog
 import com.mybrowser.ui.shell.localizedResources
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -37,8 +43,14 @@ fun HistorySheet(
     history: List<HistoryEntry>, query: String, loading: Boolean, hasMore: Boolean, error: Boolean,
     onQueryChange: (String) -> Unit, onLoadMore: () -> Unit,
     onSelectHistory: (String) -> Unit, onOpenNewTab: (String) -> Unit, onCopy: (String) -> Unit,
-    onDeleteHistory: (Long) -> Unit, onClearAll: () -> Unit, onDismiss: () -> Unit,
+    onDeleteHistory: (Set<Long>) -> Unit, onClearAll: () -> Unit, onDismiss: () -> Unit,
 ) {
+    var selected by remember(query) { mutableStateOf<Set<Long>>(emptySet()) }
+    var selecting by remember(query) { mutableStateOf(false) }
+    var deleteSelected by remember(query) { mutableStateOf(false) }
+    val back = {
+        if (selecting) { selecting = false; selected = emptySet() } else onDismiss()
+    }
     val resources = localizedResources()
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
@@ -53,11 +65,20 @@ fun HistorySheet(
         history.groupBy { Instant.ofEpochMilli(it.visitTime).atZone(zone).toLocalDate() }
     }
     BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
+        BackHandler(enabled = selecting, onBack = back)
         Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).padding(horizontal = 16.dp)) {
-            BrowserSheetHeader(stringResource(R.string.history_title), onBack = onDismiss) {
-                BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)
+            BrowserSheetHeader(stringResource(R.string.history_title), onBack = back) {
+                if (!selecting) BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.history_clear), history.isNotEmpty(), onClearAll)
             }
             LibrarySearchField(query, stringResource(R.string.history_search), onQueryChange = onQueryChange)
+            LibrarySelectionBar(
+                visible = selecting,
+                allSelected = history.isNotEmpty() && history.all { it.id in selected },
+                onToggleSelectAll = { selected = if (it) history.map { entry -> entry.id }.toSet() else emptySet() },
+                countText = stringResource(R.string.history_selected, selected.size),
+            ) {
+                BrowserIconAction(R.drawable.ic_ui_delete, stringResource(R.string.cd_delete), selected.isNotEmpty()) { deleteSelected = true }
+            }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 if (history.isEmpty() && !loading) item {
                     Text(stringResource(if (error) R.string.library_load_failed else if (query.isBlank()) R.string.history_empty else R.string.library_no_results),
@@ -74,7 +95,15 @@ fun HistorySheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(entries, key = { it.id }) { entry ->
-                        Row(Modifier.fillMaxWidth().clickable { onSelectHistory(entry.url) }.padding(vertical = 12.dp),
+                        Row(Modifier.fillMaxWidth().libraryItemSelection(
+                            selecting = selecting, selected = entry.id in selected,
+                            selectionLabel = stringResource(R.string.history_select),
+                            onOpen = { onSelectHistory(entry.url) },
+                            onToggleSelection = {
+                                selecting = true
+                                selected = if (entry.id in selected) selected - entry.id else selected + entry.id
+                            },
+                        ).padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Icon(painterResource(R.drawable.ic_ui_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(12.dp))
@@ -85,8 +114,9 @@ fun HistorySheet(
                                 Text(timeFormatter.format(Instant.ofEpochMilli(entry.visitTime).atZone(zone)),
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            LibraryItemMenu(onOpenNewTab = { onOpenNewTab(entry.url) }, onCopy = { onCopy(entry.url) },
-                                onDelete = { onDeleteHistory(entry.id) })
+                            if (selecting) Checkbox(checked = entry.id in selected, onCheckedChange = null)
+                            else LibraryItemMenu(onOpenNewTab = { onOpenNewTab(entry.url) }, onCopy = { onCopy(entry.url) },
+                                onDelete = { onDeleteHistory(setOf(entry.id)) })
                         }
                         BrowserGroupDivider(inset = 0.dp)
                     }
@@ -95,4 +125,14 @@ fun HistorySheet(
             }
         }
     }
+    if (deleteSelected) BrowserConfirmDialog(
+        title = stringResource(R.string.history_delete_selected),
+        message = stringResource(R.string.history_selected, selected.size),
+        confirmText = stringResource(R.string.cd_delete),
+        onConfirm = {
+            onDeleteHistory(selected)
+            selected = emptySet(); selecting = false; deleteSelected = false
+        },
+        onDismiss = { deleteSelected = false },
+    )
 }

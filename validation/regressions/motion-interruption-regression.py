@@ -28,10 +28,12 @@ spec.loader.exec_module(ux)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
+    parser.add_argument('--package', default='com.mybrowser')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     assert args.serial.startswith('emulator-'), 'Use a dedicated emulator'
     ux.ADB = ['adb', '-s', args.serial]
+    ux.PACKAGE = args.package
     args.output.mkdir(parents=True, exist_ok=True)
     # Start from the browser itself: the stage is run by the suite registry, which does not
     # promise that the app is foregrounded when it begins.
@@ -118,6 +120,45 @@ def main():
     check('and it still closes', left,
           'closed normally after the interruption cycles' if left
           else 'sheet refused to close after the interruption cycles')
+
+    # Independently opened sheets must stay mounted until their own exit completes too.
+    # Slow only the exit so a UI hierarchy sample can distinguish a transition from unmounting.
+    original_scale = ux.adb('shell', 'settings', 'get', 'global', 'animator_duration_scale')
+    try:
+        for method in ('header', 'scrim', 'system-back'):
+            ux.adb('shell', 'settings', 'put', 'global', 'animator_duration_scale', '1')
+            ux.menu_item('More tools')
+            ux.tap('User scripts')
+            ux.expect('User scripts')
+            time.sleep(.6)
+            root, _ = ux.nodes()
+            ux.adb('shell', 'settings', 'put', 'global', 'animator_duration_scale', '10')
+            time.sleep(.2)
+            if method == 'header':
+                button = next(n for n in root.iter('node') if ux.visible(n)
+                              and n.get('content-desc') in ux.resource_labels('cd_back'))
+                x1, y1, x2, y2 = ux.bounds(button)
+                ux.adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
+            elif method == 'scrim':
+                _, top, right, _ = ux.stable_display_bounds(root)
+                ux.adb('shell', 'input', 'tap', str(right//2), str(top+2))
+            else:
+                ux.adb('shell', 'input', 'keyevent', '4')
+            retained = ux.match(ux.nodes()[0], 'User scripts') is not None
+            check('independent sheet animates ' + method, retained,
+                  'content remains during slowed exit' if retained else 'content unmounted immediately')
+            ux.expect('User scripts', present=False, timeout=10)
+        ux.adb('shell', 'settings', 'put', 'global', 'animator_duration_scale', '0')
+        ux.menu_item('More tools')
+        ux.tap('User scripts')
+        ux.tap_resource('cd_back')
+        ux.expect('User scripts', present=False)
+        check('independent sheet closes with animations disabled', True, 'no stranded window')
+    finally:
+        if original_scale == 'null':
+            ux.adb('shell', 'settings', 'delete', 'global', 'animator_duration_scale')
+        else:
+            ux.adb('shell', 'settings', 'put', 'global', 'animator_duration_scale', original_scale)
 
     result['passed'] = all(item['passed'] for item in result['checks'])
     (args.output / 'motion-interruption.json').write_text(

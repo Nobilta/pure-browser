@@ -5,14 +5,16 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The one gate that decides whether a script can be handed to a document.
- *
- * It is used twice — to choose what to register and to count what was held back — and the two
- * disagreeing is not a cosmetic bug: it reports a script that never ran as one that simply did not
- * match the page, which is the answer a user reads while trying to find out why nothing happened.
- */
+/** Registration, fallback support and status must agree with what each document can execute. */
 class UserScriptRuntimeTest {
+
+    @Test fun oldProvidersCanExecutePlainScriptsWithoutRegisteringThem() {
+        assertFalse(UserScriptRuntime.runnableOn(false, false, false))
+        assertTrue(UserScriptRuntime.executionSupported(false, false, false))
+        assertFalse(UserScriptRuntime.executionSupported(true, false, false))
+        assertFalse(UserScriptRuntime.executionSupported(true, true, false))
+        assertTrue(UserScriptRuntime.executionSupported(true, true, true))
+    }
 
     @Test fun aPlainScriptNeedsDocumentStartOnly() {
         assertTrue(UserScriptRuntime.runnableOn(needsStorage = false, documentStart = true, bridge = false))

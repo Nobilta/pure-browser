@@ -37,6 +37,22 @@ class DownloadMetadataStoreTest {
         assertTrue(restored.entries.all { it.cookie == null })
     }
 
+    @Test fun activeTransfersSurviveNewerHistoryAtBothSnapshotLimits() {
+        val store = DownloadMetadataStore(prefs)
+        val active = record(1).copy(status = DownloadStatus.DOWNLOADING, bytesDownloaded = 123)
+        for (large in listOf(false, true)) {
+            val history = (2L..300L).map {
+                record(it).let { row -> if (large) row.copy(url = "https://example.com/" + "x".repeat(8_000)) else row }
+            }
+            store.save(history + active)
+            val restored = store.load()
+            assertTrue(restored.interruptedIds.contains(active.id))
+            assertEquals(123L, restored.entries.single { it.id == active.id }.bytesDownloaded)
+            assertTrue(restored.entries.size <= 256)
+            assertTrue(requireNotNull(prefs.getString("entries", null)).length <= 512 * 1024)
+        }
+    }
+
     @Test fun largeSnapshotsStayValidJsonWithinTheCharacterBudgetAndCanBeReplacedByEmptyOnes() {
         val store = DownloadMetadataStore(prefs)
         store.save((1L..256L).map { record(it).copy(url = "https://example.com/" + "x".repeat(8_000)) })

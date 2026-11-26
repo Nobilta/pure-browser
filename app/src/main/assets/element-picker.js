@@ -14,7 +14,7 @@
   // through the tree is the honest answer.
   var MAX_DEPTH = 12, MAX_CLASS_MATCHES = 12;
   var STYLE_ID = '__purePickerStyle', BOX_ID = '__purePickerBox', LABEL_ID = '__purePickerLabel';
-  var accent = '#6750a4', bottomInset = 0;
+  var accent = '#6750a4', bottomInset = 0, inspect = false;
   var active = false, chain = [], index = 0, hovered = null, hoverPoint = null, pointerDown = false;
   var box = null, label = null, style = null;
   var preview = null;
@@ -36,7 +36,7 @@
 
   function tagOf(el) { return el && el.tagName ? el.tagName.toLowerCase() : ''; }
 
-  function refused(el) { return !el || el.nodeType !== 1 || REFUSED[el.tagName] === 1; }
+  function refused(el) { return !el || el.nodeType !== 1 || (!inspect && REFUSED[el.tagName] === 1); }
 
   function classesOf(el) {
     var out = [], list = el.classList;
@@ -240,7 +240,7 @@
     if (!current) return null;
     restorePreview();
     place(chain[index], current.selector + ' \u00b7 ' + current.count, scroll);
-    applyPreview(current.selector);
+    if (!inspect) applyPreview(current.selector);
     return current;
   }
 
@@ -414,6 +414,7 @@
       if (win.top !== win.self || !doc.body) return false;
       if (options && options.accent) accent = String(options.accent).slice(0, 32);
       bottomInset = options && options.bottomInset > 0 ? Math.min(options.bottomInset, 2000) : 0;
+      inspect = !!(options && options.inspect);
       ensureNodes();
       active = true;
       chain = [];
@@ -446,6 +447,7 @@
       index = next;
       return !!report(true);
     },
+    selectedNode: function () { return active && inspect ? chain[index] || null : null; },
     /** What the picker is showing, for the app and for tests. */
     state: function () {
       var current = active && chain[index] ? selectorFor(chain[index]) : null;

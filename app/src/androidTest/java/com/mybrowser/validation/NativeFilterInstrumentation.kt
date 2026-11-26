@@ -10,8 +10,14 @@ import java.io.File
 
 /** No runner dependency enters the app; run with adb am instrument -w. */
 class NativeFilterInstrumentation : Instrumentation() {
-    override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
+    private var platformContracts = false
+    override fun onCreate(arguments: Bundle?) {
+        super.onCreate(arguments)
+        platformContracts = arguments?.getString("suite") == "platform-contracts"
+        start()
+    }
     override fun onStart() {
+        if (platformContracts) { PlatformContractsInstrumentation(this).run(); return }
         val result = Bundle()
         try {
             val rows = JSONArray()

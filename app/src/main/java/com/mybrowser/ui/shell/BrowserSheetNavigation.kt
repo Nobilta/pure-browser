@@ -122,6 +122,7 @@ internal class BrowserSheetNavigation {
 internal fun BrowserSheetHost(
     navigation: BrowserSheetNavigation,
     snackbarHostState: SnackbarHostState? = null,
+    hidden: Boolean = false,
     content: @Composable (BrowserSheetNavigation.Presentation) -> Unit,
 ) {
     val savedState = rememberSaveableStateHolder()
@@ -211,6 +212,7 @@ internal fun BrowserSheetHost(
                 // This host keeps the last page composed until its exit finishes, so the window
                 // has nothing left to animate once the route is gone.
                 composeDrivenExit = true,
+                hidden = hidden,
             ) {
                 // Replace content atomically inside the existing window. Stable keys
                 // restore parent state without hidden dialogs or stale Back callbacks.

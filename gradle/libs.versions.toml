@@ -25,6 +25,7 @@ core = "1.19.0"
 webkit = "1.17.0"
 coroutines = "1.11.0"
 zxing = "3.5.3"
+commonmark = "0.33.0"
 
 # Align compile/runtime UI, Foundation and Runtime at 1.9.4; Material 3 at 1.4.0.
 # The resolved graph is committed in app/gradle.lockfile.
@@ -45,6 +46,8 @@ robolectric = "4.16"
 asm = "9.9"
 
 [libraries]
+commonmark = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
+commonmark-tables = { group = "org.commonmark", name = "commonmark-ext-gfm-tables", version.ref = "commonmark" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 # ComponentActivity: OnBackPressedDispatcher (predictive back) + registerForActivityResult
 # (needed by WebChromeClient.onShowFileChooser).

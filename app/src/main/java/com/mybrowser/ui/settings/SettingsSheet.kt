@@ -69,6 +69,7 @@ import kotlin.math.roundToInt
 import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.LibrarySearchField
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.browserSheetDismiss
 import com.mybrowser.ui.shell.BrowserFullscreenSheet
 import com.mybrowser.ui.shell.BrowserMotion
 import com.mybrowser.ui.shell.TextInputDialog
@@ -177,9 +178,15 @@ fun SettingsSheet(
                             )
                             if (searchQuery.isNotBlank()) {
                                 val locale = textResources.configuration.locales[0]
-                                remember(searchQuery, locale) { SETTINGS_SEARCH.filter { (title, category) ->
+                                val results = remember(searchQuery, locale) { SETTINGS_SEARCH.filter { (title, category) ->
                                     textResources.getString(title).contains(searchQuery, true) || textResources.getString(category.titleRes).contains(searchQuery, true)
-                                } }.forEach { (title, category) ->
+                                } }
+                                if (results.isEmpty()) Text(
+                                    textResources.getString(R.string.library_no_results),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 40.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                results.forEach { (title, category) ->
                                     val label = textResources.getString(title)
                                     SettingsItem(label, textResources.getString(category.titleRes), {
                                         highlightTitle = label; sectionName = category.name
@@ -430,14 +437,15 @@ fun SettingsSheet(
         val dismissPicker = { if (pickerGeneration == owner) picker = null }
         key(owner) {
             BrowserBottomSheet(onDismissRequest = dismissPicker) {
-                        Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
+                val closePicker = browserSheetDismiss()
+                Box(Modifier.fillMaxWidth().heightIn(max = 580.dp)) {
                     when (picker) {
                         "search" -> SearchEngineSettings(currentSearchEngine, availableSearchEngines,
                             onSearchEngineChange, onAddCustomSearchEngine, onRemoveCustomSearchEngine,
                             currentImageSearchEngine, availableImageSearchEngines, onImageSearchEngineChange,
-                            onAddCustomImageSearchEngine, onRemoveCustomImageSearchEngine, dismissPicker)
+                            onAddCustomImageSearchEngine, onRemoveCustomImageSearchEngine, closePicker)
                         "home" -> HomepageSettings(currentHomepageMode, currentHomepage,
-                            onHomepageModeChange, onHomepageChange, dismissPicker)
+                            onHomepageModeChange, onHomepageChange, closePicker)
                         else -> {
                             val title = when (picker) {
                                 "theme" -> R.string.ui_app_theme
@@ -446,7 +454,7 @@ fun SettingsSheet(
                                 else -> R.string.ui_default_playback_speed
                             }
                             Column(Modifier.fillMaxWidth()) {
-                                com.mybrowser.ui.shell.BrowserSheetHeader(textResources.getString(title), onBack = dismissPicker)
+                                com.mybrowser.ui.shell.BrowserSheetHeader(textResources.getString(title), onBack = closePicker)
                                 Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                                     SettingsGroupCard {
                                         Column(Modifier.selectableGroup()) {
@@ -454,13 +462,13 @@ fun SettingsSheet(
                                                 "downloadSpeed" -> listOf(0, 128, 512, 1024, 5120, 10240).forEach { limit ->
                                                     SettingsRadioItem(speedLimitLabel(textResources, limit), selected = downloadSettings.speedLimitKib == limit) {
                                                         onDownloadSpeedLimitChange(limit)
-                                                        dismissPicker()
+                                                        closePicker()
                                                     }
                                                 }
                                                 "theme" -> ThemeMode.entries.forEach { mode ->
                                                     SettingsRadioItem(textResources.getString(mode.labelRes), selected = preferences.theme == mode) {
                                                         onPreferencesChange(preferences.copy(theme = mode))
-                                                        dismissPicker()
+                                                        closePicker()
                                                     }
                                                 }
                                                 else -> {
@@ -471,7 +479,7 @@ fun SettingsSheet(
                                                             (if (boost) preferences.video.boostRate else preferences.video.preferredSpeed)) {
                                                             updateVideo(if (boost) preferences.video.copy(boostRate = speed)
                                                                 else preferences.video.copy(preferredSpeed = speed, rememberSpeed = true))
-                                                            dismissPicker()
+                                                            closePicker()
                                                         }
                                                     }
                                                 }

@@ -3,9 +3,13 @@ package com.mybrowser.ui.devtools
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -19,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,24 +42,38 @@ import com.mybrowser.devtools.BodyState
 import com.mybrowser.devtools.DevToolsBudgets
 import com.mybrowser.ui.theme.BrowserColors
 
-internal fun showToast(context: Context, message: String) {
-    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+internal val LocalDevToolsFeedback = staticCompositionLocalOf<(String) -> Unit> {
+    error("Developer tools require a feedback host")
 }
 
-internal fun copyText(context: Context, text: String) {
+internal fun copyText(context: Context, text: String, feedback: (String) -> Unit, successMessage: String? = null) {
     val clipboard = context.getSystemService(ClipboardManager::class.java)
     val result = clipboard != null && runCatching {
         clipboard.setPrimaryClip(ClipData.newPlainText("Pure", text))
     }.isSuccess
-    Toast.makeText(context, context.getString(
-        if (result) R.string.dev_copied else R.string.dev_copy_failed
-    ), Toast.LENGTH_SHORT).show()
+    feedback(if (result) successMessage ?: context.getString(R.string.dev_copied)
+        else context.getString(R.string.dev_copy_failed))
+}
+
+/** Keep results usable when tool controls exceed a landscape or IME viewport. */
+@Composable
+internal fun DevToolsPage(controls: @Composable () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val controlsHeight = maxHeight * 0.5f
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth().heightIn(max = controlsHeight).verticalScroll(rememberScrollState())) {
+                controls()
+            }
+            Column(Modifier.weight(1f).fillMaxWidth(), content = content)
+        }
+    }
 }
 
 @Composable
 internal fun CopyButton(text: String, label: String? = null, enabled: Boolean = true) {
     val context = LocalContext.current
-    TextButton(onClick = { copyText(context, text) }, enabled = enabled && text.isNotEmpty()) {
+    val feedback = LocalDevToolsFeedback.current
+    TextButton(onClick = { copyText(context, text, feedback) }, enabled = enabled && text.isNotEmpty()) {
         Text(label ?: stringResource(R.string.dev_copy))
     }
 }
@@ -89,6 +108,7 @@ internal fun DetailRow(label: String, value: String, copyable: Boolean = false) 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.width(104.dp), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
             SelectableText(value.ifBlank { "—" }, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace)
         }

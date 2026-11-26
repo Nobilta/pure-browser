@@ -36,6 +36,15 @@ class BlockRulesTest {
     }
 
     @Test
+    fun localResourcesCannotBecomeSavedNetworkOrSiteRules() {
+        val url = "https://session.local.pure-browser.invalid/assets/image.png"
+        assertNull(BlockRules.addressRule(url))
+        assertNull(BlockRules.hostRule(url))
+        assertNull(BlockRules.hostOf(url))
+        assertNull(BlockRules.elementRule(BlockRules.hostOf(url), "img", allSites = false))
+    }
+
+    @Test
     fun anAddressRuleNeedsSomethingToBlockPrecisely() {
         // No path: this is the whole host, which the caller offers as its own choice instead.
         assertNull(BlockRules.addressRule("https://ads.example.com"))

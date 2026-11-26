@@ -316,7 +316,7 @@ class BookmarkManager(context: Context) {
         while (true) {
             val page = db.readableDatabase.query(
                 "bookmarks", arrayOf("url"), null, null, null, null,
-                "folder_id, position, id", "$EXPORT_PAGE_SIZE OFFSET $offset",
+                "folder_id, position, id", SqlLike.limitClause(EXPORT_PAGE_SIZE, offset),
             ).use { cursor ->
                 buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
             }
@@ -330,7 +330,7 @@ class BookmarkManager(context: Context) {
     private fun exportPage(offset: Int): List<Bookmark> =
         db.readableDatabase.query(
             "bookmarks", COLUMNS, null, null, null, null,
-            "folder_id, position, id", "$EXPORT_PAGE_SIZE OFFSET $offset",
+            "folder_id, position, id", SqlLike.limitClause(EXPORT_PAGE_SIZE, offset),
         ).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toBookmark()) }
         }

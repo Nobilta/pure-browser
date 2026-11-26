@@ -28,8 +28,8 @@ android {
         applicationId = "com.mybrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 101
-        versionName = "0.23.0"
+        versionCode = 105
+        versionName = "0.25.0"
         testInstrumentationRunner = "com.mybrowser.validation.NativeFilterInstrumentation"
 
         // Release ships arm64-v8a only; Android version and CPU ABI are separate limits.
@@ -281,6 +281,8 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
 }
 
 dependencies {
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.tables)
     implementation(libs.zxing.core)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.core)

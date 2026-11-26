@@ -158,7 +158,11 @@ fun BookmarksSheet(
                     val bookmark = bookmarksById[key]
                     val dragging = drag.active == key
                     var menu by remember { mutableStateOf(false) }
-                    val rowMotion = Modifier.animateItem(placementSpec = if (dragging) null else com.mybrowser.ui.shell.BrowserMotion.chromeSpatial())
+                    val rowMotion = Modifier.animateItem(
+                        fadeInSpec = com.mybrowser.ui.shell.BrowserMotion.itemFadeIn(),
+                        placementSpec = if (dragging) null else com.mybrowser.ui.shell.BrowserMotion.chromeSpatial(),
+                        fadeOutSpec = com.mybrowser.ui.shell.BrowserMotion.itemFadeOut(),
+                    )
                         .zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = drag.translation(key); shadowElevation = if (dragging) 8.dp.toPx() else 0f }
                         .background(if (dragging) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface)
@@ -171,7 +175,7 @@ fun BookmarksSheet(
                             if (selecting) BookmarkDragHandle(key, drag, !library.busy,
                                 onStart = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
                                 onEnd = ::finishDrag, onMove = { accessibleMove(key, it) })
-                            Icon(painterResource(R.drawable.ic_ui_folder), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(painterResource(R.drawable.ic_ui_folder), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(12.dp))
                             Text(folder.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Box {

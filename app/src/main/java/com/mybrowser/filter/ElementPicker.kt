@@ -44,6 +44,7 @@ internal class ElementPicker(private val webView: WebView) {
     private var closed = false
     private var installed = false
     private var active = false
+    private var inspecting = false
     private var origin: String? = null
     private var report: ((Selection?) -> Unit)? = null
     private var onEnd: ((End) -> Unit)? = null
@@ -56,7 +57,7 @@ internal class ElementPicker(private val webView: WebView) {
      * [install] explains what attaching it late costs. The caller says so rather than leaving a bar
      * over a page nothing will ever answer from.
      */
-    fun start(accent: Int, bottomInset: Int, onSelection: (Selection?) -> Unit, onEnd: (End) -> Unit = {}): Boolean {
+    fun start(accent: Int, bottomInset: Int, onSelection: (Selection?) -> Unit, onEnd: (End) -> Unit = {}, inspect: Boolean = false): Boolean {
         if (closed || active || !installed) return false
         if (!webView.settings.javaScriptEnabled) return false
         val url = webView.url ?: return false
@@ -65,7 +66,8 @@ internal class ElementPicker(private val webView: WebView) {
         // Reading the script is part of starting, not of installing: a broken asset has to answer
         // false here rather than throw out of the click that opened the menu. install() has the
         // same reason for wrapping its call, and this is the only other place the asset is read.
-        val script = runCatching { startScript(accent, bottomInset) }.getOrNull() ?: return false
+        val script = runCatching { startScript(accent, bottomInset, inspect) }.getOrNull() ?: return false
+        inspecting = inspect
         origin = page
         report = onSelection
         this.onEnd = onEnd
@@ -122,9 +124,9 @@ internal class ElementPicker(private val webView: WebView) {
         ended?.invoke(reason)
     }
 
-    private fun startScript(accent: Int, bottomInset: Int): String = "(function(){var api=" + source() + "(window);" +
+    private fun startScript(accent: Int, bottomInset: Int, inspect: Boolean): String = "(function(){var api=" + source() + "(window);" +
         "if(!api)return false;return api.start({accent:" + JSONObject.quote(color(accent)) +
-        ",bottomInset:" + bottomInset.coerceIn(0, MAX_INSET_PX) + "})})()"
+        ",bottomInset:" + bottomInset.coerceIn(0, MAX_INSET_PX) + ",inspect:" + inspect + "})})()"
 
     /** `#rrggbb` for the accent, taken from the app's own theme so the outline matches it. */
     private fun color(argb: Int): String = String.format("#%06X", 0xFFFFFF and argb)
@@ -176,7 +178,7 @@ internal class ElementPicker(private val webView: WebView) {
         // post a selector the picker itself would never produce — `*` above all, which hides
         // everything and, chosen for every site, everywhere. The rule writer refuses those too;
         // refusing here as well is what keeps the bar from offering to write one.
-        if (!BlockRules.isUsableElementSelector(selector)) return
+        if (!inspecting && !BlockRules.isUsableElementSelector(selector)) return
         report?.invoke(Selection(
             selector = selector,
             matchCount = json.optInt("count", 0).coerceIn(0, MAX_MATCHES),

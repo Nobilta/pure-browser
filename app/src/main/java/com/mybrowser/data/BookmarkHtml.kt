@@ -36,7 +36,7 @@ object BookmarkHtml {
         }, result.optInt("skipped"), List(folders.length()) { path(folders.getJSONArray(it)) })
     }
 
-    /** Validate the entire export before SAF creates or truncates the destination. */
+    /** Validate the entire export before opening the destination stream for writing. */
     fun encode(bookmarks: List<Bookmark>, folders: List<BookmarkFolder> = emptyList()): ByteArray {
         require(bookmarks.size <= MAX_BOOKMARKS)
         BookmarkFolders.validate(folders)
@@ -78,8 +78,7 @@ object BookmarkHtml {
     /**
      * Encode as many rows as fit in [MAX_BYTES], retaining folder order.
      *
-     * The export is built before SAF creates the destination, so a too-large file must be
-     * reduced here rather than throwing after the user picked a path. Dropping a quarter at a
+     * Reduce oversized exports before opening the destination stream. Dropping a quarter at a
      * time keeps the number of encode passes logarithmic.
      */
     fun encodeCapped(bookmarks: List<Bookmark>, folders: List<BookmarkFolder> = emptyList()): CappedExport {

@@ -26,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mybrowser.R
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.browserSheetDismiss
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.LibrarySearchField
 
@@ -70,7 +71,7 @@ fun ThumbZoneLibrarySheet(
         ) {
             BrowserSheetHeader(
                 title = title,
-                onDismiss = onDismiss,
+                onDismiss = browserSheetDismiss(),
                 actions = headerActions,
             )
             LibrarySearchField(

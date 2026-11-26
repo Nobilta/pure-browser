@@ -3,12 +3,17 @@ package com.mybrowser.download
 import android.util.Log
 import com.mybrowser.tabs.MediaNavigation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -43,7 +48,7 @@ internal data class DownloadPayload(
  */
 internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter = DownloadRateLimiter()) : DownloadTransport {
     private val connections = ConcurrencyBudget(total = 8, perHost = 4)
-    private val leases = java.util.concurrent.ConcurrentHashMap<HttpURLConnection, ConcurrencyBudget.Lease>()
+    private val cancelGuards = java.util.concurrent.ConcurrentHashMap<HttpURLConnection, Job>()
 
     override suspend fun download(
         url: String,
@@ -60,24 +65,15 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         currentCoroutineContext().ensureActive()
         val checkpoint = DownloadCheckpoint.read(tempDirectory, url)
         val probe = if (checkpoint != null) {
-            // An HTTP rejection while revalidating cannot resume, but it must not pin the task in
-            // the active state forever either. Discard the now-unusable sidecars and take the same
-            // clean single-stream path as a corrupt checkpoint. Other I/O failures still preserve
-            // the partial files for a later retry.
+            // Keep rejected credentials/addresses recoverable. Servers that reject only Range
+            // still get the existing full-response fallback.
             try {
                 probeRangeSupport(url, headers)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (rejected: DownloadHttpException) {
-                // A 503/429 is the server saying "later"; keep the validated prefix so the manager's
-                // retry can resume it. Only a permanent rejection (403/404/405/...) makes the old
-                // bytes unusable.
-                if (rejected.isTransient) throw rejected
+                if (rejected.isTransient || rejected.code in listOf(401, 403, 404, 410)) throw rejected
                 Log.w(TAG, "Range revalidation rejected; restarting the download", rejected)
-                tempDirectory.deleteRecursively()
-                if (!tempDirectory.mkdirs() && !tempDirectory.isDirectory) {
-                    throw IOException("Unable to recreate download temporary directory")
-                }
                 null
             }
         } else if (threadLimit > 1) {
@@ -150,6 +146,77 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         }
     }
 
+    /** Validate an explicitly supplied address without changing the old checkpoint or parts. */
+    internal suspend fun replacementCheckpoint(
+        oldUrl: String,
+        newUrl: String,
+        headers: DownloadRequestHeaders,
+        directory: File,
+    ): Pair<DownloadCheckpoint, String> = withContext(Dispatchers.IO) {
+        val old = DownloadCheckpoint.read(directory, oldUrl) ?: throw DownloadLinkMismatch()
+        val probe = probeRangeSupport(newUrl, headers)
+        probe.fullResponse?.let(::releaseConnection)
+        if (!probe.supportsRanges || probe.totalBytes != old.total || probe.validator == null) {
+            throw DownloadLinkMismatch()
+        }
+        // Validators identify versions of one resource. Across addresses, compare every retained
+        // byte: equal names, lengths or ETags alone cannot establish equivalence.
+        if (DownloadCheckpoint.digest(probe.entityUrl) != old.entityUrlDigest || probe.validator != old.validator) {
+            DownloadRanges.split(old.total, old.threads).forEachIndexed { index, range ->
+                val part = File(directory, "part-$index")
+                val length = part.length()
+                if (length == 0L) return@forEachIndexed
+                val expected = range.first..(range.first + length - 1)
+                val connection = openConnection(newUrl, headers, "bytes=${expected.first}-${expected.last}", probe.validator)
+                try {
+                    requireIdentityEncoding(connection)
+                    val code = connection.responseCode
+                    if (code == 412 || code == 416) throw DownloadLinkMismatch()
+                    if (code !in 200..299) throw DownloadHttpException(code)
+                    val contentRange = connection.getHeaderField("Content-Range")
+                    if (code != HttpURLConnection.HTTP_PARTIAL || parseContentRange(contentRange) != expected ||
+                        parseContentRangeTotal(contentRange) != old.total || connection.url.toExternalForm() != probe.entityUrl ||
+                        entityValidator(connection) != probe.validator) throw DownloadLinkMismatch()
+                    connection.inputStream.use { remote ->
+                        java.io.DataInputStream(part.inputStream().buffered()).use { local ->
+                            val buffer = ByteArray(BUFFER_SIZE_BYTES)
+                            val saved = ByteArray(BUFFER_SIZE_BYTES)
+                            var remaining = length
+                            while (remaining > 0) {
+                                currentCoroutineContext().ensureActive()
+                                val count = remote.read(buffer, 0, minOf(remaining, rateLimiter.readSize(buffer.size).toLong()).toInt())
+                                if (count < 0) throw IOException("Replacement response ended early")
+                                rateLimiter.acquire(count)
+                                local.readFully(saved, 0, count)
+                                for (offset in 0 until count) if (buffer[offset] != saved[offset]) throw DownloadLinkMismatch()
+                                remaining -= count
+                            }
+                        }
+                    }
+                } catch (error: IOException) {
+                    currentCoroutineContext().ensureActive()
+                    throw error
+                } finally { releaseConnection(connection) }
+            }
+        }
+        old.copy(urlDigest = DownloadCheckpoint.digest(newUrl), validator = probe.validator,
+            entityUrlDigest = DownloadCheckpoint.digest(probe.entityUrl)) to probe.entityUrl
+    }
+
+    internal suspend fun resumeReplacement(
+        url: String, headers: DownloadRequestHeaders, directory: File, checkpoint: DownloadCheckpoint,
+        entityUrl: String, onProgress: (Long, Long, Int) -> Unit,
+    ): DownloadPayload = withContext(Dispatchers.IO) {
+        try {
+            downloadParallel(url, headers, directory, checkpoint.total, checkpoint.threads,
+                checkpoint.validator, entityUrl, onProgress)
+        } catch (rejected: ResumeRejected) {
+            if (rejected.responseCode == 429) throw DownloadHttpException(429)
+            // Updating an address must never silently replace the retained parts with a full body.
+            throw DownloadLinkMismatch()
+        }
+    }
+
     private suspend fun probeRangeSupport(
         url: String,
         headers: DownloadRequestHeaders,
@@ -188,6 +255,9 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                     fullResponse = connection.takeIf { retained },
                 )
             }
+        } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw error
         } finally {
             if (!retained) releaseConnection(connection)
         }
@@ -235,6 +305,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
             throw cancelled
         } catch (error: Exception) {
             if (error is ResumeRejected || DownloadCheckpoint.read(tempDirectory, url) == null) destination.delete()
+            currentCoroutineContext().ensureActive()
             throw error
         } finally {
             releaseConnection(connection)
@@ -280,6 +351,9 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
             val expected = connection.contentLengthLong
             if (expected >= 0 && total != expected) throw IOException("Response length mismatch: expected $expected, got $total")
             return HttpFetch(connection.url.toExternalForm(), connection.contentType)
+        } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw error
         } finally {
             releaseConnection(connection)
         }
@@ -404,7 +478,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
             requireIdentityEncoding(connection)
             if (connection.responseCode != HttpURLConnection.HTTP_PARTIAL) {
                 val code = connection.responseCode
-                if (code in listOf(200, 400, 416, 429)) throw ResumeRejected("Range request returned HTTP $code")
+                if (code in listOf(200, 400, 412, 416, 429)) throw ResumeRejected("Range request returned HTTP $code", code)
                 throw DownloadHttpException(code)
             }
             val contentRange = connection.getHeaderField("Content-Range")
@@ -436,6 +510,9 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
             if (written != expected) {
                 throw IOException("Range length mismatch: expected $expected, got $written")
             }
+        } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw error
         } finally {
             releaseConnection(connection)
         }
@@ -455,6 +532,9 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         val cookieScope = URL(cookieOrigin ?: url)
         var current = URL(url)
         var source = navigation
+        var ordinaryReferer = headers.referer?.takeUnless {
+            it.startsWith("https://", ignoreCase = true) && current.protocol == "http"
+        }
         repeat(MAX_REDIRECTS + 1) { hop ->
             if (current.protocol !in setOf("http", "https") || current.host.isBlank()) {
                 throw IOException("Unsupported download URL")
@@ -475,7 +555,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                 if (sameOrigin(cookieScope, current)) {
                     headers.cookie?.takeIf(String::isNotBlank)?.let { setRequestProperty("Cookie", it) }
                 }
-                val referer = if (navigation != null) source?.referer else headers.referer
+                val referer = if (navigation != null) source?.referer else ordinaryReferer
                 referer?.takeIf(String::isNotBlank)?.let { setRequestProperty("Referer", it) }
                 range?.let { setRequestProperty("Range", it) }
                 validator?.let { setRequestProperty("If-Range", it) }
@@ -484,7 +564,13 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                 lease.close()
                 throw error
             }
-            leases[connection] = lease
+            // A blocked read cannot observe cancellation until its connection is closed.
+            val cancelGuard = CoroutineScope(currentCoroutineContext()).launch(start = CoroutineStart.UNDISPATCHED) {
+                try { awaitCancellation() } finally {
+                    try { connection.disconnect() } finally { lease.close() }
+                }
+            }
+            cancelGuards[connection] = cancelGuard
             try {
                 if (connection.responseCode !in REDIRECT_CODES) return connection
                 if (hop == MAX_REDIRECTS) throw IOException("Too many download redirects")
@@ -496,9 +582,14 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
                 }
                 source = source?.follow(next.toString(), isRedirect = true,
                     responsePolicy = connection.getHeaderField("Referrer-Policy"))
+                if (!sameOrigin(current, next)) ordinaryReferer = ordinaryReferer?.takeIf { it.isNotBlank() }?.let {
+                    val origin = URL(it)
+                    URL(origin.protocol, origin.host, origin.port, "/").toExternalForm()
+                }
                 current = next
             } catch (error: Exception) {
                 releaseConnection(connection)
+                currentCoroutineContext().ensureActive()
                 throw error
             }
             releaseConnection(connection)
@@ -507,7 +598,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
     }
 
     private fun releaseConnection(connection: HttpURLConnection) {
-        try { connection.disconnect() } finally { leases.remove(connection)?.close() }
+        cancelGuards.remove(connection)?.cancel()
     }
 
     private fun entityValidator(connection: HttpURLConnection): String? {
@@ -530,7 +621,7 @@ internal class HttpDownloadEngine(private val rateLimiter: DownloadRateLimiter =
         }
     }
 
-    private class ResumeRejected(message: String) : IOException(message)
+    private class ResumeRejected(message: String, val responseCode: Int? = null) : IOException(message)
 
     private fun sameOrigin(first: URL, second: URL): Boolean =
         first.protocol.equals(second.protocol, true) && first.host.equals(second.host, true) &&
@@ -601,6 +692,8 @@ internal object DownloadRanges {
         }
     }
 }
+
+internal class DownloadLinkMismatch : IOException("The replacement cannot resume these partial files")
 
 internal class DownloadHttpException(val code: Int) : IOException("Download returned HTTP $code") {
     /** A server/network condition that may clear; the manager retries these without losing parts. */

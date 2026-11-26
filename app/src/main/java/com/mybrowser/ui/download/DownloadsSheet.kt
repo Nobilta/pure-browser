@@ -1,11 +1,14 @@
 package com.mybrowser.ui.download
 
+import androidx.activity.compose.BackHandler
+
 import com.mybrowser.download.localizeDownloadDirectory
 import com.mybrowser.download.DownloadItem
 import com.mybrowser.download.DownloadRequestCoordinator
 import com.mybrowser.download.DownloadStatus
 import com.mybrowser.download.DownloadFailure
 import com.mybrowser.ui.components.BrowserActionPill
+import com.mybrowser.ui.components.BrowserTextField
 import com.mybrowser.ui.components.BrowserGroupDivider
 import com.mybrowser.ui.theme.BrowserColors
 import com.mybrowser.ui.shell.LibrarySearchField
@@ -46,6 +49,7 @@ import com.mybrowser.ui.shell.LibrarySelectionBar
 import com.mybrowser.ui.shell.libraryItemSelection
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.shell.BrowserAlertDialog
+import kotlinx.coroutines.launch
 
 /**
  * Downloads management sheet showing active and completed downloads.
@@ -58,6 +62,8 @@ fun DownloadsSheet(
     onCancelDownload: (Long) -> Unit = {},
     onPauseDownload: (Long) -> Unit = {},
     onRetryDownload: (Long) -> Unit = {},
+    onCanUpdateLink: suspend (Long) -> Boolean = { false },
+    onUpdateLink: suspend (Long, String) -> Boolean = { _, _ -> false },
     onOpenFile: (Long) -> Unit = {},
     onDeleteDownload: (Long, deleteFile: Boolean) -> Unit = { _, _ -> },
     onClearCompleted: (deleteFiles: Boolean) -> Unit = {},
@@ -77,6 +83,7 @@ fun DownloadsSheet(
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(DownloadFilter.ALL) }
     var detailId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var updateLinkId by rememberSaveable { mutableStateOf<Long?>(null) }
     val visible = remember(downloads, query, filter) {
         downloads.filter { filter.matches(it.status) && (query.isBlank() || it.filename.contains(query.trim(), ignoreCase = true)) }
     }
@@ -110,9 +117,10 @@ fun DownloadsSheet(
     val leaveSelection = { selecting = false; selected = emptySet() }
 
     BrowserBottomSheet(
-        onDismissRequest = { if (selecting) leaveSelection() else onDismiss() },
+        onDismissRequest = onDismiss,
         dragHandleOnly = true,
     ) {
+        BackHandler(enabled = selecting, onBack = leaveSelection)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -293,7 +301,11 @@ fun DownloadsSheet(
     }
 
     downloads.firstOrNull { it.id == detailId }?.let { download ->
-        DownloadDetailsDialog(download) { detailId = null }
+        DownloadDetailsDialog(download, onCanUpdateLink, onUpdateLink = { detailId = null; updateLinkId = download.id }) { detailId = null }
+    }
+
+    downloads.firstOrNull { it.id == updateLinkId }?.let { download ->
+        UpdateDownloadLinkDialog(download, onApply = { onUpdateLink(download.id, it) }, onDismiss = { updateLinkId = null })
     }
 
     downloads.firstOrNull { it.id == pendingDeleteId }?.let { download ->
@@ -353,8 +365,12 @@ private enum class DownloadFilter(val label: Int) {
 }
 
 @Composable
-private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit) {
+private fun DownloadDetailsDialog(download: DownloadItem, onCanUpdateLink: suspend (Long) -> Boolean, onUpdateLink: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    var canUpdateLink by remember(download.id, download.status, download.canResume) { mutableStateOf(false) }
+    LaunchedEffect(download.id, download.status, download.canResume) {
+        canUpdateLink = onCanUpdateLink(download.id)
+    }
     var copied by remember(download.id, download.sourceUrl) { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) { kotlinx.coroutines.delay(1500); copied = false }
@@ -397,6 +413,7 @@ private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit)
                             DownloadFailure.SOURCE_UNAVAILABLE -> R.string.download_error_source
                             DownloadFailure.NETWORK -> R.string.download_error_network
                             DownloadFailure.UNSUPPORTED -> R.string.download_error_unsupported
+                            DownloadFailure.CANNOT_RESUME -> R.string.download_link_cannot_resume
                             // A record from before the field existed, or a legacy system task
                             // whose reason only the platform manager knows.
                             null -> R.string.download_error_unknown
@@ -422,6 +439,7 @@ private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit)
                             modifier = Modifier.padding(12.dp))
                     }
                 }
+                if (canUpdateLink) BrowserActionPill(stringResource(R.string.download_update_link), onUpdateLink)
             }
         },
         confirmButton = {
@@ -438,6 +456,45 @@ private fun DownloadDetailsDialog(download: DownloadItem, onDismiss: () -> Unit)
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
             }
         },
+    )
+}
+
+@Composable
+private fun UpdateDownloadLinkDialog(download: DownloadItem, onApply: suspend (String) -> Boolean, onDismiss: () -> Unit) {
+    var url by rememberSaveable(download.id) { mutableStateOf("") }
+    var invalid by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    BrowserAlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(stringResource(R.string.download_update_link)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(download.filename, style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.download_update_link_hint), style = MaterialTheme.typography.bodySmall)
+                BrowserTextField(url, stringResource(R.string.download_new_link), { url = it; invalid = false },
+                    enabled = !busy,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
+                    errorMessage = if (invalid) stringResource(R.string.download_update_link_invalid) else null)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                busy = true
+                scope.launch {
+                    try {
+                        if (onApply(url)) onDismiss() else invalid = true
+                    } finally {
+                        busy = false
+                    }
+                }
+            }, enabled = url.isNotBlank() && !busy && download.canResume &&
+                download.status in setOf(DownloadStatus.PAUSED, DownloadStatus.FAILED)) {
+                Text(stringResource(R.string.download_update_and_resume))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.action_cancel)) } },
+        scrollableContent = true,
     )
 }
 

@@ -110,7 +110,7 @@ class UpdateRepositoryTransferTest {
         assertEquals(problem, (error as UpdateRepository.Failure).problem)
     }
 
-    @Test fun giteeIsPreferredAndItsCdnManifestAndSourceAreCached() = runBlocking {
+    @Test fun everyCheckFetchesGiteeAndItsCdnManifest() = runBlocking {
         val cdn = "https://foruda.gitee.com/attach/update.json"
         responses[giteeManifest] = { Response(status = 302, headers = mapOf("Location" to cdn)) }
         responses[cdn] = { Response(manifest().toString().toByteArray()) }
@@ -118,7 +118,15 @@ class UpdateRepositoryTransferTest {
         assertEquals(Source.GITEE, release.source)
         assertEquals(Source.GITEE.asset("v2.0", assetName), release.url)
         assertEquals(release, repository().check())
-        assertEquals(listOf(UpdateRepository.GITEE_LATEST, giteeManifest, cdn), requests)
+        assertEquals(List(2) { listOf(UpdateRepository.GITEE_LATEST, giteeManifest, cdn) }.flatten(), requests)
+    }
+
+    @Test fun aNewReleaseIsDetectedImmediatelyAfterAnUpToDateCheck() = runBlocking {
+        responses[giteeManifest] = { Response(manifest().put("versionCode", 1).toString().toByteArray()) }
+        assertNull(repository().check())
+        responses[giteeManifest] = { Response(manifest().toString().toByteArray()) }
+        assertEquals(2L, repository().check()!!.versionCode)
+        assertEquals(List(2) { listOf(UpdateRepository.GITEE_LATEST, giteeManifest) }.flatten(), requests)
     }
 
     @Test fun unavailableGiteeFallsBackOnceAndKeepsGithubAsTheDownloadSource() = runBlocking {
@@ -133,7 +141,6 @@ class UpdateRepositoryTransferTest {
             responses[UpdateRepository.GITEE_LATEST] = response
             val release = repository().check()!!
             assertEquals(Source.GITHUB, release.source)
-            assertEquals(release, repository().check())
             assertEquals(listOf(UpdateRepository.GITEE_LATEST, UpdateRepository.MANIFEST), requests)
         }
     }
@@ -160,8 +167,8 @@ class UpdateRepositoryTransferTest {
         assertEquals(listOf(UpdateRepository.GITEE_LATEST, giteeManifest), requests)
     }
 
-    @Test fun legacyCacheWithoutASourceIsRefreshedFromGitee() = runBlocking {
-        preferences.edit().putLong("checked_at", clock).putString("manifest", manifest().toString())
+    @Test fun legacyCacheIsIgnoredEvenWhenFresh() = runBlocking {
+        preferences.edit().putLong("checked_at", clock).putString("source", "GITHUB").putString("manifest", manifest().put("versionCode", 1).toString())
             .putLong("retry_after", clock + 900_000).commit()
         assertEquals(Source.GITEE, repository().check()!!.source)
         assertEquals(listOf(UpdateRepository.GITEE_LATEST, giteeManifest), requests)

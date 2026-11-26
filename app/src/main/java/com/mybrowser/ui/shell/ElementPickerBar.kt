@@ -68,6 +68,7 @@ internal fun ElementPickerBar(
     onChild: () -> Unit,
     onBlock: (Boolean) -> Unit,
     onCancel: () -> Unit,
+    inspect: Boolean = false,
 ) {
     val chosen = state as? ElementPickerState.Chosen
     Surface(
@@ -85,7 +86,7 @@ internal fun ElementPickerBar(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = stringResource(R.string.picker_title),
+                    text = stringResource(if (inspect) R.string.dev_dom_inspect else R.string.picker_title),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
@@ -102,7 +103,7 @@ internal fun ElementPickerBar(
                 }
                 if (chosen == null) {
                     Text(
-                        text = stringResource(R.string.picker_hint),
+                        text = stringResource(if (inspect) R.string.dev_dom_inspect_hint else R.string.picker_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f).padding(start = 4.dp),
@@ -132,9 +133,9 @@ internal fun ElementPickerBar(
                     shape = CircleShape,
                     modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp),
                 ) {
-                    Text(stringResource(R.string.picker_block_site), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(if (inspect) R.string.dev_dom_inspect else R.string.picker_block_site), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                BrowserActionPill(
+                if (!inspect) BrowserActionPill(
                     text = stringResource(R.string.picker_block_all),
                     enabled = chosen != null,
                     onClick = { onBlock(true) },

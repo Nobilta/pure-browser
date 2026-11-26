@@ -43,6 +43,14 @@ class BrowserDatabaseTest {
 
     @Test fun upgradesVersionOneHistoryWithoutLosingVisits() = checkVersionOneUpgrade(false)
 
+    @Test fun bulkHistoryDeletionPreservesUnselectedVisitsAndBookmarks() {
+        val ids = (0..3).map { history.addHistory("Page $it", "https://example.test/$it") }
+        bookmarks.addBookmark("Saved", "https://example.test/0")
+        history.removeHistory(setOf(ids[0], ids[2]))
+        assertEquals(setOf(ids[1], ids[3]), history.getAllHistory().map { it.id }.toSet())
+        assertEquals("https://example.test/0", bookmarks.getAllBookmarks().single().url)
+    }
+
     @Test fun upgradesVersionOneHistoryThatAlreadyHasVisitCounts() = checkVersionOneUpgrade(true)
 
     private fun checkVersionOneUpgrade(hasVisitCount: Boolean) {

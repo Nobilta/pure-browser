@@ -4,6 +4,7 @@
   if (!/^https?:$/.test(location.protocol)) return;
   var W = window, D = document;
   var stringify = JSON.stringify.bind(JSON);
+  var supportsCss = W.CSS && typeof W.CSS.supports === 'function' ? W.CSS.supports.bind(W.CSS) : null;
   var stringifyJson = stringify;
   var now = function () { return (W.performance && performance.now) ? performance.now() : Date.now(); };
   var isTop = false;
@@ -817,7 +818,7 @@
       nodeIds = new WeakMap();
       nodes = new Map();
       records = new Map();
-      nextNode = 1;
+      // Never reuse an id held by an open editor after refreshing the tree.
       sourceCache = null;
     }
     function pathIndices(node) {
@@ -1079,6 +1080,62 @@
         } catch (e) { return stringify({ invalid: true }); }
         var truncated = html.length > MAX_HTML_CHARS;
         return stringify({ html: truncated ? html.slice(0, MAX_HTML_CHARS) : html, truncated: truncated });
+      },
+      domPicked: function () {
+        var picker = W.__pureElementPicker;
+        var node = picker && picker.selectedNode();
+        if (!node || node.ownerDocument !== D || !node.isConnected) return stringify({ invalid: true });
+        return stringify({ id: nodeId(node), name: String(node.tagName).toLowerCase(), path: pathOf(node) });
+      },
+      domDetails: function (id) {
+        var node = nodeOf(String(id));
+        if (!node) return stringify({ invalid: true });
+        var out = { doc: doc, kind: kindOf(node), supportsInlineStyle: !!node.style,
+          attributes: [], styles: [], computed: [], box: '' };
+        if (node.nodeType === 1) {
+          Array.prototype.forEach.call(node.attributes, function (attr) {
+            out.attributes.push({ name: attr.name, value: attr.value });
+          });
+          if (out.supportsInlineStyle) {
+            for (var i = 0; i < node.style.length; i++) {
+              var property = node.style[i];
+              out.styles.push({ name: property, value: node.style.getPropertyValue(property) +
+                (node.style.getPropertyPriority(property) ? ' !important' : '') });
+            }
+          }
+          var computed = W.getComputedStyle(node), rect = node.getBoundingClientRect();
+          out.box = 'x: ' + Number(rect.x.toFixed(2)) + ', y: ' + Number(rect.y.toFixed(2)) + '\n' +
+            Number(rect.width.toFixed(2)) + ' × ' + Number(rect.height.toFixed(2)) + ' px';
+          ['box-sizing', 'margin', 'padding', 'border-width'].forEach(function (property) {
+            out.box += '\n' + property + ': ' + computed.getPropertyValue(property);
+          });
+          for (var j = 0; j < computed.length; j++) {
+            var key = computed[j];
+            out.computed.push({ name: key, value: computed.getPropertyValue(key) });
+          }
+        } else if (node.nodeType === 3) out.text = node.nodeValue;
+        return stringify(out);
+      },
+      domEdit: function (id, kind, name, value) {
+        var node = nodeOf(String(id));
+        if (!node) return stringify({ invalid: true });
+        if (kind === 'text' && node.nodeType === 3) node.nodeValue = String(value);
+        else if (kind === 'attribute' && node.nodeType === 1) {
+          if (value === null) node.removeAttribute(name); else node.setAttribute(name, value);
+        } else if (kind === 'style' && node.nodeType === 1 && node.style) {
+          name = String(name).trim();
+          if (!name) return stringify({ error: 'invalid_css' });
+          if (value !== null) value = String(value).trim();
+          if (value === null || value === '') node.style.removeProperty(name);
+          else {
+            var important = /\s*!important\s*$/i.test(value);
+            var cssValue = value.replace(/\s*!important\s*$/i, '');
+            if (!supportsCss || !supportsCss(name, cssValue)) return stringify({ error: 'invalid_css' });
+            node.style.setProperty(name, cssValue, important ? 'important' : '');
+          }
+        } else return stringify({ invalid: true });
+        sourceCache = null;
+        return stringify({ ok: true });
       },
       domPath: function (id) {
         var node = nodeOf(String(id));

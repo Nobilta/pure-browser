@@ -33,12 +33,18 @@ class HttpDownloadResumeTest {
         encoding: String? = null,
         rejectProbe: Boolean = false,
         rejectProbeCode: Int = 405,
+        rejectResumeCode: Int? = null,
     ): String {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/file") { exchange ->
                 val range = exchange.requestHeaders.getFirst("Range")
                 val validator = exchange.requestHeaders.getFirst("If-Range")
                 requests += range to validator
+                if (validator != null && rejectResumeCode != null) {
+                    exchange.sendResponseHeaders(rejectResumeCode, -1)
+                    exchange.close()
+                    return@createContext
+                }
                 if (rejectProbe && range != null) {
                     exchange.sendResponseHeaders(rejectProbeCode, -1)
                     exchange.close()
@@ -60,6 +66,110 @@ class HttpDownloadResumeTest {
 
     private fun merged(payload: DownloadPayload): ByteArray = java.io.ByteArrayOutputStream().use { output ->
         payload.parts.forEach { output.write(it.readBytes()) }; output.toByteArray()
+    }
+
+    @Test fun rateLimitedReplacementKeepsItsHttpFailureAndRetainedBytes() = runBlocking {
+        val url = start(rejectResumeCode = 429)
+        val oldUrl = "$url?old"
+        val checkpoint = DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 1)
+        checkpoint.save(directory)
+        val saved = body.copyOfRange(0, 1234)
+        File(directory, "part-0").writeBytes(saved)
+        try {
+            HttpDownloadEngine().replacementCheckpoint(oldUrl, url, headers, directory)
+            fail("Rate-limited replacement accepted")
+        } catch (error: DownloadHttpException) {
+            assertEquals(429, error.code)
+            assertTrue(error.isTransient)
+        }
+        try {
+            HttpDownloadEngine().resumeReplacement(url, headers, directory, checkpoint, url) { _, _, _ -> }
+            fail("Rate-limited replacement resumed")
+        } catch (error: DownloadHttpException) {
+            assertEquals(429, error.code)
+            assertTrue(error.isTransient)
+        }
+        assertArrayEquals(saved, File(directory, "part-0").readBytes())
+        assertNotNull(DownloadCheckpoint.read(directory, oldUrl))
+    }
+
+    @Test fun replacementPreconditionAndRangeRejectionPreservePartsAndReportCannotResume() = runBlocking {
+        for (code in listOf(412, 416)) {
+            val url = start(rejectResumeCode = code)
+            val oldUrl = "$url?old"
+            val checkpoint = DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 1)
+            checkpoint.save(directory)
+            val saved = body.copyOfRange(0, 1234)
+            File(directory, "part-0").writeBytes(saved)
+            val engine = HttpDownloadEngine()
+            try { engine.replacementCheckpoint(oldUrl, url, headers, directory); fail("HTTP $code accepted") }
+            catch (_: DownloadLinkMismatch) { }
+            try { engine.resumeReplacement(url, headers, directory, checkpoint, url) { _, _, _ -> }; fail("HTTP $code resumed") }
+            catch (_: DownloadLinkMismatch) { }
+            assertArrayEquals(saved, File(directory, "part-0").readBytes())
+            assertNotNull(DownloadCheckpoint.read(directory, oldUrl))
+            server!!.stop(0)
+        }
+    }
+
+    @Test fun expiredAddressesKeepTheCheckpointAndEverySavedByte() = runBlocking {
+        for (code in listOf(401, 403, 404, 410)) {
+            val url = start(rejectProbe = true, rejectProbeCode = code)
+            DownloadCheckpoint(DownloadCheckpoint.digest(url), body.size.toLong(), "\"stable\"", 1).save(directory)
+            val saved = body.copyOfRange(0, 1234)
+            val part = File(directory, "part-0").apply { writeBytes(saved) }
+            try { HttpDownloadEngine().download(url, headers, 1, directory) { _, _, _ -> }; fail() }
+            catch (error: DownloadHttpException) { assertEquals(code, error.code) }
+            assertArrayEquals(saved, part.readBytes())
+            assertNotNull(DownloadCheckpoint.read(directory, url))
+            server!!.stop(0)
+        }
+    }
+
+    @Test fun newAddressVerifiesAllSavedSegmentsThenDownloadsOnlyMissingRanges() = runBlocking {
+        val newUrl = start()
+        val oldUrl = "$newUrl?expired"
+        val checkpoint = DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 3)
+        checkpoint.save(directory)
+        val ranges = DownloadRanges.split(checkpoint.total, checkpoint.threads)
+        val lengths = listOf(ranges[0].last.toInt() + 1, 777, 0)
+        lengths.forEachIndexed { i, length ->
+            if (length > 0) File(directory, "part-$i").writeBytes(body.copyOfRange(ranges[i].first.toInt(), ranges[i].first.toInt() + length))
+        }
+        val engine = HttpDownloadEngine()
+        val (updated, entityUrl) = engine.replacementCheckpoint(oldUrl, newUrl, headers, directory)
+        assertNotNull(DownloadCheckpoint.read(directory, oldUrl)) // Validation alone never changes ownership.
+        assertEquals(listOf("bytes=0-0", "bytes=0-${lengths[0] - 1}", "bytes=${ranges[1].first}-${ranges[1].first + 776}"), requests.map { it.first })
+        updated.save(directory)
+        requests.clear()
+        val payload = engine.resumeReplacement(newUrl, headers, directory, updated, entityUrl) { _, _, _ -> }
+        assertArrayEquals(body, merged(payload))
+        assertEquals(setOf("bytes=${ranges[1].first + 777}-${ranges[1].last}", "bytes=${ranges[2].first}-${ranges[2].last}"), requests.map { it.first }.toSet())
+    }
+
+    @Test fun matchingSizeAndEtagCannotJoinDifferentFiles() = runBlocking {
+        val newUrl = start()
+        val oldUrl = "$newUrl?old"
+        DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 1).save(directory)
+        val saved = body.copyOfRange(0, 200_000).also { it[100_000] = (it[100_000] + 1).toByte() }
+        File(directory, "part-0").writeBytes(saved)
+        try { HttpDownloadEngine().replacementCheckpoint(oldUrl, newUrl, headers, directory); fail() }
+        catch (_: DownloadLinkMismatch) { }
+        assertArrayEquals(saved, File(directory, "part-0").readBytes())
+        assertNotNull(DownloadCheckpoint.read(directory, oldUrl))
+        assertNull(DownloadCheckpoint.read(directory, newUrl))
+    }
+
+    @Test fun aReplacementThatIgnoresIfRangeDoesNotRestartOrTruncate() = runBlocking {
+        val newUrl = start(ignoreResume = true)
+        val oldUrl = "$newUrl?old"
+        DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 1).save(directory)
+        val saved = body.copyOfRange(0, 7000)
+        File(directory, "part-0").writeBytes(saved)
+        try { HttpDownloadEngine().replacementCheckpoint(oldUrl, newUrl, headers, directory); fail() }
+        catch (_: DownloadLinkMismatch) { }
+        assertArrayEquals(saved, File(directory, "part-0").readBytes())
+        assertNotNull(DownloadCheckpoint.read(directory, oldUrl))
     }
 
     @Test fun cancellationKeepsValidatedPrefixAndNewEngineResumesOnlyMissingBytes() = runBlocking {

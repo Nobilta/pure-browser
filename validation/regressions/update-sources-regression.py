@@ -57,7 +57,6 @@ def main():
         ux.launch('about:blank')
         ux.open_settings('关于与更新')
         ux.tap('Check for updates')
-        ux.tap('Check for updates')
         keys = ['update_latest', 'update_confirm_download'] if expected_source else ['update_rate_limit']
         labels = set().union(*(ux.resource_labels(key) for key in keys))
         deadline = time.monotonic() + 40
@@ -69,9 +68,11 @@ def main():
         else:
             raise AssertionError('Update dialog did not reach the expected result: ' + name)
         prefs = ET.fromstring(ux.adb('shell', 'cat', path))
-        source = prefs.find("string[@name='source']")
-        assert (source.text if source is not None else None) == expected_source
-        result['checks'].append({'name': name, 'source': expected_source})
+        assert prefs.find("string[@name='manifest']") is None, 'Checks must not save a manifest cache'
+        # Exact request ordering is asserted by UpdateRepositoryTransferTest. With Gitee's
+        # backoff active, a successful request here can only come from the GitHub path.
+        result['checks'].append({'name': name, 'giteeBackoff': 'GITEE' in blocked,
+                                 'outcome': 'checked' if expected_source else 'rate-limited'})
         (args.output / (name + '.xml')).write_text(raw, encoding='utf-8')
         (args.output / (name + '.png')).write_bytes(subprocess.check_output(
             ux.ADB + ['exec-out', 'screencap', '-p'], timeout=20))

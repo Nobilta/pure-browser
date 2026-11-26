@@ -27,10 +27,12 @@ spec.loader.exec_module(ux)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
+    parser.add_argument('--package', default='com.mybrowser')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     assert args.serial.startswith('emulator-'), 'Use a dedicated emulator'
     ux.ADB = ['adb', '-s', args.serial]
+    ux.PACKAGE = args.package
     args.output.mkdir(parents=True, exist_ok=True)
     # Start from the browser itself: the stage is run by the suite registry, which does not
     # promise that the app is foregrounded when it begins.

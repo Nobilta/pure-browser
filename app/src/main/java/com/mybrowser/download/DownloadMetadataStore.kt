@@ -217,7 +217,8 @@ internal class DownloadMetadataStore(private val prefs: SharedPreferences) {
 
     fun save(entries: Collection<DownloadMetadata>) {
         val json = boundedJsonArray(
-            entries.sortedByDescending { it.timestamp }.asSequence().take(MAX_METADATA_ENTRIES),
+            entries.sortedWith(compareByDescending<DownloadMetadata> { it.status.active }
+                .thenByDescending { it.timestamp }).asSequence().take(MAX_METADATA_ENTRIES),
             MAX_PERSISTED_JSON_LENGTH,
         ) { entry ->
             JSONObject()

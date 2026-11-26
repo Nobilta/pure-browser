@@ -1,5 +1,7 @@
 package com.mybrowser.devtools
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Handler
@@ -54,8 +56,16 @@ internal class DevToolsSession(
     val network = NetworkLogStore(onEvicted = { details.remove(it.id) })
     val details = NetworkDetailStore()
     val dom = DomReader(this)
+    var inspectedNode by androidx.compose.runtime.mutableStateOf<DomSearchResult?>(null)
     val source = SourceReader(this)
     val storage = StorageReader(this)
+    val commandHistory = androidx.compose.runtime.mutableStateListOf<String>()
+
+    fun rememberCommand(command: String) {
+        commandHistory.remove(command)
+        commandHistory.add(0, command)
+        if (commandHistory.size > 50) commandHistory.removeAt(commandHistory.lastIndex)
+    }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mutableState = MutableStateFlow(EnhancedCaptureState(supported = capabilitiesSupported()))
@@ -217,6 +227,7 @@ internal class DevToolsSession(
     }
 
     private fun beginDocument(url: String) {
+        inspectedNode = null
         documentId++
         documentUrl = url.take(DevToolsBudgets.URL_CHARS)
         ready = false
@@ -661,12 +672,12 @@ internal class DevToolsSession(
         left == right || left.substringBefore('#') == right.substringBefore('#')
 
     /** Runs JavaScript in the main frame and drops results from an obsolete document. */
-    internal suspend fun evaluateInDocument(script: String): String? {
-        val expected = documentId
+    internal suspend fun evaluateInDocument(script: String, expected: Long = documentId): String? {
         if (closed) return null
         // Export writes on IO, but evaluateJavascript belongs to the WebView's UI thread.
         val raw = withContext(Dispatchers.Main.immediate) {
-            suspendCancellableCoroutine { continuation ->
+            if (!isCurrentDocument(expected)) return@withContext null
+            suspendCancellableCoroutine<String?> { continuation ->
                 runCatching {
                     view.evaluateJavascript(script) { value ->
                         if (continuation.isActive) continuation.resume(value)
@@ -689,6 +700,7 @@ internal class DevToolsSession(
         removeBridge()
         network.clear()
         details.clear()
+        commandHistory.clear()
         publish()
     }
 

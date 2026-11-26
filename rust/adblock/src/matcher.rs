@@ -378,11 +378,26 @@ impl Matcher {
         // handle, so it cannot know what a cap refused. Callers pair the answer with
         // `LoadStats::refused_by_limit` and say so when that count is not zero — a rule the engine
         // dropped must never be presented as one that should have blocked.
+        let page_lower = page.to_lowercase();
+        let page_request = Request {
+            original: page,
+            lower: &page_lower,
+            host: &document.host,
+            first_party_host: &document.host,
+            resource_type: ResourceType::Document,
+            is_third_party: false,
+            page_policy_probe: true,
+        };
         let mut blocking = None;
         let mut exception = None;
         for line in content.lines().filter(|line| line.len() <= MAX_RULE_LENGTH) {
             if let Ok(rule) = Rule::parse(line) {
-                if request.matches(&rule) {
+                let page_exception = rule.is_exception
+                    && rule.options.document
+                    && is_http_url(page)
+                    && !document.host.is_empty()
+                    && page_request.matches(&rule);
+                if request.matches(&rule) || page_exception {
                     if rule.is_exception {
                         exception.get_or_insert_with(|| line.trim().to_owned());
                     } else {
@@ -676,6 +691,39 @@ pub fn extract_token(pattern: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explanation_includes_document_exception_from_its_own_list() {
+        let url = "https://ads.example/ad.js";
+        let page = "https://news.example.org/article";
+        let rule = "@@||news.example.org^$document";
+        assert_eq!(
+            Matcher::explain(rule, url, page, ResourceType::Script),
+            (None, Some(rule.into()))
+        );
+        assert_eq!(
+            Matcher::explain(rule, url, "https://other.example/", ResourceType::Script),
+            (None, None)
+        );
+        assert_eq!(
+            Matcher::explain(
+                "@@||news.example.org^$generichide",
+                url,
+                page,
+                ResourceType::Script
+            ),
+            (None, None)
+        );
+        assert_eq!(
+            Matcher::explain(
+                &format!("||ads.example^\n{rule}"),
+                url,
+                page,
+                ResourceType::Script
+            ),
+            (Some("||ads.example^".into()), Some(rule.into()))
+        );
+    }
 
     fn reference(pat: &[u8], url: &[u8], end: bool) -> bool {
         match pat.split_first() {

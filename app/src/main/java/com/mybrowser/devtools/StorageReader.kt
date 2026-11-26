@@ -19,6 +19,8 @@ import org.json.JSONObject
  */
 internal class StorageReader(private val session: DevToolsSession) {
 
+    private val documentMarker = "__pureStorage_" + java.util.UUID.randomUUID().toString().replace("-", "")
+
     enum class Kind(val js: String) { LOCAL("localStorage"), SESSION("sessionStorage") }
 
     @SuppressLint("RequiresFeature")
@@ -64,7 +66,7 @@ internal class StorageReader(private val session: DevToolsSession) {
 
     suspend fun list(kind: Kind, offset: Int = 0, query: String = ""): PageResult<StorageSnapshot> {
         val expected = session.documentId
-        val script = listScript(kind, offset, query)
+        val script = listScript(kind, offset, query, expected)
         val raw = session.evaluateInDocument(script) ?: return PageResult.Unavailable
         if (!session.isCurrentDocument(expected)) return PageResult.Unavailable
         val payload = DevToolsJs.decode(raw) ?: return PageResult.Unavailable
@@ -80,10 +82,9 @@ internal class StorageReader(private val session: DevToolsSession) {
             val entries = ArrayList<StorageEntry>(array.length())
             for (index in 0 until array.length()) {
                 val item = array.optJSONArray(index) ?: continue
-                val name = item.optString(0).take(DevToolsBudgets.STORAGE_VALUE_PREVIEW_CHARS)
+                val name = item.optString(0)
                 val value = item.optString(1).take(DevToolsBudgets.STORAGE_VALUE_PREVIEW_CHARS)
                 val chars = item.optInt(2, value.length).coerceAtLeast(0)
-                if (name.isBlank() && value.isBlank() && chars == 0) continue
                 entries += StorageEntry(name, value, chars, chars > value.length)
             }
             PageResult.Ok(
@@ -95,6 +96,7 @@ internal class StorageReader(private val session: DevToolsSession) {
                     nextOffset = if (json.isNull("nextOffset")) null
                     else json.optInt("nextOffset", -1).takeIf { it >= 0 },
                     keysToken = json.optString("keysToken").take(64),
+                    documentId = expected,
                 )
             )
         }
@@ -127,8 +129,35 @@ internal class StorageReader(private val session: DevToolsSession) {
         }
     }
 
-    private fun listScript(kind: Kind, offset: Int, query: String): String = """
+    /** The snapshot owns the edit; a navigation must be rejected before executing it. */
+    suspend fun write(kind: Kind, snapshot: StorageSnapshot, name: String? = null, value: String? = null): PageResult<Unit> {
+        val operation = when {
+            name == null -> "s.clear();"
+            value == null -> "s.removeItem(${JSONObject.quote(name)});"
+            else -> "s.setItem(${JSONObject.quote(name)},${JSONObject.quote(value)});"
+        }
+        val script = """
+            (function(){try{
+            if(location.origin!==${JSONObject.quote(snapshot.origin)} ||
+                window[${JSONObject.quote(documentMarker)}]!==${JSONObject.quote("${snapshot.documentId}")})
+                return JSON.stringify({invalid:true});
+            var s=window.${kind.js};$operation
+            return JSON.stringify({ok:true});
+            }catch(e){return JSON.stringify({error:String(e.message||e)});}})()
+        """.trimIndent()
+        val raw = session.evaluateInDocument(script, snapshot.documentId) ?: return PageResult.Unavailable
+        val decoded = DevToolsJs.decode(raw) ?: return PageResult.Unavailable
+        val json = runCatching { JSONObject(decoded) }.getOrNull() ?: return PageResult.Failed(null)
+        return when {
+            json.optBoolean("invalid") -> PageResult.Invalid
+            json.optBoolean("ok") -> PageResult.Ok(Unit)
+            else -> PageResult.Failed(json.optString("error"))
+        }
+    }
+
+    private fun listScript(kind: Kind, offset: Int, query: String, documentId: Long): String = """
         (function(){try{
+        window[${JSONObject.quote(documentMarker)}]=${JSONObject.quote("$documentId")};
         var s=window.${kind.js};var out=[];var total=s.length;var totalChars=0;
         var limit=${DevToolsBudgets.STORAGE_ITEMS};
         var perValue=${DevToolsBudgets.STORAGE_VALUE_PREVIEW_CHARS};
@@ -155,9 +184,10 @@ internal class StorageReader(private val session: DevToolsSession) {
             if(!keyHit&&!valueHit)continue;
             matched++;
             if(out.length>=limit){truncated=true;continue;}
+            if(k2.length>perValue){truncated=true;continue;}
             var chars2=v2.length;var preview2=chars2>perValue?v2.slice(0,perValue):v2;
-            if(totalChars+preview2.length>budget){truncated=true;continue;}
-            totalChars+=preview2.length;
+            if(totalChars+k2.length+preview2.length>budget){truncated=true;continue;}
+            totalChars+=k2.length+preview2.length;
             out.push([k2,preview2,chars2]);
           }
           total=matched;
@@ -165,8 +195,10 @@ internal class StorageReader(private val session: DevToolsSession) {
           for(var j=start;j<total&&out.length<limit;j++){
             var k=s.key(j);var v=s.getItem(k);if(v===null)v='';
             var chars=v.length;var preview=chars>perValue?v.slice(0,perValue):v;
-            if(totalChars+preview.length>budget){truncated=true;break;}
-            totalChars+=preview.length;
+            // Keys use the same preview limit as values, but must stay whole for editing.
+            if(k.length>perValue){truncated=true;nextOffset=j+1;continue;}
+            if(totalChars+k.length+preview.length>budget){truncated=true;break;}
+            totalChars+=k.length+preview.length;
             out.push([k,preview,chars]);
             nextOffset=j+1;
           }

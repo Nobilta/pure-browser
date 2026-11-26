@@ -41,6 +41,12 @@ under the [Apache License 2.0](../third_party/apache-2.0-LICENSE.txt).
 Encoding and decoding run offline. Camera capture uses Android Camera2; Google Play services
 and remote recognition services are not required.
 
+## CommonMark
+
+Local Markdown previews use [commonmark-java](https://github.com/commonmark/commonmark-java)
+and its GFM tables extension under the [BSD 2-Clause license](../app/src/main/assets/commonmark-LICENSE.txt).
+The full upstream license is bundled in the APK; dependency versions are pinned in the Gradle catalog and lockfile.
+
 ## EasyList, EasyPrivacy and EasyList China
 
 The bundled rule data are unmodified snapshots from 2026-09-09, attributed to

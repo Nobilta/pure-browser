@@ -91,7 +91,7 @@ def tap_resource(name, timeout=6):
     while True:
         # Wait for the control on the device: one connection instead of one dump per poll.
         remaining = deadline - time.monotonic()
-        root, _ = nodes(await_labels=[name], timeout_ms=max(0, int(remaining * 1000)))
+        root, _ = nodes(await_labels=sorted(wanted), timeout_ms=max(0, int(remaining * 1000)))
         node = next((n for n in root.iter("node") if visible(n)
                      and n.get("content-desc") in wanted), None)
         if node is not None:
@@ -155,6 +155,29 @@ def nodes(await_labels=None, await_absent=False, timeout_ms=4000):
         except (subprocess.CalledProcessError, ET.ParseError):
             time.sleep(1)
     raise AssertionError("UIAutomator did not produce a current hierarchy")
+
+
+def webview_text():
+    """Read visible Debug WebView text without changing the document or accessibility service."""
+    pid = adb('shell', 'pidof', PACKAGE).strip()
+    port = adb('forward', 'tcp:0', 'localabstract:webview_devtools_remote_' + pid)
+    try:
+        return subprocess.check_output(['node', '--input-type=module', '-e', """
+const pages = await (await fetch('http://127.0.0.1:' + process.argv[1] + '/json')).json();
+const page = pages.filter(p => JSON.parse(p.description).visible)
+    .sort((a,b) => JSON.parse(b.description).screenY - JSON.parse(a.description).screenY)[0];
+if (!page) process.exit(0); // Activity recreation can temporarily remove the viewer.
+const ws = new WebSocket(page.webSocketDebuggerUrl);
+await new Promise(r => ws.onopen = r);
+const response = await new Promise(r => {
+    ws.onmessage = e => r(JSON.parse(e.data));
+    ws.send(JSON.stringify({id:1, method:'Runtime.evaluate', params:{expression:'document.body.innerText + [...document.querySelectorAll("textarea,input")].map(e=>e.value).join(" ")',returnByValue:true}}));
+});
+process.stdout.write(response.result?.result?.value ?? "");
+ws.close();
+""", port], text=True, timeout=15)
+    finally:
+        adb('forward', '--remove', 'tcp:' + port)
 
 
 def window_nodes():

@@ -1,5 +1,6 @@
 package com.mybrowser.ui.shell
 
+import androidx.compose.ui.res.stringResource
 import com.mybrowser.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -34,6 +35,7 @@ fun SecurityIndicator(
 ) {
     val textResources = localizedResources()
     val isNativeHomepage = url == "about:blank"
+    val localFile = com.mybrowser.text.LocalHtmlDocument.isLocalUrl(url)
     val securityLevel = SecurityChecker.getSecurityLevel(url, certificateError)
     val securityInfo = SecurityChecker.getSecurityInfo(url, certificateError)
 
@@ -53,6 +55,7 @@ fun SecurityIndicator(
             // not a failed or dangerous network connection.
             painter = painterResource(
                 when {
+                    localFile -> R.drawable.ic_ui_file
                     isNativeHomepage -> R.drawable.ic_ui_home
                     securityLevel == SecurityLevel.SECURE -> R.drawable.ic_ui_lock
                     securityLevel == SecurityLevel.WARNING || securityLevel == SecurityLevel.INSECURE -> R.drawable.ic_ui_warning
@@ -62,13 +65,14 @@ fun SecurityIndicator(
             // The glyph alone cannot distinguish "encrypted" from "not encrypted": the
             // description has to say which of the three states this page is in.
             contentDescription = when {
+                localFile -> textResources.getString(R.string.local_html_file)
                 isNativeHomepage -> textResources.getString(R.string.ui_shortcuts_homepage)
                 securityLevel == SecurityLevel.SECURE -> textResources.getString(R.string.ui_secure_connection)
                 securityLevel == SecurityLevel.INSECURE -> textResources.getString(R.string.ui_insecure_connection)
                 securityLevel == SecurityLevel.WARNING -> textResources.getString(R.string.ui_connection_warning)
                 else -> textResources.getString(R.string.ui_dangerous_connection)
             },
-            tint = if (isNativeHomepage) {
+            tint = if (localFile) MaterialTheme.colorScheme.onSurfaceVariant else if (isNativeHomepage) {
                 MaterialTheme.colorScheme.primary
             } else {
                 when (securityLevel) {
@@ -96,6 +100,13 @@ fun SecurityInfoDialog(
     val textResources = localizedResources()
     val securityInfo = SecurityChecker.getSecurityInfo(url, certificateError)
     val securityLevel = SecurityChecker.getSecurityLevel(url, certificateError)
+    if (com.mybrowser.text.LocalHtmlDocument.isLocalUrl(url)) {
+        BrowserAlertDialog(onDismissRequest = onDismiss,
+            title = { Text(stringResource(R.string.local_html_file)) },
+            text = { Text(com.mybrowser.text.LocalHtmlDocument.displayName(url.orEmpty())) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) } })
+        return
+    }
 
     BrowserAlertDialog(
         onDismissRequest = onDismiss,

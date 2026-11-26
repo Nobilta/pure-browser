@@ -32,8 +32,6 @@ class BookmarkDocuments(private val activity: ComponentActivity, private val sco
         },
     )
         private set
-    private data class Export(val bytes: ByteArray, val count: Int, val omitted: Int, val unsupported: Int)
-    private var exportSnapshot: Export? = null
 
     init {
         activity.savedStateRegistry.registerSavedStateProvider(EXPORT_RESULT_KEY) {
@@ -69,15 +67,21 @@ class BookmarkDocuments(private val activity: ComponentActivity, private val sco
     }
 
     private val create = activity.registerForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
-        val snapshot = exportSnapshot
-        exportSnapshot = null
-        if (uri != null && snapshot != null) runJob {
-            withContext(Dispatchers.IO) {
+        if (uri != null) runJob {
+            val snapshot = withContext(Dispatchers.IO) {
+                val manager = repository()
+                val entries = manager.bookmarksForExport()
+                val encoded = BookmarkHtml.encodeCapped(entries, manager.getFolders())
+                val exportable = manager.countExportableBookmarks()
+                val total = manager.countBookmarks()
                 requireNotNull(activity.contentResolver.openOutputStream(uri, "wt")).use {
-                    it.write(snapshot.bytes)
+                    it.write(encoded.bytes)
                 }
+                BookmarkExportResult(encoded.included,
+                    (exportable - encoded.included).coerceAtLeast(0),
+                    (total - exportable).coerceAtLeast(0))
             }
-            exportResult = BookmarkExportResult(snapshot.count, snapshot.omitted, snapshot.unsupported)
+            exportResult = snapshot
         }
     }
 
@@ -87,23 +91,8 @@ class BookmarkDocuments(private val activity: ComponentActivity, private val sco
     }
 
     fun exportFile() {
-        if (busy) return
-        runJob {
-            exportSnapshot = withContext(Dispatchers.IO) {
-                val manager = repository()
-                val entries = manager.bookmarksForExport()
-                val encoded = BookmarkHtml.encodeCapped(entries, manager.getFolders())
-                val exportable = manager.countExportableBookmarks()
-                val total = manager.countBookmarks()
-                Export(
-                    bytes = encoded.bytes,
-                    count = encoded.included,
-                    omitted = (exportable - encoded.included).coerceAtLeast(0),
-                    unsupported = (total - exportable).coerceAtLeast(0),
-                )
-            }
-            create.launch("PureBrowser-bookmarks.html")
-        }
+        if (!busy) runCatching { create.launch("PureBrowser-bookmarks.html") }
+            .onFailure { message(true, activity.getString(R.string.bookmarks_transfer_failed)) }
     }
 
     fun dismissPreview() { if (!busy) preview = null }

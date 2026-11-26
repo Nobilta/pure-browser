@@ -14,6 +14,18 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class DlnaParsingTest {
 
+    @Test fun rootUrlBaseResolvesRelativeTransportAndVolumeEndpoints() {
+        val reply = SsdpDiscovery.Reply("http://192.168.1.10:1400/xml/device.xml", "uuid:test", null, "ssdp:all")
+        fun document(base: String) = """<root>$base<device><serviceList>
+            <service><serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType><controlURL>control/av</controlURL></service>
+            <service><serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType><controlURL>control/rc</controlURL></service>
+            </serviceList></device></root>"""
+        val device = DeviceDescription.parse(document("<URLBase>http://192.168.1.10:1400/</URLBase>"), reply)!!
+        assertEquals("http://192.168.1.10:1400/control/av", device.controlUrl)
+        assertEquals("http://192.168.1.10:1400/control/rc", device.renderingControlUrl)
+        assertEquals("http://192.168.1.10:1400/xml/control/av", DeviceDescription.parse(document(""), reply)?.controlUrl)
+    }
+
     @Test
     fun `ssdp parser accepts only http urls with a host`() {
         val reply = SsdpDiscovery.parse(

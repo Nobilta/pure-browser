@@ -71,6 +71,13 @@ internal fun UpdatePanel(
             finally { busy = false }
         }
     }
+    fun check() = run {
+        message = R.string.update_checking
+        release = repository.check()
+        message = if (release == null) R.string.update_latest else R.string.update_confirm_download
+    }
+    LaunchedEffect(Unit) { if (offered == null) check() }
+
     /** Rechecks the package, then asks the system installer to take over. */
     suspend fun handOff(file: File, item: UpdateRepository.Release) {
         message = R.string.update_verifying
@@ -140,11 +147,7 @@ internal fun UpdatePanel(
                 val file = apk
                 TextButton(onClick = {
                     when {
-                        item == null -> run {
-                            message = R.string.update_checking
-                            release = repository.check()
-                            message = if (release == null) R.string.update_latest else R.string.update_confirm_download
-                        }
+                        item == null -> check()
                         file == null -> download(item)
                         !context.packageManager.canRequestPackageInstalls() -> {
                             allowed = false

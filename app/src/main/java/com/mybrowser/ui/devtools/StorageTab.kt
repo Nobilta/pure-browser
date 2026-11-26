@@ -28,7 +28,11 @@ import com.mybrowser.devtools.CookieRow
 import com.mybrowser.devtools.DevToolsSession
 import com.mybrowser.devtools.PageResult
 import com.mybrowser.devtools.StorageEntry
+import com.mybrowser.devtools.StorageReader
 import com.mybrowser.devtools.StorageSnapshot
+import com.mybrowser.ui.shell.BrowserAlertDialog
+import com.mybrowser.ui.shell.BrowserSheetHeader
+import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.shell.localizedResources
@@ -44,10 +48,21 @@ private const val LOCAL_TAB = 1
 private const val SESSION_TAB = 2
 private const val MAX_COPY_CHARS = 8 * 1024 * 1024
 
+/** Kept by the tool while switching tabs; replaced when the page document changes. */
+internal class StorageTabState {
+    var cookies by mutableStateOf<CookieResult?>(null)
+    var snapshot by mutableStateOf<StorageSnapshot?>(null)
+    var selectedCookie by mutableStateOf<CookieRow?>(null)
+    var selectedEntry by mutableStateOf<StorageEntry?>(null)
+    var loadedRequest: List<Any?>? = null
+}
+
 @Composable
 internal fun StorageTab(
     session: DevToolsSession?,
     pageUrl: String?,
+    state: StorageTabState = remember { StorageTabState() },
+    header: @Composable () -> Unit = {},
 ) {
     val resources = localizedResources()
     var tab by rememberSaveable { mutableIntStateOf(COOKIE_TAB) }
@@ -58,10 +73,14 @@ internal fun StorageTab(
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var cookies by remember { mutableStateOf<CookieResult?>(null) }
-    var snapshot by remember { mutableStateOf<StorageSnapshot?>(null) }
-    var selectedCookie by remember { mutableStateOf<CookieRow?>(null) }
-    var selectedEntry by remember { mutableStateOf<StorageEntry?>(null) }
+    var cookies by state::cookies
+    var snapshot by state::snapshot
+    var selectedCookie by state::selectedCookie
+    var selectedEntry by state::selectedEntry
+    var adding by remember { mutableStateOf(false) }
+    var clearing by remember { mutableStateOf(false) }
+    var writing by remember { mutableStateOf(false) }
+    var options by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     LaunchedEffect(query, tab) {
         if (tab == COOKIE_TAB) appliedQuery = "" else {
@@ -74,10 +93,10 @@ internal fun StorageTab(
             error = resources.getString(R.string.dev_storage_error, "WebView")
             return@LaunchedEffect
         }
+        val request = listOf(tab, refresh, session.documentId, pageUrl, appliedQuery)
+        if (state.loadedRequest == request) return@LaunchedEffect
         loading = true
         error = null
-        selectedCookie = null
-        selectedEntry = null
         try {
             when (tab) {
                 COOKIE_TAB -> {
@@ -101,6 +120,7 @@ internal fun StorageTab(
                     }
                 }
             }
+            if (error == null) state.loadedRequest = request
         } finally {
             loading = false
         }
@@ -111,6 +131,33 @@ internal fun StorageTab(
             selectedEntry = null
         }
     }
+    val storageKind = if (tab == LOCAL_TAB) StorageReader.Kind.LOCAL else StorageReader.Kind.SESSION
+    val currentSnapshot = snapshot
+    if (session != null && currentSnapshot != null && adding) DevToolsEditDialog(
+        title = stringResource(R.string.ui_add), initialName = "", initialValue = "",
+        onApply = { name, value -> session.storage.write(storageKind, currentSnapshot, name, value) },
+        onApplied = { adding = false; refresh++ }, onDismiss = { adding = false },
+    )
+    if (session != null && currentSnapshot != null && clearing) BrowserAlertDialog(
+        onDismissRequest = { if (!writing) clearing = false },
+        title = { Text(stringResource(R.string.ui_clear)) },
+        text = { Text(stringResource(R.string.dev_storage_clear_confirm, currentSnapshot.origin)) },
+        confirmButton = { TextButton(enabled = !writing, onClick = {
+            writing = true
+            scope.launch {
+                try {
+                    when (session.storage.write(storageKind, currentSnapshot)) {
+                        is PageResult.Ok -> refresh++
+                        else -> error = resources.getString(R.string.dev_edit_failed)
+                    }
+                    clearing = false
+                } finally { writing = false }
+            }
+        }) { Text(stringResource(R.string.ui_clear)) } },
+        dismissButton = { TextButton(enabled = !writing, onClick = { clearing = false }) {
+            Text(stringResource(R.string.action_cancel))
+        } },
+    )
     val selected = selectedCookie ?: selectedEntry
     if (selected != null && session != null) {
         if (selectedCookie != null) CookieDetail(selectedCookie!!, onBack = { selectedCookie = null })
@@ -119,47 +166,50 @@ internal fun StorageTab(
             kind = if (tab == LOCAL_TAB) com.mybrowser.devtools.StorageReader.Kind.LOCAL
                 else com.mybrowser.devtools.StorageReader.Kind.SESSION,
             entry = selectedEntry!!,
-            origin = snapshot?.origin.orEmpty(),
+            snapshot = currentSnapshot ?: return,
+            onChanged = { refresh++ },
+            onRemoved = { selectedEntry = null; refresh++ },
             onBack = { selectedEntry = null },
         )
         return
     }
-    Column(Modifier.fillMaxSize()) {
+    DevToolsPage(controls = {
+        header()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                DevToolsSearchField(query, stringResource(R.string.dev_storage_search)) { query = it }
+            }
+            BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.dev_storage_refresh), !loading) { refresh++ }
+            if (tab != COOKIE_TAB) {
+                BrowserIconAction(R.drawable.ic_ui_add, stringResource(R.string.ui_add),
+                    !loading && error == null && snapshot != null) { adding = true }
+            }
+            Box {
+                BrowserIconAction(R.drawable.ic_ui_more, stringResource(R.string.dev_more)) { options = true }
+                BrowserDropdownMenu(options, { options = false }) {
+                    if (tab != COOKIE_TAB) DropdownMenuItem(text = { Text(stringResource(R.string.ui_clear), color = MaterialTheme.colorScheme.error) },
+                        enabled = !loading && error == null && snapshot != null,
+                        onClick = { clearing = true; options = false })
+                    Text(if (tab == COOKIE_TAB) stringResource(R.string.dev_storage_cookie_scope)
+                        else stringResource(R.string.dev_storage_origin, snapshot?.origin.orEmpty()),
+                        Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+                    if (tab == COOKIE_TAB && cookies?.richAttributes == false) Text(stringResource(R.string.dev_storage_cookie_fallback),
+                        Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BrowserActionPill(stringResource(R.string.dev_storage_cookies),
-                    { tab = COOKIE_TAB; query = ""; appliedQuery = "" }, selected = tab == COOKIE_TAB)
+                    { tab = COOKIE_TAB; query = ""; appliedQuery = ""; selectedCookie = null; selectedEntry = null }, selected = tab == COOKIE_TAB)
                 BrowserActionPill(stringResource(R.string.dev_storage_local),
-                    { tab = LOCAL_TAB; query = ""; appliedQuery = "" }, selected = tab == LOCAL_TAB)
+                    { tab = LOCAL_TAB; query = ""; appliedQuery = ""; selectedCookie = null; selectedEntry = null }, selected = tab == LOCAL_TAB)
                 BrowserActionPill(stringResource(R.string.dev_storage_session),
-                    { tab = SESSION_TAB; query = ""; appliedQuery = "" }, selected = tab == SESSION_TAB)
+                    { tab = SESSION_TAB; query = ""; appliedQuery = ""; selectedCookie = null; selectedEntry = null }, selected = tab == SESSION_TAB)
             }
-            BrowserIconAction(R.drawable.ic_ui_refresh, stringResource(R.string.dev_storage_refresh)) { refresh++ }
         }
-        if (tab != COOKIE_TAB) {
-            snapshot?.origin?.let { Text(
-                stringResource(R.string.dev_storage_origin, it),
-                Modifier.padding(horizontal = 16.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            ) }
-        }
-        if (tab == COOKIE_TAB) Text(
-            stringResource(R.string.dev_storage_cookie_scope),
-            Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (tab == COOKIE_TAB && cookies?.richAttributes == false) Text(
-            stringResource(R.string.dev_storage_cookie_fallback),
-            Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Box(Modifier.padding(horizontal = 16.dp)) {
-            DevToolsSearchField(query, stringResource(R.string.dev_storage_search)) { query = it }
-        }
+    }) {
         when {
             loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(24.dp))
@@ -211,7 +261,7 @@ internal fun StorageTab(
                                                     origin = page.origin,
                                                     entries = current.entries + page.entries,
                                                     total = page.total,
-                                                    truncated = page.truncated,
+                                                    truncated = page.truncated || current.entries.size + page.entries.size < page.total,
                                                     nextOffset = page.nextOffset,
                                                     keysToken = page.keysToken,
                                                 )
@@ -261,12 +311,10 @@ private fun CookieList(
         }) { _, cookie ->
             Surface(
                 onClick = { onOpen(cookie) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, BrowserColors.cardBorder),
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                Column(Modifier.padding(10.dp)) {
+                Column(Modifier.padding(horizontal = 4.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(cookie.name, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -292,6 +340,7 @@ private fun CookieList(
                     }
                 }
             }
+            HorizontalDivider(color = BrowserColors.cardBorder)
         }
     }
 }
@@ -305,7 +354,7 @@ private fun StorageList(
     onOpen: (StorageEntry) -> Unit,
 ) {
     val entries = snapshot?.entries.orEmpty()
-    if (entries.isEmpty()) {
+    if (entries.isEmpty() && snapshot?.truncated != true) {
         Text(stringResource(R.string.dev_storage_empty),
             Modifier.fillMaxWidth().padding(24.dp), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -324,15 +373,14 @@ private fun StorageList(
             items(entries, key = { it.name }) { entry ->
                 Surface(
                     onClick = { onOpen(entry) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = BorderStroke(1.dp, BrowserColors.cardBorder),
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
                 ) {
-                    Column(Modifier.padding(10.dp)) {
+                    Column(Modifier.padding(horizontal = 4.dp, vertical = 12.dp)) {
                         Row {
                             Text(entry.name, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("${entry.valueChars}", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -341,6 +389,7 @@ private fun StorageList(
                             style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                     }
                 }
+                HorizontalDivider(color = BrowserColors.cardBorder)
             }
             if (snapshot?.nextOffset != null) {
                 item {
@@ -360,14 +409,12 @@ private fun StorageList(
 private fun CookieDetail(cookie: CookieRow, onBack: () -> Unit) {
     val resources = localizedResources()
     val context = LocalContext.current
+    val feedback = LocalDevToolsFeedback.current
     val value = cookie.value
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = onBack)
-            Text(cookie.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            TextButton(onClick = { copyText(context, value) }) { Text(stringResource(R.string.dev_storage_copy_all)) }
-        }
+        BrowserSheetHeader(cookie.name, onBack = onBack, actions = {
+            BrowserIconAction(R.drawable.ic_ui_copy, stringResource(R.string.dev_storage_copy_all)) { copyText(context, value, feedback) }
+        })
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
             DetailRow(stringResource(R.string.dev_storage_name), cookie.name)
             DetailRow(stringResource(R.string.dev_storage_value), value.ifBlank { stringResource(R.string.dev_storage_empty) })
@@ -395,11 +442,14 @@ private fun StorageEntryDetail(
     session: DevToolsSession,
     kind: com.mybrowser.devtools.StorageReader.Kind,
     entry: StorageEntry,
-    origin: String,
+    snapshot: StorageSnapshot,
+    onChanged: () -> Unit,
+    onRemoved: () -> Unit,
     onBack: () -> Unit,
 ) {
     val resources = localizedResources()
     val context = LocalContext.current
+    val feedback = LocalDevToolsFeedback.current
     val scope = rememberCoroutineScope()
     var value by remember { mutableStateOf<String?>(null) }
     var total by remember { mutableIntStateOf(entry.valueChars) }
@@ -408,7 +458,22 @@ private fun StorageEntryDetail(
     var error by remember { mutableStateOf(false) }
     var formatted by rememberSaveable { mutableStateOf(true) }
     var copying by remember { mutableStateOf(false) }
-    LaunchedEffect(entry.name) {
+    var editValue by remember { mutableStateOf<String?>(null) }
+    var revision by remember { mutableIntStateOf(0) }
+    val origin = snapshot.origin
+    editValue?.let { full ->
+        DevToolsEditDialog(
+            title = stringResource(R.string.dev_edit), initialName = entry.name, initialValue = full,
+            nameEditable = false,
+            onApply = { name, edited -> session.storage.write(kind, snapshot, name, edited) },
+            onRemove = { session.storage.write(kind, snapshot, entry.name) },
+            onApplied = { editValue = null; revision++; onChanged() },
+            onRemoved = { editValue = null; onRemoved() }, onDismiss = { editValue = null },
+        )
+    }
+    LaunchedEffect(entry.name, revision) {
+        loading = true
+        error = false
         when (val result = session.storage.value(kind, entry.name, 0)) {
             is PageResult.Ok -> {
                 value = result.value.value
@@ -424,20 +489,22 @@ private fun StorageEntryDetail(
         else formatJson(value.orEmpty())
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.cd_back), onClick = onBack)
-            Text(entry.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            TextButton(onClick = { formatted = !formatted }) {
-                Text(if (formatted) stringResource(R.string.dev_storage_json_raw)
-                    else stringResource(R.string.dev_storage_json_format))
-            }
-        }
-        Box(Modifier.padding(horizontal = 16.dp)) {
-            DetailRow(stringResource(R.string.dev_storage_name), entry.name)
+        BrowserSheetHeader(entry.name, onBack = onBack)
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BrowserActionPill(stringResource(R.string.dev_edit), {
+                scope.launch {
+                    copying = true
+                    try {
+                        editValue = readAll(session, kind, entry.name)
+                        if (editValue == null) feedback(resources.getString(R.string.dev_edit_failed))
+                    } finally { copying = false }
+                }
+            }, enabled = !copying && !loading && !error)
+            BrowserActionPill(if (formatted) stringResource(R.string.dev_storage_json_raw)
+                else stringResource(R.string.dev_storage_json_format), { formatted = !formatted })
         }
         if (origin.isNotBlank()) SelectableText(stringResource(R.string.dev_storage_origin, origin),
-            Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
+            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (loading) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(24.dp))
@@ -473,7 +540,7 @@ private fun StorageEntryDetail(
                     scope.launch {
                         copying = true
                         val all = readAll(session, kind, entry.name)
-                        if (all != null) copyText(context, all) else showToast(context, resources.getString(R.string.dev_copy_failed))
+                        if (all != null) copyText(context, all, feedback) else feedback(resources.getString(R.string.dev_copy_failed))
                         copying = false
                     }
                 }, enabled = !copying) { Text(stringResource(if (copying) R.string.dev_storage_loading else R.string.dev_storage_copy_all)) }
@@ -483,13 +550,15 @@ private fun StorageEntryDetail(
 }
 
 private suspend fun readAll(session: DevToolsSession, kind: com.mybrowser.devtools.StorageReader.Kind, name: String): String? {
+    val expected = session.documentId
     val builder = StringBuilder()
     var offset = 0
     while (builder.length <= MAX_COPY_CHARS) {
         val result = session.storage.value(kind, name, offset) as? PageResult.Ok ?: return null
+        if (!session.isCurrentDocument(expected)) return null
         val value = result.value
         builder.append(value.value)
-        if (value.value.isEmpty()) return builder.toString()
+        if (value.value.isEmpty() && offset < value.totalChars) return null
         offset = value.offset + value.value.length
         if (offset >= value.totalChars) return builder.toString()
     }

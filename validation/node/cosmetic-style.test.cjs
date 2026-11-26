@@ -5,6 +5,32 @@ const { JSDOM } = require('jsdom');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../../app/src/main/assets/cosmetic-style.js'), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('adopted filtering replaces and removes only its own sheet', () => {
+    const dom = new JSDOM('<div class="ad"></div>', { url: 'https://example.com/', runScripts: 'outside-only' });
+    const w = dom.window;
+    // jsdom has CSS rules but no adopted-sheet rendering; verify ownership here and CSP in Chromium.
+    w.CSSStyleSheet.prototype.replaceSync = function (css) { this.insertRule(css); };
+    const siteSheet = new w.CSSStyleSheet();
+    w.document.adoptedStyleSheets = [siteSheet];
+    const apply = w.eval(source);
+    try {
+        apply(w, '.ad{display:none!important}');
+        const filtering = w.document.adoptedStyleSheets[1];
+        assert.ok(filtering);
+        assert.equal(w.document.querySelector('#__pureAdStyle'), null);
+        apply(w, '.ad{display:none!important}');
+        assert.equal(w.document.adoptedStyleSheets.length, 2);
+        assert.equal(w.document.adoptedStyleSheets[1], filtering);
+        apply(w, '.sponsor{display:none!important}');
+        assert.equal(w.document.adoptedStyleSheets[0], siteSheet);
+        assert.equal(w.document.adoptedStyleSheets.length, 2);
+        assert.notEqual(w.document.adoptedStyleSheets[1], filtering);
+        apply(w, '');
+        assert.equal(w.document.adoptedStyleSheets.length, 1);
+        assert.equal(w.document.adoptedStyleSheets[0], siteSheet);
+    } finally { w.close(); }
+});
+
 test('early stylesheet waits for html, hides later matches and repairs a replaced head', async () => {
     const dom = new JSDOM('<html><head></head><body><div class="ad">ad</div><main>content</main></body></html>', {
         url: 'https://example.com/', runScripts: 'outside-only',

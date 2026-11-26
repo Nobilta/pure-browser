@@ -12,6 +12,9 @@ import android.os.Bundle
 data class TabState(
     val id: String,
     var url: String = "",
+    var localHtml: com.mybrowser.text.LocalHtmlDocument? = null,
+    /** A resource-folder change needs a reload when a suspended page returns to the foreground. */
+    var reloadOnSelect: Boolean = false,
     var title: String = "",
     var favicon: Bitmap? = null,
     var thumbnail: Bitmap? = null,

@@ -39,6 +39,7 @@
 6. **层级导航头契约（Root Dismiss vs Child Back）**
    * **顶层独立半屏抽屉**（栈深 $= 1$，如 `TabsSheet`）：`BrowserSheetHeader` 传入 **`onDismiss`**（渲染右侧 `×` 关闭按钮）。
    * **从父面板压栈进入的子页面或全屏工具页**（如 `SettingsSheet`、`BookmarksSheet`、`QrScannerSheet`）：传入 **`onBack`**（渲染左侧 `←` 返回箭头，优先回退页内子状态，根节点时弹栈）。
+   * **返回与关闭分流**：标题栏返回与系统返回优先退出当前多选等页内状态，再回退页面；遮罩、明确关闭按钮与下拉关闭面板。多选本身不产生持久化修改，关闭无需额外确认。表单已有的提交、取消和忙碌约束继续由所属页面处理；忙碌期间禁止关闭的表单须在用户输入入口阻止退场，写入成功后的程序化关闭仍由窗口所有者完成。
 
 ---
 
@@ -139,7 +140,7 @@
 
 ## 四、动效与响应式布局速查表（Motion & Adaptive Rules）
 
-直接调用 [`BrowserMotion`](../app/src/main/java/com/mybrowser/ui/shell/BrowserMotion.kt) 预置函数（自动遵循系统无障碍 `TRANSITION_ANIMATION_SCALE` 动画缩放设置）：
+直接调用 [`BrowserMotion`](../app/src/main/java/com/mybrowser/ui/shell/BrowserMotion.kt) 预置函数（遵循系统动画缩放设置）：
 
 | 维度 / 场景 | 规范标准 / 必须调用的 API | 参数细节 |
 | :--- | :--- | :--- |
@@ -150,9 +151,15 @@
 | **跟手滚动 / 布局重排** | `BrowserMotion.chromeSpatial()` / `userItemMotion()` | 空间弹簧（`damping = 0.9f, stiffness = 1400f`） |
 | **Compact 手机竖屏 (`<600.dp`)** | 单栏全宽，标签网格固定 **`GridCells.Fixed(2)`** | 严禁在竖屏手机使用 `Adaptive` 导致 `320~340dp` 窄屏坍缩为 1 列 |
 | **Medium 横屏/小折叠 (`600~839.dp`)** | 半屏抽屉居中限宽 `widthIn(max = 640.dp)` | 标签网格切换为 `GridCells.Fixed(3)` |
-| **Expanded 平板/大折 (`>=840.dp`)** | 左右双栏 Master-Detail | 左侧分类列表固定 `260.dp` + `VerticalDivider` + 右侧详情 |
+| **Expanded 平板/大折 (`>=840.dp`)** | 设置等分类—详情页面使用左右双栏 | 左侧分类列表固定 `260.dp` + `VerticalDivider` + 右侧详情；标签等网格页面保留其布局 |
+
+所有真正关闭面板的入口都交给现有窗口/路由所有者完成退出后再移除内容，包括独立面板的标题按钮、遮罩与选择后关闭；页面不得绕过退出流程直接卸载独立窗口。返回只退出页内状态时不启动面板退场。跟手手势允许保留自身的位移与速度，取消后恢复原位；关闭系统动画时操作仍正常完成。
+
+列表动画用于用户主动增删、排序等需要表达位置变化的场景。已有动画使用公共参数，拖拽项保留跟手例外；搜索替换、分页、日志与持续刷新不强制添加动画，不为统一观感增加变化分类状态。
 
 窄屏或大字体下，`LibrarySelectionBar` 的计数与操作组空间不足时自然分行；播放器优先保留标题与全部 48dp 操作，空间不足时操作分行，并省略时间／电量。
+
+本地 HTML 的「显示原文／选择资源文件夹」使用 `BrowserActionPill`，位于网页上方、顶部地址栏下方（底部地址栏模式仍在网页上方），地址输入期间隐藏。两个操作等宽、等高，沿用胶囊最小 48dp 热区，文字允许换行并共同增高；水平留白 16dp、垂直留白 4dp、按钮间距 10dp。全屏与网页覆盖层沿用浏览器外壳的显隐规则。
 
 ---
 
@@ -178,17 +185,24 @@
 
 * `LibrarySearchField` 常态为 `surfaceContainerHigh`（`#EDF2F8`），聚焦时切换为 `surfaceContainerLow`（`#FFFFFF`）+ `1.5.dp` `primary` 描边。
 * 开发者工具搜索复用同一组件；`maxLength` 默认 256，传 `null` 保留工具原有的长查询能力。横向筛选使用 `BrowserActionPill(selected = ...)` 和 `selectableGroup()`，空间不足时筛选区独立滚动，刷新动作保留在可见区域。
+* 开发者工具只保留一层导航头：根页面显示工具标题与页签，详情替换整块根导航；标题返回和系统返回执行同一层级回退，保留列表位置。采集状态放入标题栏菜单，未启用能力的说明就近显示。低高度或大字号时，根导航与筛选区域允许整体滚动，最多占可用高度的一半，保证内容仍可阅读；控制台极低高度输入时暂时收起根导航，键盘关闭后恢复。
+* 日志、请求和存储使用有分割线的普通列表，代码正文使用诊断凹槽；正文为主、来源和计数为次。控制台输入、命令历史与运行位于底部。DOM／JSON 展开箭头独立于正文动作，触控区域至少 `48.dp`，带展开／折叠语义；编辑字段使用统一编辑图标。节点详情按属性、内联样式、计算样式分组，搜索紧邻其作用范围。
+
 * `ThumbZoneLibrarySheet` 按 **`Error > Loading > Empty > Content`** 封装内容生命周期，底部主按钮使用 `CircleShape` + `heightIn(min = 48.dp)`。
 
 ### 底座 5：模态弹窗与弹出菜单契约（[`BrowserAlertDialog`](../app/src/main/java/com/mybrowser/ui/shell/BrowserAlertDialog.kt) / [`BrowserDropdownMenu`](../app/src/main/java/com/mybrowser/ui/shell/BrowserActions.kt)）
 
 * 模态弹窗一律调用 `BrowserAlertDialog` 或 `BrowserConfirmDialog`（纯白 `surfaceContainerLow` + `1.dp` `BrowserColors.cardBorder`），弹窗内嵌详情块一律使用 `BrowserColors.recessedWell`，禁止直接调用原生 `AlertDialog`。
-* 弹窗动作层级：普通确认/提示弹窗默认横向 `TextButton`，次要在左、主操作在右；只有证书/SSL 等安全阻断弹窗允许纵向全宽「主 `Button` + 次 `TextButton`」布局。同一弹窗不得混用两套动作布局。
+* 弹窗动作层级：普通确认/提示弹窗使用 `TextButton`，空间充足时横排，次要在左、主操作在右；窄屏或大字体下允许按同一顺序换行并靠末端对齐。长表单可让标题与正文滚动，操作区保持可达，避免给已有滚动内容重复嵌套滚动。只有证书/SSL 等安全阻断弹窗使用纵向全宽「主 `Button` + 次 `TextButton`」操作层级；普通按钮换行不改变其动作层级。
 * 弹出菜单一律调用 `BrowserDropdownMenu`（`MaterialTheme.shapes.medium` + `surfaceContainerLow` + `1.dp` `BrowserColors.cardBorder` + `3.dp` 阴影），禁止直接调用无边框原生 `DropdownMenu`。
 * 弹窗内的表单输入一律调用 `BrowserTextField`：`labelMedium` 说明文字固定在雪雾槽上方（输入框预填时也不消失），槽体聚焦时使用 `surfaceContainerLow` + `1.5.dp` `primary` 描边，输入文本使用 `bodyLarge`（`15.sp`）。 多行输入有高度上限时先保留标签与错误说明的空间，输入区使用剩余高度；禁用态仅降低前景文字和图标的透明度，保留槽体底色。
 * `BrowserTextField` 的文本输入区域至少 `48.dp` 高，内边距放在 `decorationBox` 内以保留点击区域。`accessibilityLabel` 默认使用 `label`；隐藏视觉标签的输入必须单独提供可读标签。错误文字与槽体间距 `6.dp`，错误语义统一挂在可编辑节点，视觉标签与错误说明不重复朗读。
 
 ---
+
+### 操作反馈
+
+前台主动操作的结果使用已有宿主的 Snackbar，面板内可见，关闭面板后由宿主继续呈现。页面向宿主提交结果，不另建队列或用页面协程维持提示。应用尚未恢复前台时，普通结果允许系统 Toast；带操作或重要结果沿用宿主等待前台的策略。系统文件选择器返回也使用同一策略，不把离开应用期间的反馈强行绑定到可见面板。
 
 ## 六、性能、国际化与安全文案红线（Guardrails）
 

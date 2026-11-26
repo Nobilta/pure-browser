@@ -32,7 +32,6 @@ class UserScriptRuntime(
      * the session and never written to the file a normal session would read.
      */
     private val isPrivate: () -> Boolean,
-    private val isCurrent: () -> Boolean = { true },
 ) {
     private val bridgeName = "__pureScript_" + UUID.randomUUID().toString().replace("-", "")
     private val tokens = mutableMapOf<String, String>()
@@ -81,7 +80,8 @@ class UserScriptRuntime(
         if (documentStartSupported && messageSupported) {
             WebViewCompat.addWebMessageListener(view, bridgeName, setOf("*")) { _, message, origin, mainFrame, reply ->
                 val raw = message.data ?: return@addWebMessageListener
-                if (closed || !isCurrent() || raw.length > 96 * 1024) return@addWebMessageListener
+                // The channel belongs to this WebView, including a live background opener.
+                if (closed || raw.length > 96 * 1024) return@addWebMessageListener
                 val data = runCatching { JSONObject(raw) }.getOrNull() ?: return@addWebMessageListener
                 val id = data.optString("id")
                 // Nothing is answered before the token authenticates it: an unauthenticated message
@@ -180,11 +180,10 @@ class UserScriptRuntime(
      */
     private fun publishStatus(url: String) {
         val installed = store.scripts.value.filter { it.enabled && it.metadata.supported }
-        // A document the runtime cannot fully serve must not be told a script ran. The gate is
-        // shared with [refresh] rather than restated here, because the two disagreeing is what put a
-        // never-injected script in the not-matching count.
+        // DOM-only scripts also run through onPageFinished on old providers. Registration still
+        // requires document-start; the status describes both supported execution paths.
         fun runnable(script: InstalledUserScript): Boolean =
-            runnableOn(script.metadata.needsStorage, documentStartSupported, bridgeInstalled)
+            executionSupported(script.metadata.needsStorage, documentStartSupported, bridgeInstalled)
         // Each installed script lands in exactly one bucket: it either cannot run at all, it ran
         // here, or it was not covered by this page's rules.
         val ready = installed.filter { runnable(it) }
@@ -245,7 +244,7 @@ class UserScriptRuntime(
      * Old WebViews get DOM-only main-frame scripts here instead; no late privileged bridge.
      */
     fun onPageFinished(url: String) {
-        if (closed || !isCurrent()) return
+        if (closed) return
         runningIds = if (documentStartSupported) {
             // What was actually handed to the WebView when this document started, narrowed to the
             // scripts this page is covered by.
@@ -328,16 +327,13 @@ class UserScriptRuntime(
     }
 
     internal companion object {
-        /**
-         * Whether a script can be handed to a document at all on this WebView.
-         *
-         * The single gate: [refresh] decides what to register with it, and [publishStatus] decides
-         * what to count as held back with it. Stated twice, the two drifted, and a privileged script
-         * on a WebView with document-start but no message bridge was never injected yet reported as
-         * merely not matching the page.
-         */
+        /** Whether this WebView can register the script at document-start. */
         internal fun runnableOn(needsStorage: Boolean, documentStart: Boolean, bridge: Boolean): Boolean =
             documentStart && (!needsStorage || bridge)
+
+        /** Plain scripts also run through the page-finished fallback on older providers. */
+        internal fun executionSupported(needsStorage: Boolean, documentStart: Boolean, bridge: Boolean): Boolean =
+            !needsStorage || runnableOn(needsStorage, documentStart, bridge)
 
         /**
          * Which registered scripts this document can actually have received.

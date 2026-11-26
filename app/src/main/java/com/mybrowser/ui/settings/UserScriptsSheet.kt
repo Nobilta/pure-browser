@@ -32,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mybrowser.ui.shell.BrowserBottomSheet
+import com.mybrowser.ui.shell.browserSheetDismiss
 import com.mybrowser.ui.shell.BrowserAlertDialog
 import com.mybrowser.ui.shell.BrowserSheetHeader
 import com.mybrowser.ui.shell.localizedResources
@@ -115,7 +116,7 @@ fun UserScriptsSheet(
 
     BrowserBottomSheet(onDismissRequest = onDismiss, dragHandleOnly = true) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.94f)) {
-            BrowserSheetHeader(res.getString(R.string.script_title), onBack = onDismiss)
+            BrowserSheetHeader(res.getString(R.string.script_title), onBack = browserSheetDismiss())
             Text(res.getString(R.string.script_summary), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
             // Scripts do run in incognito now; what is private is the data they save, which is
             // worth saying here rather than leaving the user to discover it a session later.

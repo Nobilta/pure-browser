@@ -2,6 +2,12 @@ package com.mybrowser.download
 
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -15,6 +21,42 @@ import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
 
 class HttpDownloadEngineTest {
+    @Test fun cancellationOfAStalledResponseIsNotReportedAsAnIoFailure() = runBlocking {
+        val arrived = CompletableDeferred<Unit>()
+        val release = java.util.concurrent.CountDownLatch(1)
+        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/stalled") { exchange ->
+                try {
+                    exchange.sendResponseHeaders(200, 100)
+                    exchange.responseBody.write(1)
+                    exchange.responseBody.flush()
+                    arrived.complete(Unit)
+                    release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                } finally { exchange.close() }
+            }
+            start()
+        }
+        tempDirectory = Files.createTempDirectory("cancel-stalled-download").toFile()
+        val task = launch(Dispatchers.Default) {
+            HttpDownloadEngine().download("http://127.0.0.1:${server!!.address.port}/stalled",
+                DownloadRequestHeaders("", null, null), 1, tempDirectory!!, { _, _, _ -> })
+        }
+        try {
+            withTimeout(2_000) { arrived.await() }
+            delay(100) // Allow the client to enter the second read, with the server still open.
+            task.cancel()
+            // The desktop JDK may hold a read lock during disconnect. Android's provider is
+            // checked on-device; this test verifies that a late IO error stays cancellation.
+            release.countDown()
+            withTimeout(2_000) { task.join() }
+            assertTrue(task.isCompleted)
+            assertTrue(task.isCancelled)
+        } finally {
+            release.countDown()
+            task.cancelAndJoin()
+        }
+    }
+
     @Test fun fullResourceFetchRejectsPartialAndTruncatedBodies() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/partial") { exchange ->
@@ -129,7 +171,7 @@ class HttpDownloadEngineTest {
         assertArrayEquals(body, merged)
         assertEquals(listOf("bytes=0-0"), seenRanges.toList())
         assertTrue(seenCookies.all { it == "session=test-value" })
-        assertTrue(seenReferers.all { it == "https://example.test/page" })
+        assertTrue(seenReferers.isEmpty())
         assertTrue(seenIfRanges.isEmpty())
     }
 
@@ -139,10 +181,15 @@ class HttpDownloadEngineTest {
     @Test
     fun `cross origin redirects drop source cookies for probes and file ranges`() = verifyRedirect(true)
 
-    private fun verifyRedirect(crossOrigin: Boolean) = runBlocking {
+    @Test
+    fun `http redirects never forward an https page referer`() = verifyRedirect(true, "https://page.example/private?token=secret")
+
+    private fun verifyRedirect(crossOrigin: Boolean, referer: String = "http://page.example/private?token=secret") = runBlocking {
         val body = ByteArray(3 * 1024 * 1024 + 17) { (it % 193).toByte() }
         val targetCookies = ConcurrentLinkedQueue<String>()
         val sourceCookies = ConcurrentLinkedQueue<String>()
+        val sourceReferers = ConcurrentLinkedQueue<String>()
+        val targetReferers = ConcurrentLinkedQueue<String>()
         val ranges = ConcurrentLinkedQueue<String>()
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val target = if (crossOrigin) {
@@ -150,6 +197,7 @@ class HttpDownloadEngineTest {
         } else server!!
         target.createContext("/payload") { exchange ->
             exchange.requestHeaders.getFirst("Cookie")?.let(targetCookies::add)
+            targetReferers += exchange.requestHeaders.getFirst("Referer").orEmpty()
             val range = exchange.requestHeaders.getFirst("Range")
             val response = if (range == null) body else {
                 ranges.add(range)
@@ -163,6 +211,7 @@ class HttpDownloadEngineTest {
         }
         server!!.createContext("/redirect") { exchange ->
             exchange.requestHeaders.getFirst("Cookie")?.let(sourceCookies::add)
+            sourceReferers += exchange.requestHeaders.getFirst("Referer").orEmpty()
             exchange.responseHeaders.add("Location", if (crossOrigin)
                 "http://127.0.0.1:${target.address.port}/payload" else "/payload")
             exchange.sendResponseHeaders(302, -1)
@@ -174,7 +223,7 @@ class HttpDownloadEngineTest {
         for (threads in listOf(1, 4)) {
             val payload = HttpDownloadEngine().download(
                 "http://127.0.0.1:${server!!.address.port}/redirect",
-                DownloadRequestHeaders("PureBrowser/Test", "session=private", null), threads,
+                DownloadRequestHeaders("PureBrowser/Test", "session=private", referer), threads,
                 File(tempDirectory, threads.toString()), { _, _, _ -> },
             )
             val merged = ByteArrayOutputStream().use { output ->
@@ -186,6 +235,10 @@ class HttpDownloadEngineTest {
         }
         assertTrue(sourceCookies.isNotEmpty())
         assertTrue(sourceCookies.all { it == "session=private" })
+        val sourceReferer = if (referer.startsWith("https://")) "" else referer
+        val targetReferer = if (sourceReferer.isEmpty()) "" else if (crossOrigin) "http://page.example/" else referer
+        assertEquals(List(sourceCookies.size) { sourceReferer }, sourceReferers.toList())
+        assertEquals(List(sourceCookies.size) { targetReferer }, targetReferers.toList())
         if (crossOrigin) assertTrue(targetCookies.isEmpty())
         else assertEquals(sourceCookies.size, targetCookies.size)
         assertEquals(4, ranges.size)

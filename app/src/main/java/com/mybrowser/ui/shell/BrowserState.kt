@@ -261,7 +261,7 @@ class BrowserState {
             if (isImmersiveFullscreen) isChromeRevealed = true
             // Show the real URL for editing, not the trimmed display form, and select it
             // all so typing replaces rather than appends.
-            val text = currentUrl.takeUnless { it == ABOUT_BLANK }.orEmpty()
+            val text = currentUrl.takeUnless { it == ABOUT_BLANK || com.mybrowser.text.LocalHtmlDocument.isLocalUrl(it) }.orEmpty()
             omnibarValue = TextFieldValue(text = text, selection = TextRange(0, text.length))
         } else {
             // Only sync if not already synced to avoid cursor jumping

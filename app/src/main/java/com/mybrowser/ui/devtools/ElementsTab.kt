@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,11 +17,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -38,6 +42,7 @@ import com.mybrowser.devtools.EnhancedCaptureState
 import com.mybrowser.devtools.PageResult
 import com.mybrowser.devtools.SourceInfo
 import com.mybrowser.devtools.SourcePage
+import com.mybrowser.ui.shell.BrowserDropdownMenu
 import com.mybrowser.ui.shell.BrowserIconAction
 import com.mybrowser.ui.shell.localizedResources
 import com.mybrowser.ui.theme.BrowserColors
@@ -108,8 +113,11 @@ internal class DomTreeState(private val session: DevToolsSession) {
     private val totals = mutableStateMapOf<String, Int>()
     private val expanded = mutableStateMapOf<String, Boolean>()
     private var documentId = -1L
+    var revision by mutableIntStateOf(0)
+        private set
 
     fun reset() {
+        revision++
         root = null
         rows.clear()
         children.clear()
@@ -134,9 +142,9 @@ internal class DomTreeState(private val session: DevToolsSession) {
             when (val result = session.dom.root()) {
                 is PageResult.Ok -> {
                     val node = result.value
+                    loadChildren(node.id, 0)
                     root = node
                     expanded[node.id] = true
-                    loadChildren(node.id, 0)
                     rebuild()
                     if (node.childCount == 0) notice = DomNotice.EMPTY
                 }
@@ -150,8 +158,8 @@ internal class DomTreeState(private val session: DevToolsSession) {
     }
 
     suspend fun refresh() {
-        session.dom.reset()
         reset()
+        session.dom.reset()
         load(force = true)
     }
 
@@ -176,10 +184,44 @@ internal class DomTreeState(private val session: DevToolsSession) {
         selectedName = node.displayName
     }
 
-    suspend fun copyHtml(): String? {
-        val id = selectedId ?: return null
+    /** Attribute/text edits update one cached row without collapsing unrelated branches. */
+    suspend fun refreshEditedNode(id: String) {
+        if (root?.id == id) {
+            when (val result = session.dom.root()) {
+                is PageResult.Ok -> {
+                    root = result.value
+                    rebuild()
+                }
+                PageResult.Invalid -> notice = DomNotice.STALE
+                PageResult.Unavailable -> notice = DomNotice.UNAVAILABLE
+                is PageResult.Failed -> notice = DomNotice.FAILED
+            }
+            return
+        }
+        val parent = children.entries.firstOrNull { (_, nodes) -> nodes.any { it.id == id } } ?: return
+        val index = parent.value.indexOfFirst { it.id == id }
+        when (val result = session.dom.children(parent.key, index)) {
+            is PageResult.Ok -> {
+                val updated = result.value.nodes.firstOrNull { it.id == id }
+                if (updated == null) notice = DomNotice.STALE
+                else {
+                    children[parent.key] = children[parent.key].orEmpty().map { if (it.id == id) updated else it }
+                    rebuild()
+                    if (selectedId == id && !showWhitespace && updated.formattingWhitespace) {
+                        selectedId = null
+                        selectedName = ""
+                    }
+                }
+            }
+            PageResult.Invalid -> notice = DomNotice.STALE
+            PageResult.Unavailable -> notice = DomNotice.UNAVAILABLE
+            is PageResult.Failed -> notice = DomNotice.FAILED
+        }
+    }
+
+    suspend fun copyHtml(id: String): Pair<String, Boolean>? {
         return when (val result = session.dom.html(id)) {
-            is PageResult.Ok -> result.value.first
+            is PageResult.Ok -> result.value
             PageResult.Invalid -> {
                 notice = DomNotice.STALE
                 null
@@ -325,42 +367,48 @@ internal class SourceViewerState(private val session: DevToolsSession) {
         documentId = session.documentId
     }
 
-    suspend fun load(first: Boolean = true) {
+    suspend fun loadIfNeeded() {
+        if (documentId != session.documentId) reset()
+        if (page == null) load()
+    }
+
+    suspend fun load(first: Boolean = true, targetOffset: Int = offset): Boolean {
         if (documentId != session.documentId) reset()
         if (!session.dom.isAvailable()) {
             error = true
-            return
+            return false
         }
         if (first) {
-            history.clear()
-            offset = 0
             when (val metadata = session.source.info()) {
                 is PageResult.Ok -> info = metadata.value
                 PageResult.Invalid, PageResult.Unavailable -> {
                     error = true
-                    return
+                    return false
                 }
                 is PageResult.Failed -> {
                     error = true
-                    return
+                    return false
                 }
             }
         }
         loading = true
-        try {
-            when (val result = session.source.page(offset)) {
+        return try {
+            when (val result = session.source.page(if (first) 0 else targetOffset)) {
                 is PageResult.Ok -> {
                     val loaded = result.value
                     val parsed = withContext(Dispatchers.Default) {
                         SourceHighlighter.parseChunk(loaded.text, startLine = loaded.startLine + 1)
                     }
+                    if (first) history.clear()
+                    offset = loaded.offset
                     page = loaded
                     document = parsed
                     info = info ?: SourceInfo(loaded.totalChars, loaded.totalLines, "", "")
                     error = false
+                    true
                 }
-                PageResult.Invalid, PageResult.Unavailable -> error = true
-                is PageResult.Failed -> error = true
+                PageResult.Invalid, PageResult.Unavailable -> { error = true; false }
+                is PageResult.Failed -> { error = true; false }
             }
         } finally {
             loading = false
@@ -374,15 +422,12 @@ internal class SourceViewerState(private val session: DevToolsSession) {
             current.offset + parsed.characters
         } else current.nextOffset
         if (nextOffset == null || nextOffset <= current.offset) return
-        history += current.offset
-        offset = nextOffset
-        load(first = false)
+        if (load(first = false, targetOffset = nextOffset)) history += current.offset
     }
 
     suspend fun previous() {
         if (history.isEmpty()) return
-        offset = history.removeAt(history.lastIndex)
-        load(first = false)
+        if (load(first = false, targetOffset = history.last())) history.removeAt(history.lastIndex)
     }
 
     fun canGoBack(): Boolean = history.isNotEmpty()
@@ -390,8 +435,8 @@ internal class SourceViewerState(private val session: DevToolsSession) {
     suspend fun refresh() {
         // Source refresh must not clear the page-side node registry: an expanded DOM tree
         // on screen would otherwise keep ids that no longer exist.
-        session.source.resetCache()
         reset()
+        session.source.resetCache()
         load(first = true)
     }
 
@@ -424,106 +469,139 @@ internal fun ElementsTab(
     capture: EnhancedCaptureState,
     domState: DomTreeState?,
     sourceState: SourceViewerState?,
+    onInspectNode: () -> Unit,
+    onEnableCapture: () -> Unit,
+    header: @Composable () -> Unit,
 ) {
     val resources = localizedResources()
     val scope = rememberCoroutineScope()
     var view by rememberSaveable { mutableIntStateOf(0) }
+    var detailsId by rememberSaveable(capture.documentId) { mutableStateOf<String?>(null) }
+    val viewStates = rememberSaveableStateHolder()
+    var options by remember { mutableStateOf(false) }
     val available = capture.enabled || capture.stopped
-    if (session == null || domState == null || sourceState == null) {
-        EmptyState(resources.getString(R.string.dev_elements_guide))
-        return
-    }
-    if (!available) {
-        EmptyState(resources.getString(R.string.dev_elements_guide))
-        return
-    }
-    if (!capture.ready && capture.enabled) {
-        Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                resources.getString(
-                    if (capture.notice == com.mybrowser.devtools.CaptureNotice.SCRIPT_MISSING)
-                        R.string.dev_enhanced_script_missing else R.string.dev_enhanced_document_pending
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    if (session == null || domState == null || sourceState == null || !available) {
+        DevToolsPage(controls = header) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                EmptyState(resources.getString(R.string.dev_elements_guide))
+                BrowserActionPill(resources.getString(R.string.dev_enhanced_enable), onEnableCapture,
+                    enabled = session != null && capture.supported && !capture.installing,
+                    modifier = Modifier.padding(horizontal = 16.dp))
+            }
         }
         return
     }
-    LaunchedEffect(capture.documentId) {
-        domState.reset()
-        sourceState.reset()
-        if (view == 0) domState.load() else sourceState.load()
+    if (!capture.ready && capture.enabled) {
+        DevToolsPage(controls = header) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            EmptyState(resources.getString(if (capture.notice == com.mybrowser.devtools.CaptureNotice.SCRIPT_MISSING)
+                R.string.dev_enhanced_script_missing else R.string.dev_enhanced_document_pending))
+            }
+        }
+        return
     }
-    LaunchedEffect(view) {
-        if (view == 0 && domState.rows.isEmpty()) domState.load()
-        if (view == 1 && sourceState.page == null) sourceState.load()
+    LaunchedEffect(capture.documentId, view) {
+        if (view == 0) domState.load() else sourceState.loadIfNeeded()
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically) {
+    val toolbar: @Composable () -> Unit = {
+        header()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BrowserActionPill(resources.getString(R.string.dev_elements_dom), { view = 0 }, selected = view == 0)
                 BrowserActionPill(resources.getString(R.string.dev_elements_source), { view = 1 }, selected = view == 1)
             }
-            if (view == 0) BrowserIconAction(R.drawable.ic_ui_refresh, resources.getString(R.string.dev_dom_refresh)) {
+            if (view == 0) BrowserIconAction(R.drawable.ic_ui_search, resources.getString(R.string.dev_dom_inspect), onClick = onInspectNode)
+            BrowserIconAction(R.drawable.ic_ui_refresh, resources.getString(R.string.dev_dom_refresh),
+                enabled = !domState.loading && !sourceState.loading) {
                 scope.launch {
-                    domState.refresh()
-                    sourceState.reset()
+                    if (view == 0) { domState.refresh(); sourceState.reset() } else sourceState.refresh()
                 }
-            } else BrowserIconAction(R.drawable.ic_ui_refresh, resources.getString(R.string.dev_dom_refresh)) {
-                scope.launch { sourceState.refresh() }
+            }
+            if (view == 0) Box {
+                BrowserIconAction(R.drawable.ic_ui_more, resources.getString(R.string.dev_more)) { options = true }
+                BrowserDropdownMenu(options, { options = false }) {
+                    DropdownMenuItem(text = { Text(resources.getString(R.string.dev_dom_show_whitespace)) },
+                        trailingIcon = { Checkbox(domState.showWhitespace, onCheckedChange = null) },
+                        onClick = { domState.setWhitespaceVisible(!domState.showWhitespace); options = false })
+                }
             }
         }
-        if (view == 0) {
-            DomTreeView(domState, session, scope)
-        } else {
-            SourceView(sourceState, scope)
-        }
+    }
+    viewStates.SaveableStateProvider(view) {
+        if (view == 0) DomTreeView(domState, session, scope, detailsId,
+            onDetailsChange = { detailsId = it }, onChanged = { sourceState.reset() }, header = toolbar)
+        else DevToolsPage(controls = toolbar) { SourceView(sourceState, scope) }
     }
 }
 
 @Composable
-private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: kotlinx.coroutines.CoroutineScope) {
+private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: kotlinx.coroutines.CoroutineScope,
+                        detailsId: String?, onDetailsChange: (String?) -> Unit, onChanged: () -> Unit, header: @Composable () -> Unit) {
     val resources = localizedResources()
     val context = LocalContext.current
+    val feedback = LocalDevToolsFeedback.current
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<DomSearchResults?>(null) }
     var searching by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    LaunchedEffect(query) {
-        if (query.isBlank()) {
-            results = null
-            return@LaunchedEffect
+    var editedNode by remember { mutableStateOf<String?>(null) }
+    var editRevision by remember { mutableIntStateOf(0) }
+    LaunchedEffect(editRevision) { editedNode?.let { state.refreshEditedNode(it) } }
+    LaunchedEffect(session.inspectedNode) {
+        session.inspectedNode?.let { picked ->
+            onDetailsChange(null)
+            state.reset()
+            state.load()
+            val index = state.reveal(picked)
+            if (index != null) listState.scrollToItem(index)
+            session.inspectedNode = null
+            if (index != null) onDetailsChange(picked.id)
         }
+    }
+    detailsId?.let { id ->
+        androidx.activity.compose.BackHandler { onDetailsChange(null) }
+        DomNodeDetails(session, id, state.selectedName, onBack = { onDetailsChange(null) },
+            onCopy = {
+                scope.launch {
+                    state.copyHtml(id)?.let { (html, truncated) ->
+                        copyText(context, html, feedback, if (truncated) resources.getString(R.string.dev_dom_copied_truncated) else null)
+                    }
+                }
+            }, onChanged = {
+            onChanged()
+            editedNode = id
+            editRevision++
+        })
+        return
+    }
+    LaunchedEffect(query, state.revision) {
+        results = null
+        searching = false
+        if (query.isBlank()) return@LaunchedEffect
         kotlinx.coroutines.delay(250)
         searching = true
-        results = when (val found = session.dom.search(query)) {
-            is PageResult.Ok -> found.value
-            else -> null
-        }
-        searching = false
+        try {
+            results = (session.dom.search(query) as? PageResult.Ok)?.value
+        } finally { searching = false }
     }
-    Column(Modifier.fillMaxSize()) {
+    DevToolsPage(controls = {
+        header()
         Box(Modifier.padding(horizontal = 16.dp)) {
             DevToolsSearchField(query, stringResource(R.string.dev_dom_search)) { query = it }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = state.showWhitespace, onCheckedChange = state::setWhitespaceVisible)
-            Text(stringResource(R.string.dev_dom_show_whitespace), style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable { state.setWhitespaceVisible(!state.showWhitespace) })
-        }
         if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
+    }) {
         results?.let { found ->
             if (found.results.isEmpty()) Text(
                 stringResource(R.string.dev_dom_search_empty),
                 Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            ) else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
+            ) else LazyColumn(Modifier.weight(0.35f, fill = false).fillMaxWidth().heightIn(max = 160.dp)) {
                 items(found.results, key = { "search-${it.id}" }) { result ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) {
                             scope.launch {
                                 val index = state.reveal(result)
                                 if (index != null) listState.animateScrollToItem(index)
@@ -540,22 +618,6 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            state.root?.let {
-                Text(pluralStringResource(R.plurals.dev_dom_child_count, it.childCount, it.childCount),
-                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } ?: Spacer(Modifier.weight(1f))
-            if (state.selectedId != null) {
-                Text(state.selectedName, style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.tertiary)
-                TextButton(onClick = {
-                    scope.launch {
-                        state.copyHtml()?.let { html -> copyText(context, html) }
-                    }
-                }) { Text(stringResource(R.string.dev_dom_copy_html)) }
             }
         }
         when (state.notice) {
@@ -584,6 +646,7 @@ private fun DomTreeView(state: DomTreeState, session: DevToolsSession, scope: ko
                 } else {
                     DomNodeRow(row, state, palette) {
                         state.select(it)
+                        onDetailsChange(it.id)
                     }
                 }
             }
@@ -597,20 +660,22 @@ private fun DomNodeRow(row: DomRow, state: DomTreeState, palette: List<androidx.
     val scope = rememberCoroutineScope()
     val selected = state.selectedId == node.id
     Row(
-        Modifier.fillMaxWidth()
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHighest else androidx.compose.ui.graphics.Color.Transparent)
-            .clickable { onSelect(node) }
+            .clickable(role = androidx.compose.ui.semantics.Role.Button) { onSelect(node) }
             .padding(start = domIndent(row.depth), top = 2.dp, bottom = 2.dp, end = 8.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (node.childCount > 0) {
-            Text(
-                if (row.expanded) "▾" else "▸",
-                Modifier.width(20.dp).clickable { scope.launch { state.toggle(node) } },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else Spacer(Modifier.width(20.dp))
+            IconButton(onClick = { scope.launch { state.toggle(node) } }, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_ui_chevron),
+                    stringResource(if (row.expanded) R.string.dev_dom_collapse else R.string.dev_dom_expand, node.displayName),
+                    Modifier.size(20.dp).rotate(if (row.expanded) 90f else 0f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else Spacer(Modifier.width(48.dp))
         when (node.kind) {
             DomNodeKind.ELEMENT -> {
                 val primary = MaterialTheme.colorScheme.primary
@@ -667,11 +732,19 @@ private fun SourceView(
 ) {
     val resources = localizedResources()
     val context = LocalContext.current
+    val feedback = LocalDevToolsFeedback.current
+    val scroll = rememberLazyListState()
+    var previousOffset by rememberSaveable { mutableStateOf<Int?>(null) }
+    LaunchedEffect(state.page?.offset) {
+        val offset = state.page?.offset
+        if (previousOffset != null && offset != null && previousOffset != offset) scroll.scrollToItem(0)
+        previousOffset = offset
+    }
     val exportName = stringResource(R.string.dev_source_export_name)
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
         if (uri != null) scope.launch {
             val ok = state.export(context, uri)
-            showToast(context, resources.getString(if (ok) R.string.dev_source_exported else R.string.dev_source_export_failed))
+            feedback(resources.getString(if (ok) R.string.dev_source_exported else R.string.dev_source_export_failed))
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -691,32 +764,29 @@ private fun SourceView(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TextButton(onClick = { scope.launch { state.previous() } }, enabled = state.canGoBack() && !state.loading) {
-                Text(stringResource(R.string.dev_source_prev))
+            BrowserIconAction(R.drawable.ic_ui_back, stringResource(R.string.dev_source_prev),
+                state.canGoBack() && !state.loading) { scope.launch { state.previous() } }
+            BrowserIconAction(R.drawable.ic_ui_forward, stringResource(R.string.dev_source_next),
+                page != null && !state.loading &&
+                    (page.nextOffset != null || (document != null && document.characters < page.text.length))) {
+                scope.launch { state.next() }
             }
-            TextButton(
-                onClick = { scope.launch { state.next() } },
-                enabled = page != null && !state.loading &&
-                    (page.nextOffset != null || (document != null && document.characters < page.text.length)),
-            ) {
-                Text(stringResource(R.string.dev_source_next))
+            var options by remember { mutableStateOf(false) }
+            Box {
+                BrowserIconAction(R.drawable.ic_ui_more, stringResource(R.string.dev_more)) { options = true }
+                BrowserDropdownMenu(options, { options = false }) {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.dev_source_copy_page)) },
+                        enabled = page != null, onClick = { options = false; page?.let { copyText(context, it.text, feedback) } })
+                    DropdownMenuItem(text = { Text(stringResource(if (state.exporting) R.string.dev_source_exporting else R.string.dev_source_export)) },
+                        enabled = !state.exporting, onClick = {
+                            options = false
+                            if (state.info != null) exporter.launch(exportName)
+                            else scope.launch { state.load(); if (state.info != null) exporter.launch(exportName) }
+                        })
+                    if (page?.continued == true) Text(stringResource(R.string.dev_source_continued),
+                        Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+                }
             }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (page != null) TextButton(onClick = { copyText(context, page.text) }) {
-                Text(stringResource(R.string.dev_source_copy_page))
-            }
-            TextButton(onClick = {
-                if (state.info != null) exporter.launch(exportName)
-                else scope.launch { state.load(first = true); if (state.info != null) exporter.launch(exportName) }
-            }, enabled = !state.exporting) {
-                Text(stringResource(if (state.exporting) R.string.dev_source_exporting else R.string.dev_source_export))
-            }
-            if (page?.continued == true) Text(
-                stringResource(R.string.dev_source_continued),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         val palette = rememberSourcePalette()
         when {
@@ -725,7 +795,7 @@ private fun SourceView(
             }
             state.error -> EmptyState(stringResource(R.string.dev_source_read_failed))
             page == null || document == null -> EmptyState(stringResource(R.string.dev_source_loading))
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> LazyColumn(Modifier.fillMaxSize(), state = scroll) {
                 items(document.blocks.size, key = { index -> "source-$index" }) { index ->
                     SourceBlockRow(document.blocks[index], palette)
                 }

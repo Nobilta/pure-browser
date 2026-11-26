@@ -86,6 +86,7 @@ fun MenuSheet(
     runningScriptCount: Int = 0,
     onSharePage: () -> Unit = {},
     onShowPageQr: () -> Unit = {},
+    isLocalPage: Boolean = false,
     siteTitle: String = "",
     siteHost: String = "",
     securityLevel: SecurityLevel = SecurityLevel.SECURE,
@@ -110,6 +111,7 @@ fun MenuSheet(
                 },
                 host = if (canUsePageActions) siteHost else stringResource(R.string.menu_home_ready),
                 securityLevel = securityLevel,
+                isLocalPage = isLocalPage,
                 isCurrentPageBookmarked = isCurrentPageBookmarked,
                 canUsePageActions = canUsePageActions,
                 onOpenSiteSettings = onOpenSiteSettings,
@@ -130,6 +132,7 @@ fun MenuSheet(
                 Spacer(Modifier.height(14.dp))
                 ModeGrid(
                     isIncognito = isIncognito,
+                    isLocalPage = isLocalPage,
                     isDesktopMode = isDesktopMode,
                     isReaderActive = isReaderActive,
                     isTranslateActive = isTranslateActive,
@@ -166,6 +169,7 @@ private fun SiteSummaryCard(
     title: String,
     host: String,
     securityLevel: SecurityLevel,
+    isLocalPage: Boolean,
     isCurrentPageBookmarked: Boolean,
     canUsePageActions: Boolean,
     onOpenSiteSettings: () -> Unit,
@@ -185,7 +189,7 @@ private fun SiteSummaryCard(
                 Row(
                     modifier = modifier
                         .clip(MaterialTheme.shapes.small)
-                        .clickable(enabled = canUsePageActions, role = Role.Button, onClick = onOpenSiteSettings)
+                        .clickable(enabled = canUsePageActions && !isLocalPage, role = Role.Button, onClick = onOpenSiteSettings)
                         .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -219,7 +223,7 @@ private fun SiteSummaryCard(
                             if (canUsePageActions) {
                                 // The site card and the omnibar read the same SecurityLevel, so a
                                 // certificate failure cannot look like a plain-HTTP warning here.
-                                val (icon, tint) = when (securityLevel) {
+                                val (icon, tint) = if (isLocalPage) R.drawable.ic_ui_file to colors.onSurfaceVariant else when (securityLevel) {
                                     SecurityLevel.SECURE -> R.drawable.ic_ui_lock to BrowserColors.secure
                                     SecurityLevel.INSECURE, SecurityLevel.WARNING ->
                                         R.drawable.ic_ui_warning to BrowserColors.warning
@@ -250,7 +254,7 @@ private fun SiteSummaryCard(
                     QuickIcon(
                         icon = if (isCurrentPageBookmarked) R.drawable.ic_ui_bookmark_filled else R.drawable.ic_ui_bookmark_add,
                         description = stringResource(if (isCurrentPageBookmarked) R.string.menu_remove_bookmark else R.string.menu_add_bookmark),
-                        enabled = canUsePageActions,
+                        enabled = canUsePageActions && !isLocalPage,
                         active = isCurrentPageBookmarked,
                         onClick = onToggleBookmark,
                     )
@@ -263,7 +267,7 @@ private fun SiteSummaryCard(
                     QuickIcon(
                         icon = R.drawable.ic_ui_qr,
                         description = stringResource(R.string.menu_page_qr),
-                        enabled = canUsePageActions,
+                        enabled = canUsePageActions && !isLocalPage,
                         onClick = onShowPageQr,
                     )
                 }
@@ -380,6 +384,7 @@ private fun LibraryCapsule(icon: Int, label: String, onClick: () -> Unit, modifi
 @Composable
 private fun ModeGrid(
     isIncognito: Boolean,
+    isLocalPage: Boolean,
     isDesktopMode: Boolean,
     isReaderActive: Boolean,
     isTranslateActive: Boolean,
@@ -412,6 +417,7 @@ private fun ModeGrid(
             BrowserTileCard(
                 iconRes = R.drawable.ic_ui_monitor,
                 title = stringResource(R.string.menu_desktop_site),
+                enabled = canUsePageActions && !isLocalPage,
                 active = isDesktopMode,
                 isToggle = true,
                 onClick = onToggleDesktopMode,
@@ -455,7 +461,7 @@ private fun ModeGrid(
                 title = stringResource(R.string.menu_block_element),
                 active = false,
                 isToggle = false,
-                enabled = canUsePageActions,
+                enabled = canUsePageActions && !isLocalPage,
                 onClick = onBlockElement,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
             )

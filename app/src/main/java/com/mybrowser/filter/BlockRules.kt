@@ -1,6 +1,7 @@
 package com.mybrowser.filter
 
 import com.mybrowser.core.UrlUtils
+import com.mybrowser.text.LocalHtmlDocument
 import java.net.URI
 import java.util.Locale
 
@@ -137,10 +138,10 @@ internal object BlockRules {
         pattern.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }
 
     /** The host a rule or a cosmetic scope would name, or null when there is not one. */
-    fun hostOf(url: String): String? = UrlUtils.hostOf(url)
+    fun hostOf(url: String): String? = if (LocalHtmlDocument.isLocalUrl(url)) null else UrlUtils.hostOf(url)
 
     private fun parse(url: String): URI? {
-        if (url.length > MAX_RULE_LENGTH) return null
+        if (url.length > MAX_RULE_LENGTH || LocalHtmlDocument.isLocalUrl(url)) return null
         val parsed = runCatching { URI(url.trim()) }.getOrNull() ?: return null
         if (parsed.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
         if (parsed.host.isNullOrBlank()) return null

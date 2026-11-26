@@ -37,6 +37,51 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], application = Application::class, qualifiers = "w360dp-h720dp-mdpi")
 class CompactUiTest {
+    @Test fun findInputHasOneLabelAndKeepsTheEditableValueAccessible() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val label = context.getString(R.string.ui_find_in_page)
+        for (query in listOf("", "visible query")) {
+            render(360, 1f, { FindBar(query, {}, 1, 0, {}, {}, {}) }) { nodes ->
+                val input = nodes.single { it.config.getOrNull(SemanticsProperties.EditableText) != null }
+                assertEquals(listOf(label), input.config[SemanticsProperties.ContentDescription])
+                assertEquals(query, input.config[SemanticsProperties.EditableText].text)
+                assertTrue(nodes.none { node ->
+                    node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true
+                })
+            }
+        }
+    }
+
+    @Test fun actionRowsExposeButtonsWithoutReplacingSwitchOrSelectionRoles() {
+        var clicked = 0
+        render(360, 1f, {
+            androidx.compose.foundation.layout.Column {
+                com.mybrowser.ui.components.BrowserListItem("Action", { clicked++ })
+                com.mybrowser.ui.components.BrowserListItem("Long action", { clicked++ }, onLongClick = {})
+                com.mybrowser.ui.components.BrowserListItem("Disabled", {}, enabled = false)
+                com.mybrowser.ui.components.BrowserListItem("Switch", {}, toggleState = true)
+                com.mybrowser.ui.components.BrowserListItem("Radio", {}, selected = true)
+                com.mybrowser.ui.components.BrowserListItem("Tab", {}, selected = true, role = androidx.compose.ui.semantics.Role.Tab)
+                BrowserActionRow(R.drawable.ic_ui_copy, "Sheet action") { clicked++ }
+            }
+        }) { nodes ->
+            fun action(label: String): SemanticsNode {
+                val text = nodes.first { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true }
+                return generateSequence(text) { it.parent }.first { it.config.getOrNull(SemanticsProperties.Role) != null }
+            }
+            listOf("Action", "Long action", "Sheet action").forEach { label ->
+                val node = action(label)
+                assertEquals(androidx.compose.ui.semantics.Role.Button, node.config[SemanticsProperties.Role])
+                assertTrue(node.config[SemanticsActions.OnClick].action!!.invoke())
+            }
+            assertEquals(3, clicked)
+            assertTrue(action("Disabled").config.contains(SemanticsProperties.Disabled))
+            assertEquals(androidx.compose.ui.semantics.Role.Switch, action("Switch").config[SemanticsProperties.Role])
+            assertEquals(androidx.compose.ui.semantics.Role.RadioButton, action("Radio").config[SemanticsProperties.Role])
+            assertEquals(androidx.compose.ui.semantics.Role.Tab, action("Tab").config[SemanticsProperties.Role])
+        }
+    }
+
     @Test fun devToolsStorageKeepsRefreshReachableWithLargeText() {
         render(320, 2f, { com.mybrowser.ui.devtools.StorageTab(null, null) }) { nodes ->
             val label = org.robolectric.RuntimeEnvironment.getApplication().getString(R.string.dev_storage_refresh)
@@ -46,6 +91,24 @@ class CompactUiTest {
             val bounds = action.touchBoundsInRoot
             assertTrue("Refresh bounds: $bounds", bounds.width >= 48f && bounds.height >= 48f)
             assertTrue("Refresh bounds: $bounds", bounds.left >= 0f && bounds.right <= 320f)
+        }
+    }
+
+    @Test fun jsonDisclosureHasAnAccessible48dpActionSeparateFromSelectableText() {
+        var toggled: String? = null
+        render(320, 2f, {
+            com.mybrowser.ui.devtools.JsonRowView(
+                com.mybrowser.ui.devtools.JsonRow("root/key", 0, "payload", "", true, false, "{2}"),
+            ) { toggled = it }
+        }) { nodes ->
+            val label = org.robolectric.RuntimeEnvironment.getApplication().getString(R.string.dev_dom_expand, "payload")
+            val icon = nodes.single { it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true }
+            val action = generateSequence(icon) { it.parent }.first { it.config.contains(SemanticsActions.OnClick) }
+            assertTrue(action.touchBoundsInRoot.width >= 48f && action.touchBoundsInRoot.height >= 48f)
+            assertTrue(action.config[SemanticsActions.OnClick].action!!.invoke())
+            assertEquals("root/key", toggled)
+            val value = nodes.first { it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "payload: {2}" } == true }
+            assertTrue(!value.config.contains(SemanticsActions.OnClick))
         }
     }
 
@@ -71,7 +134,7 @@ class CompactUiTest {
             }
             assertTrue(!layout.didOverflowHeight)
             val clear = nodes.first { node ->
-                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == context.getString(R.string.ui_clear) } == true
+                node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(context.getString(R.string.ui_clear)) == true
             }
             val action = generateSequence(clear) { it.parent }.first { it.config.getOrNull(SemanticsActions.OnClick) != null }
             val bounds = action.touchBoundsInRoot

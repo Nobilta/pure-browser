@@ -3,6 +3,7 @@ package com.mybrowser.ui.menu
 import androidx.compose.foundation.selection.selectableGroup
 import com.mybrowser.ui.components.BrowserActionPill
 import com.mybrowser.ui.components.BrowserTextField
+import com.mybrowser.text.LocalHtmlDocument
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -382,6 +383,7 @@ private fun TabGridCard(
             BrowserDropdownMenu(expanded = itemMenu, onDismissRequest = { itemMenu = false }) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.context_copy_link)) },
+                    enabled = !LocalHtmlDocument.isLocalUrl(tab.url),
                     onClick = {
                         itemMenu = false
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -404,7 +406,10 @@ private fun TabGridCard(
 @Composable
 private fun Favicon(tab: TabState) {
     val icon = tab.favicon
-    if (icon != null && !icon.isRecycled) {
+    if (LocalHtmlDocument.isLocalUrl(tab.url)) {
+        Icon(painterResource(R.drawable.ic_ui_file), null, modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else if (icon != null && !icon.isRecycled) {
         Image(
             bitmap = icon.asImageBitmap(),
             contentDescription = null,
@@ -432,6 +437,7 @@ private fun Favicon(tab: TabState) {
 @Composable
 private fun Thumbnail(tab: TabState) {
     val thumbnail = tab.thumbnail
+    val local = LocalHtmlDocument.isLocalUrl(tab.url)
     if (thumbnail != null && !thumbnail.isRecycled) {
         Image(
             bitmap = thumbnail.asImageBitmap(),
@@ -447,13 +453,13 @@ private fun Thumbnail(tab: TabState) {
             verticalArrangement = Arrangement.Center,
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_ui_globe),
+                painter = painterResource(if (local) R.drawable.ic_ui_file else R.drawable.ic_ui_globe),
                 contentDescription = null,
                 modifier = Modifier.size(26.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
             )
             Text(
-                text = UrlUtils.hostOf(tab.url) ?: tab.url,
+                text = if (local) LocalHtmlDocument.displayName(tab.url) else UrlUtils.hostOf(tab.url) ?: tab.url,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,

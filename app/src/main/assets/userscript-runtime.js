@@ -36,6 +36,10 @@
   var post = bridge ? bridge.postMessage.bind(bridge) : null;
   var own = Function.call.bind(Object.prototype.hasOwnProperty);
   var create = Object.create.bind(Object);
+  // These helpers receive private GM values after page code has started running.
+  var defineProperty = Object.defineProperty.bind(Object), keys = Object.keys.bind(Object);
+  var isArray = Array.isArray.bind(Array), push = Function.call.bind(Array.prototype.push);
+  var resolve = Promise.resolve.bind(Promise);
   var values = decode(config.values), pending = new Map(), serial = 0, revisions = Object.create(null);
   var warn = console.warn.bind(console), log = console.log.bind(console);
   var send = function (operation, key, value) {
@@ -97,13 +101,13 @@
   // request object itself is built without a prototype.
   function bare(value) {
     if (value === null || typeof value !== 'object') return value;
-    if (Array.isArray(value)) {
+    if (isArray(value)) {
       var list = [];
-      for (var i = 0; i < value.length; i++) list.push(bare(value[i]));
+      for (var i = 0; i < value.length; i++) push(list, bare(value[i]));
       // An array cannot lose its prototype and stay an array, so it gets an own, non-enumerable
       // `toJSON` instead: `JSON.stringify` only calls the property when it is a function, and an
       // own one shadows whatever the page put on Array.prototype or Object.prototype.
-      Object.defineProperty(list, 'toJSON', { value: undefined });
+      defineProperty(list, 'toJSON', { value: undefined });
       return list;
     }
     var copy = create(null);
@@ -122,17 +126,24 @@
     key = String(key);
     return own(values, key) ? expose(values[key]) : fallback;
   }
+  function resolveData(value) {
+    // Promise resolution reads `then`; a page-installed prototype getter must not see GM data.
+    if (value !== null && typeof value === 'object' && !own(value, 'then')) {
+      defineProperty(value, 'then', { value: undefined, writable: true, configurable: true });
+    }
+    return resolve(value);
+  }
   function setValue(key, value) {
     key = String(key);
     if (key.length > 256 || value === undefined) return Promise.reject(new Error('Invalid GM value'));
     value = stored(value);
     var previous = own(values, key) ? stored(values[key]) : undefined;
     var revision = revisions[key] = (revisions[key] || 0) + 1;
-    Object.defineProperty(values, key, { value: value, writable: true, enumerable: true, configurable: true });
+    defineProperty(values, key, { value: value, writable: true, enumerable: true, configurable: true });
     return send('set', key, value).catch(function (error) {
       if (revisions[key] === revision) {
         if (previous === undefined) delete values[key];
-        else Object.defineProperty(values, key, { value: previous, writable: true, enumerable: true, configurable: true });
+        else defineProperty(values, key, { value: previous, writable: true, enumerable: true, configurable: true });
       }
       throw error;
     });
@@ -144,7 +155,7 @@
     delete values[key];
     return send('delete', key, null).catch(function (error) {
       if (revisions[key] === revision && previous !== undefined) {
-        Object.defineProperty(values, key, { value: previous, writable: true, enumerable: true, configurable: true });
+        defineProperty(values, key, { value: previous, writable: true, enumerable: true, configurable: true });
       }
       throw error;
     });
@@ -177,8 +188,14 @@
     scriptMetaStr: config.meta };
   var api = { GM_info: info, GM: { info: info } };
   if (config.grants.indexOf('unsafeWindow') >= 0) api.unsafeWindow = window;
-  if (allowed('GM_getValue')) { api.GM_getValue = getValue; api.GM.getValue = function (k, d) { return Promise.resolve(getValue(k, d)); }; }
-  if (allowed('GM_listValues')) { api.GM_listValues = function () { return Object.keys(values); }; api.GM.listValues = function () { return Promise.resolve(Object.keys(values)); }; }
+  if (allowed('GM_getValue')) {
+    api.GM_getValue = getValue;
+    api.GM.getValue = function (k, d) {
+      k = String(k);
+      return own(values, k) ? resolveData(expose(values[k])) : resolve(d);
+    };
+  }
+  if (allowed('GM_listValues')) { api.GM_listValues = function () { return keys(values); }; api.GM.listValues = function () { return resolveData(keys(values)); }; }
   if (allowed('GM_setValue')) { api.GM_setValue = function (k, v) { setValue(k, v).catch(warn); }; api.GM.setValue = setValue; }
   if (allowed('GM_deleteValue')) { api.GM_deleteValue = function (k) { deleteValue(k).catch(warn); }; api.GM.deleteValue = deleteValue; }
   if (allowed('GM_addStyle')) { api.GM_addStyle = addStyle; api.GM.addStyle = addStyle; }

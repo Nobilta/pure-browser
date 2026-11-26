@@ -469,20 +469,21 @@
     return element || document.body || document.documentElement;
   }
 
-  function refreshCompareSubtree(target) {
-    if (!target) return;
+  function compareRefreshRoot(target) {
+    if (!target) return null;
     var rootNode = nearestGroupRoot(target);
-    if (!rootNode) return;
+    if (!rootNode) return null;
+    state.compareBlocks.forEach(function (entry) {
+      if (entry.root && entry.root.isConnected && entry.root.contains(rootNode)) rootNode = entry.root;
+    });
+    return rootNode;
+  }
+
+  function refreshCompareSubtree(rootNode) {
     state.compareApplying = true;
     try {
       // Reconcile the whole affected region once. Structural changes can merge an old
       // inline group into its parent, or split one parent group into several children.
-      state.compareBlocks.forEach(function (entry) {
-        if (entry.root && entry.root.isConnected &&
-            entry.root.contains(rootNode)) {
-          rootNode = entry.root;
-        }
-      });
       var pageRoot = document.body || document.documentElement;
       refreshCompareRoot(rootNode, pageRoot);
       cleanupRemovedGroups();
@@ -510,10 +511,17 @@
     if ('MutationObserver' in window) {
       state.compareMutationObserver = new MutationObserver(function (mutations) {
         if (state.compareRestoring || state.compareApplying) return;
+        var roots = [];
+        function affected(target) {
+          var root = compareRefreshRoot(target);
+          if (!root || roots.some(function (other) { return other.contains(root); })) return;
+          roots = roots.filter(function (other) { return !root.contains(other); });
+          roots.push(root);
+        }
         mutations.forEach(function (mutation) {
           if (isTranslationNode(mutation.target)) return;
           if (mutation.type === 'characterData' || mutation.type === 'attributes') {
-            refreshCompareSubtree(mutation.target);
+            affected(mutation.target);
             return;
           }
           var changed = Array.prototype.some.call(mutation.addedNodes, function (node) {
@@ -522,9 +530,10 @@
             return !isTranslationNode(node);
           });
           if (changed) {
-            refreshCompareSubtree(mutation.target);
+            affected(mutation.target);
           }
         });
+        roots.forEach(refreshCompareSubtree);
       });
     }
   }

@@ -22,6 +22,148 @@ import java.net.InetSocketAddress
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class DownloadHandlerTest {
+    @Test fun initialAuthorizationFailureCannotOfferOrStartLinkReplacement() = runBlocking {
+        val context = connectedContext()
+        val replacementRequests = java.util.concurrent.atomic.AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/old") { it.sendResponseHeaders(403, -1); it.close() }
+            createContext("/new") {
+                replacementRequests.incrementAndGet()
+                it.sendResponseHeaders(200, -1)
+                it.close()
+            }
+            start()
+        }
+        val handler = DownloadHandler(context)
+        try {
+            val oldUrl = "http://127.0.0.1:${server.address.port}/old"
+            val id = requireNotNull(handler.enqueue(oldUrl, null, null, null))
+            val failed = withTimeout(5000) { handler.downloads.first { it.single().status == DownloadStatus.FAILED } }.single()
+            assertEquals(DownloadFailure.AUTHORIZATION, failed.failure)
+            assertEquals(0L, failed.bytesDownloaded)
+            assertFalse(handler.canUpdateLink(id))
+            assertFalse(handler.updateLink(id, oldUrl.replace("/old", "/new")) { error("No checkpoint must not query cookies") })
+            assertEquals(0, replacementRequests.get())
+            assertEquals(failed, handler.downloads.value.single())
+        } finally { handler.closeAndAwait(); server.stop(0) }
+    }
+
+    @Test fun acceptedPrivateReplacementKeepsItsOwnCookieAndFinishesAfterSessionExit() = runBlocking {
+        val context = connectedContext()
+        val body = ByteArray(256 * 1024) { (it % 251).toByte() }
+        val checking = java.util.concurrent.CountDownLatch(1)
+        val proceed = java.util.concurrent.CountDownLatch(1)
+        val cookies = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val referers = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/old") { it.sendResponseHeaders(403, -1); it.close() }
+            createContext("/new") { exchange ->
+                cookies += exchange.requestHeaders.getFirst("Cookie").orEmpty()
+                referers += exchange.requestHeaders.getFirst("Referer").orEmpty()
+                checking.countDown()
+                proceed.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                val (first, last) = exchange.requestHeaders.getFirst("Range").removePrefix("bytes=").split('-').map(String::toInt)
+                exchange.responseHeaders.add("ETag", "\"stable\"")
+                exchange.responseHeaders.add("Content-Range", "bytes $first-$last/${body.size}")
+                exchange.sendResponseHeaders(206, (last - first + 1).toLong())
+                runCatching { exchange.responseBody.use { it.write(body, first, last - first + 1) } }
+                exchange.close()
+            }
+            start()
+        }
+        val oldUrl = "http://127.0.0.1:${server.address.port}/old"
+        val newUrl = oldUrl.replace("/old", "/new")
+        CookieManager.getInstance().setCookie(newUrl, "normal=secret")
+        val handler = DownloadHandler(context)
+        try {
+            val id = requireNotNull(handler.enqueue(oldUrl, null, null, null, isPrivate = true,
+                referer = "https://private.example/account?token=secret"))
+            withTimeout(5000) { handler.downloads.first { it.single().status == DownloadStatus.FAILED } }
+            val directory = File(context.noBackupFilesDir, "browser-downloads/$id").apply { mkdirs() }
+            File(directory, "part-0").writeBytes(body.copyOfRange(0, 1234))
+            DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 1).save(directory)
+            assertFalse(handler.updateLink(id, "file:///tmp/file") { error("Invalid URL must not query cookies") })
+            assertTrue(handler.updateLink(id, " $newUrl ") { target ->
+                assertEquals(newUrl, target)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { "private=new-session-cookie" }
+            })
+            assertTrue(checking.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            handler.endPrivateScope()
+            proceed.countDown()
+            val completed = withTimeout(5000) { handler.downloads.first { it.single().status == DownloadStatus.COMPLETED } }.single()
+            assertEquals(id, completed.id)
+            assertFalse(completed.canResume)
+            assertFalse(handler.canUpdateLink(id))
+            assertTrue(cookies.isNotEmpty())
+            assertTrue(cookies.all { it == "private=new-session-cookie" })
+            assertTrue(referers.all { it.isEmpty() })
+            val persisted = context.getSharedPreferences("downloads", Context.MODE_PRIVATE).getString("entries", "")!!
+            assertFalse(persisted.contains(newUrl))
+            assertFalse(persisted.contains("new-session-cookie"))
+            assertFalse(handler.updateLink(id, newUrl) { error("Expired session must not query cookies") })
+        } finally {
+            proceed.countDown()
+            handler.closeAndAwait()
+            server.stop(0)
+            CookieManager.getInstance().removeAllCookies(null)
+        }
+    }
+
+    @Test fun replacementPreservesTheTaskAndOnlyCommitsAnAddressAfterVerification() = runBlocking {
+        val context = connectedContext()
+        val body = ByteArray(256 * 1024) { (it % 251).toByte() }
+        val requests = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, String?>>()
+        val referers = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/") { exchange ->
+                referers += exchange.requestHeaders.getFirst("Referer").orEmpty()
+                val range = requireNotNull(exchange.requestHeaders.getFirst("Range"))
+                requests += exchange.requestURI.path to range
+                val (first, last) = range.removePrefix("bytes=").split('-').map(String::toInt)
+                val bytes = body.copyOfRange(first, last + 1)
+                if (exchange.requestURI.path == "/wrong" && bytes.size > 1) bytes[bytes.lastIndex] = (bytes.last() + 1).toByte()
+                exchange.responseHeaders.add("ETag", "\"stable\"")
+                exchange.responseHeaders.add("Content-Range", "bytes $first-$last/${body.size}")
+                exchange.sendResponseHeaders(206, bytes.size.toLong())
+                runCatching { exchange.responseBody.use { it.write(bytes) } }
+                exchange.close()
+            }
+            start()
+        }
+        val id = -123456L
+        val oldUrl = "http://expired.example/file"
+        val newUrl = "http://127.0.0.1:${server.address.port}/file"
+        val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
+        prefs.edit().putString("entries", JSONArray().put(identityRecord(id, oldUrl, "kept.bin", "FAILED", "normal")
+            .put("bytesDownloaded", 1234).put("totalBytes", body.size)
+            .put("referer", "http://private.example/account?token=secret")).toString()).commit()
+        val directory = File(context.noBackupFilesDir, "browser-downloads/$id").apply { mkdirs() }
+        val saved = body.copyOfRange(0, 1234)
+        File(directory, "part-0").writeBytes(saved)
+        DownloadCheckpoint(DownloadCheckpoint.digest(oldUrl), body.size.toLong(), "\"stable\"", 1).save(directory)
+        val handler = DownloadHandler(context)
+        try {
+            assertTrue(handler.canUpdateLink(id))
+            assertFalse(handler.updateLink(id, "file:///tmp/file") { error("Invalid URL must not query cookies") })
+            assertTrue(handler.updateLink(id, newUrl.replace("/file", "/wrong")) { error("Normal task must not query private cookies") })
+            val failed = withTimeout(5000) { handler.downloads.first { it.single().status == DownloadStatus.FAILED } }.single()
+            assertEquals(DownloadFailure.CANNOT_RESUME, failed.failure)
+            assertEquals(oldUrl, failed.url)
+            assertArrayEquals(saved, File(directory, "part-0").readBytes())
+            assertNotNull(DownloadCheckpoint.read(directory, oldUrl))
+            assertTrue(handler.updateLink(id, newUrl) { error("Normal task must not query private cookies") })
+            val completed = withTimeout(5000) { handler.downloads.first { it.single().status == DownloadStatus.COMPLETED } }.single()
+            assertEquals(id, completed.id)
+            assertEquals("kept.bin", completed.filename)
+            assertEquals(newUrl, completed.url)
+            assertEquals(body.size.toLong(), completed.bytesDownloaded)
+            assertTrue(requests.contains("/file" to "bytes=1234-${body.lastIndex}"))
+            assertTrue(referers.isNotEmpty())
+            assertTrue(referers.all { it == "http://private.example/" })
+            assertFalse(handler.canUpdateLink(id))
+        } finally { handler.closeAndAwait(); server.stop(0); directory.deleteRecursively() }
+    }
+
     @Test fun allRetryStatesResolveARevokedDirectoryToTheCurrentDefault() {
         val context = RuntimeEnvironment.getApplication()
         val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)

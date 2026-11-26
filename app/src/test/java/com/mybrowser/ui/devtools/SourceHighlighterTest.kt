@@ -1,6 +1,9 @@
 package com.mybrowser.ui.devtools
 
 import android.app.Application
+import com.mybrowser.text.textPreview
+import com.mybrowser.text.TextFormat
+import com.mybrowser.text.escapeText
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,6 +15,19 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class SourceHighlighterTest {
+    @Test fun xmlIsHighlightedWithoutChangingOrExecutingTheSource() {
+        val original = "\n<?xml version=\"1.0\"?><root a=\"中文\"><script>alert(1)</script>&amp;</root>"
+        val html = textPreview(original, TextFormat.XML).html
+        assertTrue(html.contains("class=\"t0\""))
+        assertFalse(html.contains("<script>"))
+        val source = html.removePrefix("<pre>\n").removeSuffix("</pre>")
+            .replace(Regex("</?span[^>]*>"), "")
+        assertEquals(escapeText(original), source)
+        val large = "<item/>\n".repeat(150_000) + "END"
+        assertTrue(textPreview(large, TextFormat.XML).html.endsWith("END</pre>"))
+    }
+
+
     @Test fun nativeTokensUseUtf16OffsetsAndKeepTheOriginalText() {
         val source = "😀<p title='广告😀'>text</p><script>const x=23;/*note*/</script><style>.x{color:#fff}</style>"
         val document = SourceHighlighter.parse(source)

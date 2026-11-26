@@ -10,7 +10,7 @@ import java.io.IOException
 
 /** What the activity needs after reading a local text file. */
 internal sealed interface TextContent {
-    data class Ready(val title: String, val body: String) : TextContent
+    data class Ready(val title: String, val body: String, val format: TextFormat) : TextContent
     data class Failed(val message: Int) : TextContent
 }
 
@@ -22,11 +22,11 @@ internal object PlainTextLoader {
     /** A page of text has no useful upper bound, but a phone must not layout a whole disk image. */
     const val MAX_BYTES = 5 * 1024 * 1024
 
-    fun load(context: Context, uri: Uri): TextContent {
+    fun load(context: Context, uri: Uri, type: String? = null): TextContent {
         if (uri.scheme != "content") {
             return TextContent.Failed(R.string.plain_text_open_failed)
         }
-        val title = displayName(context, uri)
+        val name = displayName(context, uri)
         val bytes = try {
             read(context, uri, MAX_BYTES + 1)
         } catch (error: Exception) {
@@ -37,7 +37,9 @@ internal object PlainTextLoader {
         if (TextDecoder.looksBinary(bytes)) {
             return TextContent.Failed(R.string.plain_text_not_text)
         }
-        return TextContent.Ready(title, TextDecoder.decode(bytes))
+        val format = TextFormat.detect(type ?: context.contentResolver.getType(uri), name)
+        return TextContent.Ready(name.take(120).ifBlank { "Text" },
+            TextDecoder.decode(bytes, html = format == TextFormat.HTML), format)
     }
 
     private fun read(context: Context, uri: Uri, limit: Int): ByteArray =
@@ -59,6 +61,6 @@ internal object PlainTextLoader {
         } catch (_: Exception) {
             null
         } ?: uri.lastPathSegment
-        return (name ?: "Text").substringAfterLast('/').take(120).ifBlank { "Text" }
+        return (name ?: "Text").substringAfterLast('/')
     }
 }

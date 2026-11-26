@@ -103,14 +103,22 @@ ANDROID_SERIAL=emulator-5554 bash scripts/diagnose-device.sh
 
 ## 无窗口模拟器
 
-1. 先运行 `adb devices` 和 `emulator -list-avds`，确认使用专用测试设备；同一设备一次只运行一套 UI 脚本。
+1. 先运行 `adb devices` 和 `emulator -list-avds`，优先复用配置匹配且未被其他任务占用的专用测试设备；同一设备一次只运行一套 UI 脚本。
 2. 镜像选择 `google_apis`，完整测试需可 `adb root`，不要使用 Play Store 镜像。总控接受 API 30+，三语专项需 API 33+；最低支持版本/API 分支另按场景补测。
-3. 使用当前项目目标 API 的辅助脚本创建新 AVD。`create` 不覆盖同名 AVD；已有设备直接使用 `start`。
+3. 日常验证默认复用一个专用 AVD，不按任务或日期重复创建。只有没有合适设备、需要不同 API／ABI 或并行隔离测试时才新建临时 AVD；记录本次创建的设备和启动的进程，结束后关闭并删除临时设备。`create` 不覆盖同名 AVD。
+
+启动已有设备，示例名称替换为实际可复用的 AVD：
+
+```bash
+python3 validation/tools/manage-avd.py start PureBrowser_QA --serial emulator-5554
+```
+
+确需新建临时设备时：
 
 ```bash
 python3 validation/tools/manage-avd.py image
-python3 validation/tools/manage-avd.py create PureBrowser_QA
-python3 validation/tools/manage-avd.py start PureBrowser_QA --serial emulator-5554
+python3 validation/tools/manage-avd.py create PureBrowser_QA_Temp
+python3 validation/tools/manage-avd.py start PureBrowser_QA_Temp --serial emulator-5554
 # Windows 把 python3 换成 python；可通过 create/image 的 --api 明确选择其他版本。
 ```
 
@@ -133,11 +141,22 @@ adb -s emulator-5554 shell dumpsys webviewupdate
 python3 validation/tools/setup-ui-probe.py emulator-5554
 ```
 
-测试结束、失败或中断都要执行：
+测试结束、失败或中断后，关闭本次启动且已无人使用的模拟器，释放内存：
 
 ```bash
 adb -s emulator-5554 emu kill
 ```
 
+如果它是本次新建的临时 AVD，确认进程退出后还必须删除设备及其磁盘数据，释放硬盘空间：
+
+```bash
+avdmanager delete avd --name PureBrowser_QA_Temp
+```
+
 QA 服务在所属终端用 Ctrl+C 停止；后台启动的服务按记录的 PID 停止。最后检查 `adb devices` 和任务服务进程。
-不要留下无窗口模拟器、使用宽泛的 kill 命令、或为一次调试修改全局 shell 配置。
+同时检查 `emulator -list-avds`，确认临时 AVD 已删除。不要关闭或删除其他任务正在使用的设备，不要留下无窗口模拟器、
+使用宽泛的 kill 命令、或为一次调试修改全局 shell 配置。
+
+长期复用的专用 AVD 保留配置，测试结束清除测试应用、文件和辅助进程。旧数据积累导致磁盘镜像膨胀时，
+确认其中只有可丢弃的测试数据，再在停机状态下使用 `-wipe-data` 启动重置；它会删除设备内全部应用和设置。
+AVD 数据与 SDK 系统镜像分别占用空间，删除 AVD 不会删除共享系统镜像。

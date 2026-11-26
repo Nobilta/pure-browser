@@ -22,6 +22,7 @@
 
 低影响可逆修改不强制新增镜像实现的单测。检查通过后，只有新改动、失败或未解决疑点才扩大或重复验证。
 同一工作区 Gradle 串行执行，同一模拟器 UI 脚本串行执行。
+`motion-interruption-regression.py` 与 `gesture-dismiss-regression.py` 支持 `--package com.mybrowser.debug` 单独验证测试包；前者还检查独立面板各关闭入口保留退出动画及关闭系统动画的情况。
 AndroidX FileProvider 使用 Unix 路径匹配规则；依赖真实 URI 往返的 Robolectric 用例在 Windows 跳过，
 由 Linux、macOS 和 Android 设备验证。下载失败与缓存清理等不依赖该路径的用例仍在 Windows 运行。
 
@@ -61,7 +62,7 @@ quick 包含三语资源、发布工具、Node、Rust fmt/test 和 JVM；release
 
 ## 设备回归流程
 
-使用[构建指南](building.md#无窗口模拟器)启动的专用、无窗口、无音频 AVD；脚本会写入测试书签、下载和设置。
+按[构建指南](building.md#无窗口模拟器)优先复用已有的专用、无窗口、无音频 AVD；确需新建的临时设备在测试结束、失败或中断后关闭并删除。脚本会写入测试书签、下载和设置。
 总控需要包名 `com.mybrowser` 的签名 Release，x86_64 宿主需构建对应 ABI 的测试包，不能直接装 ARM64 交付包。
 下面的 `test_apk` 填写本次实际构建路径，不从旧记录猜文件名。
 
@@ -105,16 +106,55 @@ QA 默认使用 8875/8876，部分夹具使用其他本地端口，按脚本配�
 | UI 与导航 | `compact-ui`、`site`、`settings-back`、`motion-gesture`、`motion-interruption` | 操作可达、表单不误关、返回正确、动画中断后不残留遮挡 |
 | 阅读与分享 | `reader-sharing`、`reader-popup`、`image-search` | 字体/配色、文章末尾、后台文档同步、当前会话 Cookie |
 | 下载 | `download-management`、`ftp-hls`、`blob-download`、`download-opening` | 实际保存字节/摘要、确认/目录/多选、取消与恢复 |
+| 下载换链 | [download-link-regression.py](../validation/regressions/download-link-regression.py) `--serial emulator-5554 --package com.mybrowser.debug --output validation/results/download-link` | 失效提示、首次 403 无断点时不提供换链、错误内容/不支持 Range 保留断点、校验中暂停、换链后续传遇到 429 保留断点与服务器错误、原任务续传的完整文件摘要及弹窗布局；脚本自带本地服务 |
 | 媒体 | `media-lockscreen`、`media-lifecycle`、`system-media`、`video-*` | 同一媒体元素、进度、暂停次数、全屏/PiP 和服务归属 |
 | 无痕/标签 | `private-lifecycle`、`resident`、`profiles`（支持的 API） | 环境与生命周期，按下方契约逐项核对 |
-| 开发工具 | `developer-tools` | 控制台、网络详情、DOM/源码与存储的实际内容 |
+| 开发工具 | `developer-tools` | 控制台、网络详情、DOM/源码与存储的实际内容；复制与切页阅读位置、横屏键盘、320dp／200% 深色布局 |
+| 本地文件预览 | [local-text-preview-regression.py](../validation/regressions/local-text-preview-regression.py) `--serial emulator-5554` | Markdown、JSON、XML、CSV／TSV（含密集表格回退）与配置文件高亮及原文，HTML 原文返回保留状态；查找计数、前后跳转、显示切换后重查；复制、深色及 320dp / 200% 字号 |
 | 设置/规则 | `desktop-mode`、`site-storage`、`features-filters`、`features-imports` | 站点偏好与恢复、导入持久化、真实规则隐藏及失败保留 |
-| 更新与安装 | `update-launch`；[update-sources-regression.py](../validation/regressions/update-sources-regression.py) | 启动提示归属；真实下载/覆盖安装另行验证 |
+| 更新与安装 | `update-launch`；[update-sources-regression.py](../validation/regressions/update-sources-regression.py) | 启动提示归属（需已发布版本高于被测安装包）；真实下载/覆盖安装另行验证 |
 | 来源与网络边界 | [media-fallback-regression.py](../validation/regressions/media-fallback-regression.py)、[media-network-regression.py](../validation/regressions/media-network-regression.py)、[cast-referrer-regression.py](../validation/regressions/cast-referrer-regression.py)、[cast-media-failure-regression.py](../validation/regressions/cast-media-failure-regression.py) | 重定向、认证、一次性响应、Cookie/Referer、不完整响应与播放失败反馈 |
 | 投屏、摄像头 | [cast-play-regression.py](../validation/regressions/cast-play-regression.py)、[realtime-camera-regression.py](../validation/regressions/realtime-camera-regression.py)、[capture-regression.py](../validation/regressions/capture-regression.py) | 入口和选择器之外，还需真实接收器、预览/方向、上传结果 |
 | 书签 | [bookmark-drag-regression.py](../validation/regressions/bookmark-drag-regression.py) | 多选、分页边缘排序、取消和持久化 |
+| 历史与设置搜索 | [capabilities-regression.py](../validation/regressions/capabilities-regression.py) `--serial emulator-5554 --package com.mybrowser.debug --section history` | 长按多选、全选当前结果、取消与确认删除、返回退出选择及搜索切换；设置搜索无结果反馈；需 QA 服务 |
+| 后台页面异步归属 | [async-page-ownership-regression.py](../validation/regressions/async-page-ownership-regression.py) `--serial emulator-5554 --package com.mybrowser.debug` | 普通／无痕后台 opener GM 写入与隔离；迟到 Blob 不进入新标签确认，返回来源后正常保存并校验字节；脚本自带服务 |
 | 元素隐藏闪烁 | [cosmetic-flash-regression.py](../validation/regressions/cosmetic-flash-regression.py) | 逐帧检查首次加载和动态节点，脚本自带本地服务 |
 | 翻译 | [translation-regression.py](../validation/regressions/translation-regression.py) | 真实 WebView 对接本地翻译服务；依赖 Debug 包的 `run-as`，不进入 Release 总控 |
+
+Android 平台契约检查复用现有 instrumentation 入口，覆盖书签分页、下载快照、DLNA 描述解析、JNI 规则解释和真实 WebView 的 GM 数据边界：
+
+```bash
+./gradlew :app:assembleDebugAndroidTest --console=plain
+adb -s emulator-5554 install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s emulator-5554 shell am instrument -w -e suite platform-contracts com.mybrowser.debug.test/com.mybrowser.validation.NativeFilterInstrumentation
+```
+
+需先安装同次构建的 Debug 应用；运行时停止其他设备 UI 回归。结束后卸载测试 instrumentation。
+书签导出重建可单独运行 `capabilities-regression.py --serial emulator-5554 --package com.mybrowser.debug --section bookmarks`，需 QA 服务。
+
+更新清单不再缓存，`update-launch` 通过真实更新源触发提示，不再写入伪造清单。没有高于被测包的已发布版本时，
+该阶段会明确报告前置条件不足；不能把未触发提示记为生命周期通过。请求次数与换源顺序由 `UpdateRepositoryTransferTest` 验证。
+本地 HTML 与 Console/DOM/Web Storage 编辑闭环可运行：
+
+```bash
+python3 validation/regressions/local-html-devtools-regression.py --serial emulator-5554 --package com.mybrowser.debug
+```
+
+`developer-tools-regression.py --serial emulator-5554 --layout-only` 可单独检查 320dp／200% 深色布局和横屏工具栏滚动，需先启动 QA 服务。
+
+Debug 包可加 `--debug-webview` 读取网页正文，避免 WebView 无障碍树暂缺时把已渲染内容误判为丢失；界面操作仍由 UI 探针执行。
+`local-html-devtools-regression.py --boundaries-only` 定向检查页面篡改 DOM 响应后的失败与恢复、存储键名预算及编辑／移除、查找栏语义和本地元素拦截入口；不要求运行整套文件与开发工具操作。
+
+本地 HTML 目录资源运行 `local-html-resources-regression.py --serial emulator-5554 --package com.mybrowser.debug --output validation/results/html-resources`，
+验证真实目录授权、取消、选择期间重建、CSS／JS／图片、子目录与编码路径、越界请求、本地资源下载／图片分享拒绝且不创建联网任务、无标题文件与长按菜单隐藏内部地址、远程图片分享／下载请求不携带本地来源、外部 HTML 关闭旧独立面板、重启复用及窄屏／横屏 200% 字号；Debug 包可加 `--debug-webview` 读取渲染正文；`LocalHtmlResourcesTest` 用阻塞提供器验证初次打开／授权保存期间 Activity 重建、连续打开结果保留、无痕退出丢弃结果、慢查询不阻塞下载清理，以及清理保留资源授权。
+
+本地资源隔离可单独运行 `local-html-isolation-regression.py --serial emulator-5554 --package com.mybrowser.debug --output validation/results/html-isolation`：使用已知虚拟地址验证远程顶层页、弹出页、后台打开者及远程 iframe 不能加载本地脚本／图片，同时验证后退、本地子标签与无标题文件的标签名。脚本自带 HTTPS 测试服务，在界面中允许该测试证书，不修改应用信任配置。
+
+使用专用模拟器与 UI 探针，脚本通过 Documents URI 授权本地 GB18030 夹具，并在结束时删除夹具。
+本地文件预览脚本同样支持 `--package com.mybrowser.debug`；未指定包名时两者均使用正式版包名。
+本地 HTML 字节与会话元数据检查在 `LocalHtmlDocumentTest`；DOM 编辑／拾取由 `validation/node/devtools-dom.test.cjs`
+与 `element-picker.test.cjs` 覆盖，旧文档写入的主线程边界由 `DevToolsMutationTest` 覆盖。构建后仍需设备检查 HTML 的
+实际渲染、文件授权、同文件新标签打开与原文返回、标签切换与无痕，以及拾取直接进入详情、标题返回和系统返回回到原列表、刷新 DOM 后搜索重新定位、切换页签保留树与源码位置、日志级别不隐藏命令结果、存储编辑留在详情／删除返回列表，以及窄屏／大字号／键盘布局。DOM 和源码加载／分页被切页取消后仍能继续读取，由 `DomTreeStateTest` 验证。
 
 单独入口先读 `--help` 与文件头的夹具要求；不要假定它接受总控的所有参数。网络夹具的本地账号只用于测试。
 TLS 夹具按 qa-server 要求在 `validation/results/` 创建临时自签名证书，不修改应用信任配置。
@@ -141,6 +181,8 @@ TLS 夹具按 qa-server 要求在 `validation/results/` 创建临时自签名证
 
 UI 按 [design-system](design-system.md) 检查浅/深色、中英繁、320/360dp、100%/200% 字体及低高度横屏。
 根据改动覆盖长标题、错误文案、IME、换行操作、触控热区与唯一可访问目标。实际 TalkBack 试听不能由 XML 语义树替代。
+本地文本回归在 Debug 包可加 `--debug-webview`，通过调试协议读取渲染后的正文，避开服务反复连接时 WebView 无障碍节点缺失造成的误报；按钮仍走系统 UI，截图仍保留。该模式不代替独立的 TalkBack 检查。
+面板退出分别检查标题按钮、遮罩、系统返回、下拉与取消手势，覆盖独立面板及其选择器；入场中返回不能残留遮罩。多选时返回只退出选择，遮罩/下拉关闭面板。普通弹窗检查文字按钮自动换行和键盘展开后正文及操作可达；操作反馈核对实际结果、前后台切换和文件选择器返回。
 阅读末尾需滚到最终表格/内容行，并在地址栏收起后重新读取工具条位置。
 
 媒体后台播放开启时，全屏锁屏期间进度继续且 pauseCount 不增；解锁保持同一元素/来源和增强全屏。
@@ -160,6 +202,9 @@ UI 按 [design-system](design-system.md) 检查浅/深色、中英繁、320/360d
 
 ```bash
 python3 validation/benchmarks/benchmark-startup.py --serial emulator-5554 --output validation/results/startup.json
+python3 validation/benchmarks/benchmark-tabs.py --serial emulator-5554 --package com.mybrowser.debug --tabs 10 --output validation/results/tabs.json
 cargo run --locked --release --manifest-path rust/Cargo.toml -p adblock --example benchmark -- 10
 python3 validation/benchmarks/cosmetic-benchmark.py
 ```
+
+标签基准使用 QA 服务与默认主页启动偏好，测量切换后两帧可见回报和 1／5／10 标签的应用、渲染进程 PSS，核对文档没有重载。回报延迟包含 ADB 与本地遥测，不作为真机帧率；性能比较使用同一设备、相同测试包类型和负载。
